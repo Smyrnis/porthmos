@@ -144,6 +144,11 @@ pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
             is_dir: metadata.is_dir(),
             size: metadata.len(),
             permissions: Some(metadata.permissions().mode()),
+            modified: metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|elapsed| elapsed.as_secs()),
         });
     }
 

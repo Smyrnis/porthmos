@@ -291,3 +291,29 @@ fn hint_bar_does_not_waste_a_gap_before_the_right_pair_when_nothing_is_pinned() 
     assert!(row.starts_with("F5 copy"), "{row:?}");
     assert!(row.ends_with("Esc back"), "{row:?}");
 }
+
+#[test]
+fn vertical_rule_draws_light_vertical_lines_down_the_first_column() {
+    let theme = indexed_theme();
+
+    let terminal = draw(5, 4, |frame, _| vertical_rule(frame, Rect::new(2, 1, 1, 3), &theme));
+
+    for y in 1..4 {
+        assert_eq!(terminal.backend().buffer()[(2, y)].symbol(), "\u{2502}");
+        assert_eq!(cell_fg(&terminal, 2, y), theme.line);
+    }
+    assert_eq!(terminal.backend().buffer()[(2, 0)].symbol(), " ");
+    assert_eq!(terminal.backend().buffer()[(3, 2)].symbol(), " ");
+}
+
+#[test]
+fn vertical_rule_in_an_empty_area_draws_nothing() {
+    let theme = indexed_theme();
+
+    let terminal = draw(5, 4, |frame, _| {
+        vertical_rule(frame, Rect::new(2, 1, 0, 3), &theme);
+        vertical_rule(frame, Rect::new(2, 1, 1, 0), &theme);
+    });
+
+    assert_eq!(row_text(&terminal, 2).trim(), "");
+}

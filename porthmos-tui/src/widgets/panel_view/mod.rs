@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
 use porthmos_core::{
     Entry,
@@ -11,15 +12,19 @@ use porthmos_core::{
 use ratatui::{
     Frame,
     layout::Rect,
-    text::Line,
-    widgets::{Block, Borders},
+    text::{Line, Span},
+    widgets::Paragraph,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     theme::Theme,
     widgets::{
         file_list,
         filter_line::{self, FilterLine},
+        frame::{accent_underline, hairline},
+        history_view::printable,
+        text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
     },
 };
 
@@ -215,40 +220,144 @@ impl PanelView {
     }
 }
 
-pub fn render_panel(frame: &mut Frame, area: Rect, title: &str, is_active: bool, panel: &PanelView, theme: &Theme) {
-    let border_style = if is_active { theme.accent_text() } else { theme.dim() };
+pub struct PanelContext<'a> {
+    pub protocol: &'a str,
+    pub location: String,
+    pub active: bool,
+    pub show_modified: bool,
+    pub switch_hint: Option<String>,
+    pub now: &'a DateTime<Local>,
+}
 
-    let mut block = Block::default()
-        .title(format!("{title} {} [{}]", panel.path().display(), sort_indicator(panel.sort_spec())))
-        .borders(Borders::ALL)
-        .border_style(border_style);
-    if let Some(status) = panel.filter_status(area.width.saturating_sub(2) as usize) {
-        block = block.title_bottom(Line::from(status));
+const HEADER_GAP: usize = 2;
+const MIN_LOCATION_WIDTH: usize = 8;
+const FOOTER_GAP: usize = 3;
+
+pub fn render_panel(frame: &mut Frame, area: Rect, panel: &PanelView, context: &PanelContext<'_>, theme: &Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
     }
+    render_header(frame, area, Some(sort_indicator(panel.sort_spec())), context, theme);
+    render_rule(frame, area, context.active, theme);
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    file_list::render_file_list(frame, inner, panel, is_active, theme);
+    let has_footer = area.height >= 4;
+    let list_height = area.height.saturating_sub(2 + u16::from(has_footer));
+    if list_height > 0 {
+        let list_area = Rect::new(area.x, area.y + 2, area.width, list_height);
+        let list_context =
+            file_list::ListContext { active: context.active, show_modified: context.show_modified, now: context.now };
+        file_list::render_file_list(frame, list_area, panel, &list_context, theme);
+    }
+    if has_footer {
+        render_footer(frame, Rect::new(area.x, area.bottom() - 1, area.width, 1), panel, theme);
+    }
+}
+
+pub fn render_placeholder(frame: &mut Frame, area: Rect, lines: &[String], context: &PanelContext<'_>, theme: &Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    render_header(frame, area, None, context, theme);
+    render_rule(frame, area, context.active, theme);
+
+    let body_height = area.height.saturating_sub(2);
+    let shown = lines.len().min(usize::from(body_height));
+    let first_row = area.y + 2 + (body_height - shown as u16) / 2;
+    for (index, line) in lines.iter().take(shown).enumerate() {
+        let text = truncate_with_ellipsis(&printable(line), usize::from(area.width));
+        let width = text.width() as u16;
+        let x = area.x + (area.width - width) / 2;
+        frame.render_widget(
+            Paragraph::new(Span::styled(text, theme.dim())),
+            Rect::new(x, first_row + index as u16, width, 1),
+        );
+    }
+}
+
+fn render_rule(frame: &mut Frame, area: Rect, active: bool, theme: &Theme) {
+    if area.height < 2 {
+        return;
+    }
+    let rule = Rect::new(area.x, area.y + 1, area.width, 1);
+    hairline(frame, rule, theme);
+    if active {
+        accent_underline(frame, rule, 0..area.width, theme);
+    }
+}
+
+fn render_header(frame: &mut Frame, area: Rect, sort: Option<String>, context: &PanelContext<'_>, theme: &Theme) {
+    let width = usize::from(area.width);
+    let protocol = printable(context.switch_hint.as_deref().unwrap_or(context.protocol));
+    let protocol_width = protocol.width();
+    let sort =
+        sort.filter(|sort| protocol_width + HEADER_GAP + MIN_LOCATION_WIDTH + HEADER_GAP + sort.width() <= width);
+    let sort_reserved = sort.as_ref().map_or(0, |sort| sort.width() + HEADER_GAP);
+    let location_budget = width.saturating_sub(protocol_width + HEADER_GAP + sort_reserved);
+    let location = truncate_start_with_ellipsis(&printable(&context.location), location_budget);
+
+    let location_style = if context.active { theme.bright() } else { theme.muted() };
+    let mut spans = vec![Span::styled(protocol, theme.dim())];
+    if !location.is_empty() {
+        spans.push(Span::raw(" ".repeat(HEADER_GAP)));
+        spans.push(Span::styled(location, location_style));
+    }
+    let row = Rect::new(area.x, area.y, area.width, 1);
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+    if let Some(sort) = sort {
+        let sort_width = sort.width() as u16;
+        let x = area.x + area.width - sort_width;
+        frame.render_widget(Paragraph::new(Span::styled(sort, theme.dim())), Rect::new(x, area.y, sort_width, 1));
+    }
+}
+
+fn footer_left(panel: &PanelView, width: usize) -> String {
+    let mut parts = Vec::new();
+    if let Some(status) = panel.filter_status(width) {
+        parts.push(status);
+    }
+    let selected = panel.visible_selected();
+    if !selected.is_empty() {
+        let files: Vec<&Entry> = selected.iter().copied().filter(|entry| !entry.is_dir).collect();
+        let mut summary = format!("{} selected", selected.len());
+        if !files.is_empty() {
+            let total = files.iter().fold(0u64, |sum, entry| sum.saturating_add(entry.size));
+            summary.push_str(&format!(" \u{b7} {}", file_list::size_label(total)));
+        }
+        parts.push(summary);
+    }
+    printable(&parts.join(&" ".repeat(FOOTER_GAP)))
+}
+
+fn items_label(panel: &PanelView) -> String {
+    match panel.rows().iter().filter(|row| matches!(row, Row::Entry(_))).count() {
+        1 => "1 item".to_string(),
+        count => format!("{count} items"),
+    }
+}
+
+fn render_footer(frame: &mut Frame, area: Rect, panel: &PanelView, theme: &Theme) {
+    let width = usize::from(area.width);
+    let left = truncate_with_ellipsis(&footer_left(panel, width), width);
+    let right = items_label(panel);
+    let right_fits = left.width() + FOOTER_GAP + right.width() <= width;
+    frame.render_widget(Paragraph::new(Span::styled(left, theme.accent_text())), area);
+    if right_fits {
+        let right_width = right.width() as u16;
+        let x = area.x + area.width - right_width;
+        frame.render_widget(Paragraph::new(Span::styled(right, theme.dim())), Rect::new(x, area.y, right_width, 1));
+    }
 }
 
 fn sort_indicator(spec: SortSpec) -> String {
     let key = match spec.key {
-        SortKey::Name => "Name",
-        SortKey::Size => "Size",
+        SortKey::Name => "name",
+        SortKey::Size => "size",
     };
     let arrow = match spec.order {
-        SortOrder::Ascending => '\u{25B2}',
-        SortOrder::Descending => '\u{25BC}',
+        SortOrder::Ascending => '\u{2191}',
+        SortOrder::Descending => '\u{2193}',
     };
     format!("{key} {arrow}")
-}
-
-pub fn render_placeholder(frame: &mut Frame, area: Rect, title: &str, is_active: bool, theme: &Theme) {
-    let border_style = if is_active { theme.accent_text() } else { theme.dim() };
-
-    let block = Block::default().title(title).borders(Borders::ALL).border_style(border_style);
-
-    frame.render_widget(block, area);
 }
 
 impl FilterLine for PanelView {

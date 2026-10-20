@@ -99,6 +99,8 @@ fn truecolor_theme_uses_the_spec_hex_values() {
     assert_eq!(theme.err, Color::Rgb(0xc9, 0x8b, 0x84));
     assert_eq!(theme.idle, Color::Rgb(0x33, 0x33, 0x33));
     assert_eq!(theme.paused, Color::Rgb(0x5a, 0x5a, 0x5a));
+    assert_eq!(theme.inactive_file, Color::Rgb(0x7a, 0x7a, 0x7a));
+    assert_eq!(theme.inactive_dir, Color::Rgb(0xa0, 0xa0, 0xa0));
 }
 
 #[test]
@@ -122,6 +124,8 @@ fn indexed_theme_uses_the_spec_fallback_column() {
     assert_eq!(theme.err, Color::Indexed(174));
     assert_eq!(theme.idle, Color::Indexed(236));
     assert_eq!(theme.paused, Color::Indexed(240));
+    assert_eq!(theme.inactive_file, Color::Indexed(243));
+    assert_eq!(theme.inactive_dir, Color::Indexed(247));
 }
 
 #[test]
@@ -310,4 +314,32 @@ fn the_example_config_documents_the_default_theme() {
     assert_eq!(settings, ThemeSettings { accent: Some(Rgb(0x9f, 0xb3, 0xc8)), terminal_background: false });
     assert_eq!(Theme::new(ColorDepth::TrueColor, &settings), Theme::default());
     assert_eq!(Theme::new(ColorDepth::Indexed, &settings), Theme::new(ColorDepth::Indexed, &ThemeSettings::default()));
+}
+
+#[test]
+fn name_styles_follow_the_row_state_table() {
+    let theme = Theme::default();
+
+    let directory = theme.directory_name();
+    assert_eq!(directory.fg, Some(theme.fg_bright));
+    assert!(directory.add_modifier.contains(Modifier::BOLD));
+
+    assert_eq!(theme.inactive_file_name().fg, Some(theme.inactive_file));
+    assert!(!theme.inactive_file_name().add_modifier.contains(Modifier::BOLD));
+
+    let inactive_directory = theme.inactive_dir_name();
+    assert_eq!(inactive_directory.fg, Some(theme.inactive_dir));
+    assert!(inactive_directory.add_modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn inactive_panel_colours_are_distinct_from_the_text_ladder_on_256_colours() {
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
+
+    for inactive in [theme.inactive_file, theme.inactive_dir] {
+        for other in [theme.fg, theme.fg_muted, theme.fg_dim, theme.fg_bright] {
+            assert_ne!(inactive, other);
+        }
+    }
+    assert_ne!(theme.inactive_file, theme.inactive_dir);
 }

@@ -13,6 +13,8 @@ use russh::ChannelMsg;
 use russh_sftp::client::SftpSession;
 use tokio::sync::mpsc;
 
+use crate::fs::metadata_from_sftp;
+
 pub async fn search_remote(
     session: &Session, sftp: &SftpSession, query: SearchQuery, tx: mpsc::UnboundedSender<SearchEvent>,
     cancel: Arc<AtomicBool>,
@@ -41,6 +43,7 @@ pub async fn search_remote(
                         is_dir: metadata.is_dir(),
                         size: metadata.len(),
                         permissions: metadata.permissions,
+                        modified: metadata_from_sftp(&metadata).modified,
                     }));
                     found += 1;
                 }
@@ -132,6 +135,7 @@ async fn search_remote_walk(
                     is_dir: metadata.is_dir(),
                     size: metadata.len(),
                     permissions: metadata.permissions,
+                    modified: metadata_from_sftp(&metadata).modified,
                 }));
                 found += 1;
             }

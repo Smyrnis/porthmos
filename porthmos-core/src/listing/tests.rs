@@ -3,7 +3,14 @@ use std::path::{Path, PathBuf};
 use super::*;
 
 fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
-    Entry { name: name.to_string(), path: PathBuf::from("/d").join(name), is_dir, size, permissions: None }
+    Entry {
+        modified: None,
+        name: name.to_string(),
+        path: PathBuf::from("/d").join(name),
+        is_dir,
+        size,
+        permissions: None,
+    }
 }
 
 #[test]

@@ -10,7 +10,14 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn entry(name: &str) -> Entry {
-    Entry { name: name.to_string(), path: PathBuf::from(format!("/{name}")), is_dir: false, size: 0, permissions: None }
+    Entry {
+        modified: None,
+        name: name.to_string(),
+        path: PathBuf::from(format!("/{name}")),
+        is_dir: false,
+        size: 0,
+        permissions: None,
+    }
 }
 
 #[test]

@@ -44,6 +44,21 @@ async fn read_dir_lists_files_and_folders_with_sizes() {
     assert_eq!(fs.list(server.root.path()).await.unwrap().len(), 2);
 }
 
+fn within_a_day_of_now(modified: Option<u64>) -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    modified.is_some_and(|seconds| seconds.abs_diff(now) < 86_400)
+}
+
+#[tokio::test]
+async fn list_reports_the_modification_time_of_a_new_file() {
+    let (server, fs) = open().await;
+    std::fs::write(at(&server, "a.txt"), b"hello").unwrap();
+
+    let entries = fs.list(server.root.path()).await.unwrap();
+
+    assert!(within_a_day_of_now(entries[0].modified), "{:?}", entries[0].modified);
+}
+
 #[tokio::test]
 async fn awkward_names_round_trip() {
     let (server, fs) = open().await;

@@ -29,3 +29,20 @@ fn truncate_with_ellipsis_ends_cut_text_with_an_ellipsis_inside_the_budget() {
 fn truncate_with_ellipsis_with_no_budget_is_empty() {
     assert_eq!(truncate_with_ellipsis("abc", 0), "");
 }
+
+#[test]
+fn truncate_start_leaves_text_that_fits_alone() {
+    assert_eq!(truncate_start_with_ellipsis("/home", 10), "/home");
+}
+
+#[test]
+fn truncate_start_keeps_the_tail_behind_an_ellipsis() {
+    assert_eq!(truncate_start_with_ellipsis("/home/user/projects", 9), "\u{2026}projects");
+    assert_eq!(truncate_start_with_ellipsis("abcdef", 1), "\u{2026}");
+    assert_eq!(truncate_start_with_ellipsis("abcdef", 0), "");
+}
+
+#[test]
+fn truncate_start_never_splits_a_double_width_character() {
+    assert_eq!(truncate_start_with_ellipsis("\u{4e00}\u{4e8c}\u{4e09}", 4), "\u{2026}\u{4e09}");
+}

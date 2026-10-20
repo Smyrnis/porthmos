@@ -22,3 +22,15 @@ fn long_text_keeps_its_end_within_the_width() {
     assert_eq!(shown.chars().count(), 22);
     assert!(shown.starts_with("/\u{2026}") && shown.ends_with("_text\u{2588} (0 of 4)"), "{shown}");
 }
+
+#[test]
+fn wide_text_is_budgeted_by_display_width_and_keeps_the_caret_and_count() {
+    use unicode_width::UnicodeWidthStr;
+
+    for width in 14..40 {
+        let shown = status(true, Some("\u{65e5}\u{672c}\u{8a9e}\u{30d5}\u{30a1}\u{30a4}\u{30eb}\u{540d}"), 0, 4, width)
+            .unwrap();
+        assert!(shown.width() <= width, "width {width}: {shown:?}");
+        assert!(shown.ends_with("\u{2588} (0 of 4)"), "width {width}: {shown:?}");
+    }
+}

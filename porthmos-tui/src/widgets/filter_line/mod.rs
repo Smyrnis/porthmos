@@ -1,3 +1,7 @@
+use unicode_width::UnicodeWidthStr;
+
+use crate::widgets::text_fit::truncate_start_with_ellipsis;
+
 pub trait FilterLine {
     fn filter(&self) -> Option<&str>;
     fn editing_filter(&self) -> bool;
@@ -15,14 +19,8 @@ pub fn status(editing: bool, text: Option<&str>, matched: usize, total: usize, w
         (false, Some(text)) => ("filter: ", text, format!(" ({matched} of {total})")),
         (false, None) => return None,
     };
-    let room = width.saturating_sub(prefix.chars().count() + suffix.chars().count());
-    let length = text.chars().count();
-    let shown = if length <= room {
-        text.to_string()
-    } else {
-        let tail: String = text.chars().skip(length - room.saturating_sub(1)).collect();
-        format!("\u{2026}{tail}")
-    };
+    let room = width.saturating_sub(prefix.width() + suffix.width());
+    let shown = truncate_start_with_ellipsis(text, room);
     Some(format!("{prefix}{shown}{suffix}"))
 }
 

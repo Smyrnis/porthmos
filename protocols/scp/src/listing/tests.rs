@@ -141,3 +141,10 @@ fn an_epoch_style_device_line_keeps_its_name_and_time() {
     assert_eq!(parsed.metadata.size, 0);
     assert_eq!(parsed.metadata.modified, Some(1_400_000_000));
 }
+
+#[test]
+fn an_absurd_year_in_a_listing_is_ignored_instead_of_overflowing() {
+    assert_eq!(modified("Jan", "1", "99999999999999", NOW), None);
+    assert_eq!(modified("Jan", "1", "1500", NOW), None);
+    assert!(modified("Jan", "1", "2020", NOW).is_some());
+}

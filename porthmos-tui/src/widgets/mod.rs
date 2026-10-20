@@ -6,6 +6,7 @@ pub mod filter_line;
 pub mod frame;
 pub mod help;
 pub mod history_view;
+pub mod info_line;
 pub mod layout;
 pub mod notifications;
 pub mod panel_view;

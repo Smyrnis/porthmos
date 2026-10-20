@@ -97,6 +97,8 @@ const OK_DIM: Token = token(0x4f, 0x6b, 0x4c, 65);
 const ERR: Token = token(0xc9, 0x8b, 0x84, 174);
 const IDLE: Token = token(0x33, 0x33, 0x33, 236);
 const PAUSED: Token = token(0x5a, 0x5a, 0x5a, 240);
+const INACTIVE_FILE: Token = token(0x7a, 0x7a, 0x7a, 243);
+const INACTIVE_DIR: Token = token(0xa0, 0xa0, 0xa0, 247);
 
 fn color_of(depth: ColorDepth, token: Token) -> Color {
     token.rgb.color(depth, token.indexed)
@@ -162,6 +164,8 @@ pub struct Theme {
     pub err: Color,
     pub idle: Color,
     pub paused: Color,
+    pub inactive_file: Color,
+    pub inactive_dir: Color,
 }
 
 impl Theme {
@@ -190,7 +194,21 @@ impl Theme {
             err: pick(ERR),
             idle: pick(IDLE),
             paused: pick(PAUSED),
+            inactive_file: pick(INACTIVE_FILE),
+            inactive_dir: pick(INACTIVE_DIR),
         }
+    }
+
+    pub fn directory_name(&self) -> Style {
+        Style::default().fg(self.fg_bright).add_modifier(Modifier::BOLD)
+    }
+
+    pub fn inactive_file_name(&self) -> Style {
+        Style::default().fg(self.inactive_file)
+    }
+
+    pub fn inactive_dir_name(&self) -> Style {
+        Style::default().fg(self.inactive_dir).add_modifier(Modifier::BOLD)
     }
 
     pub fn text(&self) -> Style {
@@ -201,7 +219,6 @@ impl Theme {
         Style::default().fg(self.fg_bright)
     }
 
-    #[allow(dead_code)]
     pub fn focused_name(&self) -> Style {
         Style::default().fg(self.fg_focus).add_modifier(Modifier::BOLD)
     }
@@ -238,12 +255,10 @@ impl Theme {
         Style::default().fg(self.line_strong)
     }
 
-    #[allow(dead_code)]
     pub fn focus_row(&self) -> Style {
         Style::default().bg(self.row_focus)
     }
 
-    #[allow(dead_code)]
     pub fn focus_row_inactive(&self) -> Style {
         Style::default().bg(self.row_focus_inactive)
     }

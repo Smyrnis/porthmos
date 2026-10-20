@@ -27,7 +27,7 @@ pub(crate) fn test_app_with_protocols(path: &Path, protocols: Vec<porthmos_core:
 }
 
 pub(crate) fn entry(dir: &Path, name: &str, is_dir: bool) -> Entry {
-    Entry { name: name.to_string(), path: dir.join(name), is_dir, size: 1, permissions: None }
+    Entry { modified: None, name: name.to_string(), path: dir.join(name), is_dir, size: 1, permissions: None }
 }
 
 impl TestApp {

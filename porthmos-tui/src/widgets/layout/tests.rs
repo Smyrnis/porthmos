@@ -3,20 +3,6 @@ use ratatui::layout::Rect;
 use super::*;
 
 #[test]
-fn splits_area_into_two_equal_halves() {
-    let area = Rect::new(0, 0, 100, 40);
-    let (local, remote) = split_panels(area);
-
-    assert_eq!(local.x, 0);
-    assert_eq!(local.width, 50);
-    assert_eq!(local.height, 40);
-
-    assert_eq!(remote.x, 50);
-    assert_eq!(remote.width, 50);
-    assert_eq!(remote.height, 40);
-}
-
-#[test]
 fn split_frame_stacks_top_bar_rule_body_rule_hint_bar() {
     let frame = split_frame(Rect::new(0, 0, 100, 40)).unwrap();
 
@@ -71,4 +57,67 @@ fn split_frame_keeps_every_rectangle_inside_the_area() {
             }
         }
     }
+}
+
+#[test]
+fn files_layout_puts_the_info_line_last_and_the_rule_above_it() {
+    let layout = files_layout(Rect::new(2, 2, 96, 8), FilesMode::TwoPanels);
+
+    assert_eq!((layout.info.y, layout.info.height, layout.info.x, layout.info.width), (9, 1, 2, 96));
+    assert_eq!((layout.rule.y, layout.rule.height, layout.rule.x, layout.rule.width), (8, 1, 2, 96));
+    assert_eq!((layout.local.y, layout.local.height), (2, 6));
+    assert_eq!((layout.remote.y, layout.remote.height), (2, 6));
+}
+
+#[test]
+fn two_panels_leave_a_gutter_of_two_cells_each_side_of_the_divider() {
+    let layout = files_layout(Rect::new(0, 0, 96, 8), FilesMode::TwoPanels);
+
+    let divider = layout.divider.expect("two panels have a divider");
+    assert_eq!((divider.x, divider.width, divider.height), (48, 1, 6));
+    assert_eq!(layout.local.right(), 46);
+    assert_eq!(layout.remote.x, 51);
+    assert_eq!(layout.remote.right(), 96);
+}
+
+#[test]
+fn no_rectangle_leaves_the_body_for_any_size() {
+    for width in (0..=12).chain([96, 97]) {
+        for height in 0..=8 {
+            let body = Rect::new(3, 2, width, height);
+            let layout = files_layout(body, files_mode(width));
+            let rects = [layout.local, layout.remote, layout.rule, layout.info].into_iter().chain(layout.divider);
+            for rect in rects {
+                assert!(
+                    rect.x >= body.x
+                        && rect.y >= body.y
+                        && rect.right() <= body.right()
+                        && rect.bottom() <= body.bottom(),
+                    "{width}x{height}: {rect:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn files_mode_switches_at_96_and_56_body_columns() {
+    assert_eq!(files_mode(96), FilesMode::TwoPanels);
+    assert_eq!(files_mode(200), FilesMode::TwoPanels);
+    assert_eq!(files_mode(95), FilesMode::SinglePanel { show_modified: true });
+    assert_eq!(files_mode(56), FilesMode::SinglePanel { show_modified: true });
+    assert_eq!(files_mode(55), FilesMode::SinglePanel { show_modified: false });
+    assert_eq!(files_mode(0), FilesMode::SinglePanel { show_modified: false });
+}
+
+#[test]
+fn single_mode_uses_the_whole_panel_area_and_no_divider() {
+    let mode = FilesMode::SinglePanel { show_modified: true };
+
+    let layout = files_layout(Rect::new(2, 2, 80, 8), mode);
+
+    assert_eq!(layout.divider, None);
+    assert_eq!(layout.local, Rect::new(2, 2, 80, 6));
+    assert_eq!(layout.remote, layout.local);
+    assert_eq!((layout.rule.y, layout.info.y), (8, 9));
 }

@@ -5,6 +5,7 @@ use tracing_subscriber::prelude::*;
 compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
 
 mod app;
+mod clock;
 mod input;
 mod logging;
 mod sessions;

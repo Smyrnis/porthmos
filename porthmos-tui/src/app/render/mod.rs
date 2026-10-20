@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use porthmos_core::transfer::{ActiveJob, rows::percent_of};
 use ratatui::{
     style::Modifier,
@@ -6,8 +8,10 @@ use ratatui::{
 
 use super::{hints::hints_for, *};
 use crate::widgets::{
-    frame::{accent_underline, fill_background, hairline, hint_bar, top_bar},
+    frame::{accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
+    info_line::render_info_line,
+    panel_view::PanelContext,
     session_tabs::{TabView, tabs_line},
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
@@ -143,44 +147,92 @@ impl App {
     }
 
     fn render_files(&self, frame: &mut Frame, area: Rect) {
-        let (local_area, remote_area) = layout::split_panels(area);
+        let mode = layout::files_mode(area.width);
+        let layout = layout::files_layout(area, mode);
+        let (single, show_modified) = match mode {
+            layout::FilesMode::TwoPanels => (false, true),
+            layout::FilesMode::SinglePanel { show_modified } => (true, show_modified),
+        };
+        let now = self.clock.now();
+        let theme = &self.theme;
+        let local_active = self.active_panel == ActivePanel::Local;
+        let remote_header = self.sessions.active().map(|session| self.remote_header(session));
+        let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
 
-        panel_view::render_panel(
-            frame,
-            local_area,
-            "LOCAL",
-            self.active_panel == ActivePanel::Local,
-            &self.local,
-            &self.theme,
-        );
+        if !single || local_active {
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let context = PanelContext {
+                protocol: "local",
+                location: abbreviate_home(self.local.path(), home.as_deref()),
+                active: local_active,
+                show_modified,
+                switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
+                now: &now,
+            };
+            panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
+        }
 
-        match self.sessions.active() {
-            Some(session) => {
-                panel_view::render_panel(
-                    frame,
-                    remote_area,
-                    "REMOTE",
-                    self.active_panel == ActivePanel::Remote,
-                    &session.panel,
-                    &self.theme,
-                );
-            }
-            None => {
-                let remote_title = match &self.connection_status {
-                    ConnectionStatus::Connecting(name) => {
-                        format!("REMOTE (connecting to {name}\u{2026})")
-                    }
-                    _ => "REMOTE".to_string(),
-                };
-                panel_view::render_placeholder(
-                    frame,
-                    remote_area,
-                    &remote_title,
-                    self.active_panel == ActivePanel::Remote,
-                    &self.theme,
-                );
+        if !single || !local_active {
+            let switch_hint = single.then(|| format!("{remote_protocol} \u{21c4} local"));
+            match (self.sessions.active(), &remote_header) {
+                (Some(session), Some((protocol, location))) => {
+                    let context = PanelContext {
+                        protocol,
+                        location: location.clone(),
+                        active: !local_active,
+                        show_modified,
+                        switch_hint,
+                        now: &now,
+                    };
+                    panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
+                }
+                _ => {
+                    let context = PanelContext {
+                        protocol: "remote",
+                        location: String::new(),
+                        active: !local_active,
+                        show_modified,
+                        switch_hint,
+                        now: &now,
+                    };
+                    let lines = self.remote_placeholder_lines();
+                    panel_view::render_placeholder(frame, layout.remote, &lines, &context, theme);
+                }
             }
         }
+
+        if let Some(divider) = layout.divider {
+            vertical_rule(frame, divider, theme);
+        }
+        hairline(frame, layout.rule, theme);
+
+        let focused = match (local_active, self.sessions.active()) {
+            (true, _) => self.local.current_entry(),
+            (false, Some(session)) => session.panel.current_entry(),
+            (false, None) => None,
+        };
+        render_info_line(frame, layout.info, focused, &now, theme);
+    }
+
+    fn remote_header(&self, session: &crate::sessions::Session) -> (String, String) {
+        let path = session.panel.path().display();
+        let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
+        match saved {
+            Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
+            Some(entry) => (entry.protocol.clone(), format!("{}@{}:{path}", entry.username, entry.host)),
+            None => ("remote".to_string(), format!("{}:{path}", session.name)),
+        }
+    }
+
+    fn remote_placeholder_lines(&self) -> Vec<String> {
+        if let ConnectionStatus::Connecting(name) = &self.connection_status {
+            return vec![format!("connecting to {name}\u{2026}")];
+        }
+        let mut lines = vec!["not connected".to_string()];
+        if let Some(spec) = self.key_bindings.key_for(Action::OpenConnections) {
+            lines.push(format!("press {} to connect", input::format_key_spec(spec)));
+        }
+        lines
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
@@ -315,6 +367,15 @@ fn transfer_verb(active: &[ActiveJob]) -> &'static str {
         "Downloading"
     } else {
         "Transferring"
+    }
+}
+
+fn abbreviate_home(path: &Path, home: Option<&Path>) -> String {
+    let usable_home = home.filter(|home| !home.as_os_str().is_empty() && *home != Path::new("/"));
+    match usable_home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
     }
 }
 

@@ -22,6 +22,7 @@ use ratatui::{Frame, layout::Rect, widgets::Paragraph};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
+    clock::Clock,
     input::{self, Action},
     sessions::Sessions,
     terminal::{self, Backend},
@@ -145,6 +146,7 @@ pub struct App {
     key_bindings: input::KeyBindings,
     bookmarks: Vec<Bookmark>,
     theme: Theme,
+    clock: Clock,
     core: CoreHandle,
 }
 
@@ -180,6 +182,7 @@ impl App {
             key_bindings,
             bookmarks: Vec::new(),
             theme: Theme::default(),
+            clock: Clock::default(),
             core,
         };
         app.core.send(Command::List { location: Location::Local, path: Some(local_path) });
@@ -188,6 +191,12 @@ impl App {
 
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
         self
     }
 

@@ -267,7 +267,14 @@ impl FileSystem for FakeFs {
             .into_iter()
             .map(|(path, node)| {
                 let resolved = tree.resolve(&path).map(metadata_of).unwrap_or_else(|| metadata_of(node));
-                Entry { name: name_of(&path), is_dir: resolved.is_dir(), size: resolved.size, permissions: None, path }
+                Entry {
+                    name: name_of(&path),
+                    is_dir: resolved.is_dir(),
+                    size: resolved.size,
+                    permissions: None,
+                    modified: resolved.modified,
+                    path,
+                }
             })
             .collect())
     }

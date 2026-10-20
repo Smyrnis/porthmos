@@ -77,6 +77,7 @@ async fn a_download_lands_on_the_local_side_and_reports_progress() {
     harness.core.send(Command::Copy {
         from: Location::Session(session),
         entries: vec![Entry {
+            modified: None,
             name: "report.pdf".into(),
             path: PathBuf::from("/home/user/report.pdf"),
             is_dir: false,
@@ -179,6 +180,7 @@ async fn a_big_copy_publishes_far_fewer_snapshots_than_files_and_ends_on_the_fin
         let path = format!("/home/user/f{index}.bin");
         harness.remote.file(&path, b"data", Some(1));
         entries.push(Entry {
+            modified: None,
             name: format!("f{index}.bin"),
             path: PathBuf::from(path),
             is_dir: false,

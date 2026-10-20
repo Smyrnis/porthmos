@@ -98,7 +98,7 @@ async fn ensure_local_directory_is_a_no_op_when_it_already_exists() {
 }
 
 fn sample_entry(name: &str, path: &str, is_dir: bool, size: u64) -> Entry {
-    Entry { name: name.to_string(), path: PathBuf::from(path), is_dir, size, permissions: None }
+    Entry { modified: None, name: name.to_string(), path: PathBuf::from(path), is_dir, size, permissions: None }
 }
 
 #[test]
@@ -372,12 +372,26 @@ fn a_folder_named_like_the_partial_is_not_a_partial() {
 
 fn dir_entry(path: &str) -> Entry {
     let path = PathBuf::from(path);
-    Entry { name: path.file_name().unwrap().to_string_lossy().into(), path, is_dir: true, size: 0, permissions: None }
+    Entry {
+        modified: None,
+        name: path.file_name().unwrap().to_string_lossy().into(),
+        path,
+        is_dir: true,
+        size: 0,
+        permissions: None,
+    }
 }
 
 fn file_entry(path: &str, size: u64) -> Entry {
     let path = PathBuf::from(path);
-    Entry { name: path.file_name().unwrap().to_string_lossy().into(), path, is_dir: false, size, permissions: None }
+    Entry {
+        modified: None,
+        name: path.file_name().unwrap().to_string_lossy().into(),
+        path,
+        is_dir: false,
+        size,
+        permissions: None,
+    }
 }
 
 fn ready(outcome: Result<PlanOutcome, ProtocolError>) -> DirectoryPlan {

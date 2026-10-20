@@ -1,8 +1,12 @@
 use std::path::Path;
 
-use porthmos_core::transfer::{
-    JobStatus, TransferQueue,
-    rows::{RowState, ScanInfo},
+use chrono::TimeZone;
+use porthmos_core::{
+    Entry,
+    transfer::{
+        JobStatus, TransferQueue,
+        rows::{RowState, ScanInfo},
+    },
 };
 
 use super::*;
@@ -232,16 +236,6 @@ fn a_confirm_dialog_border_is_drawn_in_the_strong_line_colour() {
     assert_eq!(cell_fg(&terminal, border_x, row), theme.line_strong);
 }
 
-#[test]
-fn the_active_panel_border_is_drawn_in_the_accent_colour() {
-    let (app, theme) = themed_app();
-
-    let terminal = render_app(&app, 60, 12);
-
-    assert_eq!(terminal.backend().buffer()[(2, 2)].symbol(), "\u{250C}");
-    assert_eq!(cell_fg(&terminal, 2, 2), theme.accent);
-}
-
 fn row_symbols(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>, y: u16) -> String {
     let buffer = terminal.backend().buffer();
     (0..buffer.area.width).map(|x| buffer[(x, y)].symbol().to_string()).collect()
@@ -255,7 +249,9 @@ fn the_whole_screen_is_painted_with_the_theme_background() {
 
     for y in 0..12 {
         for x in 0..40 {
-            assert_eq!(cell_bg(&terminal, x, y), theme.bg, "({x}, {y})");
+            let background = cell_bg(&terminal, x, y);
+            let focus_row = background == theme.row_focus && (2..10).contains(&y);
+            assert!(background == theme.bg || focus_row, "({x}, {y}): {background:?}");
         }
     }
 }
@@ -270,7 +266,9 @@ fn the_terminal_background_setting_leaves_cells_unpainted() {
 
     for y in 0..12 {
         for x in 0..40 {
-            assert_eq!(cell_bg(&terminal, x, y), ratatui::style::Color::Reset, "({x}, {y})");
+            let background = cell_bg(&terminal, x, y);
+            let focus_row = background != ratatui::style::Color::Reset && (2..10).contains(&y);
+            assert!(background == ratatui::style::Color::Reset || focus_row, "({x}, {y}): {background:?}");
         }
     }
 }
@@ -295,7 +293,7 @@ fn a_terminal_shorter_than_twelve_rows_shows_the_too_small_message() {
 
     let (x, y) = find_text(&terminal, "terminal too small").expect("message is drawn");
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
-    assert!(find_text(&terminal, "LOCAL").is_none());
+    assert!(find_text(&terminal, "local").is_none());
 }
 
 #[test]
@@ -464,7 +462,8 @@ fn the_remote_panel_is_not_split_for_a_tab_strip() {
     add_session(&mut app, 2, "beta");
     let two = render_app(&app, 100, 14);
 
-    assert_eq!(find_text(&one, "REMOTE"), find_text(&two, "REMOTE"));
+    assert!(find_text(&one, "alpha:/").is_some());
+    assert_eq!(find_text(&one, "alpha:/").map(|(_, y)| y), find_text(&two, "beta:/").map(|(_, y)| y));
 }
 
 fn bottom_row(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
@@ -710,4 +709,274 @@ fn a_multi_line_message_is_wrapped_inside_the_toast() {
     let (_, first) = find_text(&terminal, "first line").expect("first line");
     let (_, second) = find_text(&terminal, "second line").expect("second line");
     assert_eq!(second, first + 1);
+}
+
+#[test]
+fn with_clock_replaces_the_time_source() {
+    use chrono::{Local, TimeZone};
+
+    let moment = Local.with_ymd_and_hms(2026, 10, 20, 12, 0, 0).unwrap();
+    let (app, _) = themed_app();
+
+    let app = app.with_clock(crate::clock::Clock::fixed(moment));
+
+    assert_eq!(app.clock.now(), moment);
+}
+
+fn listed_app(entries: Vec<Entry>) -> (App, Theme) {
+    let mut test = test_app(Path::new("/d"));
+    test.list_local(entries);
+    let theme = indexed_theme();
+    let moment = chrono::Local.with_ymd_and_hms(2026, 10, 20, 12, 0, 0).unwrap();
+    (test.app.with_theme(theme.clone()).with_clock(crate::clock::Clock::fixed(moment)), theme)
+}
+
+fn deploy_script() -> Entry {
+    Entry {
+        name: "deploy.sh".to_string(),
+        path: PathBuf::from("/d/deploy.sh"),
+        is_dir: false,
+        size: 2457,
+        permissions: Some(0o100755),
+        modified: Some(chrono::Local.with_ymd_and_hms(2026, 10, 20, 14, 2, 0).unwrap().timestamp() as u64),
+    }
+}
+
+#[test]
+fn the_files_screen_shows_the_local_header_rule_column_header_and_footer() {
+    let (app, theme) = listed_app(vec![deploy_script()]);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("local  /d"), "{:?}", row_symbols(&terminal, 2));
+    assert_eq!(cell_fg(&terminal, 10, 3), theme.accent);
+    assert!(row_symbols(&terminal, 4).contains("name"));
+    assert!(row_symbols(&terminal, 19).contains("1 item"));
+    assert!(find_text(&terminal, "not connected").is_some());
+}
+
+#[test]
+fn the_divider_is_drawn_between_the_panels_in_the_line_colour() {
+    let (app, theme) = themed_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    for y in 2..20 {
+        assert_eq!(terminal.backend().buffer()[(60, y)].symbol(), "\u{2502}", "row {y}");
+        assert_eq!(cell_fg(&terminal, 60, y), theme.line);
+    }
+}
+
+#[test]
+fn the_info_line_describes_the_focused_entry_of_the_active_panel() {
+    let (mut app, _) = listed_app(vec![deploy_script()]);
+    app.local.cursor = app.local.rows().len() - 1;
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(
+        row_symbols(&terminal, 21).contains("deploy.sh   2.4 KB   -rwxr-xr-x   today 14:02"),
+        "{:?}",
+        row_symbols(&terminal, 21)
+    );
+}
+
+#[test]
+fn the_info_line_is_empty_on_the_parent_row() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert_eq!(row_symbols(&terminal, 21).trim(), "");
+}
+
+#[test]
+fn a_rule_separates_the_panels_from_the_info_line() {
+    let (app, theme) = themed_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert_eq!(terminal.backend().buffer()[(10, 20)].symbol(), "\u{2500}");
+    assert_eq!(cell_fg(&terminal, 10, 20), theme.line);
+}
+
+#[test]
+fn switching_the_active_panel_moves_the_accent_rule() {
+    let (mut app, theme) = themed_app();
+    add_session(&mut app, 1, "prod");
+
+    let local_active = render_app(&app, 120, 24);
+    app.active_panel = ActivePanel::Remote;
+    let remote_active = render_app(&app, 120, 24);
+
+    assert_eq!((cell_fg(&local_active, 10, 3), cell_fg(&local_active, 80, 3)), (theme.accent, theme.line));
+    assert_eq!((cell_fg(&remote_active, 10, 3), cell_fg(&remote_active, 80, 3)), (theme.line, theme.accent));
+}
+
+#[test]
+fn a_connected_session_shows_the_saved_connections_protocol_and_user_at_host() {
+    let (mut app, _) = themed_app();
+    app.connections.replace(vec![saved_connection("prod", "sftp")]);
+    add_session(&mut app, 1, "prod");
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("sftp  deploy@prod.example.com:/"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
+fn a_session_without_a_saved_connection_shows_its_name_and_path() {
+    let (mut app, _) = themed_app();
+    add_session(&mut app, 1, "prod");
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("remote  prod:/"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
+fn the_unconnected_remote_panel_says_not_connected_and_names_the_connect_key() {
+    let (mut app, _) = themed_app();
+
+    let default_keys = render_app(&app, 120, 24);
+    let overrides = std::collections::HashMap::from([("open_connections".to_string(), "ctrl+g".to_string())]);
+    app.key_bindings = input::KeyBindings::from_overrides(&overrides).0;
+    let remapped = render_app(&app, 120, 24);
+
+    assert!(find_text(&default_keys, "press F9 to connect").is_some());
+    assert!(find_text(&remapped, "press Ctrl+G to connect").is_some());
+}
+
+#[test]
+fn connecting_shows_the_target_name_in_the_remote_panel() {
+    let (mut app, _) = themed_app();
+    app.connection_status = ConnectionStatus::Connecting("nas".to_string());
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "connecting to nas\u{2026}").is_some());
+}
+
+#[test]
+fn the_home_directory_is_shown_as_a_tilde() {
+    let home = Path::new("/home/me");
+
+    assert_eq!(abbreviate_home(Path::new("/home/me/projects"), Some(home)), "~/projects");
+    assert_eq!(abbreviate_home(Path::new("/home/me"), Some(home)), "~");
+    assert_eq!(abbreviate_home(Path::new("/home/mex"), Some(home)), "/home/mex");
+    assert_eq!(abbreviate_home(Path::new("/etc"), Some(home)), "/etc");
+    assert_eq!(abbreviate_home(Path::new("/home/me/x"), None), "/home/me/x");
+    assert_eq!(abbreviate_home(Path::new("/etc"), Some(Path::new("/"))), "/etc");
+    assert_eq!(abbreviate_home(Path::new("/"), Some(Path::new("/"))), "/");
+    assert_eq!(abbreviate_home(Path::new("/etc"), Some(Path::new(""))), "/etc");
+}
+
+#[test]
+fn the_files_screen_never_panics_at_any_size() {
+    let (mut app, _) = listed_app(vec![deploy_script()]);
+    add_session(&mut app, 1, "prod");
+    app.connections.replace(vec![saved_connection("prod", "sftp")]);
+
+    for width in 0..=130 {
+        for height in 0..=14 {
+            let _ = render_app(&app, width, height);
+        }
+    }
+}
+
+fn connected_app() -> (App, Theme) {
+    let (mut app, theme) = listed_app(vec![deploy_script()]);
+    app.connections.replace(vec![saved_connection("prod", "sftp")]);
+    add_session(&mut app, 1, "prod");
+    (app, theme)
+}
+
+#[test]
+fn at_one_hundred_columns_both_panels_are_drawn() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+
+    let terminal = render_app(&app, 100, 24);
+
+    let header = row_symbols(&terminal, 2);
+    assert!(header.contains("local  /d") && header.contains("remote"), "{header:?}");
+    assert!(find_text(&terminal, "not connected").is_some());
+}
+
+#[test]
+fn at_ninety_nine_columns_only_the_active_panel_is_drawn_with_a_switch_hint() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+
+    let terminal = render_app(&app, 99, 24);
+
+    let header = row_symbols(&terminal, 2);
+    assert!(header.contains("local \u{21c4} remote  /d"), "{header:?}");
+    assert!(find_text(&terminal, "not connected").is_none());
+    assert!(find_text(&terminal, "deploy.sh").is_some());
+    assert_eq!(terminal.backend().buffer()[(49, 5)].symbol(), " ");
+}
+
+#[test]
+fn switching_panels_in_single_mode_shows_the_other_panel() {
+    let (mut app, _) = listed_app(vec![deploy_script()]);
+
+    app.apply_action(Action::SwitchPanel);
+    let terminal = render_app(&app, 80, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("remote \u{21c4} local"), "{:?}", row_symbols(&terminal, 2));
+    assert!(find_text(&terminal, "not connected").is_some());
+    assert!(find_text(&terminal, "deploy.sh").is_none());
+}
+
+#[test]
+fn the_switch_hint_names_the_connected_protocol() {
+    let (mut app, _) = connected_app();
+
+    let local_active = render_app(&app, 80, 24);
+    app.active_panel = ActivePanel::Remote;
+    let remote_active = render_app(&app, 80, 24);
+
+    assert!(row_symbols(&local_active, 2).contains("local \u{21c4} sftp  /d"));
+    assert!(row_symbols(&remote_active, 2).contains("sftp \u{21c4} local  deploy@prod.example.com:/"));
+}
+
+#[test]
+fn the_modified_column_disappears_below_sixty_columns() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+
+    let at_sixty = render_app(&app, 60, 24);
+    let at_fifty_nine = render_app(&app, 59, 24);
+
+    assert!(row_symbols(&at_sixty, 4).contains("modified"));
+    assert!(!row_symbols(&at_fifty_nine, 4).contains("modified"));
+    assert!(find_text(&at_fifty_nine, "deploy.sh").is_some());
+}
+
+#[test]
+fn a_twenty_column_terminal_still_draws_rows() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+
+    let terminal = render_app(&app, 20, 24);
+
+    assert!(find_text(&terminal, "deploy.sh").is_some());
+}
+
+#[test]
+fn the_info_line_stays_visible_in_every_mode() {
+    for width in [120, 100, 99, 60, 59, 20] {
+        let (mut app, _) = listed_app(vec![deploy_script()]);
+        app.local.cursor = app.local.rows().len() - 1;
+
+        let terminal = render_app(&app, width, 24);
+
+        assert!(row_symbols(&terminal, 21).contains("deploy.sh"), "width {width}: {:?}", row_symbols(&terminal, 21));
+    }
+}
+
+#[test]
+fn a_height_of_eleven_rows_shows_the_too_small_message_in_single_mode_too() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+
+    let terminal = render_app(&app, 80, 11);
+
+    assert!(find_text(&terminal, "terminal too small").is_some());
 }

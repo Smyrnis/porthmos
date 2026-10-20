@@ -36,6 +36,22 @@ async fn lists_files_and_directories_with_sizes() {
     assert_eq!(entries[0].path, Path::new("/a.txt"));
 }
 
+fn within_a_day_of_now(modified: Option<u64>) -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    modified.is_some_and(|seconds| seconds.abs_diff(now) < 86_400)
+}
+
+#[tokio::test]
+async fn list_reports_the_modification_time_of_a_new_file() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::write(server.root.path().join("a.txt"), b"12345").unwrap();
+    let fs = connect_to(&server).await;
+
+    let entries = fs.list(Path::new("/")).await.unwrap();
+
+    assert!(within_a_day_of_now(entries[0].modified), "{:?}", entries[0].modified);
+}
+
 #[tokio::test]
 async fn stat_reports_files_directories_and_missing_paths() {
     let server = support::start(Some("pw"), None).await;

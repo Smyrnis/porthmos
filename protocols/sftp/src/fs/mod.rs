@@ -119,6 +119,7 @@ impl FileSystem for SftpFs {
                 is_dir,
                 size: metadata.len(),
                 permissions: metadata.permissions,
+                modified: metadata_from_sftp(&metadata).modified,
             });
         }
 

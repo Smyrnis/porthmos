@@ -136,6 +136,7 @@ impl Rig {
     fn entry(path: &Path, is_dir: bool) -> Entry {
         let size = if is_dir { 0 } else { std::fs::metadata(path).unwrap().len() };
         Entry {
+            modified: None,
             name: path.file_name().unwrap().to_string_lossy().into_owned(),
             path: path.to_path_buf(),
             is_dir,

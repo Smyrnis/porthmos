@@ -75,6 +75,15 @@ pub fn hairline(frame: &mut Frame, area: Rect, theme: &Theme) {
     frame.render_widget(Paragraph::new(Span::styled(rule, theme.hairline())), row);
 }
 
+pub fn vertical_rule(frame: &mut Frame, area: Rect, theme: &Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let column = Rect::new(area.x, area.y, 1, area.height);
+    let rows: Vec<Line> = (0..area.height).map(|_| Line::from(Span::styled("\u{2502}", theme.hairline()))).collect();
+    frame.render_widget(Paragraph::new(rows), column);
+}
+
 pub fn accent_underline(frame: &mut Frame, rule: Rect, columns: Range<u16>, theme: &Theme) {
     if rule.width == 0 || rule.height == 0 {
         return;
