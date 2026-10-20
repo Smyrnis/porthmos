@@ -199,6 +199,10 @@ impl Theme {
         }
     }
 
+    pub fn idle_text(&self) -> Style {
+        Style::default().fg(self.idle)
+    }
+
     pub fn ok_dim_text(&self) -> Style {
         Style::default().fg(self.ok_dim)
     }

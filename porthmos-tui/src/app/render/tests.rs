@@ -1036,3 +1036,94 @@ fn the_transfers_screen_never_panics_at_any_size() {
         }
     }
 }
+
+fn connections_app() -> (App, Theme) {
+    let (mut app, theme) = themed_app();
+    app.connections.replace(vec![saved_connection("prod", "sftp"), saved_connection("backup", "sftp")]);
+    app.screen = Screen::Connections;
+    (app, theme)
+}
+
+#[test]
+fn the_connections_screen_shows_the_filter_line_and_a_row_at_120x24() {
+    let (app, _) = connections_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("/ filter"), "{:?}", row_symbols(&terminal, 2));
+    assert!(row_symbols(&terminal, 4).contains("prod"), "{:?}", row_symbols(&terminal, 4));
+    assert!(row_symbols(&terminal, 5).contains("deploy@backup.example.com"), "{:?}", row_symbols(&terminal, 5));
+}
+
+#[test]
+fn a_connect_failure_is_remembered_for_the_list_and_cleared_by_a_later_success() {
+    let (mut app, theme) = connections_app();
+
+    app.apply_core_event(Event::ConnectFailed {
+        name: "prod".to_string(),
+        message: "Authentication failed for prod".to_string(),
+    });
+
+    assert_eq!(app.last_failure.get("prod").map(String::as_str), Some("Authentication failed for prod"));
+    let failed = render_app(&app, 120, 24);
+    let line = row_symbols(&failed, 4);
+    let x = line
+        .chars()
+        .take_while(|_| true)
+        .collect::<String>()
+        .find("Authentication")
+        .map(|byte| line[..byte].chars().count())
+        .expect("message on the row");
+    assert_eq!(cell_fg(&failed, x as u16, 4), theme.err);
+
+    app.apply_core_event(Event::Connected { session: 1, name: "prod".to_string(), shell_available: true });
+
+    assert!(app.last_failure.is_empty());
+}
+
+#[test]
+fn a_failure_of_one_connection_does_not_touch_the_others() {
+    let (mut app, _) = connections_app();
+    app.apply_core_event(Event::ConnectFailed { name: "prod".to_string(), message: "boom".to_string() });
+
+    app.apply_core_event(Event::Connected { session: 1, name: "backup".to_string(), shell_available: true });
+
+    assert!(app.last_failure.contains_key("prod"));
+}
+
+#[test]
+fn the_top_bar_on_the_connections_screen_counts_connected_and_errors() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    app.last_failure.insert("backup".to_string(), "boom".to_string());
+
+    let terminal = render_app(&app, 120, 24);
+
+    let top = row_symbols(&terminal, 0);
+    assert!(top.contains("porthmos / connections"), "{top:?}");
+    assert!(top.trim_end().ends_with("1 connected \u{b7} 1 error"), "{top:?}");
+}
+
+#[test]
+fn zero_parts_are_left_out_of_the_connections_summary() {
+    let (mut app, _) = connections_app();
+    assert!(!row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("error"));
+
+    app.last_failure.insert("backup".to_string(), "boom".to_string());
+    app.last_failure.insert("prod".to_string(), "boom".to_string());
+
+    assert!(row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("2 errors"));
+}
+
+#[test]
+fn the_connections_screen_never_panics_at_any_size() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    app.last_failure.insert("backup".to_string(), "boom\nline two".to_string());
+
+    for width in 0..=130 {
+        for height in 0..=14 {
+            let _ = render_app(&app, width, height);
+        }
+    }
+}

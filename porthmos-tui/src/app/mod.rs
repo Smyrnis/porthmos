@@ -151,6 +151,7 @@ pub struct App {
     clock: Clock,
     session_names: HashMap<u64, String>,
     rates: RateTracker,
+    last_failure: HashMap<String, String>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     core: CoreHandle,
@@ -191,6 +192,7 @@ impl App {
             clock: Clock::default(),
             session_names: HashMap::new(),
             rates: RateTracker::default(),
+            last_failure: HashMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             core,
@@ -294,7 +296,8 @@ impl App {
             Event::Notice { severity, message } => self.notifications.push(severity, message),
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
-            Event::ConnectFailed { message, .. } => {
+            Event::ConnectFailed { name, message } => {
+                self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
                 self.notifications.push(Severity::Error, message);
             }

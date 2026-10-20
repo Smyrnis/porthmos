@@ -661,7 +661,7 @@ fn typing_in_the_filter_narrows_and_another_key_closes_the_line_and_acts() {
 
     test.app.apply_key(key(KeyCode::Char('/')));
     test.app.apply_key(key(KeyCode::Char('d')));
-    assert_eq!(test.app.connections.filter_status(40).as_deref(), Some("/d\u{2588} (1 of 2)"));
+    assert_eq!(test.app.connections.match_counts(), (1, 2));
     test.app.apply_key(key(KeyCode::F(9)));
 
     assert!(!test.app.connections.editing_filter());

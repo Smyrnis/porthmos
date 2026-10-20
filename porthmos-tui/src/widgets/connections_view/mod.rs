@@ -5,7 +5,7 @@ use porthmos_core::{
     profiles::{ConnectionEntry, ConnectionSource},
 };
 
-use crate::widgets::filter_line::{self, FilterLine};
+use crate::widgets::filter_line::FilterLine;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RowKey {
@@ -124,9 +124,8 @@ impl ConnectionsView {
         self.rebuild(Some(RowKey::Connection(name.to_string(), source)));
     }
 
-    pub fn filter_status(&self, width: usize) -> Option<String> {
-        let matched = connections_tree::match_count(&self.entries, self.filter.as_deref());
-        filter_line::status(self.editing_filter, self.filter.as_deref(), matched, self.entries.len(), width)
+    pub fn match_counts(&self) -> (usize, usize) {
+        (connections_tree::match_count(&self.entries, self.filter.as_deref()), self.entries.len())
     }
 
     fn key_at_cursor(&self) -> Option<RowKey> {

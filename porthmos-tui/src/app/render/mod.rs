@@ -133,6 +133,9 @@ impl App {
     }
 
     fn connection_status_line(&self, budget: usize) -> Line<'static> {
+        if self.screen == Screen::Connections {
+            return Line::styled(truncate_with_ellipsis(&self.connections_summary(), budget), self.theme.muted());
+        }
         if self.screen == Screen::Transfers {
             let summary = transfer_list::transfer_summary(self.transfer_rows(), self.rates.aggregate_speed());
             return Line::styled(truncate_with_ellipsis(&summary, budget), self.theme.muted());
@@ -246,16 +249,25 @@ impl App {
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
         let connected_names: std::collections::HashSet<&str> =
             self.sessions.iter().map(|session| session.name.as_str()).collect();
-        let active_name = self.sessions.active().map(|session| session.name.as_str());
-        connections_list::render_connections_list(
-            frame,
-            area,
-            &self.connections,
-            &connected_names,
-            active_name,
-            self.core.protocols(),
-            &self.theme,
-        );
+        let context = connections_list::ConnectionsContext {
+            connected: &connected_names,
+            failures: &self.last_failure,
+            protocols: self.core.protocols(),
+        };
+        connections_list::render_connections_list(frame, area, &self.connections, &context, &self.theme);
+    }
+
+    fn connections_summary(&self) -> String {
+        let connected = self.sessions.iter().count();
+        let errors = self.last_failure.len();
+        let mut parts = Vec::new();
+        if connected > 0 {
+            parts.push(format!("{connected} connected"));
+        }
+        if errors > 0 {
+            parts.push(format!("{errors} {}", if errors == 1 { "error" } else { "errors" }));
+        }
+        parts.join(" \u{b7} ")
     }
 
     fn render_transfers(&self, frame: &mut Frame, area: Rect) {
