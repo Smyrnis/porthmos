@@ -43,8 +43,14 @@ fn sample_protocols() -> Vec<ProtocolInfo> {
         kind: OptionKind::Text { default: "" },
     });
     vec![
-        ProtocolInfo { id: "sftp", display_name: "SFTP", form: sftp },
-        ProtocolInfo { id: "ftp", display_name: "FTP", form: ConnectionForm::standard(21) },
+        ProtocolInfo { id: "sftp", display_name: "SFTP", description: "", limits_note: None, form: sftp },
+        ProtocolInfo {
+            id: "ftp",
+            display_name: "FTP",
+            description: "",
+            limits_note: None,
+            form: ConnectionForm::standard(21),
+        },
     ]
 }
 

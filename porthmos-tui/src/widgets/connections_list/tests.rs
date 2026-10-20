@@ -114,6 +114,8 @@ fn each_row_shows_its_protocol_name_or_raw_id_when_unavailable() {
     let protocols = [porthmos_core::ProtocolInfo {
         id: "sftp",
         display_name: "SFTP",
+        description: "",
+        limits_note: None,
         form: porthmos_core::ConnectionForm::standard(22),
     }];
 

@@ -32,6 +32,10 @@ impl Protocol for Sftp {
         "SFTP"
     }
 
+    fn description(&self) -> &'static str {
+        "ssh file transfer"
+    }
+
     fn default_port(&self) -> u16 {
         DEFAULT_PORT
     }

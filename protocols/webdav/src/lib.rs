@@ -65,6 +65,10 @@ impl Protocol for WebDav {
         "WebDAV"
     }
 
+    fn description(&self) -> &'static str {
+        "nextcloud, nas shares"
+    }
+
     fn default_port(&self) -> u16 {
         DEFAULT_PORT
     }

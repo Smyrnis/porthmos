@@ -29,8 +29,14 @@ fn protocols() -> Vec<ProtocolInfo> {
         OptionField { key: "token", label: "Token", required: false, kind: OptionKind::Secret },
     ];
     vec![
-        ProtocolInfo { id: "sftp", display_name: "SFTP", form: ConnectionForm::standard(22) },
-        ProtocolInfo { id: "ftp", display_name: "FTP", form: ftp },
+        ProtocolInfo {
+            id: "sftp",
+            display_name: "SFTP",
+            description: "",
+            limits_note: None,
+            form: ConnectionForm::standard(22),
+        },
+        ProtocolInfo { id: "ftp", display_name: "FTP", description: "", limits_note: None, form: ftp },
     ]
 }
 

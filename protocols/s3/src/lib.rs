@@ -71,6 +71,14 @@ impl Protocol for S3 {
         "S3"
     }
 
+    fn description(&self) -> &'static str {
+        "aws, r2, minio, b2"
+    }
+
+    fn limits_note(&self) -> Option<&'static str> {
+        Some("no permissions or symlinks \u{b7} rename is copy + delete")
+    }
+
     fn default_port(&self) -> u16 {
         DEFAULT_PORT
     }

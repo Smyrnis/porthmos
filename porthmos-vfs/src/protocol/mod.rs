@@ -87,6 +87,12 @@ impl fmt::Debug for ShellInvocation {
 pub trait Protocol: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
+    fn description(&self) -> &'static str {
+        ""
+    }
+    fn limits_note(&self) -> Option<&'static str> {
+        None
+    }
     fn default_port(&self) -> u16;
     fn connection_form(&self) -> ConnectionForm {
         ConnectionForm::standard(self.default_port())

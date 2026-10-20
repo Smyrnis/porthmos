@@ -4,12 +4,20 @@ use porthmos_vfs::{ConnectionForm, Protocol};
 pub struct ProtocolInfo {
     pub id: &'static str,
     pub display_name: &'static str,
+    pub description: &'static str,
+    pub limits_note: Option<&'static str>,
     pub form: ConnectionForm,
 }
 
 impl ProtocolInfo {
     pub fn from_protocol(protocol: &dyn Protocol) -> Self {
-        Self { id: protocol.id(), display_name: protocol.display_name(), form: protocol.connection_form() }
+        Self {
+            id: protocol.id(),
+            display_name: protocol.display_name(),
+            description: protocol.description(),
+            limits_note: protocol.limits_note(),
+            form: protocol.connection_form(),
+        }
     }
 }
 
