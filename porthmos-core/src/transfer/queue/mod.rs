@@ -8,7 +8,7 @@ use std::{
 
 use super::{
     job::{Destination, Direction, JobStatus, TransferJob},
-    rows::{QueueRow, RowKind, RowState},
+    rows::{QueueRow, RowFailure, RowKind, RowState},
 };
 
 const MAX_ATTEMPTS: u32 = 3;
@@ -41,14 +41,18 @@ struct RowCounters {
     cancelled: usize,
     bytes_done: u64,
     bytes_total: u64,
+    session_id: Option<u64>,
+    failure: Option<RowFailure>,
 }
 
 impl RowCounters {
-    fn new(kind: RowKind, label: String, direction: Direction) -> Self {
+    fn new(kind: RowKind, label: String, direction: Direction, session_id: Option<u64>) -> Self {
         Self {
             kind,
             label,
             direction,
+            session_id,
+            failure: None,
             order: Vec::new(),
             queued: 0,
             running: 0,
@@ -94,6 +98,8 @@ impl RowCounters {
             bytes_done: self.bytes_done,
             bytes_total: self.bytes_total,
             state: self.state(),
+            session_id: self.session_id,
+            failure: self.failure.clone(),
         }
     }
 
@@ -220,7 +226,8 @@ impl TransferQueue {
             None => RowKind::Single(id),
         };
         let was_finished = self.rows.get(&key).is_some_and(RowCounters::finished);
-        let counters = self.rows.entry(key).or_insert_with(|| RowCounters::new(kind, label, direction));
+        let counters =
+            self.rows.entry(key).or_insert_with(|| RowCounters::new(kind, label, direction, Some(session_id)));
         counters.order.push(id);
         counters.bytes_total += total_bytes;
         self.row_of.insert(id, key);
@@ -306,6 +313,19 @@ impl TransferQueue {
         if let Some(counters) = self.rows.get_mut(&key) {
             let slot = counters.slot(&shape.status);
             *slot = if add { *slot + 1 } else { slot.saturating_sub(1) };
+            if let JobStatus::Failed(message) = &shape.status {
+                if add {
+                    if let Some(job) = self.jobs.get(&id) {
+                        counters.failure = Some(RowFailure {
+                            file: job.display_name.clone(),
+                            message: message.clone(),
+                            attempts: job.attempts,
+                        });
+                    }
+                } else if counters.failed == 0 {
+                    counters.failure = None;
+                }
+            }
             counters.bytes_done = if add {
                 counters.bytes_done + shape.transferred
             } else {
@@ -565,6 +585,22 @@ impl TransferQueue {
         ids.len()
     }
 
+    pub fn fail_or_retry(&mut self, id: u64, message: String) -> bool {
+        let Some(job) = self.jobs.get(&id) else {
+            return false;
+        };
+        if job.attempts < MAX_ATTEMPTS {
+            self.update(id, |job| {
+                job.status = JobStatus::Queued;
+                job.resume = true;
+            });
+            true
+        } else {
+            self.update(id, |job| job.status = JobStatus::Failed(message));
+            false
+        }
+    }
+
     pub fn retry_or_give_up(&mut self, id: u64) -> bool {
         let Some(job) = self.jobs.get(&id) else {
             return false;
@@ -631,7 +667,8 @@ impl TransferQueue {
             assert!(!counters.order.is_empty(), "an empty row {key} remains");
             assert_eq!(counters.order.first(), Some(key), "row key is its first job");
             let mut seen = HashSet::new();
-            let mut expected = RowCounters::new(counters.kind, counters.label.clone(), counters.direction);
+            let mut expected =
+                RowCounters::new(counters.kind, counters.label.clone(), counters.direction, counters.session_id);
             for id in &counters.order {
                 assert!(seen.insert(*id), "job {id} listed twice in row {key}");
                 let job = self.jobs.get(id).expect("every listed job exists");
@@ -651,6 +688,7 @@ impl TransferQueue {
                 (expected.bytes_done, expected.bytes_total),
                 "row bytes differ for row {key}"
             );
+            assert_eq!(counters.failure.is_some(), counters.failed > 0, "failure presence for row {key}");
             match counters.kind {
                 RowKind::Batch(batch) => assert_eq!(self.batch_row.get(&batch), Some(key), "batch_row for {batch}"),
                 RowKind::Single(id) => assert_eq!(id, *key, "a single row is keyed by its job"),

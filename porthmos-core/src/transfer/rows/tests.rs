@@ -127,3 +127,13 @@ fn a_scan_info_carries_its_state_into_the_row() {
     assert_eq!(rows[0].state, RowState::AwaitingAnswer);
     assert!(!rows[0].is_finished());
 }
+
+#[test]
+fn scan_rows_have_no_session_and_no_failure() {
+    let queue = TransferQueue::new();
+    let scans = [ScanInfo { batch_id: 3, label: "x", direction: Direction::Upload, state: RowState::Scanning }];
+
+    let rows = queue_rows(&queue, &scans);
+
+    assert_eq!((rows[0].session_id, rows[0].failure.clone()), (None, None));
+}

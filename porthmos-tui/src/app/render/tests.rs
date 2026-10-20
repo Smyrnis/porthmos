@@ -53,68 +53,6 @@ fn render_status_shows_scanning_while_planning() {
 }
 
 #[test]
-fn transfer_status_text_shows_batch_progress_for_a_batch_job() {
-    let (_dir, mut app) = app_in_temp_dir();
-    let mut queue = TransferQueue::new();
-    let batch_id = queue.start_batch("batch".to_string());
-    let active = queue.enqueue(
-        1,
-        Direction::Upload,
-        PathBuf::from("/local/a.txt"),
-        "/remote/a.txt".to_string(),
-        "a.txt".to_string(),
-        100,
-        Some(batch_id),
-    );
-    queue.enqueue(
-        1,
-        Direction::Upload,
-        PathBuf::from("/local/b.txt"),
-        "/remote/b.txt".to_string(),
-        "b.txt".to_string(),
-        100,
-        Some(batch_id),
-    );
-    {
-        let mut job = queue.get_mut(active).unwrap();
-        job.status = JobStatus::InProgress;
-        job.transferred_bytes = 50;
-    }
-
-    app.transfers = TransferSnapshot::of(&queue, &[]);
-    let text = hint_bar_text(&app);
-
-    assert!(text.contains("0/2 files"));
-    assert!(text.contains("25%"));
-}
-
-#[test]
-fn transfer_status_text_is_unchanged_for_a_non_batch_job() {
-    let (_dir, mut app) = app_in_temp_dir();
-    let mut queue = TransferQueue::new();
-    let active = queue.enqueue(
-        1,
-        Direction::Upload,
-        PathBuf::from("/local/a.txt"),
-        "/remote/a.txt".to_string(),
-        "a.txt".to_string(),
-        100,
-        None,
-    );
-    {
-        let mut job = queue.get_mut(active).unwrap();
-        job.status = JobStatus::InProgress;
-        job.transferred_bytes = 50;
-    }
-
-    app.transfers = TransferSnapshot::of(&queue, &[]);
-    let text = hint_bar_text(&app);
-
-    assert!(text.contains("a.txt: 50%"));
-    assert!(!text.contains("files"));
-}
-
-#[test]
 fn planning_status_text_is_none_without_a_scan() {
     let (_dir, app) = app_in_temp_dir();
 
@@ -135,80 +73,6 @@ fn planning_status_text_counts_several_scans() {
     scanning(&mut app, &["one", "two"]);
 
     assert_eq!(app.planning_status_text(), Some("Scanning 2 copies\u{2026}".to_string()));
-}
-
-fn active_job(
-    queue: &mut TransferQueue, direction: Direction, name: &str, total_bytes: u64, transferred_bytes: u64,
-    batch_id: Option<u64>,
-) -> u64 {
-    let id = queue.enqueue(
-        1,
-        direction,
-        PathBuf::from(format!("/local/{name}")),
-        format!("/remote/{name}"),
-        name.to_string(),
-        total_bytes,
-        batch_id,
-    );
-    let mut job = queue.get_mut(id).unwrap();
-    job.status = JobStatus::InProgress;
-    job.transferred_bytes = transferred_bytes;
-    id
-}
-
-fn status_of_active_jobs(app: &mut App, queue: &TransferQueue) -> String {
-    app.transfers = TransferSnapshot::of(queue, &[]);
-    app.transfer_status_text(&app.transfers.active)
-}
-
-#[test]
-fn transfer_status_text_summarizes_several_jobs_from_one_batch() {
-    let (_dir, mut app) = app_in_temp_dir();
-    let mut queue = TransferQueue::new();
-    let batch_id = queue.start_batch("batch".to_string());
-    active_job(&mut queue, Direction::Upload, "a.txt", 100, 50, Some(batch_id));
-    active_job(&mut queue, Direction::Upload, "b.txt", 100, 50, Some(batch_id));
-    queue.enqueue(
-        1,
-        Direction::Upload,
-        PathBuf::from("/local/c.txt"),
-        "/remote/c.txt".to_string(),
-        "c.txt".to_string(),
-        200,
-        Some(batch_id),
-    );
-
-    assert_eq!(status_of_active_jobs(&mut app, &queue), "Uploading 2 files: 0/3 files, 25% (1 queued)");
-}
-
-#[test]
-fn transfer_status_text_summarizes_several_unrelated_jobs() {
-    let (_dir, mut app) = app_in_temp_dir();
-    let mut queue = TransferQueue::new();
-    active_job(&mut queue, Direction::Download, "a.txt", 100, 100, None);
-    active_job(&mut queue, Direction::Download, "b.txt", 300, 0, None);
-
-    assert_eq!(status_of_active_jobs(&mut app, &queue), "Downloading 2 files: 25%");
-}
-
-#[test]
-fn transfer_status_text_says_transferring_for_mixed_directions() {
-    let (_dir, mut app) = app_in_temp_dir();
-    let mut queue = TransferQueue::new();
-    active_job(&mut queue, Direction::Upload, "a.txt", 100, 50, None);
-    active_job(&mut queue, Direction::Download, "b.txt", 100, 50, None);
-
-    assert_eq!(status_of_active_jobs(&mut app, &queue), "Transferring 2 files: 50%");
-}
-
-#[test]
-fn transfer_status_text_is_one_hundred_percent_for_several_empty_files() {
-    let (_dir, mut app) = app_in_temp_dir();
-    let mut queue = TransferQueue::new();
-    active_job(&mut queue, Direction::Upload, "a.txt", 0, 0, None);
-    active_job(&mut queue, Direction::Upload, "b.txt", 0, 0, None);
-
-    assert_eq!(status_of_active_jobs(&mut app, &queue), "Uploading 2 files: 100%");
 }
 
 fn indexed_theme() -> Theme {
@@ -979,4 +843,196 @@ fn a_height_of_eleven_rows_shows_the_too_small_message_in_single_mode_too() {
     let terminal = render_app(&app, 80, 11);
 
     assert!(find_text(&terminal, "terminal too small").is_some());
+}
+
+fn running_snapshot(session: u64, label: &str) -> porthmos_core::transfer::TransferSnapshot {
+    let mut queue = TransferQueue::new();
+    let id = queue.enqueue(
+        session,
+        Direction::Upload,
+        PathBuf::from(format!("/local/{label}")),
+        format!("/remote/{label}"),
+        label.to_string(),
+        100,
+        None,
+    );
+    let mut job = queue.get_mut(id).unwrap();
+    job.status = JobStatus::InProgress;
+    job.transferred_bytes = 36;
+    drop(job);
+    porthmos_core::transfer::TransferSnapshot::of(&queue, &[])
+}
+
+#[test]
+fn the_transfer_line_appears_under_the_info_line_while_a_row_runs() {
+    let (mut app, _) = listed_app(vec![deploy_script()]);
+    app.session_names.insert(1, "prod-web".to_string());
+    app.apply_core_event(Event::TransfersChanged(running_snapshot(1, "dist")));
+
+    let terminal = render_app(&app, 120, 24);
+
+    let line = row_symbols(&terminal, 21);
+    assert!(line.contains("\u{2191} dist  \u{2192} prod-web"), "{line:?}");
+    assert!(line.contains("36%"), "{line:?}");
+}
+
+#[test]
+fn the_panels_grow_back_when_nothing_runs() {
+    let (mut app, _) = listed_app(vec![deploy_script()]);
+    let with_line = {
+        app.apply_core_event(Event::TransfersChanged(running_snapshot(1, "dist")));
+        render_app(&app, 120, 24)
+    };
+    app.apply_core_event(Event::TransfersChanged(Default::default()));
+    let without_line = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&with_line, 19).contains("\u{2500}") && row_symbols(&with_line, 18).contains("item"));
+    assert!(row_symbols(&without_line, 20).contains("\u{2500}") && row_symbols(&without_line, 19).contains("item"));
+    assert_eq!(row_symbols(&without_line, 21).trim(), "");
+}
+
+#[test]
+fn progress_no_longer_replaces_the_hint_bar() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::TransfersChanged(running_snapshot(1, "dist")));
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(bottom_row(&terminal).contains("F1 help"), "{:?}", bottom_row(&terminal));
+}
+
+#[test]
+fn the_line_uses_the_session_name_from_the_session_names_map() {
+    let (mut app, _) = themed_app();
+    app.session_names.insert(1, "nas".to_string());
+    app.apply_core_event(Event::TransfersChanged(running_snapshot(1, "dist")));
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "\u{2192} nas").is_some());
+}
+
+#[test]
+fn the_files_screen_never_panics_at_any_size_with_a_running_transfer() {
+    let (mut app, _) = connected_app();
+    app.apply_core_event(Event::TransfersChanged(running_snapshot(1, "dist")));
+
+    for width in 0..=130 {
+        for height in 0..=14 {
+            let _ = render_app(&app, width, height);
+        }
+    }
+}
+
+fn transfer_rows_snapshot() -> porthmos_core::transfer::TransferSnapshot {
+    let mut queue = TransferQueue::new();
+    for (name, status) in [
+        ("running.bin", JobStatus::InProgress),
+        ("waiting.bin", JobStatus::Queued),
+        ("broken.log", JobStatus::Failed("permission denied".to_string())),
+    ] {
+        let id = queue.enqueue(
+            1,
+            Direction::Download,
+            PathBuf::from(format!("/local/{name}")),
+            format!("/remote/{name}"),
+            name.to_string(),
+            100,
+            None,
+        );
+        let mut job = queue.get_mut(id).unwrap();
+        job.attempts = 3;
+        job.status = status;
+    }
+    porthmos_core::transfer::TransferSnapshot::of(&queue, &[])
+}
+
+fn transfers_app() -> App {
+    let (mut app, _) = themed_app();
+    app.session_names.insert(1, "prod".to_string());
+    app.apply_core_event(Event::TransfersChanged(transfer_rows_snapshot()));
+    app.screen = Screen::Transfers;
+    app
+}
+
+#[test]
+fn the_transfers_screen_shows_the_summary_in_the_top_bar() {
+    let app = transfers_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    let top = row_symbols(&terminal, 0);
+    assert!(top.contains("porthmos / transfers"), "{top:?}");
+    assert!(top.trim_end().ends_with("1 active \u{b7} 1 queued \u{b7} 1 failed"), "{top:?}");
+}
+
+#[test]
+fn the_transfers_screen_shows_route_speed_and_eta_for_a_running_row() {
+    let mut app = transfers_app();
+    let base = std::time::Instant::now();
+    let rows = |done: u64| {
+        let mut snapshot = transfer_rows_snapshot();
+        snapshot.rows[0].bytes_done = done;
+        snapshot.rows
+    };
+    app.rates.observe(base, &rows(0));
+    app.rates.observe(base + std::time::Duration::from_secs(2), &rows(50));
+    let mut snapshot = transfer_rows_snapshot();
+    snapshot.rows[0].bytes_done = 50;
+    app.transfers = snapshot;
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "prod \u{2192} local").is_some());
+    assert!(find_text(&terminal, " B/s").is_some());
+    assert!(find_text(&terminal, "0:0").is_some());
+}
+
+#[test]
+fn a_failed_row_shows_its_detail_area_with_the_recorded_time() {
+    let mut app = transfers_app();
+    app.transfers_cursor = 2;
+
+    let terminal = render_app(&app, 120, 24);
+
+    let detail = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(detail.contains("broken.log  failed after 3 attempts"), "{detail}");
+    assert!(detail.contains("check the file's permissions"), "{detail}");
+}
+
+#[test]
+fn the_failed_time_comes_from_the_injected_clock() {
+    let mut app = transfers_app()
+        .with_clock(crate::clock::Clock::fixed(chrono::Local.with_ymd_and_hms(2026, 10, 21, 14, 7, 0).unwrap()));
+    app.failed_at.clear();
+    app.apply_core_event(Event::TransfersChanged(transfer_rows_snapshot()));
+    app.transfers_cursor = 2;
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "attempts \u{b7} 14:07").is_some());
+}
+
+#[test]
+fn the_hint_bar_lists_retry_cancel_and_clear_done_on_the_transfers_screen() {
+    let app = transfers_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(
+        bottom_row(&terminal).contains("Enter retry   F8 cancel   Ctrl+R clear done"),
+        "{:?}",
+        bottom_row(&terminal)
+    );
+}
+
+#[test]
+fn the_transfers_screen_never_panics_at_any_size() {
+    let app = transfers_app();
+
+    for width in 0..=130 {
+        for height in 0..=14 {
+            let _ = render_app(&app, width, height);
+        }
+    }
 }

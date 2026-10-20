@@ -109,9 +109,16 @@ fn connections_history_and_sync_list_their_own_actions() {
 }
 
 #[test]
-fn transfers_and_search_have_only_the_pinned_help_and_back() {
+fn search_has_only_the_pinned_help_and_back() {
     let bindings = KeyBindings::defaults();
 
-    assert!(hints_for(Screen::Transfers, &bindings).entries.is_empty());
     assert!(hints_for(Screen::Search, &bindings).entries.is_empty());
+}
+
+#[test]
+fn transfers_list_retry_cancel_and_clear_done() {
+    assert_eq!(
+        keys_and_labels(&hints_for(Screen::Transfers, &KeyBindings::defaults())),
+        vec![pair("Enter", "retry"), pair("F8", "cancel"), pair("Ctrl+R", "clear done")]
+    );
 }

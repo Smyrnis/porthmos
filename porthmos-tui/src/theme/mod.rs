@@ -199,6 +199,14 @@ impl Theme {
         }
     }
 
+    pub fn ok_dim_text(&self) -> Style {
+        Style::default().fg(self.ok_dim)
+    }
+
+    pub fn line_strong_text(&self) -> Style {
+        Style::default().fg(self.line_strong)
+    }
+
     pub fn directory_name(&self) -> Style {
         Style::default().fg(self.fg_bright).add_modifier(Modifier::BOLD)
     }

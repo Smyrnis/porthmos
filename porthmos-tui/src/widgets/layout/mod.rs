@@ -46,6 +46,7 @@ pub struct FilesLayout {
     pub divider: Option<Rect>,
     pub rule: Rect,
     pub info: Rect,
+    pub transfer: Rect,
 }
 
 pub const TWO_PANELS_MIN_BODY_WIDTH: u16 = 96;
@@ -65,17 +66,19 @@ pub fn files_mode(body_width: u16) -> FilesMode {
     }
 }
 
-pub fn files_layout(body: Rect, mode: FilesMode) -> FilesLayout {
-    let info_height = body.height.min(1);
-    let rule_height = (body.height - info_height).min(1);
-    let panels_height = body.height - info_height - rule_height;
+pub fn files_layout(body: Rect, mode: FilesMode, transfer_line: bool) -> FilesLayout {
+    let transfer_height = if transfer_line { body.height.min(1) } else { 0 };
+    let info_height = (body.height - transfer_height).min(1);
+    let rule_height = (body.height - transfer_height - info_height).min(1);
+    let panels_height = body.height - transfer_height - info_height - rule_height;
 
-    let info = Rect::new(body.x, body.bottom() - info_height, body.width, info_height);
+    let transfer = Rect::new(body.x, body.bottom() - transfer_height, body.width, transfer_height);
+    let info = Rect::new(body.x, transfer.y - info_height, body.width, info_height);
     let rule = Rect::new(body.x, info.y - rule_height, body.width, rule_height);
 
     if matches!(mode, FilesMode::SinglePanel { .. }) {
         let panel = Rect::new(body.x, body.y, body.width, panels_height);
-        return FilesLayout { local: panel, remote: panel, divider: None, rule, info };
+        return FilesLayout { local: panel, remote: panel, divider: None, rule, info, transfer };
     }
 
     let divider_x = body.x + body.width / 2;
@@ -85,7 +88,7 @@ pub fn files_layout(body: Rect, mode: FilesMode) -> FilesLayout {
     let remote = Rect::new(remote_x, body.y, body.right() - remote_x, panels_height);
     let divider = (body.width >= 3).then(|| Rect::new(divider_x, body.y, 1, panels_height));
 
-    FilesLayout { local, remote, divider, rule, info }
+    FilesLayout { local, remote, divider, rule, info, transfer }
 }
 
 #[cfg(test)]

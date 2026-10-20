@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use porthmos_core::transfer::{ActiveJob, rows::percent_of};
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -15,6 +14,7 @@ use crate::widgets::{
     session_tabs::{TabView, tabs_line},
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
+    transfer_line::{line_data, render_transfer_line},
 };
 
 impl App {
@@ -133,6 +133,10 @@ impl App {
     }
 
     fn connection_status_line(&self, budget: usize) -> Line<'static> {
+        if self.screen == Screen::Transfers {
+            let summary = transfer_list::transfer_summary(self.transfer_rows(), self.rates.aggregate_speed());
+            return Line::styled(truncate_with_ellipsis(&summary, budget), self.theme.muted());
+        }
         let (text, style) = match &self.connection_status {
             ConnectionStatus::Connecting(name) => {
                 (format!("Connecting to {}\u{2026}", printable(name)), self.theme.muted())
@@ -148,7 +152,8 @@ impl App {
 
     fn render_files(&self, frame: &mut Frame, area: Rect) {
         let mode = layout::files_mode(area.width);
-        let layout = layout::files_layout(area, mode);
+        let line = line_data(&self.transfers.rows, &self.session_names, &self.rates);
+        let layout = layout::files_layout(area, mode, line.is_some());
         let (single, show_modified) = match mode {
             layout::FilesMode::TwoPanels => (false, true),
             layout::FilesMode::SinglePanel { show_modified } => (true, show_modified),
@@ -212,6 +217,9 @@ impl App {
             (false, None) => None,
         };
         render_info_line(frame, layout.info, focused, &now, theme);
+        if let Some(data) = &line {
+            render_transfer_line(frame, layout.transfer, data, theme);
+        }
     }
 
     fn remote_header(&self, session: &crate::sessions::Session) -> (String, String) {
@@ -252,14 +260,23 @@ impl App {
 
     fn render_transfers(&self, frame: &mut Frame, area: Rect) {
         let copy_key = self.key_bindings.key_for(Action::Copy).map(input::format_key_spec);
-        transfer_list::render_transfer_list(
-            frame,
-            area,
-            self.transfer_rows(),
-            self.transfers_cursor,
-            copy_key.as_deref(),
-            &self.theme,
-        );
+        let rows = self.transfer_rows();
+        let routes: Vec<String> = rows.iter().map(|row| self.route_of(row)).collect();
+        let speeds: Vec<Option<u64>> = rows.iter().map(|row| self.rates.speed(row.kind)).collect();
+        let etas: Vec<Option<u64>> = rows.iter().map(|row| self.rates.eta_seconds(row)).collect();
+        let cursor = self.transfers_cursor.min(rows.len().saturating_sub(1));
+        let failed_time =
+            rows.get(cursor).and_then(|row| self.failed_time_of(row.kind)).map(|time| time.format("%H:%M").to_string());
+        let view = transfer_list::TransferView {
+            rows,
+            cursor,
+            copy_key: copy_key.as_deref(),
+            routes: &routes,
+            speeds: &speeds,
+            etas: &etas,
+            failed_time: failed_time.as_deref(),
+        };
+        transfer_list::render_transfer_list(frame, area, &view, &self.theme);
     }
 
     fn render_history(&self, frame: &mut Frame, area: Rect) {
@@ -291,10 +308,7 @@ impl App {
     }
 
     fn transient_status(&self) -> Option<String> {
-        self.keyring_waiting_text()
-            .or_else(|| self.waiting_for_answer_text())
-            .or_else(|| self.planning_status_text())
-            .or_else(|| (!self.transfers.active.is_empty()).then(|| self.transfer_status_text(&self.transfers.active)))
+        self.keyring_waiting_text().or_else(|| self.waiting_for_answer_text()).or_else(|| self.planning_status_text())
     }
 
     fn keyring_waiting_text(&self) -> Option<String> {
@@ -318,55 +332,6 @@ impl App {
             [name] => Some(format!("Scanning {name}\u{2026}")),
             scans => Some(format!("Scanning {} copies\u{2026}", scans.len())),
         }
-    }
-
-    fn transfer_status_text(&self, active: &[ActiveJob]) -> String {
-        let verb = transfer_verb(active);
-        let queued = self.transfers.queued;
-        let suffix = if queued > 0 { format!(" ({queued} queued)") } else { String::new() };
-
-        if let [job] = active {
-            return match job.batch_id.and_then(|batch_id| self.transfers.batches.get(&batch_id)) {
-                Some(progress) => {
-                    let percent = percent_of(progress.transferred_bytes, progress.total_bytes);
-                    format!(
-                        "{verb} {}: {}/{} files, {percent}%{suffix}",
-                        job.display_name, progress.completed_files, progress.total_files
-                    )
-                }
-                None => format!("{verb} {}: {}%{suffix}", job.display_name, job.percent),
-            };
-        }
-
-        let count = active.len();
-        let shared_batch = active
-            .first()
-            .and_then(|first| first.batch_id)
-            .filter(|batch_id| active.iter().all(|job| job.batch_id == Some(*batch_id)));
-        match shared_batch.and_then(|batch_id| self.transfers.batches.get(&batch_id)) {
-            Some(progress) => {
-                let percent = percent_of(progress.transferred_bytes, progress.total_bytes);
-                format!(
-                    "{verb} {count} files: {}/{} files, {percent}%{suffix}",
-                    progress.completed_files, progress.total_files
-                )
-            }
-            None => {
-                let transferred: u64 = active.iter().map(|job| job.transferred_bytes).sum();
-                let total: u64 = active.iter().map(|job| job.total_bytes).sum();
-                format!("{verb} {count} files: {}%{suffix}", percent_of(transferred, total))
-            }
-        }
-    }
-}
-
-fn transfer_verb(active: &[ActiveJob]) -> &'static str {
-    if active.iter().all(|job| job.direction == Direction::Upload) {
-        "Uploading"
-    } else if active.iter().all(|job| job.direction == Direction::Download) {
-        "Downloading"
-    } else {
-        "Transferring"
     }
 }
 

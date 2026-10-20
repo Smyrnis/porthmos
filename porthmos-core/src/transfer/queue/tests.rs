@@ -520,6 +520,8 @@ fn reference_rows(queue: &TransferQueue) -> Vec<QueueRow> {
                 bytes_done: jobs.iter().map(|job| job.transferred_bytes).sum(),
                 bytes_total: jobs.iter().map(|job| job.total_bytes).sum(),
                 state,
+                session_id: None,
+                failure: None,
             }
         })
         .collect()
@@ -655,7 +657,20 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
             }
         }
         let rows = queue.rows();
-        assert_eq!(rows, reference_rows(&queue), "rows differ after step {step}");
+        let without_extras: Vec<QueueRow> =
+            rows.iter().map(|row| QueueRow { session_id: None, failure: None, ..row.clone() }).collect();
+        assert_eq!(without_extras, reference_rows(&queue), "rows differ after step {step}");
+        for row in &rows {
+            match row.state {
+                RowState::Failed | RowState::PartlyFailed(_) => {
+                    assert!(row.failure.is_some(), "a failed row has a failure after step {step}")
+                }
+                RowState::Done | RowState::Cancelled => {
+                    assert!(row.failure.is_none(), "a row without failed jobs has no failure after step {step}")
+                }
+                _ => {}
+            }
+        }
         queue.assert_consistent();
         let changes = queue.take_changes();
         let current = finished_map(&rows);
@@ -954,4 +969,191 @@ fn a_batch_that_still_has_jobs_keeps_its_unkept_times_flag() {
     queue.remove_jobs(&[a]);
 
     assert!(queue.has_unkept_times_flag(batch_id));
+}
+
+fn fail_job(queue: &mut TransferQueue, id: u64, message: &str, attempts: u32) {
+    let mut job = queue.get_mut(id).unwrap();
+    job.attempts = attempts;
+    job.status = JobStatus::Failed(message.to_string());
+}
+
+#[test]
+fn a_single_row_reports_the_session_of_its_job() {
+    let mut queue = TransferQueue::new();
+    enqueue_for(&mut queue, 7, Direction::Upload, "a.txt");
+
+    assert_eq!(queue.rows()[0].session_id, Some(7));
+}
+
+#[test]
+fn a_batch_row_reports_the_session_of_its_files() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("folder".to_string());
+    queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    queue_with_a_batch_job(&mut queue, batch, "b", 10);
+
+    assert_eq!(queue.rows()[0].session_id, Some(1));
+}
+
+#[test]
+fn a_failed_job_sets_the_rows_failure_with_message_file_and_attempts() {
+    let mut queue = TransferQueue::new();
+    let id = enqueue_for(&mut queue, 1, Direction::Download, "access.log");
+
+    fail_job(&mut queue, id, "permission denied", 3);
+
+    let failure = queue.rows()[0].failure.clone().expect("a failure");
+    assert_eq!(
+        failure,
+        RowFailure { file: "access.log".to_string(), message: "permission denied".to_string(), attempts: 3 }
+    );
+}
+
+#[test]
+fn a_later_failure_replaces_the_earlier_one_in_a_batch() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("folder".to_string());
+    let first = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    let second = queue_with_a_batch_job(&mut queue, batch, "b", 10);
+
+    fail_job(&mut queue, second, "disk full", 1);
+    fail_job(&mut queue, first, "timed out", 2);
+
+    let failure = queue.rows()[0].failure.clone().unwrap();
+    assert_eq!((failure.file.as_str(), failure.message.as_str(), failure.attempts), ("a", "timed out", 2));
+}
+
+#[test]
+fn a_row_without_failures_has_no_failure() {
+    let mut queue = TransferQueue::new();
+    let id = enqueue_for(&mut queue, 1, Direction::Upload, "a.txt");
+    queue.get_mut(id).unwrap().status = JobStatus::Completed;
+
+    assert_eq!(queue.rows()[0].failure, None);
+}
+
+#[test]
+fn retrying_a_failed_row_clears_its_failure() {
+    let mut queue = TransferQueue::new();
+    let id = enqueue_for(&mut queue, 1, Direction::Upload, "a.txt");
+    fail_job(&mut queue, id, "boom", 3);
+
+    queue.retry_jobs(&[id]);
+
+    assert_eq!(queue.rows()[0].failure, None);
+}
+
+#[test]
+fn removing_the_failed_job_clears_the_failure() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("folder".to_string());
+    let good = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    let bad = queue_with_a_batch_job(&mut queue, batch, "b", 10);
+    queue.get_mut(good).unwrap().status = JobStatus::Completed;
+    fail_job(&mut queue, bad, "boom", 3);
+
+    queue.remove_jobs(&[bad]);
+
+    assert_eq!(queue.rows()[0].failure, None);
+}
+
+#[test]
+fn a_partly_failed_batch_keeps_the_failure_of_the_last_failed_file() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("folder".to_string());
+    let good = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    let bad = queue_with_a_batch_job(&mut queue, batch, "b", 10);
+    queue.get_mut(good).unwrap().status = JobStatus::Completed;
+    fail_job(&mut queue, bad, "no space left", 3);
+
+    let row = queue.rows().remove(0);
+
+    assert_eq!(row.state, RowState::PartlyFailed(1));
+    assert_eq!(row.failure.map(|failure| failure.file), Some("b".to_string()));
+}
+
+#[test]
+fn failure_bookkeeping_does_not_scan_the_jobs_of_a_row() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("big".to_string());
+    let ids: Vec<u64> =
+        (0..20_000).map(|index| queue_with_a_batch_job(&mut queue, batch, &format!("f{index}"), 1)).collect();
+
+    let started = Instant::now();
+    for id in &ids {
+        fail_job(&mut queue, *id, "boom", 1);
+    }
+    let rows = queue.rows();
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(3), "{:?}", started.elapsed());
+    assert_eq!(rows[0].state, RowState::Failed);
+}
+
+#[test]
+fn a_transient_failure_that_is_retried_never_replaces_another_jobs_failure() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("folder".to_string());
+    let permanent = queue_with_a_batch_job(&mut queue, batch, "secret.conf", 10);
+    let transient = queue_with_a_batch_job(&mut queue, batch, "big.iso", 10);
+    fail_job(&mut queue, permanent, "permission denied", 3);
+    {
+        let mut job = queue.get_mut(transient).unwrap();
+        job.status = JobStatus::InProgress;
+        job.attempts = 1;
+    }
+
+    let retried = queue.fail_or_retry(transient, "connection reset".to_string());
+
+    assert!(retried);
+    assert_eq!(queue.get(transient).unwrap().status, JobStatus::Queued);
+    let failure = queue.rows()[0].failure.clone().unwrap();
+    assert_eq!((failure.file.as_str(), failure.message.as_str()), ("secret.conf", "permission denied"));
+}
+
+#[test]
+fn giving_up_marks_the_job_failed_and_records_its_failure() {
+    let mut queue = TransferQueue::new();
+    let id = enqueue_for(&mut queue, 1, Direction::Upload, "a.txt");
+    {
+        let mut job = queue.get_mut(id).unwrap();
+        job.status = JobStatus::InProgress;
+        job.attempts = 3;
+    }
+
+    let retried = queue.fail_or_retry(id, "disk full".to_string());
+
+    assert!(!retried);
+    assert_eq!(queue.get(id).unwrap().status, JobStatus::Failed("disk full".to_string()));
+    assert_eq!(queue.rows()[0].failure.clone().map(|failure| failure.message), Some("disk full".to_string()));
+}
+
+#[test]
+fn a_retried_job_is_marked_to_resume_and_an_unknown_job_is_ignored() {
+    let mut queue = TransferQueue::new();
+    let id = enqueue_for(&mut queue, 1, Direction::Upload, "a.txt");
+    {
+        let mut job = queue.get_mut(id).unwrap();
+        job.status = JobStatus::InProgress;
+        job.attempts = 1;
+    }
+
+    assert!(queue.fail_or_retry(id, "reset".to_string()));
+    assert!(queue.get(id).unwrap().resume);
+    assert!(!queue.fail_or_retry(999, "x".to_string()));
+}
+
+#[test]
+fn a_retried_failure_never_flips_a_row_to_finished() {
+    let mut queue = TransferQueue::new();
+    let id = enqueue_for(&mut queue, 1, Direction::Upload, "a.txt");
+    {
+        let mut job = queue.get_mut(id).unwrap();
+        job.status = JobStatus::InProgress;
+        job.attempts = 1;
+    }
+    queue.take_changes();
+
+    queue.fail_or_retry(id, "reset".to_string());
+
+    assert!(queue.take_changes().is_empty());
 }

@@ -29,6 +29,15 @@ pub struct QueueRow {
     pub bytes_done: u64,
     pub bytes_total: u64,
     pub state: RowState,
+    pub session_id: Option<u64>,
+    pub failure: Option<RowFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowFailure {
+    pub file: String,
+    pub message: String,
+    pub attempts: u32,
 }
 
 impl QueueRow {
@@ -68,6 +77,8 @@ fn scan_row(scan: &ScanInfo) -> QueueRow {
         bytes_done: 0,
         bytes_total: 0,
         state: scan.state,
+        session_id: None,
+        failure: None,
     }
 }
 

@@ -24,6 +24,8 @@ const CONNECTIONS: &[(Action, &str)] = &[
     (Action::Delete, "disconnect"),
 ];
 const HISTORY: &[(Action, &str)] = &[(Action::Open, "details"), (Action::Delete, "clear")];
+const TRANSFERS: &[(Action, &str)] =
+    &[(Action::Open, "retry"), (Action::Delete, "cancel"), (Action::Refresh, "clear done")];
 const SYNC: &[(Action, &str)] = &[(Action::Open, "run"), (Action::ToggleSelect, "tick")];
 
 fn entries_of(screen: Screen) -> &'static [(Action, &'static str)] {
@@ -32,7 +34,8 @@ fn entries_of(screen: Screen) -> &'static [(Action, &'static str)] {
         Screen::Connections => CONNECTIONS,
         Screen::History => HISTORY,
         Screen::Sync => SYNC,
-        Screen::Transfers | Screen::Search => &[],
+        Screen::Transfers => TRANSFERS,
+        Screen::Search => &[],
     }
 }
 

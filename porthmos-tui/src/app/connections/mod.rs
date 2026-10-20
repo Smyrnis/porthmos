@@ -203,6 +203,7 @@ impl App {
 
     pub(super) fn apply_connected(&mut self, session: u64, name: String, shell_available: bool) {
         self.connection_status = ConnectionStatus::Disconnected;
+        self.session_names.insert(session, name.clone());
         if self.sessions.activate(session) {
             return;
         }

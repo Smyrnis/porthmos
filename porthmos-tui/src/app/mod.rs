@@ -1,10 +1,11 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
+use chrono::{DateTime, Local};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
@@ -15,7 +16,7 @@ use porthmos_core::{
     transfer::{
         Direction, TransferSnapshot,
         conflicts::{ConflictInfo, Resolution},
-        rows::{QueueRow, RowKind},
+        rows::{QueueRow, RowKind, RowState},
     },
 };
 use ratatui::{Frame, layout::Rect, widgets::Paragraph};
@@ -24,6 +25,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::{
     clock::Clock,
     input::{self, Action},
+    rate::RateTracker,
     sessions::Sessions,
     terminal::{self, Backend},
     theme::Theme,
@@ -147,6 +149,10 @@ pub struct App {
     bookmarks: Vec<Bookmark>,
     theme: Theme,
     clock: Clock,
+    session_names: HashMap<u64, String>,
+    rates: RateTracker,
+    rate_observed_at: Instant,
+    failed_at: HashMap<RowKind, DateTime<Local>>,
     core: CoreHandle,
 }
 
@@ -183,6 +189,10 @@ impl App {
             bookmarks: Vec::new(),
             theme: Theme::default(),
             clock: Clock::default(),
+            session_names: HashMap::new(),
+            rates: RateTracker::default(),
+            rate_observed_at: Instant::now(),
+            failed_at: HashMap::new(),
             core,
         };
         app.core.send(Command::List { location: Location::Local, path: Some(local_path) });
@@ -242,6 +252,9 @@ impl App {
                 }
                 _ = sleep_until_or_pending(self.notifications.next_wake()) => {
                     self.notifications.expire(Instant::now());
+                }
+                _ = sleep_until_or_pending(self.next_rate_wake()) => {
+                    self.tick_rates(Instant::now());
                 }
             }
         }

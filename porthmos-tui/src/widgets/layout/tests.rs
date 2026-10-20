@@ -61,7 +61,7 @@ fn split_frame_keeps_every_rectangle_inside_the_area() {
 
 #[test]
 fn files_layout_puts_the_info_line_last_and_the_rule_above_it() {
-    let layout = files_layout(Rect::new(2, 2, 96, 8), FilesMode::TwoPanels);
+    let layout = files_layout(Rect::new(2, 2, 96, 8), FilesMode::TwoPanels, false);
 
     assert_eq!((layout.info.y, layout.info.height, layout.info.x, layout.info.width), (9, 1, 2, 96));
     assert_eq!((layout.rule.y, layout.rule.height, layout.rule.x, layout.rule.width), (8, 1, 2, 96));
@@ -71,7 +71,7 @@ fn files_layout_puts_the_info_line_last_and_the_rule_above_it() {
 
 #[test]
 fn two_panels_leave_a_gutter_of_two_cells_each_side_of_the_divider() {
-    let layout = files_layout(Rect::new(0, 0, 96, 8), FilesMode::TwoPanels);
+    let layout = files_layout(Rect::new(0, 0, 96, 8), FilesMode::TwoPanels, false);
 
     let divider = layout.divider.expect("two panels have a divider");
     assert_eq!((divider.x, divider.width, divider.height), (48, 1, 6));
@@ -85,7 +85,7 @@ fn no_rectangle_leaves_the_body_for_any_size() {
     for width in (0..=12).chain([96, 97]) {
         for height in 0..=8 {
             let body = Rect::new(3, 2, width, height);
-            let layout = files_layout(body, files_mode(width));
+            let layout = files_layout(body, files_mode(width), false);
             let rects = [layout.local, layout.remote, layout.rule, layout.info].into_iter().chain(layout.divider);
             for rect in rects {
                 assert!(
@@ -114,10 +114,43 @@ fn files_mode_switches_at_96_and_56_body_columns() {
 fn single_mode_uses_the_whole_panel_area_and_no_divider() {
     let mode = FilesMode::SinglePanel { show_modified: true };
 
-    let layout = files_layout(Rect::new(2, 2, 80, 8), mode);
+    let layout = files_layout(Rect::new(2, 2, 80, 8), mode, false);
 
     assert_eq!(layout.divider, None);
     assert_eq!(layout.local, Rect::new(2, 2, 80, 6));
     assert_eq!(layout.remote, layout.local);
     assert_eq!((layout.rule.y, layout.info.y), (8, 9));
+}
+
+#[test]
+fn files_layout_reserves_a_row_for_the_transfer_line_only_when_asked() {
+    let body = Rect::new(2, 2, 96, 8);
+
+    let without = files_layout(body, FilesMode::TwoPanels, false);
+    let with = files_layout(body, FilesMode::TwoPanels, true);
+
+    assert_eq!(without.transfer.height, 0);
+    assert_eq!((with.transfer.y, with.transfer.height, with.transfer.width), (9, 1, 96));
+    assert_eq!((with.info.y, with.rule.y, with.local.height), (8, 7, 5));
+    assert_eq!((without.info.y, without.rule.y, without.local.height), (9, 8, 6));
+}
+
+#[test]
+fn the_transfer_line_never_leaves_the_body() {
+    for width in [0, 5, 96] {
+        for height in 0..=8 {
+            let body = Rect::new(3, 2, width, height);
+            let layout = files_layout(body, files_mode(width), true);
+            let rects = [layout.local, layout.remote, layout.rule, layout.info, layout.transfer];
+            for rect in rects {
+                assert!(
+                    rect.x >= body.x
+                        && rect.y >= body.y
+                        && rect.right() <= body.right()
+                        && rect.bottom() <= body.bottom(),
+                    "{width}x{height}: {rect:?}"
+                );
+            }
+        }
+    }
 }

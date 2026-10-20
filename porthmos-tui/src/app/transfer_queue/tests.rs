@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use porthmos_core::transfer::{
     JobStatus, TransferQueue,
@@ -193,6 +196,191 @@ fn the_transfers_screen_renders_its_rows() {
     terminal.draw(|frame| test.app.render(frame)).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
-    assert!(content.contains("Transfers (1)"));
     assert!(content.contains("report.pdf"));
+}
+
+fn job_for(queue: &mut TransferQueue, session: u64, direction: Direction, name: &str, status: JobStatus) -> u64 {
+    let id = queue.enqueue(
+        session,
+        direction,
+        PathBuf::from(format!("/local/{name}")),
+        format!("/remote/{name}"),
+        name.to_string(),
+        10,
+        None,
+    );
+    queue.get_mut(id).unwrap().status = status;
+    id
+}
+
+fn first_row(test: &TestApp) -> QueueRow {
+    test.app.transfer_rows()[0].clone()
+}
+
+fn fixed(hour: u32, minute: u32) -> crate::clock::Clock {
+    use chrono::TimeZone;
+    crate::clock::Clock::fixed(chrono::Local.with_ymd_and_hms(2026, 10, 21, hour, minute, 0).unwrap())
+}
+
+#[test]
+fn the_route_of_an_upload_names_the_session() {
+    let mut test = app_on_transfers_screen();
+    test.connect(5, "prod");
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 5, Direction::Upload, "a.txt", JobStatus::Queued);
+    show(&mut test, &queue, &[]);
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "local \u{2192} prod");
+}
+
+#[test]
+fn the_route_of_a_download_puts_the_session_first() {
+    let mut test = app_on_transfers_screen();
+    test.connect(5, "prod");
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 5, Direction::Download, "a.txt", JobStatus::Queued);
+    show(&mut test, &queue, &[]);
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "prod \u{2192} local");
+}
+
+#[test]
+fn a_route_survives_the_disconnect_of_its_session() {
+    let mut test = app_on_transfers_screen();
+    test.connect(5, "prod");
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 5, Direction::Upload, "a.txt", JobStatus::Completed);
+    show(&mut test, &queue, &[]);
+
+    test.app.sessions.remove(5);
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "local \u{2192} prod");
+}
+
+#[test]
+fn a_scan_row_has_no_route() {
+    let mut test = app_on_transfers_screen();
+    show(&mut test, &TransferQueue::new(), &[scan(1, "folder")]);
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "");
+}
+
+#[test]
+fn an_unknown_session_falls_back_to_remote() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 77, Direction::Upload, "a.txt", JobStatus::Queued);
+    show(&mut test, &queue, &[]);
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "local \u{2192} remote");
+}
+
+#[test]
+fn the_failed_time_is_the_clock_time_of_the_first_snapshot_showing_the_failure() {
+    let mut test = app_on_transfers_screen();
+    test.app.clock = fixed(14, 7);
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+
+    show(&mut test, &queue, &[]);
+
+    let kind = first_row(&test).kind;
+    assert_eq!(test.app.failed_time_of(kind).map(|time| time.format("%H:%M").to_string()), Some("14:07".to_string()));
+}
+
+#[test]
+fn a_later_snapshot_does_not_move_the_failed_time() {
+    let mut test = app_on_transfers_screen();
+    test.app.clock = fixed(14, 7);
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    show(&mut test, &queue, &[]);
+
+    test.app.clock = fixed(15, 30);
+    show(&mut test, &queue, &[]);
+
+    let kind = first_row(&test).kind;
+    assert_eq!(test.app.failed_time_of(kind).map(|time| time.format("%H:%M").to_string()), Some("14:07".to_string()));
+}
+
+#[test]
+fn retrying_a_failed_row_forgets_its_failed_time() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    let id = job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    show(&mut test, &queue, &[]);
+    let kind = first_row(&test).kind;
+
+    queue.retry_jobs(&[id]);
+    show(&mut test, &queue, &[]);
+
+    assert!(test.app.failed_time_of(kind).is_none());
+}
+
+#[test]
+fn a_cleared_row_is_forgotten() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    show(&mut test, &queue, &[]);
+    let kind = first_row(&test).kind;
+
+    show(&mut test, &TransferQueue::new(), &[]);
+
+    assert!(test.app.failed_time_of(kind).is_none());
+    assert!(test.app.failed_at.is_empty());
+}
+
+#[test]
+fn a_partly_failed_row_also_gets_a_failed_time() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("folder".to_string());
+    add_job(&mut queue, "a", Some(batch), JobStatus::Completed);
+    add_job(&mut queue, "b", Some(batch), JobStatus::Failed("boom".to_string()));
+
+    show(&mut test, &queue, &[]);
+
+    assert!(test.app.failed_time_of(first_row(&test).kind).is_some());
+}
+
+#[test]
+fn snapshots_feed_the_rate_tracker_without_panicking_on_empty_or_running_rows() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::InProgress);
+
+    show(&mut test, &queue, &[]);
+    show(&mut test, &TransferQueue::new(), &[]);
+
+    assert_eq!(test.app.rates.aggregate_speed(), None);
+}
+
+#[test]
+fn a_running_row_schedules_a_rate_wake_up_and_an_idle_queue_does_not() {
+    let mut test = app_on_transfers_screen();
+    assert!(test.app.next_rate_wake().is_none());
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::InProgress);
+
+    show(&mut test, &queue, &[]);
+
+    assert!(test.app.next_rate_wake().is_some());
+    show(&mut test, &TransferQueue::new(), &[]);
+    assert!(test.app.next_rate_wake().is_none());
+}
+
+#[test]
+fn a_rate_wake_up_re_observes_the_rows_so_a_stalled_transfer_reports_zero() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::InProgress);
+    show(&mut test, &queue, &[]);
+    let kind = first_row(&test).kind;
+    let base = Instant::now();
+    test.app.rates.observe(base, &test.app.transfers.rows.clone());
+
+    test.app.tick_rates(base + Duration::from_secs(3));
+
+    assert_eq!(test.app.rates.speed(kind), Some(0));
 }
