@@ -1127,3 +1127,104 @@ fn the_connections_screen_never_panics_at_any_size() {
         }
     }
 }
+
+fn plain_key(character: char) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char(character), crossterm::event::KeyModifiers::NONE)
+}
+
+fn right_part(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>, y: u16, from: usize) -> String {
+    row_symbols(terminal, y).chars().skip(from).collect()
+}
+
+#[test]
+fn at_120_columns_the_details_follow_the_cursor() {
+    let (mut app, _) = connections_app();
+
+    let first = render_app(&app, 120, 24);
+    app.connections.cursor = 1;
+    let second = render_app(&app, 120, 24);
+
+    assert!(right_part(&first, 2, 76).starts_with("prod sftp"), "{:?}", right_part(&first, 2, 76));
+    assert!(right_part(&second, 2, 76).starts_with("backup sftp"), "{:?}", right_part(&second, 2, 76));
+    assert!(right_part(&second, 4, 76).contains("host"), "{:?}", right_part(&second, 4, 76));
+    assert_eq!(second.backend().buffer()[(73, 5)].symbol(), "\u{2502}");
+}
+
+#[test]
+fn at_99_columns_the_details_are_hidden_and_the_list_is_full_width() {
+    let (app, _) = connections_app();
+
+    let terminal = render_app(&app, 99, 24);
+
+    assert!(!row_symbols(&terminal, 5).contains('\u{2502}'));
+    assert!(row_symbols(&terminal, 4).contains("deploy@prod.example.com"));
+    assert!(find_text(&terminal, "username").is_none());
+}
+
+#[test]
+fn space_opens_the_details_popup_below_100_columns_and_any_key_closes_it() {
+    let (mut app, _) = connections_app();
+    let _ = render_app(&app, 80, 24);
+
+    app.apply_action(Action::ToggleSelect);
+    let open = render_app(&app, 80, 24);
+
+    assert!(app.details_popup);
+    assert!(find_text(&open, "username").is_some());
+    app.apply_key(plain_key('x'));
+    assert!(!app.details_popup);
+    assert!(find_text(&render_app(&app, 80, 24), "username").is_none());
+}
+
+#[test]
+fn space_does_nothing_when_the_details_pane_is_visible() {
+    let (mut app, _) = connections_app();
+    let _ = render_app(&app, 120, 24);
+
+    app.apply_action(Action::ToggleSelect);
+
+    assert!(!app.details_popup);
+}
+
+#[test]
+fn typing_a_space_in_the_filter_line_never_opens_the_popup() {
+    let (mut app, _) = connections_app();
+    let _ = render_app(&app, 80, 24);
+    app.apply_action(Action::Filter);
+
+    app.apply_key(plain_key('p'));
+    app.apply_key(plain_key(' '));
+
+    assert!(!app.details_popup);
+    assert_eq!(crate::widgets::filter_line::FilterLine::filter(&app.connections), Some("p "));
+}
+
+#[test]
+fn the_popup_never_shows_a_secret() {
+    let (mut app, _) = connections_app();
+    let mut entry = saved_connection("secretive", "sftp");
+    entry.password = Some("hunter2".to_string());
+    entry.saved_password = true;
+    app.connections.replace(vec![entry]);
+    let _ = render_app(&app, 80, 24);
+    app.apply_action(Action::ToggleSelect);
+
+    let terminal = render_app(&app, 80, 24);
+
+    let everything = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(!everything.contains("hunter2"));
+    assert!(everything.contains("saved"));
+}
+
+#[test]
+fn a_group_row_shows_its_name_and_count_in_the_details() {
+    let (mut app, _) = connections_app();
+    let mut grouped = saved_connection("web", "sftp");
+    grouped.group = Some("production".to_string());
+    app.connections.replace(vec![grouped]);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(right_part(&terminal, 2, 76).starts_with("production"), "{:?}", right_part(&terminal, 2, 76));
+    assert!(right_part(&terminal, 2, 76).trim_end().ends_with("1 connection"));
+}

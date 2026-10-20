@@ -131,6 +131,7 @@ impl App {
                 None => {}
             },
             Action::Refresh => self.open_connections_screen(),
+            Action::ToggleSelect => self.open_details_popup(),
             _ => {}
         }
     }

@@ -7,7 +7,8 @@ use ratatui::{
 
 use super::{hints::hints_for, *};
 use crate::widgets::{
-    frame::{accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
+    connection_details,
+    frame::{accent_underline, clear_popup, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
     panel_view::PanelContext,
@@ -26,6 +27,7 @@ impl App {
             self.render_too_small(frame, area);
             return;
         };
+        self.body_width.set(areas.body.width);
         hairline(frame, areas.top_rule, &self.theme);
         hairline(frame, areas.bottom_rule, &self.theme);
 
@@ -52,6 +54,10 @@ impl App {
 
         if self.help_visible {
             help::render_help(frame, area, &self.key_bindings, &self.theme);
+        }
+
+        if self.details_popup && self.screen == Screen::Connections {
+            self.render_details_popup(frame, areas.body);
         }
     }
 
@@ -254,7 +260,41 @@ impl App {
             failures: &self.last_failure,
             protocols: self.core.protocols(),
         };
-        connections_list::render_connections_list(frame, area, &self.connections, &context, &self.theme);
+        let layout = layout::connections_layout(area);
+        connections_list::render_connections_list(frame, layout.list, &self.connections, &context, &self.theme);
+        if let Some(divider) = layout.divider {
+            vertical_rule(frame, divider, &self.theme);
+        }
+        if let Some(details) = layout.details {
+            self.render_details(frame, details);
+        }
+    }
+
+    fn render_details(&self, frame: &mut Frame, area: Rect) {
+        let selection = self.connections.selected();
+        let group_count = match self.connections.rows().get(self.connections.cursor) {
+            Some(porthmos_core::connections_tree::TreeRow::Group { count, .. }) => *count,
+            _ => 0,
+        };
+        let (connected, failure) = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
+                (self.sessions.by_name(&entry.name).is_some(), self.last_failure.get(&entry.name).map(String::as_str))
+            }
+            _ => (false, None),
+        };
+        let context = connection_details::DetailsContext { protocols: self.core.protocols(), connected, failure };
+        connection_details::render_connection_details(frame, area, selection, group_count, &context, &self.theme);
+    }
+
+    fn render_details_popup(&self, frame: &mut Frame, body: Rect) {
+        let width = body.width.min(60);
+        let height = body.height.min(16);
+        let popup = Rect::new(body.x + (body.width - width) / 2, body.y + (body.height - height) / 2, width, height);
+        clear_popup(frame, popup, &self.theme);
+        let block = ratatui::widgets::Block::bordered().border_style(self.theme.popup_border());
+        let inner = block.inner(popup);
+        frame.render_widget(block, popup);
+        self.render_details(frame, inner);
     }
 
     fn connections_summary(&self) -> String {

@@ -151,6 +151,8 @@ pub struct App {
     clock: Clock,
     session_names: HashMap<u64, String>,
     rates: RateTracker,
+    details_popup: bool,
+    body_width: std::cell::Cell<u16>,
     last_failure: HashMap<String, String>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
@@ -192,6 +194,8 @@ impl App {
             clock: Clock::default(),
             session_names: HashMap::new(),
             rates: RateTracker::default(),
+            details_popup: false,
+            body_width: std::cell::Cell::new(0),
             last_failure: HashMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
@@ -268,6 +272,8 @@ impl App {
     fn apply_key(&mut self, key: KeyEvent) {
         if self.help_visible {
             self.help_visible = false;
+        } else if self.details_popup {
+            self.details_popup = false;
         } else if self.dialog.is_some() {
             self.apply_dialog_key(key);
             self.after_dialog_key();

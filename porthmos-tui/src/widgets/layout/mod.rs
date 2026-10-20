@@ -91,5 +91,31 @@ pub fn files_layout(body: Rect, mode: FilesMode, transfer_line: bool) -> FilesLa
     FilesLayout { local, remote, divider, rule, info, transfer }
 }
 
+pub const DETAILS_WIDTH: u16 = 42;
+pub const DETAILS_MIN_BODY_WIDTH: u16 = 96;
+const DETAILS_GUTTER_BEFORE_DIVIDER: u16 = 2;
+const DETAILS_GUTTER_AFTER_DIVIDER: u16 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectionsLayout {
+    pub list: Rect,
+    pub divider: Option<Rect>,
+    pub details: Option<Rect>,
+}
+
+pub fn connections_layout(body: Rect) -> ConnectionsLayout {
+    if body.width < DETAILS_MIN_BODY_WIDTH {
+        return ConnectionsLayout { list: body, divider: None, details: None };
+    }
+    let details_x = body.right() - DETAILS_WIDTH;
+    let divider_x = details_x - DETAILS_GUTTER_AFTER_DIVIDER - 1;
+    let list_width = divider_x - DETAILS_GUTTER_BEFORE_DIVIDER - body.x;
+    ConnectionsLayout {
+        list: Rect::new(body.x, body.y, list_width, body.height),
+        divider: Some(Rect::new(divider_x, body.y, 1, body.height)),
+        details: Some(Rect::new(details_x, body.y, DETAILS_WIDTH, body.height)),
+    }
+}
+
 #[cfg(test)]
 mod tests;

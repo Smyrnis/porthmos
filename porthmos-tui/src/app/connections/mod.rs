@@ -51,6 +51,16 @@ impl App {
         self.core.send(Command::ListProfiles);
     }
 
+    pub(super) fn details_pane_visible(&self) -> bool {
+        layout::connections_layout(Rect::new(0, 0, self.body_width.get(), 1)).details.is_some()
+    }
+
+    pub(super) fn open_details_popup(&mut self) {
+        if !self.details_pane_visible() && self.connections.selected().is_some() {
+            self.details_popup = true;
+        }
+    }
+
     pub(super) fn open_add_connection_dialog(&mut self) {
         if self.screen != Screen::Connections {
             return;

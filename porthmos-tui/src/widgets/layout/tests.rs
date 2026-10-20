@@ -154,3 +154,41 @@ fn the_transfer_line_never_leaves_the_body() {
         }
     }
 }
+
+#[test]
+fn the_details_pane_needs_ninety_six_body_columns() {
+    assert!(connections_layout(Rect::new(0, 0, 96, 10)).details.is_some());
+    assert!(connections_layout(Rect::new(0, 0, 95, 10)).details.is_none());
+    assert_eq!(connections_layout(Rect::new(0, 0, 95, 10)).list, Rect::new(0, 0, 95, 10));
+}
+
+#[test]
+fn the_details_pane_is_forty_two_cells_wide_with_a_divider_and_gutters() {
+    let layout = connections_layout(Rect::new(2, 2, 116, 20));
+
+    let details = layout.details.unwrap();
+    let divider = layout.divider.unwrap();
+    assert_eq!((details.width, details.right()), (42, 118));
+    assert_eq!((divider.x, divider.width, divider.height), (details.x - 3, 1, 20));
+    assert_eq!(layout.list.right(), divider.x - 2);
+    assert_eq!(layout.list.x, 2);
+}
+
+#[test]
+fn the_connections_rectangles_stay_inside_the_body() {
+    for width in (0..=12).chain([95, 96, 97, 200]) {
+        for height in 0..=6 {
+            let body = Rect::new(3, 2, width, height);
+            let layout = connections_layout(body);
+            for rect in [Some(layout.list), layout.divider, layout.details].into_iter().flatten() {
+                assert!(
+                    rect.x >= body.x
+                        && rect.y >= body.y
+                        && rect.right() <= body.right()
+                        && rect.bottom() <= body.bottom(),
+                    "{width}x{height}: {rect:?}"
+                );
+            }
+        }
+    }
+}
