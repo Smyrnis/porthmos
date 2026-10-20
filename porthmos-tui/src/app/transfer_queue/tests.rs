@@ -187,7 +187,7 @@ fn the_transfers_screen_renders_its_rows() {
     let mut queue = TransferQueue::new();
     add_job(&mut queue, "report.pdf", None, JobStatus::Queued);
     show(&mut test, &queue, &[]);
-    let backend = TestBackend::new(100, 10);
+    let backend = TestBackend::new(100, 12);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal.draw(|frame| test.app.render(frame)).unwrap();

@@ -3,7 +3,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState},
+    widgets::{Block, Borders, List, ListItem, ListState},
 };
 
 use crate::theme::Theme;
@@ -75,7 +75,7 @@ pub fn render_list(frame: &mut Frame, area: Rect, dialog: &ListDialog, theme: &T
 
     let list = List::new(items).block(block).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
-    frame.render_widget(Clear, popup);
+    crate::widgets::frame::clear_popup(frame, popup, theme);
     frame.render_stateful_widget(list, popup, &mut state);
 }
 

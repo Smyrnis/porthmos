@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use crate::theme::Theme;
@@ -274,7 +274,7 @@ pub fn render_form(frame: &mut Frame, area: Rect, dialog: &FormDialog, theme: &T
 
     let paragraph = Paragraph::new(lines).block(block);
 
-    frame.render_widget(Clear, popup);
+    crate::widgets::frame::clear_popup(frame, popup, theme);
     frame.render_widget(paragraph, popup);
 }
 

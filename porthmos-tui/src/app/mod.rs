@@ -18,7 +18,7 @@ use porthmos_core::{
         rows::{QueueRow, RowKind},
     },
 };
-use ratatui::{Frame, layout::Rect, style::Style, widgets::Paragraph};
+use ratatui::{Frame, layout::Rect, widgets::Paragraph};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
@@ -50,6 +50,7 @@ mod connections;
 mod dialogs;
 mod edit;
 mod filter;
+mod hints;
 mod history;
 mod render;
 mod search;

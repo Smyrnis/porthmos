@@ -3,7 +3,7 @@ use porthmos_core::transfer::{conflicts::Resolution, plan::ExistingFile};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use super::content_width;
@@ -147,7 +147,7 @@ pub fn render_conflict(frame: &mut Frame, area: Rect, dialog: &ConflictDialog, t
     let [popup] = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center).areas(popup);
 
     let block = Block::default().title(title).borders(Borders::ALL).border_style(theme.popup_border());
-    frame.render_widget(Clear, popup);
+    crate::widgets::frame::clear_popup(frame, popup, theme);
     frame.render_widget(Paragraph::new(lines.join("\n")).block(block), popup);
 }
 

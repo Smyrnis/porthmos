@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use crate::theme::Theme;
@@ -85,7 +85,7 @@ pub fn render_confirm(frame: &mut Frame, area: Rect, dialog: &ConfirmDialog, the
 
     let paragraph = Paragraph::new(text).block(block).alignment(Alignment::Center);
 
-    frame.render_widget(Clear, popup);
+    crate::widgets::frame::clear_popup(frame, popup, theme);
     frame.render_widget(paragraph, popup);
 }
 

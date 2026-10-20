@@ -1032,7 +1032,7 @@ fn the_status_line_shows_a_waiting_keyring() {
     use ratatui::{Terminal, backend::TestBackend};
     let status = |test: &TestApp| {
         let mut terminal = Terminal::new(TestBackend::new(80, 1)).unwrap();
-        terminal.draw(|frame| test.app.render_status(frame, frame.area())).unwrap();
+        terminal.draw(|frame| test.app.render_hint_bar(frame, frame.area())).unwrap();
         terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect::<String>()
     };
     let mut test = app();

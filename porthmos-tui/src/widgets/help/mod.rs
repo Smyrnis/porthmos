@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    widgets::{Block, Borders, Clear, List, ListItem},
+    widgets::{Block, Borders, List, ListItem},
 };
 
 use crate::{
@@ -29,7 +29,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, bindings: &KeyBindings, theme:
 
     let list = List::new(items).block(block);
 
-    frame.render_widget(Clear, popup);
+    crate::widgets::frame::clear_popup(frame, popup, theme);
     frame.render_widget(list, popup);
 }
 

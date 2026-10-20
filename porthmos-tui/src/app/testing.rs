@@ -76,3 +76,7 @@ pub(crate) fn find_text(terminal: &Terminal<TestBackend>, needle: &str) -> Optio
 pub(crate) fn cell_fg(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratatui::style::Color {
     terminal.backend().buffer()[(x, y)].fg
 }
+
+pub(crate) fn cell_bg(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratatui::style::Color {
+    terminal.backend().buffer()[(x, y)].bg
+}

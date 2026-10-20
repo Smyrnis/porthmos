@@ -88,10 +88,6 @@ impl Sessions {
         self.items.is_empty()
     }
 
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &Session> {
         self.items.iter()
     }

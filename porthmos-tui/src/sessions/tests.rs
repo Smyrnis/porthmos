@@ -22,7 +22,7 @@ fn insert_makes_the_new_session_active() {
     let id = add(&mut sessions, "a");
 
     assert_eq!(sessions.active().unwrap().id, id);
-    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions.iter().count(), 1);
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn cycle_is_a_no_op_with_zero_or_one_sessions() {
 
     add(&mut sessions, "a");
     sessions.cycle();
-    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions.iter().count(), 1);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn removing_an_inactive_session_keeps_the_active_one_unchanged() {
     sessions.remove(a);
 
     assert_eq!(sessions.active().unwrap().id, b);
-    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions.iter().count(), 1);
 }
 
 #[test]
@@ -118,5 +118,5 @@ fn a_new_session_does_not_claim_to_keep_times_until_told() {
 
     sessions.set_preserves_times(99, true);
     assert!(sessions.by_id(7).unwrap().preserves_times);
-    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions.iter().count(), 1);
 }

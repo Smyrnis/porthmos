@@ -206,7 +206,6 @@ impl Theme {
         Style::default().fg(self.fg_focus).add_modifier(Modifier::BOLD)
     }
 
-    #[allow(dead_code)]
     pub fn muted(&self) -> Style {
         Style::default().fg(self.fg_muted)
     }
@@ -219,7 +218,6 @@ impl Theme {
         Style::default().fg(self.accent)
     }
 
-    #[allow(dead_code)]
     pub fn ok_text(&self) -> Style {
         Style::default().fg(self.ok)
     }
@@ -228,12 +226,10 @@ impl Theme {
         Style::default().fg(self.err)
     }
 
-    #[allow(dead_code)]
     pub fn warning_text(&self) -> Style {
         Style::default().fg(self.fg_bright)
     }
 
-    #[allow(dead_code)]
     pub fn hairline(&self) -> Style {
         Style::default().fg(self.line)
     }
@@ -252,7 +248,6 @@ impl Theme {
         Style::default().bg(self.row_focus_inactive)
     }
 
-    #[allow(dead_code)]
     pub fn toast_surface(&self) -> Style {
         Style::default().bg(self.surface)
     }

@@ -3,7 +3,7 @@ use ratatui::{
     Frame,
     layout::Rect,
     text::Line,
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use crate::theme::Theme;
@@ -76,7 +76,7 @@ pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog, the
     let mut text: Vec<Line> = dialog.message.lines().map(Line::from).collect();
     text.push(Line::from(""));
     text.push(Line::from("[Enter] OK"));
-    frame.render_widget(Clear, popup);
+    crate::widgets::frame::clear_popup(frame, popup, theme);
     frame.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: true }), popup);
 }
 

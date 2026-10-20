@@ -1,47 +1,145 @@
 use porthmos_core::transfer::{ActiveJob, rows::percent_of};
+use ratatui::{
+    style::Modifier,
+    text::{Line, Span},
+};
 
-use super::*;
+use super::{hints::hints_for, *};
+use crate::widgets::{
+    frame::{accent_underline, fill_background, hairline, hint_bar, top_bar},
+    history_view::printable,
+    session_tabs::{TabView, tabs_line},
+    text_fit::truncate_with_ellipsis,
+    toast::render_toast,
+};
 
 impl App {
     pub(super) fn render(&self, frame: &mut Frame) {
-        let (title_area, main_area, status_area) = layout::split_frame(frame.area());
+        let area = frame.area();
+        fill_background(frame, area, &self.theme);
 
-        self.render_title(frame, title_area);
+        let Some(areas) = layout::split_frame(area) else {
+            self.render_too_small(frame, area);
+            return;
+        };
+        hairline(frame, areas.top_rule, &self.theme);
+        hairline(frame, areas.bottom_rule, &self.theme);
+
+        self.render_top_bar(frame, areas.top_bar, areas.top_rule);
 
         match self.screen {
-            Screen::Files => self.render_files(frame, main_area),
-            Screen::Connections => self.render_connections(frame, main_area),
-            Screen::Search => self.render_search(frame, main_area),
-            Screen::Transfers => self.render_transfers(frame, main_area),
-            Screen::History => self.render_history(frame, main_area),
-            Screen::Sync => self.render_sync(frame, main_area),
+            Screen::Files => self.render_files(frame, areas.body),
+            Screen::Connections => self.render_connections(frame, areas.body),
+            Screen::Search => self.render_search(frame, areas.body),
+            Screen::Transfers => self.render_transfers(frame, areas.body),
+            Screen::History => self.render_history(frame, areas.body),
+            Screen::Sync => self.render_sync(frame, areas.body),
         }
 
-        self.render_status(frame, status_area);
+        self.render_hint_bar(frame, areas.hint_bar);
+
+        if let Some(notification) = self.notifications.current() {
+            render_toast(frame, area, notification.severity, &notification.message, &self.theme);
+        }
 
         if let Some(dialog) = &self.dialog {
-            dialog.render(frame, frame.area(), &self.theme);
+            dialog.render(frame, area, &self.theme);
         }
 
         if self.help_visible {
-            help::render_help(frame, frame.area(), &self.key_bindings, &self.theme);
+            help::render_help(frame, area, &self.key_bindings, &self.theme);
         }
     }
 
-    fn render_title(&self, frame: &mut Frame, area: Rect) {
-        let status_text = match &self.connection_status {
-            ConnectionStatus::Connecting(name) => format!("Connecting to {name}\u{2026}"),
-            ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
-                format!("Connection failed: {message}")
-            }
-            _ => match self.sessions.active() {
-                Some(session) => format!("{} \u{2014} SSH: Connected", session.name),
-                None => "Not connected".to_string(),
-            },
-        };
+    fn render_too_small(&self, frame: &mut Frame, area: Rect) {
+        const MESSAGE: &str = "terminal too small";
+        let width = area.width.min(MESSAGE.len() as u16);
+        let x = area.x + (area.width - width) / 2;
+        let y = area.y + area.height / 2;
+        if area.height == 0 {
+            return;
+        }
+        frame.render_widget(Paragraph::new(MESSAGE).style(self.theme.dim()), Rect::new(x, y, width, 1));
+    }
 
-        let text = format!("Porthmos{:>width$}", status_text, width = status_text.len() + 4);
-        frame.render_widget(Paragraph::new(text), area);
+    fn render_top_bar(&self, frame: &mut Frame, area: Rect, rule: Rect) {
+        const NAME: &str = "porthmos";
+        const GAP: u16 = 3;
+        const TABS_FLOOR: u16 = 16;
+        let theme = &self.theme;
+        let name = Span::styled(NAME, theme.muted().add_modifier(Modifier::BOLD));
+        let name_width = NAME.len() as u16;
+        let tabs = if self.screen == Screen::Files { self.tab_views() } else { Vec::new() };
+
+        let left_minimum = match self.screen {
+            Screen::Files if tabs.is_empty() => name_width,
+            Screen::Files => name_width + GAP + TABS_FLOOR.min(area.width.saturating_sub(name_width + GAP)),
+            _ => name_width + " / ".len() as u16 + self.screen_title().len() as u16,
+        };
+        let status = self.connection_status_line(usize::from(area.width.saturating_sub(left_minimum + GAP)));
+        let status_width = status.width() as u16;
+
+        let mut left = Line::from(name);
+        if self.screen == Screen::Files {
+            let reserved = name_width + GAP + if status_width > 0 { status_width + GAP } else { 0 };
+            let tabs = tabs_line(&tabs, area.width.saturating_sub(reserved), theme);
+            if let Some(columns) = tabs.active_columns.clone() {
+                let offset = (area.x - rule.x) + name_width + GAP;
+                accent_underline(frame, rule, offset + columns.start..offset + columns.end, theme);
+            }
+            if !tabs.line.spans.is_empty() {
+                left.spans.push(Span::raw(" ".repeat(usize::from(GAP))));
+                left.spans.extend(tabs.line.spans);
+            }
+        } else {
+            left.spans.push(Span::styled(" / ", theme.dim()));
+            left.spans.push(Span::styled(self.screen_title(), theme.bright()));
+        }
+        top_bar(frame, area, left, status);
+    }
+
+    fn screen_title(&self) -> &'static str {
+        match self.screen {
+            Screen::Files => "files",
+            Screen::Connections => "connections",
+            Screen::Search => "search",
+            Screen::Transfers => "transfers",
+            Screen::History => "history",
+            Screen::Sync => "sync",
+        }
+    }
+
+    fn tab_views(&self) -> Vec<TabView<'_>> {
+        let active_id = self.sessions.active_id();
+        self.sessions
+            .iter()
+            .enumerate()
+            .map(|(index, session)| TabView {
+                number: index + 1,
+                name: &session.name,
+                protocol: self
+                    .connections
+                    .entries()
+                    .iter()
+                    .find(|entry| entry.name == session.name)
+                    .map_or("", |entry| entry.protocol.as_str()),
+                active: Some(session.id) == active_id,
+            })
+            .collect()
+    }
+
+    fn connection_status_line(&self, budget: usize) -> Line<'static> {
+        let (text, style) = match &self.connection_status {
+            ConnectionStatus::Connecting(name) => {
+                (format!("Connecting to {}\u{2026}", printable(name)), self.theme.muted())
+            }
+            ConnectionStatus::Failed(message) if self.sessions.is_empty() => (
+                format!("Connection failed: {}", printable(message.lines().next().unwrap_or(""))),
+                self.theme.err_text(),
+            ),
+            _ => return Line::default(),
+        };
+        Line::styled(truncate_with_ellipsis(&text, budget), style)
     }
 
     fn render_files(&self, frame: &mut Frame, area: Rect) {
@@ -58,27 +156,14 @@ impl App {
 
         match self.sessions.active() {
             Some(session) => {
-                if self.sessions.len() > 1 {
-                    let (tabs_area, panel_area) = layout::split_remote_with_tabs(remote_area);
-                    self.render_session_tabs(frame, tabs_area);
-                    panel_view::render_panel(
-                        frame,
-                        panel_area,
-                        "REMOTE",
-                        self.active_panel == ActivePanel::Remote,
-                        &session.panel,
-                        &self.theme,
-                    );
-                } else {
-                    panel_view::render_panel(
-                        frame,
-                        remote_area,
-                        "REMOTE",
-                        self.active_panel == ActivePanel::Remote,
-                        &session.panel,
-                        &self.theme,
-                    );
-                }
+                panel_view::render_panel(
+                    frame,
+                    remote_area,
+                    "REMOTE",
+                    self.active_panel == ActivePanel::Remote,
+                    &session.panel,
+                    &self.theme,
+                );
             }
             None => {
                 let remote_title = match &self.connection_status {
@@ -96,19 +181,6 @@ impl App {
                 );
             }
         }
-    }
-
-    fn render_session_tabs(&self, frame: &mut Frame, area: Rect) {
-        let active_id = self.sessions.active_id();
-        let labels: Vec<String> = self
-            .sessions
-            .iter()
-            .map(|session| {
-                let marker = if Some(session.id) == active_id { '>' } else { ' ' };
-                format!("{marker}{}", session.name)
-            })
-            .collect();
-        frame.render_widget(Paragraph::new(labels.join("  ")), area);
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
@@ -158,28 +230,19 @@ impl App {
         }
     }
 
-    pub(super) fn render_status(&self, frame: &mut Frame, area: Rect) {
-        let (text, style) = match self.notifications.current() {
-            Some(notification) => {
-                (notification.message.clone(), notification_style(notification.severity, &self.theme))
-            }
-            None => match self
-                .keyring_waiting_text()
-                .or_else(|| self.waiting_for_answer_text())
-                .or_else(|| self.planning_status_text())
-            {
-                Some(text) => (text, Style::default()),
-                None => {
-                    if self.transfers.active.is_empty() {
-                        (build_hint_text(&self.key_bindings), Style::default())
-                    } else {
-                        (self.transfer_status_text(&self.transfers.active), Style::default())
-                    }
-                }
-            },
-        };
+    pub(super) fn render_hint_bar(&self, frame: &mut Frame, area: Rect) {
+        if let Some(text) = self.transient_status() {
+            frame.render_widget(Paragraph::new(printable(&text)).style(self.theme.muted()), area);
+        } else {
+            hint_bar(frame, area, &hints_for(self.screen, &self.key_bindings), &self.theme);
+        }
+    }
 
-        frame.render_widget(Paragraph::new(text).style(style), area);
+    fn transient_status(&self) -> Option<String> {
+        self.keyring_waiting_text()
+            .or_else(|| self.waiting_for_answer_text())
+            .or_else(|| self.planning_status_text())
+            .or_else(|| (!self.transfers.active.is_empty()).then(|| self.transfer_status_text(&self.transfers.active)))
     }
 
     fn keyring_waiting_text(&self) -> Option<String> {
@@ -253,26 +316,6 @@ fn transfer_verb(active: &[ActiveJob]) -> &'static str {
     } else {
         "Transferring"
     }
-}
-
-fn notification_style(severity: Severity, theme: &Theme) -> Style {
-    match severity {
-        Severity::Info => theme.text(),
-        Severity::Warning => theme.bright(),
-        Severity::Error => theme.err_text(),
-    }
-}
-
-fn build_hint_text(bindings: &input::KeyBindings) -> String {
-    let entries = [(Action::Help, "Help"), (Action::OpenConnections, "Connections"), (Action::Quit, "Quit")];
-
-    entries
-        .into_iter()
-        .filter_map(|(action, label)| {
-            bindings.key_for(action).map(|spec| format!("{} {label}", input::format_key_spec(spec)))
-        })
-        .collect::<Vec<_>>()
-        .join("  ")
 }
 
 #[cfg(test)]

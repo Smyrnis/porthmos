@@ -134,7 +134,7 @@ fn status_line(app: &App) -> String {
 
     let backend = TestBackend::new(80, 1);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| app.render_status(frame, frame.area())).unwrap();
+    terminal.draw(|frame| app.render_hint_bar(frame, frame.area())).unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
