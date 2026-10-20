@@ -1373,3 +1373,79 @@ fn the_form_screen_never_panics_at_any_size() {
         }
     }
 }
+
+#[test]
+fn the_connections_screen_shows_a_connection_in_progress() {
+    let (mut app, _) = connections_app();
+    app.apply_core_event(Event::Connecting { name: "prod".to_string() });
+    add_session(&mut app, 1, "backup");
+
+    let terminal = render_app(&app, 120, 24);
+
+    let top = row_symbols(&terminal, 0);
+    assert!(top.trim_end().ends_with("connecting to prod\u{2026} \u{b7} 1 connected"), "{top:?}");
+}
+
+#[test]
+fn a_failure_of_a_profile_that_no_longer_exists_is_forgotten_when_the_list_reloads() {
+    let (mut app, _) = connections_app();
+    app.last_failure.insert("gone".to_string(), "boom".to_string());
+    app.last_failure.insert("prod".to_string(), "boom".to_string());
+
+    app.apply_core_event(Event::Profiles(vec![saved_connection("prod", "sftp")]));
+
+    assert_eq!(app.last_failure.keys().map(String::as_str).collect::<Vec<_>>(), vec!["prod"]);
+    assert!(row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("1 error"));
+}
+
+#[test]
+fn the_details_popup_gives_way_to_a_dialog_and_never_swallows_its_keys() {
+    let (mut app, _) = connections_app();
+    let _ = render_app(&app, 80, 24);
+    app.apply_action(Action::ToggleSelect);
+    assert!(app.details_popup);
+    app.dialog = Some(Dialog::Confirm(ConfirmDialog::new("sure?")));
+
+    let terminal = render_app(&app, 80, 24);
+    assert!(find_text(&terminal, "sure?").is_some());
+    assert!(find_text(&terminal, "username").is_none());
+
+    app.apply_key(plain_key('n'));
+    assert!(app.dialog.is_none());
+    assert!(!app.details_popup);
+}
+
+#[test]
+fn leaving_the_connections_screen_clears_a_stale_details_popup_without_eating_a_key() {
+    let (mut app, _) = connections_app();
+    let _ = render_app(&app, 80, 24);
+    app.apply_action(Action::ToggleSelect);
+    app.screen = Screen::Files;
+
+    app.apply_key(plain_key('x'));
+
+    assert!(!app.details_popup);
+}
+
+#[test]
+fn the_popup_is_not_drawn_without_a_selection() {
+    let (mut app, _) = connections_app();
+    let _ = render_app(&app, 80, 24);
+    app.apply_action(Action::ToggleSelect);
+    app.connections.replace(Vec::new());
+
+    let terminal = render_app(&app, 80, 24);
+
+    assert!(!row_symbols(&terminal, 8).contains('\u{250c}') && !row_symbols(&terminal, 12).contains('\u{250c}'));
+}
+
+#[test]
+fn the_hint_bar_offers_space_details_only_when_the_pane_is_hidden() {
+    let (app, _) = connections_app();
+
+    let narrow = render_app(&app, 80, 24);
+    let wide = render_app(&app, 120, 24);
+
+    assert!(bottom_row(&narrow).contains("Space details"), "{:?}", bottom_row(&narrow));
+    assert!(!bottom_row(&wide).contains("Space details"), "{:?}", bottom_row(&wide));
+}

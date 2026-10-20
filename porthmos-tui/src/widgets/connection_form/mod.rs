@@ -13,7 +13,7 @@ use crate::{
         dialog::{FieldKind, FormDialog, FormField},
         frame::{accent_underline, hairline, vertical_rule},
         history_view::printable,
-        text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
+        text_fit::{take_width, truncate_with_ellipsis},
     },
 };
 
@@ -233,15 +233,16 @@ fn render_text_field(
     }
 
     let displayed = displayed_value(field);
+    let has_caret = matches!(field.kind, FieldKind::Text | FieldKind::Masked);
     let overflows = displayed.width() > value_width;
-    let shown = if overflows && focused {
-        truncate_start_with_ellipsis(&displayed, value_width)
+    let (shown, caret_column) = if overflows && focused && has_caret {
+        caret_window(&displayed, field.cursor, value_width)
     } else {
-        truncate_with_ellipsis(&displayed, value_width)
+        (truncate_with_ellipsis(&displayed, value_width), prefix_width(&displayed, field.cursor))
     };
     let value_style = if focused { theme.bright() } else { theme.text() };
     let value_area = Rect::new(value_x, y, value_width as u16, 1);
-    frame.render_widget(Paragraph::new(Span::styled(shown.clone(), value_style)), value_area);
+    frame.render_widget(Paragraph::new(Span::styled(shown, value_style)), value_area);
 
     let underline_style = if focused { theme.accent_text() } else { theme.line_strong_text() };
     let underline = "\u{2500}".repeat(value_width);
@@ -250,12 +251,28 @@ fn render_text_field(
         Rect::new(value_x, y + 1, value_width as u16, 1),
     );
 
-    let has_caret = matches!(field.kind, FieldKind::Text | FieldKind::Masked);
     if focused && has_caret {
-        let column = if overflows { shown.width() } else { prefix_width(&displayed, field.cursor) };
-        let x = value_x + column.min(value_width.saturating_sub(1)) as u16;
+        let x = value_x + caret_column.min(value_width.saturating_sub(1)) as u16;
         frame.set_cursor_position(Position::new(x, y));
     }
+}
+
+fn caret_window(text: &str, cursor: usize, width: usize) -> (String, usize) {
+    let characters: Vec<char> = text.chars().collect();
+    let cursor = cursor.min(characters.len());
+    let room = width.saturating_sub(1);
+    let mut start = cursor;
+    let mut used = 0;
+    while start > 0 {
+        let character_width = characters[start - 1].width().unwrap_or(0);
+        if used + character_width > room {
+            break;
+        }
+        used += character_width;
+        start -= 1;
+    }
+    let window: String = characters[start..].iter().collect();
+    (take_width(&window, width), used)
 }
 
 fn render_toggle(frame: &mut Frame, x: u16, y: u16, width: usize, field: &FormField, focused: bool, theme: &Theme) {

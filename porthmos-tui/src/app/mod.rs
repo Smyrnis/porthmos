@@ -270,6 +270,9 @@ impl App {
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
+        if self.details_popup && !self.details_popup_visible() {
+            self.details_popup = false;
+        }
         if self.help_visible {
             self.help_visible = false;
         } else if self.details_popup {
@@ -315,6 +318,7 @@ impl App {
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
             Event::LocationChanged { location } => self.relist(location),
             Event::Profiles(entries) => {
+                self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
                 self.connections.replace(entries);
                 match self.reveal.take() {
                     Some(Reveal::Ready(name)) => self.connections.reveal(&name),

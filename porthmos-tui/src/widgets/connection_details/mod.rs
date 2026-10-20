@@ -34,12 +34,16 @@ fn protocol_label<'a>(entry: &'a ConnectionEntry, protocols: &'a [ProtocolInfo])
     protocol_info(entry, protocols).map_or(entry.protocol.as_str(), |info| info.display_name)
 }
 
+fn choice_label(choices: &[porthmos_core::Choice], value: &str) -> String {
+    choices.iter().find(|choice| choice.value == value).map_or(value, |choice| choice.label).to_string()
+}
+
 pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec<(String, String)> {
     let info = protocol_info(entry, protocols);
     let mut lines: Vec<(String, String)> = Vec::new();
     let mut push = |key: &str, value: String| {
         if !value.is_empty() {
-            lines.push((key.to_lowercase(), printable(&value)));
+            lines.push((printable(&key.to_lowercase()), printable(&value)));
         }
     };
 
@@ -49,7 +53,7 @@ pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec
     }
     push(info.map_or("username", |info| info.form.username.label), entry.username.clone());
     if entry.saved_password {
-        push("password", SAVED.to_string());
+        push(info.map_or("password", |info| info.form.password.label), SAVED.to_string());
     }
 
     match info {
@@ -66,8 +70,13 @@ pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec
                             push(field.label, if value == "true" { "yes" } else { "no" }.to_string());
                         }
                     }
-                    OptionKind::Text { .. } | OptionKind::Choice { .. } => {
+                    OptionKind::Text { .. } => {
                         push(field.label, entry.option(field.key).unwrap_or_default().to_string());
+                    }
+                    OptionKind::Choice { choices, .. } => {
+                        if let Some(value) = entry.option(field.key) {
+                            push(field.label, choice_label(choices, value));
+                        }
                     }
                 }
             }
@@ -117,7 +126,7 @@ fn connection_header(
         None
     };
     let right_width = right.as_ref().map_or(0, |span| span.content.width());
-    let protocol = protocol_label(entry, context.protocols).to_string();
+    let protocol = printable(protocol_label(entry, context.protocols));
     let reserved = if right_width > 0 { right_width + 2 } else { 0 };
     let name_budget = width.saturating_sub(reserved);
     let name = truncate_with_ellipsis(&printable(&entry.name), name_budget);

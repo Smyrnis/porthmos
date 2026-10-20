@@ -165,7 +165,7 @@ fn secrets_are_never_listed_only_as_saved() {
 
     let lines = pairs(&entry);
 
-    assert!(lines.contains(&kv("password", "saved")));
+    assert!(lines.contains(&kv("secret", "saved")));
     assert!(lines.contains(&kv("session token", "saved")));
     let everything = format!("{lines:?}");
     assert!(!everything.contains("hunter2") && !everything.contains("TOPSECRET"), "{everything}");
@@ -360,4 +360,48 @@ fn tiny_areas_do_not_panic() {
             let _ = draw.selection(None, width, height);
         }
     }
+}
+
+#[test]
+fn a_saved_password_uses_the_protocols_own_label() {
+    let mut entry = s3_entry();
+    entry.saved_password = true;
+
+    assert!(pairs(&entry).contains(&kv("secret", "saved")));
+    assert!(!pairs(&entry).iter().any(|(key, _)| key == "password"));
+}
+
+#[test]
+fn a_choice_option_shows_its_label_not_its_raw_value() {
+    static CHOICES: [porthmos_core::Choice; 2] = [
+        porthmos_core::Choice { value: "explicit", label: "Explicit TLS" },
+        porthmos_core::Choice { value: "implicit", label: "Implicit TLS" },
+    ];
+    let mut form = ConnectionForm::standard(21);
+    form.options.push(OptionField {
+        key: "tls",
+        label: "TLS",
+        required: false,
+        kind: OptionKind::Choice { choices: &CHOICES, default: "explicit" },
+    });
+    let protocols = vec![ProtocolInfo { id: "ftp", display_name: "ftp", description: "", limits_note: None, form }];
+    let mut entry = sftp_entry();
+    entry.protocol = "ftp".to_string();
+    entry.options.insert("tls".to_string(), "implicit".to_string());
+
+    assert!(details_lines(&entry, &protocols).contains(&kv("tls", "Implicit TLS")));
+}
+
+#[test]
+fn unknown_protocol_ids_and_option_keys_are_sanitised() {
+    let mut entry = sftp_entry();
+    entry.protocol = "my\u{202e}stery".to_string();
+    entry.options.insert("fla\nvour".to_string(), "mint".to_string());
+
+    let lines = pairs(&entry);
+    let terminal = Draw::new().entry(&entry, 50, 8);
+
+    assert!(lines.iter().any(|(key, _)| key == "fla?vour"));
+    assert!(!screen(&terminal).contains('\u{202e}'));
+    assert!(row(&terminal, 0).contains("my?stery"));
 }

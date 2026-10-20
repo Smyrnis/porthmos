@@ -424,3 +424,13 @@ fn the_list_no_longer_uses_the_reversed_modifier_or_a_box() {
     assert!(!source.contains("REVERSED"));
     assert!(!source.contains("Borders"));
 }
+
+#[test]
+fn an_unknown_protocol_id_is_sanitised_in_the_row() {
+    let mut odd = entry("web");
+    odd.protocol = "my\u{202e}stery\n".to_string();
+
+    let text = screen(&Setup::new().draw(&view_of(vec![odd]), 80, 6));
+
+    assert!(!text.contains('\u{202e}') && text.contains("my?stery?"), "{text}");
+}

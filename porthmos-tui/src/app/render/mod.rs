@@ -11,7 +11,7 @@ use super::{
 };
 use crate::widgets::{
     connection_details, connection_form,
-    frame::{accent_underline, clear_popup, fill_background, hairline, hint_bar, top_bar, vertical_rule},
+    frame::{Hint, accent_underline, clear_popup, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
     panel_view::PanelContext,
@@ -63,7 +63,7 @@ impl App {
             help::render_help(frame, area, &self.key_bindings, &self.theme);
         }
 
-        if self.details_popup && self.screen == Screen::Connections {
+        if self.details_popup_visible() {
             self.render_details_popup(frame, areas.body);
         }
     }
@@ -337,6 +337,9 @@ impl App {
         let connected = self.sessions.iter().count();
         let errors = self.last_failure.len();
         let mut parts = Vec::new();
+        if let ConnectionStatus::Connecting(name) = &self.connection_status {
+            parts.push(format!("connecting to {}\u{2026}", printable(name)));
+        }
         if connected > 0 {
             parts.push(format!("{connected} connected"));
         }
@@ -393,7 +396,15 @@ impl App {
         } else if self.screen_form().is_some() {
             hint_bar(frame, area, &form_hints(), &self.theme);
         } else {
-            hint_bar(frame, area, &hints_for(self.screen, &self.key_bindings), &self.theme);
+            let mut hints = hints_for(self.screen, &self.key_bindings);
+            if self.screen == Screen::Connections && !self.details_pane_visible() {
+                let details = self.key_bindings.key_for(Action::ToggleSelect);
+                if let Some(spec) = details {
+                    let position = 1.min(hints.entries.len());
+                    hints.entries.insert(position, Hint { key: input::format_key_spec(spec), label: "details" });
+                }
+            }
+            hint_bar(frame, area, &hints, &self.theme);
         }
     }
 

@@ -427,3 +427,40 @@ fn a_saved_secret_kind_is_not_confused_with_a_masked_one() {
 
     assert_eq!(field.kind, FieldKind::SavedSecret);
 }
+
+fn long_value_form(cursor: usize) -> FormDialog {
+    let mut form = sample();
+    form.focused = 1;
+    form.fields[1].value = "0123456789".repeat(10);
+    form.fields[1].cursor = cursor;
+    form
+}
+
+#[test]
+fn the_caret_and_the_visible_text_follow_the_cursor_in_a_long_value() {
+    for cursor in [0, 1, 27, 50, 99, 100] {
+        let form = long_value_form(cursor);
+        let mut terminal = draw(&form, 80, 20);
+
+        let position = terminal.get_cursor_position().unwrap();
+        assert_eq!(position.y, 2, "cursor {cursor}");
+        assert!(position.x >= 36 + 15 && position.x < 80, "cursor {cursor}: {position:?}");
+        if cursor < 100 {
+            let expected = ((cursor % 10) as u8 + b'0') as char;
+            assert_eq!(
+                terminal.backend().buffer()[(position.x, position.y)].symbol(),
+                expected.to_string(),
+                "cursor {cursor}"
+            );
+        }
+    }
+}
+
+#[test]
+fn home_shows_the_start_of_a_long_value_and_end_shows_its_tail() {
+    let at_start = draw(&long_value_form(0), 80, 20);
+    let at_end = draw(&long_value_form(100), 80, 20);
+
+    assert!(row(&at_start, 2).contains("0123456789012"), "{:?}", row(&at_start, 2));
+    assert!(row(&at_end, 2).trim_end().ends_with("789"), "{:?}", row(&at_end, 2));
+}

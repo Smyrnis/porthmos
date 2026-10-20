@@ -55,6 +55,13 @@ impl App {
         layout::connections_layout(Rect::new(0, 0, self.body_width.get(), 1)).details.is_some()
     }
 
+    pub(super) fn details_popup_visible(&self) -> bool {
+        self.details_popup
+            && self.screen == Screen::Connections
+            && self.dialog.is_none()
+            && self.connections.selected().is_some()
+    }
+
     pub(super) fn open_details_popup(&mut self) {
         if !self.details_pane_visible() && self.connections.selected().is_some() {
             self.details_popup = true;

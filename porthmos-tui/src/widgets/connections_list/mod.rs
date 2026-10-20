@@ -201,7 +201,7 @@ fn connection_line(
     };
 
     let protocol = pad_right(
-        &truncate_with_ellipsis(protocol_label(entry, context.protocols), columns.protocol),
+        &truncate_with_ellipsis(&protocol_label(entry, context.protocols), columns.protocol),
         columns.protocol,
     );
     let fixed = MARKER_WIDTH + indent.width() + 2 + columns.name + COLUMN_GAP + columns.protocol + COLUMN_GAP;
@@ -238,8 +238,13 @@ fn host_text(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> String {
     text
 }
 
-fn protocol_label<'a>(entry: &'a ConnectionEntry, protocols: &'a [ProtocolInfo]) -> &'a str {
-    protocols.iter().find(|info| info.id == entry.protocol).map_or(entry.protocol.as_str(), |info| info.display_name)
+fn protocol_label(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> String {
+    printable(
+        protocols
+            .iter()
+            .find(|info| info.id == entry.protocol)
+            .map_or(entry.protocol.as_str(), |info| info.display_name),
+    )
 }
 
 #[cfg(test)]
