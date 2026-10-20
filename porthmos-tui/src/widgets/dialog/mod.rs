@@ -8,7 +8,7 @@ pub mod text_input;
 pub use confirm::ConfirmDialog;
 pub use conflict::ConflictDialog;
 use crossterm::event::KeyEvent;
-pub use form::{FieldKind, FormDialog, FormField, KEPT_SECRET};
+pub use form::{FieldKind, FormDialog, FormField, FormLayout, KEPT_SECRET};
 pub use list::ListDialog;
 use ratatui::{Frame, layout::Rect};
 pub use text_input::TextInputDialog;

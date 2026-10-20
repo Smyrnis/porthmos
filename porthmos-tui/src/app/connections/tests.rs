@@ -6,7 +6,10 @@ use porthmos_core::{Answer, ConnectionForm, OptionField, OptionKind, ProtocolInf
 use super::*;
 use crate::{
     app::testing::{TestApp, test_app, test_app_with_protocols},
-    widgets::{dialog::confirm::ConfirmFocus, filter_line::FilterLine},
+    widgets::{
+        dialog::{FormLayout, confirm::ConfirmFocus},
+        filter_line::FilterLine,
+    },
 };
 
 fn app() -> TestApp {
@@ -64,6 +67,10 @@ fn screen_with(protocols: Vec<ProtocolInfo>, entries: Vec<ConnectionEntry>) -> T
 
 fn on_connections_screen(entries: Vec<ConnectionEntry>) -> TestApp {
     screen_with(sample_protocols(), entries)
+}
+
+fn ctrl_s() -> KeyEvent {
+    KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)
 }
 
 fn set_field(test: &mut TestApp, key: &str, value: &str) {
@@ -316,7 +323,7 @@ fn add_connection_dialog_saves_a_new_profile_on_submit() {
     assert!(matches!(test.app.dialog, Some(Dialog::Form(_))));
     fill_form(&mut test, ["prod", "server.example.com", "2222", "deploy"]);
     set_field(&mut test, "password", "hunter2");
-    test.app.apply_dialog_key(key(KeyCode::Enter));
+    test.app.apply_dialog_key(ctrl_s());
 
     assert_eq!(
         test.sent(),
@@ -392,7 +399,7 @@ fn edit_connection_rejects_renaming_onto_an_existing_name() {
     let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
     test.app.apply_action(Action::Rename);
     set_field(&mut test, "name", "staging");
-    test.app.apply_dialog_key(key(KeyCode::Enter));
+    test.app.apply_dialog_key(ctrl_s());
 
     assert!(matches!(
         test.sent().as_slice(),
@@ -435,7 +442,7 @@ fn editing_a_connection_sends_its_identity_file_and_remote_folder_from_the_form(
 
     test.app.apply_action(Action::Rename);
     set_field(&mut test, "host", "new.example.com");
-    test.app.apply_dialog_key(key(KeyCode::Enter));
+    test.app.apply_dialog_key(ctrl_s());
 
     assert!(matches!(
         test.sent().as_slice(),
@@ -465,9 +472,10 @@ fn changing_the_protocol_choice_rebuilds_the_open_form() {
     let mut test = on_connections_screen(Vec::new());
     test.app.apply_action(Action::AddConnection);
 
-    test.app.apply_dialog_key(key(KeyCode::Right));
+    test.app.apply_dialog_key(key(KeyCode::Down));
 
     let Some(Dialog::Form(form)) = &test.app.dialog else { panic!("the form closed") };
+    assert_eq!(form.focused, 0);
     assert_eq!(form.value("protocol").as_deref(), Some("ftp"));
     assert_eq!(form.value("port").as_deref(), Some("21"));
     assert!(form.value("identity_file").is_none());
@@ -479,7 +487,7 @@ fn renaming_a_connection_to_a_new_name_deletes_the_old_profile() {
 
     test.app.apply_action(Action::Rename);
     set_field(&mut test, "name", "production");
-    test.app.apply_dialog_key(key(KeyCode::Enter));
+    test.app.apply_dialog_key(ctrl_s());
 
     assert!(matches!(
         test.sent().as_slice(),
@@ -1063,4 +1071,79 @@ fn the_password_prompt_shows_asterisks_never_the_password() {
 
     assert!(screen.contains("******"), "{screen}");
     assert!(!screen.contains("s3cret"), "{screen}");
+}
+
+fn open_form(test: &TestApp) -> &FormDialog {
+    let Some(Dialog::Form(form)) = &test.app.dialog else { panic!("no form is open") };
+    form
+}
+
+#[test]
+fn the_add_form_is_a_screen_form() {
+    let mut test = on_connections_screen(Vec::new());
+
+    test.app.apply_action(Action::AddConnection);
+
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+}
+
+#[test]
+fn the_edit_form_is_a_screen_form_and_starts_on_the_protocol_list() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+
+    test.app.apply_action(Action::Rename);
+
+    assert_eq!((open_form(&test).layout, open_form(&test).focused), (FormLayout::Screen, 0));
+}
+
+#[test]
+fn editing_still_lets_the_protocol_change_with_up_and_down() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.app.apply_action(Action::Rename);
+
+    test.app.apply_dialog_key(key(KeyCode::Down));
+
+    assert_eq!(open_form(&test).value("protocol").as_deref(), Some("ftp"));
+    assert_eq!(open_form(&test).focused, 0);
+}
+
+#[test]
+fn tab_then_arrow_keys_walk_the_connection_fields() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+
+    test.app.apply_dialog_key(key(KeyCode::Tab));
+    assert_eq!(open_form(&test).fields[open_form(&test).focused].key, "name");
+    test.app.apply_dialog_key(key(KeyCode::Down));
+    assert_eq!(open_form(&test).fields[open_form(&test).focused].key, "group");
+    test.app.apply_dialog_key(key(KeyCode::Up));
+    test.app.apply_dialog_key(key(KeyCode::Up));
+    assert_eq!(open_form(&test).focused, 0);
+}
+
+#[test]
+fn other_dialog_forms_stay_popups() {
+    let mut test = app();
+    ask_password(&mut test, 1);
+    assert_eq!(open_form(&test).layout, FormLayout::Popup);
+
+    let mut labels = on_connections_screen(vec![connection("web1", ConnectionSource::SshConfig)]);
+    labels.app.apply_action(Action::Rename);
+    assert_eq!(open_form(&labels).layout, FormLayout::Popup);
+}
+
+#[test]
+fn typing_in_the_name_field_never_triggers_actions() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    test.app.apply_dialog_key(key(KeyCode::Tab));
+
+    for character in ['q', 'n', 'e', 'd', '/', '?', '1'] {
+        test.app.apply_key(key(KeyCode::Char(character)));
+    }
+
+    assert_eq!(open_form(&test).value("name").as_deref(), Some("qned/?1"));
+    assert_eq!(test.app.screen, Screen::Connections);
+    assert!(!test.app.should_quit);
+    assert!(test.sent().is_empty());
 }

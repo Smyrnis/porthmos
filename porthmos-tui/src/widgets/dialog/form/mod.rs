@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
@@ -13,6 +13,13 @@ use crate::theme::Theme;
 
 pub const KEPT_SECRET: &str = "\u{0}kept";
 const SAVED_SECRET_DISPLAY: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}  (saved)";
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FormLayout {
+    #[default]
+    Popup,
+    Screen,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldKind {
@@ -72,6 +79,17 @@ impl FormField {
         matches!(self.kind, FieldKind::Choice { .. })
     }
 
+    pub fn is_toggle(&self) -> bool {
+        match &self.kind {
+            FieldKind::Choice { choices, .. } => {
+                choices.len() == 2
+                    && choices.iter().all(|(value, _)| value == "true" || value == "false")
+                    && choices[0].0 != choices[1].0
+            }
+            _ => false,
+        }
+    }
+
     fn shift_choice(&mut self, forward: bool) -> bool {
         let FieldKind::Choice { choices, selected } = &mut self.kind else {
             return false;
@@ -108,6 +126,7 @@ pub struct FormDialog {
     pub saved_secrets: Option<(String, Vec<String>)>,
     pub remembered: BTreeMap<String, String>,
     pub prefilled: BTreeMap<&'static str, String>,
+    pub layout: FormLayout,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -144,6 +163,7 @@ impl FormDialog {
             saved_secrets: None,
             remembered: BTreeMap::new(),
             prefilled: BTreeMap::new(),
+            layout: FormLayout::Popup,
         }
     }
 
@@ -152,6 +172,71 @@ impl FormDialog {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
+        if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return self.submit();
+        }
+        match self.layout {
+            FormLayout::Popup => self.handle_editing_key(key),
+            FormLayout::Screen => self.handle_screen_key(key),
+        }
+    }
+
+    fn submit(&self) -> FormOutcome {
+        FormOutcome::Submitted(self.fields.iter().map(|field| (field.key, field.submitted_value())).collect())
+    }
+
+    fn flip_focused_toggle(&mut self) -> FormOutcome {
+        let field = &mut self.fields[self.focused];
+        if field.shift_choice(true) { FormOutcome::ChoiceChanged { key: field.key } } else { FormOutcome::Pending }
+    }
+
+    fn handle_screen_key(&mut self, key: KeyEvent) -> FormOutcome {
+        let last = self.fields.len() - 1;
+        if self.focused == 0 {
+            return match key.code {
+                KeyCode::Esc => FormOutcome::Cancelled,
+                KeyCode::Up | KeyCode::Down => {
+                    let field = &mut self.fields[0];
+                    if field.shift_choice(key.code == KeyCode::Down) {
+                        FormOutcome::ChoiceChanged { key: field.key }
+                    } else {
+                        FormOutcome::Pending
+                    }
+                }
+                KeyCode::Right | KeyCode::Tab | KeyCode::Enter => {
+                    self.focused = 1.min(last);
+                    FormOutcome::Pending
+                }
+                KeyCode::BackTab => {
+                    self.focused = last;
+                    FormOutcome::Pending
+                }
+                _ => FormOutcome::Pending,
+            };
+        }
+        match key.code {
+            KeyCode::Tab => {
+                self.focused = if self.focused >= last { 0 } else { self.focused + 1 };
+                FormOutcome::Pending
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                self.focused -= 1;
+                FormOutcome::Pending
+            }
+            KeyCode::Down => {
+                self.focused = (self.focused + 1).min(last);
+                FormOutcome::Pending
+            }
+            KeyCode::Left if !self.fields[self.focused].is_choice() && self.fields[self.focused].cursor == 0 => {
+                self.focused = 0;
+                FormOutcome::Pending
+            }
+            KeyCode::Char(' ') if self.fields[self.focused].is_toggle() => self.flip_focused_toggle(),
+            _ => self.handle_editing_key(key),
+        }
+    }
+
+    fn handle_editing_key(&mut self, key: KeyEvent) -> FormOutcome {
         let on_choice = self.fields[self.focused].is_choice();
         let field = &mut self.fields[self.focused];
         if field.kind == FieldKind::SavedSecret {
@@ -173,9 +258,8 @@ impl FormDialog {
         }
         match key.code {
             KeyCode::Esc => FormOutcome::Cancelled,
-            KeyCode::Enter => {
-                FormOutcome::Submitted(self.fields.iter().map(|field| (field.key, field.submitted_value())).collect())
-            }
+            KeyCode::Enter => self.submit(),
+            KeyCode::Char(' ') if self.fields[self.focused].is_toggle() => self.flip_focused_toggle(),
             KeyCode::Left | KeyCode::Right if on_choice => {
                 let field = &mut self.fields[self.focused];
                 if field.shift_choice(key.code == KeyCode::Right) {
@@ -187,11 +271,11 @@ impl FormDialog {
             KeyCode::Home | KeyCode::End | KeyCode::Backspace | KeyCode::Delete | KeyCode::Char(_) if on_choice => {
                 FormOutcome::Pending
             }
-            KeyCode::Tab => {
+            KeyCode::Tab | KeyCode::Down => {
                 self.focused = (self.focused + 1) % self.fields.len();
                 FormOutcome::Pending
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab | KeyCode::Up => {
                 self.focused = (self.focused + self.fields.len() - 1) % self.fields.len();
                 FormOutcome::Pending
             }

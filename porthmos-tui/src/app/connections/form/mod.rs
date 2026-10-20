@@ -5,7 +5,7 @@ use porthmos_core::{
     profiles::{ConnectionEntry, ProfileDraft, SecretEdit},
 };
 
-use crate::widgets::dialog::{FieldKind, FormDialog, FormField, KEPT_SECRET};
+use crate::widgets::dialog::{FieldKind, FormDialog, FormField, FormLayout, KEPT_SECRET};
 
 const UNAVAILABLE_PORT: u16 = 22;
 const COMMON_KEYS: [&str; 9] =
@@ -147,6 +147,7 @@ pub(super) fn build(title: &str, protocols: &[ProtocolInfo], existing: Option<&C
         }
     };
     let mut dialog = FormDialog::new(title, fields);
+    dialog.layout = FormLayout::Screen;
     match existing {
         Some(entry) => {
             dialog.remembered = plain_options(protocols, entry);
