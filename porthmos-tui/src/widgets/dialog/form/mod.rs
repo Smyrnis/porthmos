@@ -4,10 +4,12 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
+
+use crate::theme::Theme;
 
 pub const KEPT_SECRET: &str = "\u{0}kept";
 const SAVED_SECRET_DISPLAY: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}  (saved)";
@@ -238,7 +240,7 @@ impl FormDialog {
     }
 }
 
-pub fn render_form(frame: &mut Frame, area: Rect, dialog: &FormDialog) {
+pub fn render_form(frame: &mut Frame, area: Rect, dialog: &FormDialog, theme: &Theme) {
     let field_display_lines: Vec<String> = dialog
         .fields
         .iter()
@@ -259,18 +261,15 @@ pub fn render_form(frame: &mut Frame, area: Rect, dialog: &FormDialog) {
 
     let popup = centered_popup(area, width, height);
 
-    let block = Block::default()
-        .title(dialog.title.as_str())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
 
     let mut lines: Vec<Line> =
         dialog.fields.iter().enumerate().map(|(i, field)| field_line(field, i == dialog.focused)).collect();
     if let Some(hint) = &dialog.hint {
-        lines.push(Line::styled(hint.as_str(), Style::default().add_modifier(Modifier::DIM)));
+        lines.push(Line::styled(hint.as_str(), theme.dim()));
     }
     if let Some(error) = &dialog.error {
-        lines.push(Line::styled(error.as_str(), Style::default().fg(Color::Red)));
+        lines.push(Line::styled(error.as_str(), theme.err_text()));
     }
 
     let paragraph = Paragraph::new(lines).block(block);

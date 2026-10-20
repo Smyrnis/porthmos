@@ -360,7 +360,9 @@ fn the_worst_case_details_fit_an_80_by_24_terminal() {
     let dialog = MessageDialog::new(details_title(&worst), details_text(&worst));
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
 
-    terminal.draw(|frame| crate::widgets::dialog::message::render_message(frame, frame.area(), &dialog)).unwrap();
+    terminal
+        .draw(|frame| crate::widgets::dialog::message::render_message(frame, frame.area(), &dialog, &Theme::default()))
+        .unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
     assert!(content.contains("and 240 more"), "{content}");

@@ -5,7 +5,10 @@ use ratatui::{Terminal, backend::TestBackend};
 use unicode_width::UnicodeWidthStr;
 
 use super::*;
-use crate::widgets::panel_view::{PanelView, Row};
+use crate::{
+    theme::{ColorDepth, ThemeSettings},
+    widgets::panel_view::{PanelView, Row},
+};
 
 fn panel_with_file(name: &str, size: u64) -> PanelView {
     PanelView::from_listing(
@@ -27,7 +30,7 @@ fn renders_entry_names() {
 
     let backend = TestBackend::new(30, 5);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, true)).unwrap();
+    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, true, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -107,7 +110,7 @@ fn wide_panel_shows_size_and_permissions_columns() {
 
     let backend = TestBackend::new(60, 5);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, true)).unwrap();
+    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, true, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -121,10 +124,30 @@ fn narrow_panel_hides_size_and_permissions_columns() {
 
     let backend = TestBackend::new(20, 5);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, true)).unwrap();
+    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, true, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
     assert!(content.contains("a.txt"));
     assert!(!content.contains("120.6K"));
+}
+
+fn highlighted_cell_style(is_active: bool, theme: &Theme) -> ratatui::style::Style {
+    let panel = panel_with_file("readme.txt", 7);
+    let mut terminal = Terminal::new(TestBackend::new(30, 5)).unwrap();
+    terminal.draw(|frame| render_file_list(frame, frame.area(), &panel, is_active, theme)).unwrap();
+    terminal.backend().buffer()[(4, 0)].style()
+}
+
+#[test]
+fn the_inactive_highlight_is_reversed_in_the_dim_colour_of_the_theme() {
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
+
+    let inactive = highlighted_cell_style(false, &theme);
+    let active = highlighted_cell_style(true, &theme);
+
+    assert!(inactive.add_modifier.contains(ratatui::style::Modifier::REVERSED));
+    assert_eq!(inactive.fg, Some(theme.fg_dim));
+    assert!(active.add_modifier.contains(ratatui::style::Modifier::REVERSED));
+    assert_ne!(active.fg, Some(theme.fg_dim));
 }

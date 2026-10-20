@@ -202,7 +202,7 @@ fn render_panel_draws_the_given_title() {
 
     terminal
         .draw(|frame| {
-            render_panel(frame, Rect::new(0, 0, 20, 5), "LOCAL", false, &panel);
+            render_panel(frame, Rect::new(0, 0, 20, 5), "LOCAL", false, &panel, &Theme::default());
         })
         .unwrap();
 
@@ -356,7 +356,9 @@ fn opening_another_folder_closes_the_filter_line() {
 
 fn rendered(panel: &PanelView) -> String {
     let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
-    terminal.draw(|frame| render_panel(frame, Rect::new(0, 0, 40, 8), "LOCAL", true, panel)).unwrap();
+    terminal
+        .draw(|frame| render_panel(frame, Rect::new(0, 0, 40, 8), "LOCAL", true, panel, &Theme::default()))
+        .unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
@@ -428,7 +430,9 @@ fn the_cursor_returns_to_its_file_after_nothing_matched() {
 
 fn rendered_at(panel: &PanelView, width: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
-    terminal.draw(|frame| render_panel(frame, Rect::new(0, 0, width, 8), "LOCAL", true, panel)).unwrap();
+    terminal
+        .draw(|frame| render_panel(frame, Rect::new(0, 0, width, 8), "LOCAL", true, panel, &Theme::default()))
+        .unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 

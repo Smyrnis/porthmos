@@ -8,7 +8,7 @@ fn renders_every_action_with_its_bound_key() {
     let bindings = KeyBindings::defaults();
     let backend = TestBackend::new(50, 25);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_help(frame, frame.area(), &bindings)).unwrap();
+    terminal.draw(|frame| render_help(frame, frame.area(), &bindings, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -21,7 +21,7 @@ fn lists_open_transfers() {
     let bindings = KeyBindings::defaults();
     let backend = TestBackend::new(50, 40);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_help(frame, frame.area(), &bindings)).unwrap();
+    terminal.draw(|frame| render_help(frame, frame.area(), &bindings, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -33,7 +33,7 @@ fn lists_open_history() {
     let bindings = KeyBindings::defaults();
     let backend = TestBackend::new(50, 40);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_help(frame, frame.area(), &bindings)).unwrap();
+    terminal.draw(|frame| render_help(frame, frame.area(), &bindings, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -46,7 +46,7 @@ fn lists_edit() {
     let bindings = KeyBindings::defaults();
     let backend = TestBackend::new(50, 40);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_help(frame, frame.area(), &bindings)).unwrap();
+    terminal.draw(|frame| render_help(frame, frame.area(), &bindings, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -59,7 +59,7 @@ fn lists_open_sync() {
     let bindings = KeyBindings::defaults();
     let backend = TestBackend::new(50, 40);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_help(frame, frame.area(), &bindings)).unwrap();
+    terminal.draw(|frame| render_help(frame, frame.area(), &bindings, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 

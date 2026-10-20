@@ -2,10 +2,11 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
     text::Line,
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
+
+use crate::theme::Theme;
 
 pub struct MessageDialog {
     pub title: String,
@@ -56,7 +57,7 @@ fn wrapped_total(text: &str, width: usize) -> usize {
     text.lines().map(|line| wrapped_line_count(line, width)).sum::<usize>().max(1)
 }
 
-pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog) {
+pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog, theme: &Theme) {
     let longest_line = dialog.message.lines().map(|line| line.chars().count()).max().unwrap_or(0).min(200) as u16;
     let width = super::content_width(&[dialog.title.as_str(), "[Enter] OK"])
         .max(longest_line + 4)
@@ -71,10 +72,7 @@ pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog) {
         width,
         height,
     };
-    let block = Block::default()
-        .title(dialog.title.as_str())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
     let mut text: Vec<Line> = dialog.message.lines().map(Line::from).collect();
     text.push(Line::from(""));
     text.push(Line::from("[Enter] OK"));

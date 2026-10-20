@@ -1,13 +1,15 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Style},
     widgets::{Block, Borders, Clear, List, ListItem},
 };
 
-use crate::input::{ALL_ACTIONS, KeyBindings, format_key_spec};
+use crate::{
+    input::{ALL_ACTIONS, KeyBindings, format_key_spec},
+    theme::Theme,
+};
 
-pub fn render_help(frame: &mut Frame, area: Rect, bindings: &KeyBindings) {
+pub fn render_help(frame: &mut Frame, area: Rect, bindings: &KeyBindings, theme: &Theme) {
     let items: Vec<ListItem> = ALL_ACTIONS
         .iter()
         .map(|action| {
@@ -23,7 +25,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, bindings: &KeyBindings) {
     let block = Block::default()
         .title("Help \u{2014} any key to close")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+        .border_style(theme.popup_border());
 
     let list = List::new(items).block(block);
 

@@ -6,9 +6,12 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::widgets::panel_view::{PanelView, Row};
+use crate::{
+    theme::Theme,
+    widgets::panel_view::{PanelView, Row},
+};
 
-pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, is_active: bool) {
+pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, is_active: bool, theme: &Theme) {
     let columns = Columns::for_width(area.width);
 
     let items: Vec<ListItem> =
@@ -16,7 +19,7 @@ pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, is_act
 
     let mut highlight_style = Style::default().add_modifier(Modifier::REVERSED);
     if !is_active {
-        highlight_style = highlight_style.add_modifier(Modifier::DIM);
+        highlight_style = highlight_style.patch(theme.dim());
     }
 
     let list = List::new(items).highlight_style(highlight_style);

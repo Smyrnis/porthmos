@@ -11,14 +11,16 @@ use porthmos_core::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
     text::Line,
     widgets::{Block, Borders},
 };
 
-use crate::widgets::{
-    file_list,
-    filter_line::{self, FilterLine},
+use crate::{
+    theme::Theme,
+    widgets::{
+        file_list,
+        filter_line::{self, FilterLine},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,8 +215,8 @@ impl PanelView {
     }
 }
 
-pub fn render_panel(frame: &mut Frame, area: Rect, title: &str, is_active: bool, panel: &PanelView) {
-    let border_style = if is_active { Style::default().fg(Color::Yellow) } else { Style::default() };
+pub fn render_panel(frame: &mut Frame, area: Rect, title: &str, is_active: bool, panel: &PanelView, theme: &Theme) {
+    let border_style = if is_active { theme.accent_text() } else { theme.dim() };
 
     let mut block = Block::default()
         .title(format!("{title} {} [{}]", panel.path().display(), sort_indicator(panel.sort_spec())))
@@ -226,7 +228,7 @@ pub fn render_panel(frame: &mut Frame, area: Rect, title: &str, is_active: bool,
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    file_list::render_file_list(frame, inner, panel, is_active);
+    file_list::render_file_list(frame, inner, panel, is_active, theme);
 }
 
 fn sort_indicator(spec: SortSpec) -> String {
@@ -241,8 +243,8 @@ fn sort_indicator(spec: SortSpec) -> String {
     format!("{key} {arrow}")
 }
 
-pub fn render_placeholder(frame: &mut Frame, area: Rect, title: &str, is_active: bool) {
-    let border_style = if is_active { Style::default().fg(Color::Yellow) } else { Style::default() };
+pub fn render_placeholder(frame: &mut Frame, area: Rect, title: &str, is_active: bool, theme: &Theme) {
+    let border_style = if is_active { theme.accent_text() } else { theme.dim() };
 
     let block = Block::default().title(title).borders(Borders::ALL).border_style(border_style);
 

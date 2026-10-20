@@ -4,7 +4,11 @@ use porthmos_core::profiles::{ConnectionEntry, ConnectionSource};
 use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
-use crate::widgets::filter_line::FilterLine;
+use crate::{
+    app::testing::{cell_fg, find_text},
+    theme::{ColorDepth, ThemeSettings},
+    widgets::filter_line::FilterLine,
+};
 
 fn view_of(entries: Vec<ConnectionEntry>) -> ConnectionsView {
     let mut view = ConnectionsView::new();
@@ -33,7 +37,15 @@ fn renders_connection_names() {
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
         .draw(|frame| {
-            render_connections_list(frame, frame.area(), &view_of(entries.clone()), &HashSet::new(), None, &[])
+            render_connections_list(
+                frame,
+                frame.area(),
+                &view_of(entries.clone()),
+                &HashSet::new(),
+                None,
+                &[],
+                &Theme::default(),
+            )
         })
         .unwrap();
 
@@ -68,7 +80,9 @@ fn render_view(view: &ConnectionsView, connected: &HashSet<&str>, active: Option
     let width = 60;
     let backend = TestBackend::new(width, 8);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_connections_list(frame, frame.area(), view, connected, active, &[])).unwrap();
+    terminal
+        .draw(|frame| render_connections_list(frame, frame.area(), view, connected, active, &[], &Theme::default()))
+        .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
     (0..buffer.area.height)
@@ -107,7 +121,15 @@ fn each_row_shows_its_protocol_name_or_raw_id_when_unavailable() {
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
         .draw(|frame| {
-            render_connections_list(frame, frame.area(), &view_of(vec![sftp, ftp]), &HashSet::new(), None, &protocols)
+            render_connections_list(
+                frame,
+                frame.area(),
+                &view_of(vec![sftp, ftp]),
+                &HashSet::new(),
+                None,
+                &protocols,
+                &Theme::default(),
+            )
         })
         .unwrap();
     let buffer = terminal.backend().buffer();
@@ -182,4 +204,22 @@ fn a_kept_filter_shows_in_the_bottom_border() {
     let rows = render_view(&view, &HashSet::new(), None);
 
     assert!(rows.last().unwrap().contains("filter: we (1 of 3)"), "{rows:#?}");
+}
+
+#[test]
+fn tags_are_drawn_in_the_dim_colour_of_the_theme() {
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
+    let mut tagged = entry("prod");
+    tagged.tags = vec!["blue".to_string()];
+    let view = view_of(vec![tagged]);
+
+    let mut terminal = Terminal::new(TestBackend::new(70, 8)).unwrap();
+    terminal
+        .draw(|frame| {
+            render_connections_list(frame, frame.area(), &view, &HashSet::new(), None, &[], &theme);
+        })
+        .unwrap();
+
+    let (column, row) = find_text(&terminal, "#blue").expect("tag is drawn");
+    assert_eq!(cell_fg(&terminal, column, row), theme.fg_dim);
 }

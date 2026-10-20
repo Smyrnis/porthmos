@@ -42,7 +42,7 @@ fn y_and_n_shortcuts_work_regardless_of_focus() {
 fn rendered_rows(dialog: &ConfirmDialog, width: u16, height: u16) -> Vec<String> {
     let backend = ratatui::backend::TestBackend::new(width, height);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_confirm(frame, frame.area(), dialog)).unwrap();
+    terminal.draw(|frame| render_confirm(frame, frame.area(), dialog, &Theme::default())).unwrap();
     let buffer = terminal.backend().buffer();
     (0..height).map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect()).collect()
 }

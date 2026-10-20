@@ -73,7 +73,7 @@ fn format_age_buckets() {
 fn render(conflict: &ConflictDialog) -> String {
     let backend = TestBackend::new(80, 16);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_conflict(frame, frame.area(), conflict)).unwrap();
+    terminal.draw(|frame| render_conflict(frame, frame.area(), conflict, &Theme::default())).unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 

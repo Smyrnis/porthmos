@@ -18,18 +18,14 @@ use porthmos_core::{
         rows::{QueueRow, RowKind},
     },
 };
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Paragraph,
-};
+use ratatui::{Frame, layout::Rect, style::Style, widgets::Paragraph};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
     input::{self, Action},
     sessions::Sessions,
     terminal::{self, Backend},
+    theme::Theme,
     widgets::{
         connections_list,
         connections_view::{ConnectionsView, Selection},
@@ -147,6 +143,7 @@ pub struct App {
     conflict_prompts: VecDeque<ConflictPrompt>,
     key_bindings: input::KeyBindings,
     bookmarks: Vec<Bookmark>,
+    theme: Theme,
     core: CoreHandle,
 }
 
@@ -181,10 +178,16 @@ impl App {
             conflict_prompts: VecDeque::new(),
             key_bindings,
             bookmarks: Vec::new(),
+            theme: Theme::default(),
             core,
         };
         app.core.send(Command::List { location: Location::Local, path: Some(local_path) });
         app
+    }
+
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     pub fn error(&mut self, message: impl Into<String>) {

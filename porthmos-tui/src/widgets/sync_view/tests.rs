@@ -4,6 +4,7 @@ use porthmos_core::sync::{SyncBy, SyncDirection, SyncFacts, SyncOptions};
 use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
+use crate::theme::{ColorDepth, ThemeSettings};
 
 fn facts(size: u64, modified: u64) -> Option<SyncFacts> {
     Some(SyncFacts { size, modified: Some(modified) })
@@ -57,7 +58,7 @@ fn sample() -> SyncView {
 
 fn render(view: &SyncView, width: u16, height: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render_sync(frame, frame.area(), view, "Sync with prod")).unwrap();
+    terminal.draw(|frame| render_sync(frame, frame.area(), view, "Sync with prod", &Theme::default())).unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
@@ -294,7 +295,7 @@ fn a_very_narrow_terminal_does_not_panic() {
 
 fn grid(view: &SyncView, width: u16, height: u16) -> Vec<Vec<String>> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render_sync(frame, frame.area(), view, "Sync with prod")).unwrap();
+    terminal.draw(|frame| render_sync(frame, frame.area(), view, "Sync with prod", &Theme::default())).unwrap();
     let buffer = terminal.backend().buffer();
     (0..height).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect()).collect()
 }
@@ -464,4 +465,35 @@ fn bidirectional_and_format_controls_in_a_path_are_never_drawn_raw() {
         assert!(!screen.contains(hidden), "{hidden:?}");
     }
     assert!(screen.contains("evil?txt.exe??"), "{screen}");
+}
+
+fn row_fg(terminal: &Terminal<TestBackend>, reason: SyncReason) -> Option<ratatui::style::Color> {
+    let buffer = terminal.backend().buffer();
+    let needle = reason_text(reason);
+    (0..buffer.area.height).find_map(|y| {
+        let row: String = (0..buffer.area.width).map(|x| buffer[(x, y)].symbol().to_string()).collect();
+        let column = row.find(needle).map(|offset| row[..offset].chars().count() as u16)?;
+        buffer[(column, y)].style().fg
+    })
+}
+
+#[test]
+fn rows_take_their_colour_from_the_theme() {
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
+    let mut view = sample();
+    view.load(plan(
+        SyncDirection::LocalToRemote,
+        vec![
+            item(0, "mismatch", SyncAction::Skip, SyncReason::KindMismatch, false, facts(1, 1), None),
+            item(1, "ambiguous", SyncAction::Skip, SyncReason::TargetNewer, false, facts(10, 1), facts(10, 9)),
+            item(2, "unticked", SyncAction::Skip, SyncReason::SizeDiffers, false, facts(10, 1), facts(11, 1)),
+            item(3, "ticked", SyncAction::Upload, SyncReason::OnlyLocal, true, facts(10, 1), None),
+        ],
+    ));
+    let mut terminal = Terminal::new(TestBackend::new(100, 8)).unwrap();
+    terminal.draw(|frame| render_sync(frame, frame.area(), &view, "Sync with prod", &theme)).unwrap();
+
+    assert_eq!(row_fg(&terminal, SyncReason::KindMismatch), Some(theme.err));
+    assert_eq!(row_fg(&terminal, SyncReason::TargetNewer), Some(theme.fg_bright));
+    assert_eq!(row_fg(&terminal, SyncReason::SizeDiffers), Some(theme.fg_dim));
 }

@@ -28,7 +28,9 @@ fn render(rows: &[QueueRow], cursor: usize, copy_key: Option<&str>) -> String {
 fn render_at_width(rows: &[QueueRow], cursor: usize, copy_key: Option<&str>, width: u16) -> String {
     let backend = TestBackend::new(width, 8);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_transfer_list(frame, frame.area(), rows, cursor, copy_key)).unwrap();
+    terminal
+        .draw(|frame| render_transfer_list(frame, frame.area(), rows, cursor, copy_key, &Theme::default()))
+        .unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 

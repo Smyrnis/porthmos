@@ -20,11 +20,11 @@ impl App {
         self.render_status(frame, status_area);
 
         if let Some(dialog) = &self.dialog {
-            dialog.render(frame, frame.area());
+            dialog.render(frame, frame.area(), &self.theme);
         }
 
         if self.help_visible {
-            help::render_help(frame, frame.area(), &self.key_bindings);
+            help::render_help(frame, frame.area(), &self.key_bindings, &self.theme);
         }
     }
 
@@ -47,7 +47,14 @@ impl App {
     fn render_files(&self, frame: &mut Frame, area: Rect) {
         let (local_area, remote_area) = layout::split_panels(area);
 
-        panel_view::render_panel(frame, local_area, "LOCAL", self.active_panel == ActivePanel::Local, &self.local);
+        panel_view::render_panel(
+            frame,
+            local_area,
+            "LOCAL",
+            self.active_panel == ActivePanel::Local,
+            &self.local,
+            &self.theme,
+        );
 
         match self.sessions.active() {
             Some(session) => {
@@ -60,6 +67,7 @@ impl App {
                         "REMOTE",
                         self.active_panel == ActivePanel::Remote,
                         &session.panel,
+                        &self.theme,
                     );
                 } else {
                     panel_view::render_panel(
@@ -68,6 +76,7 @@ impl App {
                         "REMOTE",
                         self.active_panel == ActivePanel::Remote,
                         &session.panel,
+                        &self.theme,
                     );
                 }
             }
@@ -83,6 +92,7 @@ impl App {
                     remote_area,
                     &remote_title,
                     self.active_panel == ActivePanel::Remote,
+                    &self.theme,
                 );
             }
         }
@@ -112,6 +122,7 @@ impl App {
             &connected_names,
             active_name,
             self.core.protocols(),
+            &self.theme,
         );
     }
 
@@ -123,11 +134,12 @@ impl App {
             self.transfer_rows(),
             self.transfers_cursor,
             copy_key.as_deref(),
+            &self.theme,
         );
     }
 
     fn render_history(&self, frame: &mut Frame, area: Rect) {
-        history_view::render_history(frame, area, &self.history);
+        history_view::render_history(frame, area, &self.history, &self.theme);
     }
 
     fn render_sync(&self, frame: &mut Frame, area: Rect) {
@@ -137,18 +149,20 @@ impl App {
             .and_then(|plan| self.sessions.by_id(plan.session))
             .map_or("remote", |session| session.name.as_str());
         let title = format!("Sync with {name}");
-        sync_view::render_sync(frame, area, &self.sync_view, &title);
+        sync_view::render_sync(frame, area, &self.sync_view, &title, &self.theme);
     }
 
     fn render_search(&self, frame: &mut Frame, area: Rect) {
         if let Some(session) = &self.search {
-            search_view::render_search(frame, area, &session.view);
+            search_view::render_search(frame, area, &session.view, &self.theme);
         }
     }
 
     pub(super) fn render_status(&self, frame: &mut Frame, area: Rect) {
         let (text, style) = match self.notifications.current() {
-            Some(notification) => (notification.message.clone(), notification_style(notification.severity)),
+            Some(notification) => {
+                (notification.message.clone(), notification_style(notification.severity, &self.theme))
+            }
             None => match self
                 .keyring_waiting_text()
                 .or_else(|| self.waiting_for_answer_text())
@@ -241,11 +255,11 @@ fn transfer_verb(active: &[ActiveJob]) -> &'static str {
     }
 }
 
-fn notification_style(severity: Severity) -> Style {
+fn notification_style(severity: Severity, theme: &Theme) -> Style {
     match severity {
-        Severity::Info => Style::default(),
-        Severity::Warning => Style::default().fg(Color::Yellow),
-        Severity::Error => Style::default().fg(Color::Red),
+        Severity::Info => theme.text(),
+        Severity::Warning => theme.bright(),
+        Severity::Error => theme.err_text(),
     }
 }
 

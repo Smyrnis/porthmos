@@ -2,10 +2,12 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
+
+use crate::theme::Theme;
 
 pub struct TextInputDialog {
     pub title: String,
@@ -84,15 +86,12 @@ impl TextInputDialog {
     }
 }
 
-pub fn render_text_input(frame: &mut Frame, area: Rect, dialog: &TextInputDialog) {
+pub fn render_text_input(frame: &mut Frame, area: Rect, dialog: &TextInputDialog, theme: &Theme) {
     let displayed_value = dialog.value.clone();
 
     let popup = centered_popup(area, super::content_width(&[dialog.title.as_str(), displayed_value.as_str()]), 4);
 
-    let block = Block::default()
-        .title(dialog.title.as_str())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
 
     let chars: Vec<char> = displayed_value.chars().collect();
     let mut spans: Vec<Span> = chars

@@ -1052,7 +1052,7 @@ fn the_password_prompt_shows_asterisks_never_the_password() {
     type_text(&mut test, "s3cret");
 
     let mut terminal = Terminal::new(TestBackend::new(70, 10)).unwrap();
-    terminal.draw(|frame| test.app.dialog.as_ref().unwrap().render(frame, frame.area())).unwrap();
+    terminal.draw(|frame| test.app.dialog.as_ref().unwrap().render(frame, frame.area(), &Theme::default())).unwrap();
     let screen: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
     assert!(screen.contains("******"), "{screen}");

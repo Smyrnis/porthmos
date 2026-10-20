@@ -13,6 +13,8 @@ pub use list::ListDialog;
 use ratatui::{Frame, layout::Rect};
 pub use text_input::TextInputDialog;
 
+use crate::theme::Theme;
+
 fn content_width(lines: &[&str]) -> u16 {
     let longest = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
     (longest as u16 + 4).clamp(20, 76)
@@ -100,14 +102,14 @@ impl Dialog {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         match self {
-            Dialog::Confirm(dialog) => confirm::render_confirm(frame, area, dialog),
-            Dialog::TextInput(dialog) => text_input::render_text_input(frame, area, dialog),
-            Dialog::List(dialog) => list::render_list(frame, area, dialog),
-            Dialog::Form(dialog) => form::render_form(frame, area, dialog),
-            Dialog::Conflict(dialog) => conflict::render_conflict(frame, area, dialog),
-            Dialog::Message(dialog) => message::render_message(frame, area, dialog),
+            Dialog::Confirm(dialog) => confirm::render_confirm(frame, area, dialog, theme),
+            Dialog::TextInput(dialog) => text_input::render_text_input(frame, area, dialog, theme),
+            Dialog::List(dialog) => list::render_list(frame, area, dialog, theme),
+            Dialog::Form(dialog) => form::render_form(frame, area, dialog, theme),
+            Dialog::Conflict(dialog) => conflict::render_conflict(frame, area, dialog, theme),
+            Dialog::Message(dialog) => message::render_message(frame, area, dialog, theme),
         }
     }
 }

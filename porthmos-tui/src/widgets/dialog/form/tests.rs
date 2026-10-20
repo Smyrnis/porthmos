@@ -1,6 +1,10 @@
 use crossterm::event::{KeyCode, KeyEventKind, KeyEventState, KeyModifiers};
 
 use super::*;
+use crate::{
+    app::testing::{cell_fg, find_text},
+    theme::{ColorDepth, ThemeSettings},
+};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent { code, modifiers: KeyModifiers::NONE, kind: KeyEventKind::Press, state: KeyEventState::NONE }
@@ -35,7 +39,7 @@ fn choice_form() -> FormDialog {
 fn rendered(form: &FormDialog) -> String {
     let backend = ratatui::backend::TestBackend::new(60, 10);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_form(frame, frame.area(), form)).unwrap();
+    terminal.draw(|frame| render_form(frame, frame.area(), form, &Theme::default())).unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
@@ -173,7 +177,7 @@ fn masked_field_renders_asterisks_not_the_value() {
 
     let backend = ratatui::backend::TestBackend::new(60, 10);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_form(frame, frame.area(), &form)).unwrap();
+    terminal.draw(|frame| render_form(frame, frame.area(), &form, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -188,7 +192,7 @@ fn error_message_renders_when_set() {
 
     let backend = ratatui::backend::TestBackend::new(60, 10);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
-    terminal.draw(|frame| render_form(frame, frame.area(), &form)).unwrap();
+    terminal.draw(|frame| render_form(frame, frame.area(), &form, &Theme::default())).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
@@ -201,7 +205,7 @@ fn press(form: &mut FormDialog, code: KeyCode) -> FormOutcome {
 
 fn screen_of(form: &FormDialog) -> String {
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(70, 10)).unwrap();
-    terminal.draw(|frame| render_form(frame, frame.area(), form)).unwrap();
+    terminal.draw(|frame| render_form(frame, frame.area(), form, &Theme::default())).unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
@@ -290,4 +294,20 @@ fn a_submitted_form_never_prints_its_values() {
 
     assert!(!printed.contains("hunter2"), "{printed}");
     assert!(printed.contains("password") && printed.contains("host"), "{printed}");
+}
+
+#[test]
+fn the_error_line_and_hint_use_the_theme_colours() {
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
+    let mut form = sample_form();
+    form.hint = Some("A hint".to_string());
+    form.error = Some("Host can't be empty".to_string());
+
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 10)).unwrap();
+    terminal.draw(|frame| render_form(frame, frame.area(), &form, &theme)).unwrap();
+
+    let (hint_column, hint_row) = find_text(&terminal, "A hint").expect("hint is drawn");
+    let (error_column, error_row) = find_text(&terminal, "Host can't").expect("error is drawn");
+    assert_eq!(cell_fg(&terminal, hint_column, hint_row), theme.fg_dim);
+    assert_eq!(cell_fg(&terminal, error_column, error_row), theme.err);
 }

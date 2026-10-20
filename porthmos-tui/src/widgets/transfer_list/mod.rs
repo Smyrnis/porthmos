@@ -10,7 +10,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::widgets::file_list::{format_size, truncate_name};
+use crate::{
+    theme::Theme,
+    widgets::file_list::{format_size, truncate_name},
+};
 
 const ARROW_WIDTH: usize = 2;
 const PERCENT_WIDTH: usize = 4;
@@ -22,7 +25,9 @@ struct Columns {
     show_percent: bool,
 }
 
-pub fn render_transfer_list(frame: &mut Frame, area: Rect, rows: &[QueueRow], cursor: usize, copy_key: Option<&str>) {
+pub fn render_transfer_list(
+    frame: &mut Frame, area: Rect, rows: &[QueueRow], cursor: usize, copy_key: Option<&str>, _theme: &Theme,
+) {
     let block = Block::default().title(format!("Transfers ({})", rows.len())).borders(Borders::ALL);
     let inner = block.inner(area);
     frame.render_widget(block, area);

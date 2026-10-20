@@ -1,8 +1,9 @@
 use chrono::{TimeZone, Utc};
 use porthmos_core::transfer::Direction;
-use ratatui::{Terminal, backend::TestBackend, style::Color};
+use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
+use crate::theme::{ColorDepth, ThemeSettings};
 
 fn entry(label: &str, connection: &str, result: HistoryResult) -> HistoryEntry {
     HistoryEntry {
@@ -39,9 +40,13 @@ fn labels(view: &HistoryView) -> Vec<&str> {
     view.rows().map(|entry| entry.label.as_str()).collect()
 }
 
+fn indexed_theme() -> Theme {
+    Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
+}
+
 fn render(view: &HistoryView, width: u16, height: u16) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render_history(frame, frame.area(), view)).unwrap();
+    terminal.draw(|frame| render_history(frame, frame.area(), view, &indexed_theme())).unwrap();
     terminal
 }
 
@@ -203,7 +208,8 @@ fn rows_show_direction_label_connection_counts_and_size() {
 }
 
 #[test]
-fn failed_rows_are_red_and_partly_failed_rows_yellow() {
+fn failed_rows_use_the_err_colour_and_partly_failed_rows_the_bright_colour() {
+    let theme = indexed_theme();
     let view = view_of(vec![
         entry("a", "prod", HistoryResult::Done),
         entry("b", "prod", HistoryResult::PartlyFailed { failed: 1 }),
@@ -212,12 +218,13 @@ fn failed_rows_are_red_and_partly_failed_rows_yellow() {
     let terminal = render(&view, 100, 8);
     let buffer = terminal.backend().buffer();
 
-    assert_eq!(buffer[(5, 2)].style().fg, Some(Color::Yellow));
-    assert_eq!(buffer[(5, 3)].style().fg, Some(Color::Red));
+    assert_eq!(buffer[(5, 2)].style().fg, Some(theme.fg_bright));
+    assert_eq!(buffer[(5, 3)].style().fg, Some(theme.err));
 }
 
 #[test]
-fn cancelled_and_interrupted_rows_are_dimmed() {
+fn cancelled_and_interrupted_rows_use_the_dim_colour() {
+    let theme = indexed_theme();
     let view = view_of(vec![
         entry("a", "prod", HistoryResult::Done),
         entry("b", "prod", HistoryResult::Cancelled),
@@ -226,9 +233,9 @@ fn cancelled_and_interrupted_rows_are_dimmed() {
     let terminal = render(&view, 100, 8);
     let buffer = terminal.backend().buffer();
 
-    assert!(buffer[(5, 2)].style().add_modifier.contains(ratatui::style::Modifier::DIM));
-    assert!(buffer[(5, 3)].style().add_modifier.contains(ratatui::style::Modifier::DIM));
-    assert!(!buffer[(5, 1)].style().add_modifier.contains(ratatui::style::Modifier::DIM));
+    assert_eq!(buffer[(5, 2)].style().fg, Some(theme.fg_dim));
+    assert_eq!(buffer[(5, 3)].style().fg, Some(theme.fg_dim));
+    assert_ne!(buffer[(5, 1)].style().fg, Some(theme.fg_dim));
 }
 
 #[test]

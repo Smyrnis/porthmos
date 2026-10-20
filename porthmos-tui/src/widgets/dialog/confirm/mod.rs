@@ -2,10 +2,12 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph},
 };
+
+use crate::theme::Theme;
 
 pub struct ConfirmDialog {
     pub message: String,
@@ -51,7 +53,7 @@ impl ConfirmDialog {
     }
 }
 
-pub fn render_confirm(frame: &mut Frame, area: Rect, dialog: &ConfirmDialog) {
+pub fn render_confirm(frame: &mut Frame, area: Rect, dialog: &ConfirmDialog, theme: &Theme) {
     let message_lines: Vec<&str> = dialog.message.lines().collect();
     let mut widest = message_lines.clone();
     widest.push("[y] Yes   [n] No");
@@ -59,7 +61,7 @@ pub fn render_confirm(frame: &mut Frame, area: Rect, dialog: &ConfirmDialog) {
     let rows = split_to_width(&message_lines, usize::from(width.saturating_sub(2)));
     let popup = centered_popup(area, width, rows.len() as u16 + 4);
 
-    let block = Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().borders(Borders::ALL).border_style(theme.popup_border());
 
     let yes_style = if dialog.focus == ConfirmFocus::Yes {
         Style::default().add_modifier(Modifier::REVERSED)

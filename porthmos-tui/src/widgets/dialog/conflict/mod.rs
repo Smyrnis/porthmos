@@ -3,12 +3,11 @@ use porthmos_core::transfer::{conflicts::Resolution, plan::ExistingFile};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
 use super::content_width;
-use crate::widgets::file_list::format_size;
+use crate::{theme::Theme, widgets::file_list::format_size};
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 60 * MINUTE;
@@ -136,7 +135,7 @@ fn age_text(modified: Option<u64>, now: u64) -> String {
     }
 }
 
-pub fn render_conflict(frame: &mut Frame, area: Rect, dialog: &ConflictDialog) {
+pub fn render_conflict(frame: &mut Frame, area: Rect, dialog: &ConflictDialog, theme: &Theme) {
     let state = if dialog.existing.is_some() { "already exists" } else { "was partly copied before" };
     let title = format!("\"{}\" {state} ({} of {})", dialog.file_name, dialog.index + 1, dialog.total);
     let lines = dialog.lines();
@@ -147,7 +146,7 @@ pub fn render_conflict(frame: &mut Frame, area: Rect, dialog: &ConflictDialog) {
     let [popup] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
     let [popup] = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center).areas(popup);
 
-    let block = Block::default().title(title).borders(Borders::ALL).border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().title(title).borders(Borders::ALL).border_style(theme.popup_border());
     frame.render_widget(Clear, popup);
     frame.render_widget(Paragraph::new(lines.join("\n")).block(block), popup);
 }

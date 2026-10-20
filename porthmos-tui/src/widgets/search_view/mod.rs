@@ -8,6 +8,8 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
+use crate::theme::Theme;
+
 pub struct SearchView {
     pub pattern: String,
     pub cursor: usize,
@@ -116,7 +118,7 @@ impl Default for SearchView {
     }
 }
 
-pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView) {
+pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView, _theme: &Theme) {
     let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 
     let chars: Vec<char> = view.pattern.chars().collect();

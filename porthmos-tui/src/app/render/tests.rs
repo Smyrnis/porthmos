@@ -6,7 +6,11 @@ use porthmos_core::transfer::{
 };
 
 use super::*;
-use crate::app::testing::{TestApp, test_app};
+use crate::{
+    app::testing::{TestApp, cell_fg, find_text, render_app, test_app},
+    theme::{ColorDepth, ThemeSettings},
+    widgets::dialog::ConfirmDialog,
+};
 
 fn app_in_temp_dir() -> ((), App) {
     let TestApp { app, .. } = test_app(Path::new("/d"));
@@ -235,4 +239,73 @@ fn transfer_status_text_is_one_hundred_percent_for_several_empty_files() {
     active_job(&mut queue, Direction::Upload, "b.txt", 0, 0, None);
 
     assert_eq!(status_of_active_jobs(&mut app, &queue), "Uploading 2 files: 100%");
+}
+
+fn indexed_theme() -> Theme {
+    Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
+}
+
+fn themed_app() -> (App, Theme) {
+    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let theme = indexed_theme();
+    (app.with_theme(theme.clone()), theme)
+}
+
+#[test]
+fn an_error_notification_is_drawn_in_the_err_colour_of_the_theme() {
+    let (mut app, theme) = themed_app();
+    app.notifications.push(Severity::Error, "boom");
+
+    let terminal = render_app(&app, 40, 6);
+
+    let (x, y) = find_text(&terminal, "boom").expect("message is drawn");
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
+}
+
+#[test]
+fn a_warning_notification_is_drawn_in_the_bright_colour_not_yellow() {
+    let (mut app, theme) = themed_app();
+    app.notifications.push(Severity::Warning, "careful");
+
+    let terminal = render_app(&app, 40, 6);
+
+    let (x, y) = find_text(&terminal, "careful").expect("message is drawn");
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
+    assert_ne!(cell_fg(&terminal, x, y), ratatui::style::Color::Yellow);
+}
+
+#[test]
+fn an_info_notification_is_drawn_in_the_text_colour() {
+    let (mut app, theme) = themed_app();
+    app.notifications.push(Severity::Info, "fyi");
+
+    let terminal = render_app(&app, 40, 6);
+
+    let (x, y) = find_text(&terminal, "fyi").expect("message is drawn");
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg);
+}
+
+#[test]
+fn a_confirm_dialog_border_is_drawn_in_the_strong_line_colour() {
+    let (mut app, theme) = themed_app();
+    app.dialog = Some(Dialog::Confirm(ConfirmDialog::new("sure?")));
+
+    let terminal = render_app(&app, 60, 12);
+
+    let (text_x, row) = find_text(&terminal, "sure?").expect("message is drawn");
+    let border_x = (0..text_x)
+        .rev()
+        .find(|x| terminal.backend().buffer()[(*x, row)].symbol() == "\u{2502}")
+        .expect("left border is drawn");
+    assert_eq!(cell_fg(&terminal, border_x, row), theme.line_strong);
+}
+
+#[test]
+fn the_active_panel_border_is_drawn_in_the_accent_colour() {
+    let (app, theme) = themed_app();
+
+    let terminal = render_app(&app, 60, 12);
+
+    assert_eq!(terminal.backend().buffer()[(0, 1)].symbol(), "\u{250C}");
+    assert_eq!(cell_fg(&terminal, 0, 1), theme.accent);
 }

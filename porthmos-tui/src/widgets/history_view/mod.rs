@@ -6,13 +6,16 @@ use porthmos_core::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
-use crate::widgets::{
-    file_list::format_size,
-    filter_line::{self, FilterLine},
+use crate::{
+    theme::Theme,
+    widgets::{
+        file_list::format_size,
+        filter_line::{self, FilterLine},
+    },
 };
 
 #[derive(Default)]
@@ -132,11 +135,11 @@ pub fn result_marker(result: &HistoryResult) -> char {
     }
 }
 
-fn result_style(result: &HistoryResult) -> Style {
+fn result_style(result: &HistoryResult, theme: &Theme) -> Style {
     match result {
-        HistoryResult::Failed => Style::default().fg(Color::Red),
-        HistoryResult::PartlyFailed { .. } => Style::default().fg(Color::Yellow),
-        HistoryResult::Cancelled | HistoryResult::Interrupted => Style::default().add_modifier(Modifier::DIM),
+        HistoryResult::Failed => theme.err_text(),
+        HistoryResult::PartlyFailed { .. } => theme.bright(),
+        HistoryResult::Cancelled | HistoryResult::Interrupted => theme.dim(),
         HistoryResult::Done => Style::default(),
     }
 }
@@ -170,7 +173,7 @@ fn row_text(entry: &HistoryEntry) -> String {
     )
 }
 
-pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView) {
+pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView, theme: &Theme) {
     let mut block = Block::default().title(format!("History ({})", view.total())).borders(Borders::ALL);
     let inner_width = usize::from(area.width.saturating_sub(2));
     if let Some(status) =
@@ -191,7 +194,7 @@ pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView) {
     }
 
     let items: Vec<ListItem> =
-        view.rows().map(|entry| ListItem::new(row_text(entry)).style(result_style(&entry.result))).collect();
+        view.rows().map(|entry| ListItem::new(row_text(entry)).style(result_style(&entry.result, theme))).collect();
     let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
     let mut state = ListState::default();
     state.select(Some(view.cursor()));

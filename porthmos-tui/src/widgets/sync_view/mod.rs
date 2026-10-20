@@ -8,15 +8,18 @@ use porthmos_core::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::widgets::{
-    file_list::{format_size, truncate_name},
-    filter_line::{self, FilterLine},
-    history_view::printable,
+use crate::{
+    theme::Theme,
+    widgets::{
+        file_list::{format_size, truncate_name},
+        filter_line::{self, FilterLine},
+        history_view::printable,
+    },
 };
 
 #[derive(Default)]
@@ -345,14 +348,14 @@ fn row_text(item: &SyncItem, ticked: bool, action: SyncAction, layout: RowLayout
     row
 }
 
-fn row_style(item: &SyncItem, ticked: bool) -> Style {
+fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
     match (item.reason, ticked) {
-        (SyncReason::KindMismatch, _) => Style::default().fg(Color::Red),
+        (SyncReason::KindMismatch, _) => theme.err_text(),
         (_, true) => Style::default(),
         (SyncReason::TargetNewer | SyncReason::SameTimeDifferentSize | SyncReason::SizeDiffersTimeUnknown, false) => {
-            Style::default().fg(Color::Yellow)
+            theme.bright()
         }
-        (_, false) => Style::default().add_modifier(Modifier::DIM),
+        (_, false) => theme.dim(),
     }
 }
 
@@ -368,7 +371,7 @@ fn summary_text(summary: &Summary) -> String {
     )
 }
 
-pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, title: &str) {
+pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, title: &str, theme: &Theme) {
     let mut block = Block::default().title(format!("{title} ({})", view.total())).borders(Borders::ALL);
     let inner_width = usize::from(area.width.saturating_sub(2));
     let will_run = format!(" \u{b7} {} will run", view.visible_choices().len());
@@ -395,8 +398,8 @@ pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, title: &str) 
         .iter()
         .map(|index| {
             let item = &plan.items[*index];
-            ListItem::new(row_text(item, view.ticked[*index], view.actions[*index], layout))
-                .style(row_style(item, view.ticked[*index]))
+            let ticked = view.ticked[*index];
+            ListItem::new(row_text(item, ticked, view.actions[*index], layout)).style(row_style(item, ticked, theme))
         })
         .collect();
     let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));

@@ -2,9 +2,11 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, Clear, List, ListItem, ListState},
 };
+
+use crate::theme::Theme;
 
 pub struct ListDialog {
     pub title: String,
@@ -51,17 +53,14 @@ impl ListDialog {
     }
 }
 
-pub fn render_list(frame: &mut Frame, area: Rect, dialog: &ListDialog) {
+pub fn render_list(frame: &mut Frame, area: Rect, dialog: &ListDialog, theme: &Theme) {
     let mut width_lines: Vec<&str> = dialog.items.iter().map(String::as_str).collect();
     width_lines.push(dialog.title.as_str());
     let width = super::content_width(&width_lines);
     let height = (dialog.items.len() as u16 + 2).clamp(3, area.height.saturating_sub(2).max(3));
     let popup = centered_popup(area, width, height);
 
-    let block = Block::default()
-        .title(dialog.title.as_str())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
 
     let items: Vec<ListItem> = if dialog.items.is_empty() {
         vec![ListItem::new("(empty)")]

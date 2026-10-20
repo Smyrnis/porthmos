@@ -60,3 +60,9 @@ open_sync = "ctrl+u"
 edit = "f3"
 cycle_session = "ctrl+n"
 help = "f1"
+
+[theme]
+# Accent colour used for focus and progress, as "#rrggbb".
+accent = "#9fb3c8"
+# "black" paints the whole screen #000000. "terminal" keeps your terminal's own background.
+background = "black"

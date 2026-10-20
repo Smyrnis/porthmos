@@ -13,11 +13,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState},
 };
 
-use crate::widgets::connections_view::ConnectionsView;
+use crate::{theme::Theme, widgets::connections_view::ConnectionsView};
 
 pub fn render_connections_list(
     frame: &mut Frame, area: Rect, view: &ConnectionsView, connected_names: &HashSet<&str>, active_name: Option<&str>,
-    protocols: &[ProtocolInfo],
+    protocols: &[ProtocolInfo], theme: &Theme,
 ) {
     let mut block = Block::default().title("Connections").borders(Borders::ALL);
     if let Some(status) = view.filter_status(usize::from(area.width.saturating_sub(2))) {
@@ -39,7 +39,7 @@ pub fn render_connections_list(
             }
             TreeRow::Connection { index, depth } => {
                 let entry = &entries[*index];
-                ListItem::new(connection_line(entry, *depth, column, connected_names, active_name, protocols))
+                ListItem::new(connection_line(entry, *depth, column, connected_names, active_name, protocols, theme))
             }
         })
         .collect();
@@ -60,7 +60,7 @@ fn indent(depth: usize) -> String {
 
 fn connection_line<'a>(
     entry: &'a ConnectionEntry, depth: usize, column: usize, connected_names: &HashSet<&str>,
-    active_name: Option<&str>, protocols: &'a [ProtocolInfo],
+    active_name: Option<&str>, protocols: &'a [ProtocolInfo], theme: &Theme,
 ) -> Line<'a> {
     let indent = indent(depth);
     let reason = match entry.source {
@@ -84,8 +84,7 @@ fn connection_line<'a>(
         "{indent}{marker}{protocol:<column$} {} ({}@{}:{})",
         entry.name, entry.username, entry.host, entry.port
     ))];
-    let dimmed = Style::default().add_modifier(Modifier::DIM);
-    spans.extend(entry.tags.iter().map(|tag| Span::styled(format!(" #{tag}"), dimmed)));
+    spans.extend(entry.tags.iter().map(|tag| Span::styled(format!(" #{tag}"), theme.dim())));
     Line::from(spans)
 }
 
