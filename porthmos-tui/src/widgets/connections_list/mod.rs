@@ -29,7 +29,7 @@ const COLUMN_GAP: usize = 2;
 const MIN_NAME_WIDTH: usize = 8;
 const MAX_NAME_WIDTH: usize = 18;
 const MIN_PROTOCOL_WIDTH: usize = 3;
-const MAX_PROTOCOL_WIDTH: usize = 8;
+const MAX_PROTOCOL_WIDTH: usize = 10;
 const DOT: &str = "\u{2022}";
 const CARET: &str = "\u{2588}";
 

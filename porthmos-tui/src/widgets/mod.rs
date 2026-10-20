@@ -1,4 +1,5 @@
 pub mod connection_details;
+pub mod connection_form;
 pub mod connections_list;
 pub mod connections_view;
 pub mod dialog;

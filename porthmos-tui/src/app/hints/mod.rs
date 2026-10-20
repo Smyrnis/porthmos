@@ -43,6 +43,18 @@ fn pair(bindings: &KeyBindings, action: Action, label: &'static str) -> Option<H
     bindings.key_for(action).map(|spec| Hint { key: format_key_spec(spec), label })
 }
 
+pub(super) fn form_hints() -> Hints {
+    Hints {
+        entries: vec![
+            Hint { key: "tab".to_string(), label: "next field" },
+            Hint { key: "\u{2191}\u{2193}".to_string(), label: "field" },
+            Hint { key: "ctrl+s".to_string(), label: "save" },
+        ],
+        pinned: None,
+        right: Some(Hint { key: "esc".to_string(), label: "cancel" }),
+    }
+}
+
 pub(super) fn hints_for(screen: Screen, bindings: &KeyBindings) -> Hints {
     Hints {
         entries: entries_of(screen).iter().filter_map(|(action, label)| pair(bindings, *action, label)).collect(),

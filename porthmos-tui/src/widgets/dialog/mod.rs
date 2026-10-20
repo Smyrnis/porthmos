@@ -107,6 +107,7 @@ impl Dialog {
             Dialog::Confirm(dialog) => confirm::render_confirm(frame, area, dialog, theme),
             Dialog::TextInput(dialog) => text_input::render_text_input(frame, area, dialog, theme),
             Dialog::List(dialog) => list::render_list(frame, area, dialog, theme),
+            Dialog::Form(dialog) if dialog.layout == FormLayout::Screen => {}
             Dialog::Form(dialog) => form::render_form(frame, area, dialog, theme),
             Dialog::Conflict(dialog) => conflict::render_conflict(frame, area, dialog, theme),
             Dialog::Message(dialog) => message::render_message(frame, area, dialog, theme),

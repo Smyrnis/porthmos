@@ -5,9 +5,12 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::{hints::hints_for, *};
+use super::{
+    hints::{form_hints, hints_for},
+    *,
+};
 use crate::widgets::{
-    connection_details,
+    connection_details, connection_form,
     frame::{accent_underline, clear_popup, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
@@ -33,13 +36,17 @@ impl App {
 
         self.render_top_bar(frame, areas.top_bar, areas.top_rule);
 
-        match self.screen {
-            Screen::Files => self.render_files(frame, areas.body),
-            Screen::Connections => self.render_connections(frame, areas.body),
-            Screen::Search => self.render_search(frame, areas.body),
-            Screen::Transfers => self.render_transfers(frame, areas.body),
-            Screen::History => self.render_history(frame, areas.body),
-            Screen::Sync => self.render_sync(frame, areas.body),
+        if let Some(form) = self.screen_form() {
+            connection_form::render_connection_form(frame, areas.body, form, self.core.protocols(), &self.theme);
+        } else {
+            match self.screen {
+                Screen::Files => self.render_files(frame, areas.body),
+                Screen::Connections => self.render_connections(frame, areas.body),
+                Screen::Search => self.render_search(frame, areas.body),
+                Screen::Transfers => self.render_transfers(frame, areas.body),
+                Screen::History => self.render_history(frame, areas.body),
+                Screen::Sync => self.render_sync(frame, areas.body),
+            }
         }
 
         self.render_hint_bar(frame, areas.hint_bar);
@@ -79,6 +86,17 @@ impl App {
         let theme = &self.theme;
         let name = Span::styled(NAME, theme.muted().add_modifier(Modifier::BOLD));
         let name_width = NAME.len() as u16;
+        if let Some(label) = self.form_breadcrumb() {
+            let left = Line::from(vec![
+                name,
+                Span::styled(" / ", theme.dim()),
+                Span::styled("connections", theme.muted()),
+                Span::styled(" / ", theme.dim()),
+                Span::styled(label, theme.bright()),
+            ]);
+            top_bar(frame, area, left, Line::default());
+            return;
+        }
         let tabs = if self.screen == Screen::Files { self.tab_views() } else { Vec::new() };
 
         let left_minimum = match self.screen {
@@ -106,6 +124,21 @@ impl App {
             left.spans.push(Span::styled(self.screen_title(), theme.bright()));
         }
         top_bar(frame, area, left, status);
+    }
+
+    fn screen_form(&self) -> Option<&crate::widgets::dialog::FormDialog> {
+        match &self.dialog {
+            Some(Dialog::Form(form)) if form.layout == crate::widgets::dialog::FormLayout::Screen => Some(form),
+            _ => None,
+        }
+    }
+
+    fn form_breadcrumb(&self) -> Option<&'static str> {
+        self.screen_form()?;
+        match self.pending_action {
+            Some(PendingAction::EditConnection { .. }) => Some("edit"),
+            _ => Some("new"),
+        }
     }
 
     fn screen_title(&self) -> &'static str {
@@ -139,6 +172,9 @@ impl App {
     }
 
     fn connection_status_line(&self, budget: usize) -> Line<'static> {
+        if self.screen_form().is_some() {
+            return Line::default();
+        }
         if self.screen == Screen::Connections {
             return Line::styled(truncate_with_ellipsis(&self.connections_summary(), budget), self.theme.muted());
         }
@@ -354,6 +390,8 @@ impl App {
     pub(super) fn render_hint_bar(&self, frame: &mut Frame, area: Rect) {
         if let Some(text) = self.transient_status() {
             frame.render_widget(Paragraph::new(printable(&text)).style(self.theme.muted()), area);
+        } else if self.screen_form().is_some() {
+            hint_bar(frame, area, &form_hints(), &self.theme);
         } else {
             hint_bar(frame, area, &hints_for(self.screen, &self.key_bindings), &self.theme);
         }

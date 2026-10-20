@@ -1228,3 +1228,148 @@ fn a_group_row_shows_its_name_and_count_in_the_details() {
     assert!(right_part(&terminal, 2, 76).starts_with("production"), "{:?}", right_part(&terminal, 2, 76));
     assert!(right_part(&terminal, 2, 76).trim_end().ends_with("1 connection"));
 }
+
+fn form_protocols() -> Vec<porthmos_core::ProtocolInfo> {
+    let info =
+        |id: &'static str, name: &'static str, description: &'static str, port: u16| porthmos_core::ProtocolInfo {
+            id,
+            display_name: name,
+            description,
+            limits_note: None,
+            form: porthmos_core::ConnectionForm::standard(port),
+        };
+    vec![info("sftp", "sftp", "ssh file transfer", 22), info("ftp", "ftp / ftps", "legacy hosting, tls", 21)]
+}
+
+fn form_app() -> (App, tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Command>) {
+    let TestApp { app, commands } = crate::app::testing::test_app_with_protocols(Path::new("/d"), form_protocols());
+    let mut app = app.with_theme(indexed_theme());
+    app.connections.replace(vec![saved_connection("prod", "sftp"), saved_connection("backup", "sftp")]);
+    app.screen = Screen::Connections;
+    (app, commands)
+}
+
+fn drain(commands: &mut tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Command>) -> Vec<porthmos_core::Command> {
+    std::iter::from_fn(|| commands.try_recv().ok()).collect()
+}
+
+fn ctrl_key(character: char) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char(character), crossterm::event::KeyModifiers::CONTROL)
+}
+
+fn named_key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+}
+
+#[test]
+fn the_add_form_replaces_the_connections_screen_with_a_breadcrumb_and_hints() {
+    let (mut app, _) = form_app();
+    app.apply_action(Action::AddConnection);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 0).contains("porthmos / connections / new"), "{:?}", row_symbols(&terminal, 0));
+    let hints = bottom_row(&terminal);
+    assert!(hints.contains("tab next field   \u{2191}\u{2193} field   ctrl+s save"), "{hints:?}");
+    assert!(hints.trim_end().ends_with("esc cancel"), "{hints:?}");
+    assert!(find_text(&terminal, "ssh file transfer").is_some());
+    assert!(find_text(&terminal, "/ filter").is_none());
+}
+
+#[test]
+fn editing_says_edit_in_the_breadcrumb() {
+    let (mut app, _) = form_app();
+    app.apply_action(Action::Rename);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 0).contains("porthmos / connections / edit"), "{:?}", row_symbols(&terminal, 0));
+    assert!(find_text(&terminal, "prod").is_some());
+}
+
+#[test]
+fn cancelling_returns_to_the_connections_screen_with_the_same_cursor() {
+    let (mut app, _) = form_app();
+    app.connections.cursor = 1;
+    app.apply_action(Action::AddConnection);
+
+    app.apply_key(named_key(crossterm::event::KeyCode::Esc));
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(app.dialog.is_none());
+    assert_eq!(app.connections.cursor, 1);
+    assert!(row_symbols(&terminal, 0).contains("porthmos / connections"));
+    assert!(!row_symbols(&terminal, 0).contains("/ new"));
+    assert!(find_text(&terminal, "/ filter").is_some());
+}
+
+#[test]
+fn submitting_with_ctrl_s_sends_save_profile_like_enter_does() {
+    let (mut app, mut commands) = form_app();
+    app.apply_action(Action::AddConnection);
+    app.apply_key(named_key(crossterm::event::KeyCode::Tab));
+    for character in "newhost".chars() {
+        app.apply_key(plain_key(character));
+    }
+    drain(&mut commands);
+
+    app.apply_key(ctrl_key('s'));
+
+    let sent = drain(&mut commands);
+    assert!(
+        matches!(sent.as_slice(), [porthmos_core::Command::SaveProfile { original: None, draft }] if draft.name == "newhost"),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn a_validation_error_from_the_core_is_shown_under_the_fields() {
+    let (mut app, _) = form_app();
+    app.apply_action(Action::AddConnection);
+
+    app.apply_core_event(Event::ProfileRejected { message: "Name is required".to_string() });
+    let terminal = render_app(&app, 120, 24);
+
+    let hint_and_error = (18..22).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(hint_and_error.contains("\u{2022} Name is required"), "{hint_and_error}");
+}
+
+#[test]
+fn the_keyring_hint_is_shown_when_no_keyring_is_available() {
+    let (mut app, _) = form_app();
+    app.apply_core_event(Event::KeyringStatus { available: false });
+    app.apply_action(Action::AddConnection);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "Passwords are not saved").is_some());
+}
+
+#[test]
+fn a_popup_form_is_still_drawn_as_a_popup_over_its_screen() {
+    let (mut app, _) = form_app();
+    app.screen = Screen::Files;
+    app.dialog = Some(Dialog::Form(crate::widgets::dialog::FormDialog::new(
+        "Password for u@web",
+        vec![crate::widgets::dialog::FormField::masked("password", "Password", "")],
+    )));
+
+    let terminal = render_app(&app, 100, 24);
+
+    assert!(find_text(&terminal, "Password for u@web").is_some());
+    assert!(find_text(&terminal, "local").is_some());
+}
+
+#[test]
+fn the_form_screen_never_panics_at_any_size() {
+    let (mut app, _) = form_app();
+    app.apply_core_event(Event::KeyringStatus { available: false });
+    app.apply_action(Action::AddConnection);
+    app.apply_core_event(Event::ProfileRejected { message: "boom\nsecond".to_string() });
+
+    for width in 0..=130 {
+        for height in 0..=14 {
+            let _ = render_app(&app, width, height);
+        }
+    }
+}
