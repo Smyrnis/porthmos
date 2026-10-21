@@ -15,11 +15,6 @@ pub use text_input::TextInputDialog;
 
 use crate::theme::Theme;
 
-fn content_width(lines: &[&str]) -> u16 {
-    let longest = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
-    (longest as u16 + 4).clamp(20, 76)
-}
-
 pub enum Dialog {
     Confirm(ConfirmDialog),
     TextInput(TextInputDialog),

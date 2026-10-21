@@ -1,18 +1,21 @@
 use std::collections::BTreeMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Flex, Layout, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+use ratatui::{Frame, layout::Rect};
+
+use crate::{
+    theme::Theme,
+    widgets::{
+        form_fields::{LABEL_WIDTH, displayed_value, render_field_stack, stack_height},
+        history_view::printable,
+        popup::{content_width, footer, footer_text, render_popup},
+    },
 };
 
-use crate::theme::Theme;
-
 pub const KEPT_SECRET: &str = "\u{0}kept";
-const SAVED_SECRET_DISPLAY: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}  (saved)";
+const MIN_POPUP_WIDTH: u16 = 44;
+const FOOTER_ROWS: u16 = 2;
+const BORDER_ROWS: u16 = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FormLayout {
@@ -325,81 +328,37 @@ impl FormDialog {
 }
 
 pub fn render_form(frame: &mut Frame, area: Rect, dialog: &FormDialog, theme: &Theme) {
-    let field_display_lines: Vec<String> = dialog
+    let title = printable(&dialog.title);
+    let mut measured: Vec<String> = dialog
         .fields
         .iter()
-        .map(|field| {
-            let displayed = displayed_value(field);
-            format!("{}: {}", field.label, displayed)
-        })
+        .map(|field| format!("{:<LABEL_WIDTH$}{}", printable(&field.label), displayed_value(field)))
         .collect();
+    measured.extend(dialog.hint.iter().map(|hint| printable(hint)));
+    measured.extend(dialog.error.iter().map(|error| format!("\u{2022} {}", printable(error))));
+    measured.push(title.clone());
+    measured.push(footer_text(&footer_pairs(dialog)));
+    let measured: Vec<&str> = measured.iter().map(String::as_str).collect();
+    let width = content_width(&measured).max(MIN_POPUP_WIDTH).min(area.width);
+    let height = stack_height(dialog, 0).saturating_add(FOOTER_ROWS + BORDER_ROWS).min(area.height);
 
-    let mut width_lines: Vec<&str> = field_display_lines.iter().map(String::as_str).collect();
-    width_lines.extend(dialog.hint.as_deref());
-    if let Some(error) = &dialog.error {
-        width_lines.push(error.as_str());
+    let inner = render_popup(frame, area, (width, height), Some(&title), theme);
+    if inner.width == 0 || inner.height == 0 {
+        return;
     }
-    let width = super::content_width(&width_lines);
-    let height =
-        dialog.fields.len() as u16 + u16::from(dialog.hint.is_some()) + if dialog.error.is_some() { 1 } else { 0 } + 2;
-
-    let popup = centered_popup(area, width, height);
-
-    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
-
-    let mut lines: Vec<Line> =
-        dialog.fields.iter().enumerate().map(|(i, field)| field_line(field, i == dialog.focused)).collect();
-    if let Some(hint) = &dialog.hint {
-        lines.push(Line::styled(hint.as_str(), theme.dim()));
-    }
-    if let Some(error) = &dialog.error {
-        lines.push(Line::styled(error.as_str(), theme.err_text()));
-    }
-
-    let paragraph = Paragraph::new(lines).block(block);
-
-    crate::widgets::frame::clear_popup(frame, popup, theme);
-    frame.render_widget(paragraph, popup);
+    let stack = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(FOOTER_ROWS));
+    render_field_stack(frame, stack, dialog, 0, theme);
+    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &footer_pairs(dialog), theme);
 }
 
-fn displayed_value(field: &FormField) -> String {
-    match &field.kind {
-        FieldKind::Text => field.value.clone(),
-        FieldKind::Masked => "*".repeat(field.value.chars().count()),
-        FieldKind::SavedSecret => SAVED_SECRET_DISPLAY.to_string(),
-        FieldKind::Choice { choices, selected } => {
-            format!("\u{25c0} {} \u{25b6}", choices.get(*selected).map(|(_, label)| label.as_str()).unwrap_or(""))
-        }
+fn footer_pairs(dialog: &FormDialog) -> Vec<(&'static str, &'static str)> {
+    let mut pairs = Vec::new();
+    if dialog.fields.len() > 1 {
+        pairs.push(("tab", "next"));
     }
-}
-
-fn field_line(field: &FormField, focused: bool) -> Line<'static> {
-    let displayed = displayed_value(field);
-    let mut spans = vec![Span::raw(format!("{}: ", field.label))];
-
-    if focused && field.is_choice() {
-        spans.push(Span::styled(displayed, Style::default().add_modifier(Modifier::REVERSED)));
-    } else if focused {
-        let chars: Vec<char> = displayed.chars().collect();
-        for (i, ch) in chars.iter().enumerate() {
-            let style =
-                if i == field.cursor { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default() };
-            spans.push(Span::styled(ch.to_string(), style));
-        }
-        if field.cursor >= chars.len() {
-            spans.push(Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)));
-        }
-    } else {
-        spans.push(Span::raw(displayed));
-    }
-
-    Line::from(spans)
-}
-
-fn centered_popup(area: Rect, width: u16, height: u16) -> Rect {
-    let [popup] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
-    let [popup] = Layout::horizontal([Constraint::Length(width.min(area.width))]).flex(Flex::Center).areas(popup);
-    popup
+    pairs.push(("enter", "ok"));
+    pairs.push(("esc", "cancel"));
+    pairs
 }
 
 #[cfg(test)]

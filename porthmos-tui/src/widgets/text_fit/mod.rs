@@ -16,6 +16,14 @@ pub fn take_width(text: &str, width: usize) -> String {
     taken
 }
 
+pub fn pad_right(text: &str, width: usize) -> String {
+    format!("{text}{}", " ".repeat(width.saturating_sub(text.width())))
+}
+
+pub fn pad_left(text: &str, width: usize) -> String {
+    format!("{}{text}", " ".repeat(width.saturating_sub(text.width())))
+}
+
 pub fn truncate_with_ellipsis(text: &str, budget: usize) -> String {
     if budget == 0 {
         return String::new();

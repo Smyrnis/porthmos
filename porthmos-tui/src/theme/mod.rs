@@ -267,6 +267,10 @@ impl Theme {
         Style::default().fg(self.line_strong)
     }
 
+    pub fn backdrop(&self) -> Style {
+        Style::default().fg(self.line_strong)
+    }
+
     pub fn focus_row(&self) -> Style {
         Style::default().bg(self.row_focus)
     }

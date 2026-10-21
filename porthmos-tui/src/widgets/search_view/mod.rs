@@ -2,13 +2,25 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::Entry;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph},
+};
+use unicode_width::UnicodeWidthStr;
+
+use crate::{
+    theme::Theme,
+    widgets::{
+        form_fields::render_caret_value,
+        frame::{accent_underline, hairline},
+        history_view::printable,
+        text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
+    },
 };
 
-use crate::theme::Theme;
+const MARKER_WIDTH: usize = 2;
+const COUNT_GAP: usize = 3;
+const HEADER_ROWS: u16 = 2;
 
 pub struct SearchView {
     pub pattern: String,
@@ -118,36 +130,76 @@ impl Default for SearchView {
     }
 }
 
-pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView, _theme: &Theme) {
-    let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
+fn result_line(entry: &Entry, focused: bool, width: usize, theme: &Theme) -> Line<'static> {
+    let marker = if focused { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
+    let budget = width.saturating_sub(MARKER_WIDTH);
+    let full = printable(&entry.path.display().to_string());
+    let split = full.rfind('/').map_or(0, |index| index + 1);
+    let (directory, name) = full.split_at(split);
+    let (directory, name) = if name.width() >= budget {
+        (String::new(), truncate_with_ellipsis(name, budget))
+    } else {
+        (truncate_start_with_ellipsis(directory, budget - name.width()), name.to_string())
+    };
+    let name_style = if focused { theme.focused_name() } else { theme.text() };
+    Line::from(vec![marker, Span::styled(directory, theme.dim()), Span::styled(name, name_style)])
+}
 
-    let chars: Vec<char> = view.pattern.chars().collect();
-    let mut spans: Vec<Span> = chars
+pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView, theme: &Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let width = usize::from(area.width);
+    let count = if view.truncated { format!("{}+", view.results.len()) } else { view.results.len().to_string() };
+    let count_width = count.width();
+    let show_count = width >= MARKER_WIDTH + 6 + COUNT_GAP + count_width;
+    frame.render_widget(
+        Paragraph::new(Span::styled("/", theme.accent_text())),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+    let reserved = if show_count { count_width + COUNT_GAP } else { 0 };
+    let pattern_width = width.saturating_sub(MARKER_WIDTH + reserved);
+    if pattern_width > 0 {
+        let pattern_area = Rect::new(area.x + MARKER_WIDTH as u16, area.y, pattern_width as u16, 1);
+        render_caret_value(frame, pattern_area, &printable(&view.pattern), Some(view.cursor), theme.bright());
+    }
+    if show_count {
+        let x = area.x + area.width - count_width as u16;
+        frame.render_widget(
+            Paragraph::new(Span::styled(count, theme.dim())),
+            Rect::new(x, area.y, count_width as u16, 1),
+        );
+    }
+    if area.height < HEADER_ROWS {
+        return;
+    }
+
+    let rule = Rect::new(area.x, area.y + 1, area.width, 1);
+    hairline(frame, rule, theme);
+    accent_underline(frame, rule, 0..area.width, theme);
+    if area.height == HEADER_ROWS {
+        return;
+    }
+
+    let body = Rect::new(area.x, area.y + HEADER_ROWS, area.width, area.height - HEADER_ROWS);
+    if view.results.is_empty() {
+        let message = if view.pattern.is_empty() { "type to search" } else { "no matches" };
+        frame.render_widget(
+            Paragraph::new(Span::styled(message, theme.dim())),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+        return;
+    }
+    let items: Vec<ListItem> = view
+        .results
         .iter()
         .enumerate()
-        .map(|(i, ch)| {
-            let style =
-                if i == view.cursor { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default() };
-            Span::styled(ch.to_string(), style)
-        })
+        .map(|(index, entry)| ListItem::new(result_line(entry, index == view.selected, width, theme)))
         .collect();
-    if view.cursor >= chars.len() {
-        spans.push(Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)));
-    }
-    let pattern_block = Block::default().title("Search (Esc to close, Ctrl+C to cancel)").borders(Borders::ALL);
-    frame.render_widget(Paragraph::new(Line::from(spans)).block(pattern_block), rows[0]);
-
-    let title = if view.truncated { "Results (truncated)" } else { "Results" };
-    let items: Vec<ListItem> =
-        view.results.iter().map(|entry| ListItem::new(entry.path.display().to_string())).collect();
+    let list = List::new(items).highlight_style(theme.focus_row());
     let mut state = ListState::default();
-    if !view.results.is_empty() {
-        state.select(Some(view.selected));
-    }
-    let list = List::new(items)
-        .block(Block::default().title(title).borders(Borders::ALL))
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    frame.render_stateful_widget(list, rows[1], &mut state);
+    state.select(Some(view.selected));
+    frame.render_stateful_widget(list, body, &mut state);
 }
 
 #[cfg(test)]

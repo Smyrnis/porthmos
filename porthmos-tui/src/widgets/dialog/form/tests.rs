@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEventKind, KeyEventState, KeyModifiers};
 
 use super::*;
 use crate::{
-    app::testing::{cell_fg, find_text},
+    app::testing::{cell_fg, find_text, has_unprintable_cell},
     theme::{ColorDepth, ThemeSettings},
 };
 
@@ -143,12 +143,13 @@ fn a_choice_submits_its_value_not_its_label() {
 fn a_choice_renders_its_label_between_arrows() {
     let content = rendered(&choice_form());
 
-    assert!(content.contains("Protocol: ◀ FTP ▶"), "{content}");
+    assert!(content.contains("Protocol"), "{content}");
+    assert!(content.contains("◀ FTP ▶"), "{content}");
 }
 
 #[test]
 fn the_form_no_longer_shows_a_fixed_protocol_line() {
-    assert!(!rendered(&sample_form()).contains("Protocol: SFTP"));
+    assert!(!rendered(&sample_form()).contains("SFTP"));
 }
 
 #[test]
@@ -167,7 +168,7 @@ fn backspace_removes_from_the_focused_field_at_the_cursor() {
 }
 
 #[test]
-fn masked_field_renders_asterisks_not_the_value() {
+fn masked_field_renders_bullets_not_the_value() {
     let mut form = sample_form();
     form.handle_key(key(KeyCode::Tab));
     form.handle_key(key(KeyCode::Tab));
@@ -181,7 +182,7 @@ fn masked_field_renders_asterisks_not_the_value() {
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
-    assert!(content.contains("******"));
+    assert!(content.contains("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"));
     assert!(!content.contains("secret"));
 }
 
@@ -272,7 +273,7 @@ fn an_edited_saved_secret_is_shown_masked() {
     press(&mut form, KeyCode::Char('3'));
     let screen = screen_of(&form);
     assert!(!screen.contains("(saved)") && !screen.contains("s3"), "{screen}");
-    assert!(screen.contains("**"), "{screen}");
+    assert!(screen.contains("\u{2022}\u{2022}"), "{screen}");
 }
 
 #[test]
@@ -619,4 +620,168 @@ fn is_toggle_recognises_only_true_false_choices() {
     assert!(toggle("tls", "TLS", "true").is_toggle());
     assert!(!FormField::text("a", "A", "").is_toggle());
     assert!(!choice_form().fields[0].is_toggle());
+}
+
+fn indexed() -> Theme {
+    Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
+}
+
+fn draw(form: &FormDialog, width: u16, height: u16) -> ratatui::Terminal<ratatui::backend::TestBackend> {
+    let theme = indexed();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render_form(frame, frame.area(), form, &theme)).unwrap();
+    terminal
+}
+
+#[test]
+fn a_password_prompt_draws_bullets_and_never_the_typed_text() {
+    let mut form = FormDialog::new("Password for me@nas", vec![FormField::masked("password", "Password", "")]);
+    for character in "hunter2".chars() {
+        press(&mut form, KeyCode::Char(character));
+    }
+
+    let terminal = draw(&form, 60, 12);
+
+    assert!(find_text(&terminal, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}").is_some());
+    assert!(find_text(&terminal, "hunter2").is_none());
+    assert!(!format!("{:?}", press(&mut form, KeyCode::Enter)).contains("hunter2"));
+}
+
+#[test]
+fn the_focused_field_has_a_bright_label_and_an_accent_underline() {
+    let theme = indexed();
+    let terminal = draw(&sample_form(), 60, 12);
+
+    let (x, y) = find_text(&terminal, "Name").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
+    assert_eq!(cell_fg(&terminal, x + 15, y + 1), theme.accent);
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+    assert_eq!(cell_fg(&terminal, x + 15, y + 1), theme.line_strong);
+}
+
+#[test]
+fn the_caret_is_the_terminal_cursor_in_the_focused_text_field() {
+    let mut form = sample_form();
+    press(&mut form, KeyCode::Char('a'));
+    press(&mut form, KeyCode::Char('b'));
+
+    let mut terminal = draw(&form, 60, 12);
+
+    let (x, y) = find_text(&terminal, "ab").unwrap();
+    let cursor = terminal.get_cursor_position().unwrap();
+    assert_eq!((cursor.x, cursor.y), (x + 2, y));
+}
+
+#[test]
+fn choice_fields_show_arrows_and_the_selected_label() {
+    let form = FormDialog::new(
+        "Synchronize with nas",
+        vec![FormField::choice(
+            "direction",
+            "Direction",
+            vec![("a".into(), "Local \u{2192} Remote".into()), ("b".into(), "Remote \u{2192} Local".into())],
+            "a",
+        )],
+    );
+
+    let terminal = draw(&form, 70, 12);
+
+    assert!(find_text(&terminal, "\u{25c0} Local \u{2192} Remote \u{25b6}").is_some());
+}
+
+#[test]
+fn toggle_fields_are_checkboxes() {
+    let theme = indexed();
+    let form = FormDialog::new("t", vec![FormField::text("a", "A", ""), toggle("tls", "use tls", "true")]);
+
+    let terminal = draw(&form, 60, 12);
+
+    let (x, y) = find_text(&terminal, "[x] use tls").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.accent);
+}
+
+#[test]
+fn the_error_is_a_bullet_in_err_above_the_footer() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.error = Some("Host can't be empty".to_string());
+
+    let terminal = draw(&form, 60, 14);
+
+    let (x, y) = find_text(&terminal, "\u{2022} Host can't be empty").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
+    let (_, footer_row) = find_text(&terminal, "enter ok").unwrap();
+    assert!(footer_row > y);
+}
+
+#[test]
+fn the_footer_shows_tab_next_only_with_several_fields_and_always_enter_ok_and_esc_cancel() {
+    let several = draw(&sample_form(), 60, 14);
+    let single = draw(&FormDialog::new("t", vec![FormField::masked("password", "Password", "")]), 60, 14);
+
+    assert!(find_text(&several, "tab next").is_some());
+    assert!(find_text(&single, "tab next").is_none());
+    for terminal in [&several, &single] {
+        assert!(find_text(terminal, "enter ok").is_some());
+        assert!(find_text(terminal, "esc cancel").is_some());
+    }
+}
+
+#[test]
+fn the_popup_grows_with_the_fields() {
+    let one = draw(&FormDialog::new("t", vec![FormField::text("a", "A", "")]), 60, 20);
+    let three = draw(&sample_form(), 60, 20);
+
+    let (_, one_footer) = find_text(&one, "enter ok").unwrap();
+    let (_, three_footer) = find_text(&three, "enter ok").unwrap();
+    assert_eq!(three_footer - one_footer, 2);
+}
+
+#[test]
+fn a_short_screen_scrolls_the_focused_field_into_view() {
+    let mut form = sample_form();
+    form.focused = 2;
+
+    let terminal = draw(&form, 60, 9);
+
+    assert!(find_text(&terminal, "Password").is_some());
+    assert!(find_text(&terminal, "enter ok").is_some());
+}
+
+#[test]
+fn hostile_labels_values_hints_and_errors_are_sanitised_and_cut() {
+    let mut form = FormDialog::new(
+        "T\u{1b}[2J",
+        vec![
+            FormField::text("a", "La\u{1b}bel", "va\u{202e}lue".repeat(40)),
+            FormField::choice("c", "Ch", vec![("x".into(), "ch\u{1b}oice".into())], "x"),
+        ],
+    );
+    form.hint = Some("hi\u{1b}nt".repeat(50));
+    form.error = Some("er\u{7}ror\n".repeat(50));
+
+    let terminal = draw(&form, 80, 20);
+
+    assert!(!has_unprintable_cell(&terminal));
+    let buffer = terminal.backend().buffer();
+    assert!((0..20).all(|y| buffer[(0, y)].symbol() == " " && buffer[(79, y)].symbol() == " "));
+}
+
+#[test]
+fn tiny_screens_do_not_panic() {
+    let mut form = sample_form();
+    form.hint = Some("hint".to_string());
+    form.error = Some("error".to_string());
+    for width in (0..=12).chain([90]) {
+        for height in 0..=14 {
+            draw(&form, width, height);
+            draw(&FormDialog::new("t", Vec::new()), width, height);
+        }
+    }
+}
+
+#[test]
+fn the_source_no_longer_uses_the_reversed_modifier() {
+    assert!(!include_str!("mod.rs").contains("REVERSED"));
 }

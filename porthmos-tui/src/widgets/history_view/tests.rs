@@ -3,7 +3,10 @@ use porthmos_core::transfer::Direction;
 use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
-use crate::theme::{ColorDepth, ThemeSettings};
+use crate::{
+    app::testing::{cell_bg, cell_fg, find_text, has_unprintable_cell, screen_rows},
+    theme::{ColorDepth, ThemeSettings},
+};
 
 fn entry(label: &str, connection: &str, result: HistoryResult) -> HistoryEntry {
     HistoryEntry {
@@ -187,75 +190,197 @@ fn go_to_top_selects_the_first_row() {
 }
 
 #[test]
-fn markers_tell_failures_apart() {
-    assert_eq!(result_marker(&HistoryResult::Failed), '\u{2717}');
-    assert_eq!(result_marker(&HistoryResult::PartlyFailed { failed: 1 }), '!');
-    assert_eq!(result_marker(&HistoryResult::Done), ' ');
-    assert_eq!(result_marker(&HistoryResult::Cancelled), ' ');
-    assert_eq!(result_marker(&HistoryResult::Interrupted), ' ');
+fn the_header_row_is_dim_and_an_accent_rule_follows() {
+    let theme = indexed_theme();
+    let terminal = render(&three(), 110, 10);
+
+    let (x, y) = find_text(&terminal, "item").unwrap();
+    assert_eq!(y, 1);
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+    assert_eq!(terminal.backend().buffer()[(0, 2)].symbol(), "\u{2500}");
+    assert_eq!(cell_fg(&terminal, 0, 2), theme.accent);
+    assert_eq!(cell_fg(&terminal, 109, 2), theme.accent);
 }
 
 #[test]
-fn rows_show_direction_label_connection_counts_and_size() {
-    let content = screen(&render(&three(), 100, 8));
+fn the_filter_line_sits_above_the_header() {
+    let terminal = render(&three(), 110, 10);
 
-    assert!(content.contains("History (3)"), "{content}");
-    assert!(content.contains("\u{2191} newest.txt"), "{content}");
-    assert!(content.contains("prod"), "{content}");
-    assert!(content.contains("1/2"), "{content}");
-    assert!(content.contains("2.0 KB") || content.contains("2 KB") || content.contains("2.0K"), "{content}");
-    assert!(content.contains('\u{2717}'), "{content}");
+    assert!(screen_rows(&terminal)[0].starts_with("/ filter"));
+    assert!(screen_rows(&terminal)[0].trim_end().ends_with('3'));
+    assert!(screen_rows(&terminal)[1].contains("time"));
 }
 
 #[test]
-fn failed_rows_use_the_err_colour_and_partly_failed_rows_the_bright_colour() {
+fn a_row_shows_time_direction_item_connection_files_size_and_status() {
+    let terminal = render(&three(), 110, 10);
+
+    let row = screen_rows(&terminal)[3].clone();
+    assert!(row.contains("2026-09-30"), "{row:?}");
+    assert!(row.contains("\u{2191} newest.txt"), "{row:?}");
+    assert!(row.contains("prod"), "{row:?}");
+    assert!(row.contains("1/2"), "{row:?}");
+    assert!(row.contains("2.0K"), "{row:?}");
+    assert!(row.trim_end().ends_with("done"), "{row:?}");
+}
+
+#[test]
+fn the_focused_row_has_a_chevron_the_focus_background_and_a_bold_name() {
+    let theme = indexed_theme();
+    let mut view = three();
+    view.move_cursor(1);
+    let terminal = render(&view, 110, 10);
+
+    let (name_x, y) = find_text(&terminal, "middle.txt").unwrap();
+    assert_eq!(y, 4);
+    assert_eq!(terminal.backend().buffer()[(0, y)].symbol(), "\u{203a}");
+    assert_eq!(cell_fg(&terminal, 0, y), theme.accent);
+    assert_eq!(cell_bg(&terminal, 20, y), theme.row_focus);
+    assert!(terminal.backend().buffer()[(name_x, y)].modifier.contains(ratatui::style::Modifier::BOLD));
+    assert_ne!(cell_bg(&terminal, 20, 3), theme.row_focus);
+}
+
+#[test]
+fn status_words_and_colours() {
     let theme = indexed_theme();
     let view = view_of(vec![
         entry("a", "prod", HistoryResult::Done),
-        entry("b", "prod", HistoryResult::PartlyFailed { failed: 1 }),
+        entry("b", "prod", HistoryResult::PartlyFailed { failed: 2 }),
         entry("c", "prod", HistoryResult::Failed),
+        entry("d", "prod", HistoryResult::Cancelled),
+        entry("e", "prod", HistoryResult::Interrupted),
     ]);
-    let terminal = render(&view, 100, 8);
-    let buffer = terminal.backend().buffer();
+    let terminal = render(&view, 110, 12);
 
-    assert_eq!(buffer[(5, 2)].style().fg, Some(theme.fg_bright));
-    assert_eq!(buffer[(5, 3)].style().fg, Some(theme.err));
+    let (status_x, _) = find_text(&terminal, "status").unwrap();
+    let rows = screen_rows(&terminal);
+    let expected = [
+        (3, "done", theme.ok),
+        (4, "done, 2 failed", theme.err),
+        (5, "failed", theme.err),
+        (6, "cancelled", theme.fg_dim),
+        (7, "interrupted", theme.fg_dim),
+    ];
+    for (row, word, color) in expected {
+        assert!(rows[row].trim_end().ends_with(word), "{:?}", rows[row]);
+        assert_eq!(cell_fg(&terminal, status_x, row as u16), color, "{word}");
+    }
 }
 
 #[test]
-fn cancelled_and_interrupted_rows_use_the_dim_colour() {
+fn columns_are_dropped_in_the_order_size_files_connection_time() {
+    let present = |width: u16| {
+        let header = screen_rows(&render(&three(), width, 8))[1].clone();
+        ["size", "files", "connection", "time", "status"].map(|word| header.contains(word))
+    };
+    let [size, files, connection, time, status] = present(120);
+    assert!(size && files && connection && time && status);
+
+    for width in 14..=120 {
+        let [size, files, connection, time, _] = present(width);
+        assert!(!size || files, "width {width}: size without files");
+        assert!(!files || connection, "width {width}: files without connection");
+        assert!(!connection || time, "width {width}: connection without time");
+    }
+    let [size, files, ..] = present(40);
+    assert!(!size && !files);
+}
+
+#[test]
+fn the_item_column_gets_the_remaining_width() {
+    let label = "a-rather-long-transfer-label-that-needs-room.tar.gz";
+    let view = view_of(vec![entry(label, "prod", HistoryResult::Done)]);
+
+    assert!(find_text(&render(&view, 140, 8), label).is_some());
+    let narrow = render(&view, 70, 8);
+    assert!(find_text(&narrow, label).is_none());
+    assert!(find_text(&narrow, "\u{2026}").is_some());
+}
+
+#[test]
+fn an_empty_history_says_no_transfers_yet_in_dim() {
     let theme = indexed_theme();
-    let view = view_of(vec![
-        entry("a", "prod", HistoryResult::Done),
-        entry("b", "prod", HistoryResult::Cancelled),
-        entry("c", "prod", HistoryResult::Interrupted),
-    ]);
-    let terminal = render(&view, 100, 8);
-    let buffer = terminal.backend().buffer();
+    let terminal = render(&HistoryView::new(), 60, 8);
 
-    assert_eq!(buffer[(5, 2)].style().fg, Some(theme.fg_dim));
-    assert_eq!(buffer[(5, 3)].style().fg, Some(theme.fg_dim));
-    assert_ne!(buffer[(5, 1)].style().fg, Some(theme.fg_dim));
+    let (x, y) = find_text(&terminal, "no transfers yet").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+    assert!(screen_rows(&terminal)[0].starts_with("/ filter"));
 }
 
 #[test]
-fn an_empty_history_says_so() {
-    let content = screen(&render(&HistoryView::new(), 60, 6));
-
-    assert!(content.contains("No transfers yet"), "{content}");
-}
-
-#[test]
-fn a_filter_with_no_match_says_so_and_shows_the_filter_line() {
+fn a_filter_with_no_match_says_so_and_keeps_the_filter_line() {
     let mut view = three();
     view.start_filter();
     view.type_filter('z');
 
-    let content = screen(&render(&view, 60, 6));
+    let terminal = render(&view, 60, 8);
 
-    assert!(content.contains("No matches"), "{content}");
-    assert!(content.contains("/z"), "{content}");
-    assert!(content.contains("(0 of 3)"), "{content}");
+    assert!(find_text(&terminal, "no matches").is_some());
+    assert!(screen_rows(&terminal)[0].starts_with("/ z\u{2588}"));
+    assert!(screen_rows(&terminal)[0].trim_end().ends_with("0 of 3"));
+}
+
+#[test]
+fn the_cursor_row_scrolls_into_view() {
+    let entries: Vec<HistoryEntry> =
+        (0..40).map(|index| entry(&format!("item{index:02}"), "prod", HistoryResult::Done)).collect();
+    let mut view = view_of(entries);
+    view.move_cursor(35);
+
+    let terminal = render(&view, 110, 12);
+
+    assert!(find_text(&terminal, "item35").is_some());
+    assert!(find_text(&terminal, "item00").is_none());
+}
+
+#[test]
+fn hostile_labels_and_connection_names_are_sanitised_and_cut() {
+    let view = view_of(vec![entry(&"x\u{1b}[2J\u{202e}".repeat(100), &"c\u{7}n".repeat(50), HistoryResult::Done)]);
+
+    let terminal = render(&view, 80, 8);
+
+    assert!(!has_unprintable_cell(&terminal));
+    assert!(screen_rows(&terminal)[3].trim_end().ends_with("done"));
+}
+
+#[test]
+fn a_wide_character_label_stays_inside_its_column() {
+    let view = view_of(vec![entry(&"\u{65e5}\u{672c}".repeat(80), "prod", HistoryResult::Done)]);
+
+    let terminal = render(&view, 90, 8);
+
+    assert!(screen_rows(&terminal)[3].trim_end().ends_with("done"));
+}
+
+#[test]
+fn tiny_screens_do_not_panic() {
+    for width in 0..=12 {
+        for height in 0..=4 {
+            render(&three(), width, height);
+            render(&HistoryView::new(), width, height);
+        }
+    }
+}
+
+#[test]
+fn the_summary_counts_entries_and_matches() {
+    let mut view = three();
+    assert_eq!(view.summary(), "3 entries");
+    assert_eq!(view_of(vec![entry("a", "prod", HistoryResult::Done)]).summary(), "1 entry");
+    assert_eq!(HistoryView::new().summary(), "0 entries");
+
+    view.start_filter();
+    view.type_filter('o');
+    view.type_filter('l');
+    assert_eq!(view.summary(), "1 of 3");
+}
+
+#[test]
+fn the_source_no_longer_uses_the_reversed_modifier_or_a_box() {
+    let source = include_str!("mod.rs");
+
+    assert!(!source.contains("REVERSED"));
+    assert!(!source.contains("Borders"));
 }
 
 #[test]
@@ -267,7 +392,7 @@ fn a_narrow_screen_does_not_panic() {
 
 #[test]
 fn a_moderately_narrow_screen_still_shows_the_label() {
-    let content = screen(&render(&three(), 40, 6));
+    let content = screen(&render(&three(), 40, 8));
 
     assert!(content.contains("newest"), "{content}");
 }

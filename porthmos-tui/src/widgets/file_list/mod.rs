@@ -13,7 +13,7 @@ use crate::{
     widgets::{
         history_view::printable,
         panel_view::{PanelView, Row},
-        text_fit::truncate_with_ellipsis,
+        text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
 };
 
@@ -57,14 +57,6 @@ impl Columns {
             show_modified,
         }
     }
-}
-
-fn pad_right(text: &str, width: usize) -> String {
-    format!("{text}{}", " ".repeat(width.saturating_sub(text.width())))
-}
-
-fn pad_left(text: &str, width: usize) -> String {
-    format!("{}{text}", " ".repeat(width.saturating_sub(text.width())))
 }
 
 pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, context: &ListContext<'_>, theme: &Theme) {

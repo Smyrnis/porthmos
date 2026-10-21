@@ -4,22 +4,27 @@ use ratatui::{
     style::Modifier,
     text::{Line, Span},
 };
+use unicode_width::UnicodeWidthStr;
 
 use super::{
-    hints::{form_hints, hints_for},
+    hints::{form_hints, help_sections, hints_for, search_hints},
     *,
 };
 use crate::widgets::{
     connection_details, connection_form,
-    frame::{Hint, accent_underline, clear_popup, fill_background, hairline, hint_bar, top_bar, vertical_rule},
+    frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
     panel_view::PanelContext,
+    popup::render_popup,
     session_tabs::{TabView, tabs_line},
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
     transfer_line::{line_data, render_transfer_line},
 };
+
+const DETAILS_POPUP_WIDTH: u16 = 60;
+const DETAILS_POPUP_HEIGHT: u16 = 16;
 
 impl App {
     pub(super) fn render(&self, frame: &mut Frame) {
@@ -60,11 +65,12 @@ impl App {
         }
 
         if self.help_visible {
-            help::render_help(frame, area, &self.key_bindings, &self.theme);
+            let sections = help_sections(&self.key_bindings);
+            self.help_max_scroll.set(help::render_help(frame, area, &sections, self.help_scroll, &self.theme));
         }
 
         if self.details_popup_visible() {
-            self.render_details_popup(frame, areas.body);
+            self.render_details_popup(frame, area, areas.body);
         }
     }
 
@@ -99,10 +105,12 @@ impl App {
         }
         let tabs = if self.screen == Screen::Files { self.tab_views() } else { Vec::new() };
 
+        let tail = self.screen_tail();
+        let tail_width = tail.as_ref().map_or(0, |tail| " / ".len() + tail.width()) as u16;
         let left_minimum = match self.screen {
             Screen::Files if tabs.is_empty() => name_width,
             Screen::Files => name_width + GAP + TABS_FLOOR.min(area.width.saturating_sub(name_width + GAP)),
-            _ => name_width + " / ".len() as u16 + self.screen_title().len() as u16,
+            _ => name_width + " / ".len() as u16 + self.screen_title().len() as u16 + tail_width,
         };
         let status = self.connection_status_line(usize::from(area.width.saturating_sub(left_minimum + GAP)));
         let status_width = status.width() as u16;
@@ -122,8 +130,21 @@ impl App {
         } else {
             left.spans.push(Span::styled(" / ", theme.dim()));
             left.spans.push(Span::styled(self.screen_title(), theme.bright()));
+            if let Some(tail) = tail {
+                left.spans.push(Span::styled(" / ", theme.dim()));
+                left.spans.push(Span::styled(tail, theme.bright()));
+            }
         }
         top_bar(frame, area, left, status);
+    }
+
+    fn screen_tail(&self) -> Option<String> {
+        if self.screen != Screen::Sync {
+            return None;
+        }
+        let name =
+            self.sync_view.plan().and_then(|plan| self.sessions.by_id(plan.session)).map(|session| &session.name);
+        Some(name.map_or_else(|| "remote".to_string(), |name| printable(name)))
     }
 
     fn screen_form(&self) -> Option<&crate::widgets::dialog::FormDialog> {
@@ -177,6 +198,12 @@ impl App {
         }
         if self.screen == Screen::Connections {
             return Line::styled(truncate_with_ellipsis(&self.connections_summary(), budget), self.theme.muted());
+        }
+        if self.screen == Screen::Sync {
+            return Line::styled(truncate_with_ellipsis(&self.sync_view.top_bar_summary(), budget), self.theme.muted());
+        }
+        if self.screen == Screen::History {
+            return Line::styled(truncate_with_ellipsis(&self.history.summary(), budget), self.theme.muted());
         }
         if self.screen == Screen::Transfers {
             let summary = transfer_list::transfer_summary(self.transfer_rows(), self.rates.aggregate_speed());
@@ -322,14 +349,9 @@ impl App {
         connection_details::render_connection_details(frame, area, selection, group_count, &context, &self.theme);
     }
 
-    fn render_details_popup(&self, frame: &mut Frame, body: Rect) {
-        let width = body.width.min(60);
-        let height = body.height.min(16);
-        let popup = Rect::new(body.x + (body.width - width) / 2, body.y + (body.height - height) / 2, width, height);
-        clear_popup(frame, popup, &self.theme);
-        let block = ratatui::widgets::Block::bordered().border_style(self.theme.popup_border());
-        let inner = block.inner(popup);
-        frame.render_widget(block, popup);
+    fn render_details_popup(&self, frame: &mut Frame, screen: Rect, body: Rect) {
+        let size = (body.width.min(DETAILS_POPUP_WIDTH), body.height.min(DETAILS_POPUP_HEIGHT));
+        let inner = render_popup(frame, screen, size, None, &self.theme);
         self.render_details(frame, inner);
     }
 
@@ -375,13 +397,7 @@ impl App {
     }
 
     fn render_sync(&self, frame: &mut Frame, area: Rect) {
-        let name = self
-            .sync_view
-            .plan()
-            .and_then(|plan| self.sessions.by_id(plan.session))
-            .map_or("remote", |session| session.name.as_str());
-        let title = format!("Sync with {name}");
-        sync_view::render_sync(frame, area, &self.sync_view, &title, &self.theme);
+        sync_view::render_sync(frame, area, &self.sync_view, &self.theme);
     }
 
     fn render_search(&self, frame: &mut Frame, area: Rect) {
@@ -395,6 +411,8 @@ impl App {
             frame.render_widget(Paragraph::new(printable(&text)).style(self.theme.muted()), area);
         } else if self.screen_form().is_some() {
             hint_bar(frame, area, &form_hints(), &self.theme);
+        } else if self.screen == Screen::Search {
+            hint_bar(frame, area, &search_hints(), &self.theme);
         } else {
             let mut hints = hints_for(self.screen, &self.key_bindings);
             if self.screen == Screen::Connections && !self.details_pane_visible() {

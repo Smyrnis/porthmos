@@ -381,9 +381,10 @@ fn the_hint_bar_and_the_help_overlay_agree_on_a_remapped_help_key() {
     assert!(bottom_row(&hints).contains("Ctrl+G help"), "{:?}", bottom_row(&hints));
 
     app.help_visible = true;
-    let overlay = render_app(&app, 100, 40);
+    let overlay = render_app(&app, 100, 60);
     let (_, y) = find_text(&overlay, "Ctrl+G").expect("overlay lists the remapped key");
-    assert!(y < 39);
+    assert!(y < 59);
+    assert!(find_text(&overlay, &format!("Ctrl+G{}help", " ".repeat(6))).is_some());
 }
 
 #[test]
@@ -481,7 +482,7 @@ fn an_overlay_is_drawn_above_a_toast_so_an_error_never_blocks_a_dialog() {
 
     let terminal = render_app(&app, 60, 20);
 
-    assert!(find_text(&terminal, "F10        quit").is_some());
+    assert!(find_text(&terminal, &format!("F10{}quit", " ".repeat(9))).is_some());
 }
 
 #[test]
@@ -1177,6 +1178,20 @@ fn space_opens_the_details_popup_below_100_columns_and_any_key_closes_it() {
 }
 
 #[test]
+fn the_details_popup_dims_the_screen_behind_it() {
+    let (mut app, theme) = connections_app();
+    let _ = render_app(&app, 80, 24);
+    app.apply_action(Action::ToggleSelect);
+
+    let terminal = render_app(&app, 80, 24);
+
+    let (x, y) = find_text(&terminal, "porthmos").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.line_strong);
+    let (x, y) = find_text(&terminal, "username").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.line_strong);
+}
+
+#[test]
 fn space_does_nothing_when_the_details_pane_is_visible() {
     let (mut app, _) = connections_app();
     let _ = render_app(&app, 120, 24);
@@ -1448,4 +1463,50 @@ fn the_hint_bar_offers_space_details_only_when_the_pane_is_hidden() {
 
     assert!(bottom_row(&narrow).contains("Space details"), "{:?}", bottom_row(&narrow));
     assert!(!bottom_row(&wide).contains("Space details"), "{:?}", bottom_row(&wide));
+}
+
+fn history_entry(label: &str) -> porthmos_core::history::HistoryEntry {
+    porthmos_core::history::HistoryEntry {
+        finished_at: chrono::Utc.with_ymd_and_hms(2026, 9, 30, 8, 12, 44).unwrap(),
+        connection: "prod".to_string(),
+        direction: Direction::Upload,
+        label: label.to_string(),
+        local_path: format!("/home/me/{label}"),
+        remote_path: format!("/srv/{label}"),
+        files_done: 1,
+        files_total: 1,
+        bytes: 10,
+        result: porthmos_core::history::HistoryResult::Done,
+        failed_count: 0,
+        failed_files: Vec::new(),
+    }
+}
+
+#[test]
+fn the_history_screen_shows_the_filter_line_a_row_and_an_entry_count_in_the_top_bar_at_120x24() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::History(vec![history_entry("one.txt"), history_entry("two.txt")]));
+    app.screen = Screen::History;
+
+    let terminal = render_app(&app, 120, 24);
+
+    let top = row_symbols(&terminal, 0);
+    assert!(top.contains("porthmos / history"), "{top:?}");
+    assert!(top.trim_end().ends_with("2 entries"), "{top:?}");
+    assert!(find_text(&terminal, "/ filter").is_some());
+    assert!(find_text(&terminal, "one.txt").is_some());
+}
+
+#[test]
+fn the_search_screen_shows_its_hints_in_the_hint_bar_at_120x24() {
+    let (mut app, _) = themed_app();
+    app.apply_action(Action::OpenSearch);
+
+    let terminal = render_app(&app, 120, 24);
+
+    let hint_row = row_symbols(&terminal, 23);
+    assert!(hint_row.contains("enter open"), "{hint_row:?}");
+    assert!(hint_row.trim_end().ends_with("esc close"), "{hint_row:?}");
+    assert!(find_text(&terminal, "/ type").is_none());
+    assert!(find_text(&terminal, "type to search").is_some());
 }

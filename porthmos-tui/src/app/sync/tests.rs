@@ -472,7 +472,7 @@ fn the_preview_draws_inside_the_whole_app() {
     terminal.draw(|frame| test.app.render(frame)).unwrap();
 
     let screen: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
-    assert!(screen.contains("Sync with prod"), "{screen}");
+    assert!(screen.contains("porthmos / sync / prod"), "{screen}");
     assert!(screen.contains("a.txt"), "{screen}");
 }
 
@@ -639,4 +639,31 @@ fn a_plan_does_not_take_over_the_screen_while_a_filter_is_being_typed() {
     assert_eq!(test.app.screen, Screen::Files);
     assert!(test.app.sync_view.has_plan());
     assert!(test.app.notifications.current().is_some_and(|note| note.message.contains("Ctrl+U")));
+}
+
+#[test]
+fn the_sync_top_bar_reads_porthmos_sync_and_the_connection_name() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let test = with_plan(vec![upload(0, "a.txt")]);
+    let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+
+    let top: String = (0..120).map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_string()).collect();
+    assert!(top.trim_start().starts_with("porthmos / sync / prod"), "{top:?}");
+}
+
+#[test]
+fn the_sync_summary_is_right_aligned_in_the_top_bar() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let test = with_plan(vec![upload(0, "a.txt")]);
+    let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+
+    let top: String = (0..120).map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_string()).collect();
+    assert!(top.trim_end().ends_with("0 skipped"), "{top:?}");
+    assert!(top.contains("1 ticked"), "{top:?}");
 }

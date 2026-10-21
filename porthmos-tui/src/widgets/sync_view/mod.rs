@@ -9,16 +9,18 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    text::{Line, Span},
+    widgets::{List, ListItem, ListState, Paragraph},
 };
-use unicode_width::UnicodeWidthStr;
 
 use crate::{
     theme::Theme,
     widgets::{
         file_list::{format_size, truncate_name},
-        filter_line::{self, FilterLine},
+        filter_line::{FilterLine, FilterLineState, render_filter_line},
+        frame::{accent_underline, hairline},
         history_view::printable,
+        text_fit::{pad_left, pad_right},
     },
 };
 
@@ -295,13 +297,18 @@ fn moment(facts: Option<SyncFacts>) -> String {
         .map_or_else(|| "\u{2014}".to_string(), |time| time.format("%Y-%m-%d %H:%M").to_string())
 }
 
-const MARK_AND_ARROW_WIDTH: usize = 6;
+const MARKER_WIDTH: usize = 2;
+const CHECK_WIDTH: usize = 4;
+const ARROW_WIDTH: usize = 2;
 const REASON_WIDTH: usize = 22;
+const GAP: usize = 2;
 const SIZE_WIDTH: usize = 7;
 const TIME_WIDTH: usize = 16;
-const TIME_COLUMNS_WIDTH: usize = 2 * (4 + TIME_WIDTH);
-const WITHOUT_PATH_OR_TIMES: usize = MARK_AND_ARROW_WIDTH + REASON_WIDTH + 1 + 2 + SIZE_WIDTH;
+const TIME_CELL_WIDTH: usize = 2 + TIME_WIDTH;
+const WITHOUT_PATH_OR_TIMES: usize = MARKER_WIDTH + CHECK_WIDTH + ARROW_WIDTH + REASON_WIDTH + 1 + GAP + SIZE_WIDTH;
+const TIME_COLUMNS_WIDTH: usize = 2 * (GAP + TIME_CELL_WIDTH);
 const MIN_PATH_WIDTH_WITH_TIMES: usize = 12;
+const HEADER_ROWS: u16 = 3;
 
 #[derive(Clone, Copy)]
 struct RowLayout {
@@ -309,10 +316,10 @@ struct RowLayout {
     with_times: bool,
 }
 
-fn row_layout(inner_width: usize) -> RowLayout {
-    let with_times = inner_width >= WITHOUT_PATH_OR_TIMES + TIME_COLUMNS_WIDTH + MIN_PATH_WIDTH_WITH_TIMES;
+fn row_layout(width: usize) -> RowLayout {
+    let with_times = width >= WITHOUT_PATH_OR_TIMES + TIME_COLUMNS_WIDTH + MIN_PATH_WIDTH_WITH_TIMES;
     let taken = WITHOUT_PATH_OR_TIMES + if with_times { TIME_COLUMNS_WIDTH } else { 0 };
-    RowLayout { path_width: inner_width.saturating_sub(taken), with_times }
+    RowLayout { path_width: width.saturating_sub(taken), with_times }
 }
 
 fn fitted_path(path: &str, width: usize) -> String {
@@ -320,38 +327,70 @@ fn fitted_path(path: &str, width: usize) -> String {
         return String::new();
     }
     let shown = truncate_name(&printable(path), width);
-    let padding = width.saturating_sub(UnicodeWidthStr::width(shown.as_str()));
-    format!("{shown}{}", " ".repeat(padding))
+    pad_right(&shown, width)
 }
 
-fn row_text(item: &SyncItem, ticked: bool, action: SyncAction, layout: RowLayout) -> String {
-    let mark = if ticked { "[x]" } else { "[ ]" };
+fn header_line(layout: RowLayout, theme: &Theme) -> Line<'static> {
+    let gap = " ".repeat(GAP);
+    let mut text = " ".repeat(MARKER_WIDTH + CHECK_WIDTH + ARROW_WIDTH);
+    text.push_str(&format!("{} {}", pad_right("reason", REASON_WIDTH), pad_right("path", layout.path_width)));
+    text.push_str(&format!("{gap}{}", pad_left("size", SIZE_WIDTH)));
+    if layout.with_times {
+        text.push_str(&format!(
+            "{gap}{}{gap}{}",
+            pad_right("local", TIME_CELL_WIDTH),
+            pad_right("remote", TIME_CELL_WIDTH)
+        ));
+    }
+    Line::from(Span::styled(text, theme.dim()))
+}
+
+fn row_line(
+    item: &SyncItem, ticked: bool, action: SyncAction, focused: bool, layout: RowLayout, theme: &Theme,
+) -> Line<'static> {
+    let gap = " ".repeat(GAP);
+    let marker = if focused { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
+    let check = if ticked { Span::styled("[x] ", theme.accent_text()) } else { Span::styled("[ ] ", theme.dim()) };
     let arrow = match action {
-        SyncAction::Upload => '\u{2191}',
-        SyncAction::Download => '\u{2193}',
-        SyncAction::Skip => '\u{b7}',
+        SyncAction::Upload => "\u{2191} ",
+        SyncAction::Download => "\u{2193} ",
+        SyncAction::Skip => "\u{b7} ",
     };
     let size = match action {
         SyncAction::Download => item.remote.or(item.local),
         _ => item.local.or(item.remote),
     }
     .map_or(0, |facts| facts.size);
-    let mut row = format!(
-        "{mark} {arrow} {:<REASON_WIDTH$} {}  {:>SIZE_WIDTH$}",
-        reason_text(item.reason),
-        fitted_path(&item.path.to_string_lossy(), layout.path_width),
-        format_size(size, false),
-    );
-    if layout.with_times {
-        row.push_str(&format!("  L {:<TIME_WIDTH$}  R {:<TIME_WIDTH$}", moment(item.local), moment(item.remote)));
+    let mut text_style = row_style(item, ticked, theme);
+    if focused {
+        text_style = text_style.add_modifier(Modifier::BOLD);
     }
-    row
+
+    let mut spans = vec![
+        marker,
+        check,
+        Span::styled(arrow, theme.muted()),
+        Span::styled(pad_right(reason_text(item.reason), REASON_WIDTH), text_style),
+        Span::raw(" "),
+        Span::styled(fitted_path(&item.path.to_string_lossy(), layout.path_width), text_style),
+        Span::raw(gap.clone()),
+        Span::styled(pad_left(&format_size(size, false), SIZE_WIDTH), theme.dim()),
+    ];
+    if layout.with_times {
+        let times = format!(
+            "{gap}{}{gap}{}",
+            pad_right(&format!("L {}", moment(item.local)), TIME_CELL_WIDTH),
+            pad_right(&format!("R {}", moment(item.remote)), TIME_CELL_WIDTH),
+        );
+        spans.push(Span::styled(times, theme.dim()));
+    }
+    Line::from(spans)
 }
 
 fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
     match (item.reason, ticked) {
         (SyncReason::KindMismatch, _) => theme.err_text(),
-        (_, true) => Style::default(),
+        (_, true) => theme.text(),
         (SyncReason::TargetNewer | SyncReason::SameTimeDifferentSize | SyncReason::SizeDiffersTimeUnknown, false) => {
             theme.bright()
         }
@@ -371,41 +410,68 @@ fn summary_text(summary: &Summary) -> String {
     )
 }
 
-pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, title: &str, theme: &Theme) {
-    let mut block = Block::default().title(format!("{title} ({})", view.total())).borders(Borders::ALL);
-    let inner_width = usize::from(area.width.saturating_sub(2));
-    let will_run = format!(" \u{b7} {} will run", view.visible_choices().len());
-    let status_width = inner_width.saturating_sub(will_run.chars().count());
-    let footer =
-        match filter_line::status(view.editing_filter(), view.filter(), view.matched(), view.total(), status_width) {
-            Some(status) => format!("{status}{will_run}"),
-            None => summary_text(&view.summary()),
-        };
-    block = block.title_bottom(footer);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+impl SyncView {
+    pub fn top_bar_summary(&self) -> String {
+        let summary = summary_text(&self.summary());
+        if self.filter.is_some() || self.editing_filter {
+            format!("{summary} \u{b7} {} will run", self.visible_choices().len())
+        } else {
+            summary
+        }
+    }
+}
 
+pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, theme: &Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let state = FilterLineState {
+        text: view.filter(),
+        editing: view.editing_filter(),
+        matched: view.matched(),
+        total: view.total(),
+    };
+    render_filter_line(frame, Rect::new(area.x, area.y, area.width, 1), state, theme);
     let Some(plan) = view.plan.as_ref() else {
         return;
     };
-    if view.matched() == 0 {
-        frame.render_widget(Paragraph::new("No matches"), inner);
+    if area.height < 3 {
         return;
     }
-    let layout = row_layout(inner_width);
+
+    let layout = row_layout(usize::from(area.width));
+    if view.matched() > 0 {
+        frame.render_widget(Paragraph::new(header_line(layout, theme)), Rect::new(area.x, area.y + 1, area.width, 1));
+    }
+    let rule = Rect::new(area.x, area.y + 2, area.width, 1);
+    hairline(frame, rule, theme);
+    accent_underline(frame, rule, 0..area.width, theme);
+    if area.height <= HEADER_ROWS {
+        return;
+    }
+
+    let body = Rect::new(area.x, area.y + HEADER_ROWS, area.width, area.height - HEADER_ROWS);
+    if view.matched() == 0 {
+        frame.render_widget(
+            Paragraph::new(Span::styled("no matches", theme.dim())),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+        return;
+    }
+    let cursor = view.cursor();
     let items: Vec<ListItem> = view
         .visible
         .iter()
-        .map(|index| {
+        .enumerate()
+        .map(|(position, index)| {
             let item = &plan.items[*index];
-            let ticked = view.ticked[*index];
-            ListItem::new(row_text(item, ticked, view.actions[*index], layout)).style(row_style(item, ticked, theme))
+            ListItem::new(row_line(item, view.ticked[*index], view.actions[*index], position == cursor, layout, theme))
         })
         .collect();
-    let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+    let list = List::new(items).highlight_style(theme.focus_row());
     let mut state = ListState::default();
-    state.select(Some(view.cursor()));
-    frame.render_stateful_widget(list, inner, &mut state);
+    state.select(Some(cursor));
+    frame.render_stateful_widget(list, body, &mut state);
 }
 
 #[cfg(test)]

@@ -176,14 +176,15 @@ fn a_refresh_with_a_filter_active_keeps_the_filter() {
 }
 
 #[test]
-fn the_screen_draws_its_title_and_rows() {
+fn the_screen_draws_its_summary_and_rows() {
     let test = app_with_history(three());
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
 
     terminal.draw(|frame| test.app.render(frame)).unwrap();
 
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
-    assert!(content.contains("History (3)"), "{content}");
+    assert!(content.contains("porthmos / history"), "{content}");
+    assert!(content.contains("3 entries"), "{content}");
     assert!(content.contains("newest"), "{content}");
 }
 
@@ -367,5 +368,5 @@ fn the_worst_case_details_fit_an_80_by_24_terminal() {
     let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
     assert!(content.contains("and 240 more"), "{content}");
     assert!(content.contains("porthmos.log"), "{content}");
-    assert!(content.contains("[Enter] OK"), "{content}");
+    assert!(content.contains("enter close"), "{content}");
 }

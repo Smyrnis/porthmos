@@ -80,3 +80,20 @@ pub(crate) fn cell_fg(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratat
 pub(crate) fn cell_bg(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratatui::style::Color {
     terminal.backend().buffer()[(x, y)].bg
 }
+
+pub(crate) fn screen_rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
+    let buffer = terminal.backend().buffer();
+    (0..buffer.area.height).map(|y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol()).collect()).collect()
+}
+
+pub(crate) fn has_unprintable_cell(terminal: &Terminal<TestBackend>) -> bool {
+    terminal.backend().buffer().content().iter().any(|cell| {
+        cell.symbol().chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{61c}'
+                )
+        })
+    })
+}

@@ -9,7 +9,7 @@ use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -17,10 +17,10 @@ use crate::{
     theme::Theme,
     widgets::{
         connections_view::ConnectionsView,
-        filter_line::FilterLine,
+        filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
         history_view::printable,
-        text_fit::truncate_with_ellipsis,
+        text_fit::{pad_right, truncate_with_ellipsis},
     },
 };
 
@@ -31,7 +31,6 @@ const MAX_NAME_WIDTH: usize = 18;
 const MIN_PROTOCOL_WIDTH: usize = 3;
 const MAX_PROTOCOL_WIDTH: usize = 10;
 const DOT: &str = "\u{2022}";
-const CARET: &str = "\u{2588}";
 
 pub struct ConnectionsContext<'a> {
     pub connected: &'a HashSet<&'a str>,
@@ -50,7 +49,9 @@ pub fn render_connections_list(
     if area.width == 0 || area.height == 0 {
         return;
     }
-    render_filter_line(frame, Rect::new(area.x, area.y, area.width, 1), view, theme);
+    let (matched, total) = view.match_counts();
+    let state = FilterLineState { text: view.filter(), editing: view.editing_filter(), matched, total };
+    render_filter_line(frame, Rect::new(area.x, area.y, area.width, 1), state, theme);
     if area.height < 2 {
         return;
     }
@@ -97,37 +98,6 @@ pub fn render_connections_list(
     frame.render_stateful_widget(list, body, &mut state);
 }
 
-fn render_filter_line(frame: &mut Frame, area: Rect, view: &ConnectionsView, theme: &Theme) {
-    let width = usize::from(area.width);
-    let (matched, total) = view.match_counts();
-    let filtering = view.filter().is_some();
-    let count = if filtering { format!("{matched} of {total}") } else { total.to_string() };
-
-    let mut spans = vec![Span::styled("/", theme.accent_text()), Span::raw(" ")];
-    match (view.filter(), view.editing_filter()) {
-        (Some(text), editing) => {
-            let budget = width.saturating_sub(2 + count.width() + 3 + 1);
-            let shown = crate::widgets::text_fit::truncate_start_with_ellipsis(&printable(text), budget);
-            spans.push(Span::styled(shown, theme.bright()));
-            if editing {
-                spans.push(Span::styled(CARET, theme.bright()));
-            }
-        }
-        (None, true) => spans.push(Span::styled(CARET, theme.bright())),
-        (None, false) => spans.push(Span::styled("filter", theme.dim())),
-    }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-
-    let count_width = count.width();
-    if width >= 2 + 6 + 3 + count_width {
-        let x = area.x + area.width - count_width as u16;
-        frame.render_widget(
-            Paragraph::new(Span::styled(count, theme.dim())),
-            Rect::new(x, area.y, count_width as u16, 1),
-        );
-    }
-}
-
 fn is_hidden_label(entry: &ConnectionEntry) -> Option<&'static str> {
     match entry.source {
         ConnectionSource::MissingSshHost => Some("not in ~/.ssh/config"),
@@ -152,10 +122,6 @@ fn group_line(name: &str, depth: usize, count: usize, expanded: bool, width: usi
     let fixed = indent.width() + glyph.width() + 1 + suffix.width();
     let name = truncate_with_ellipsis(&printable(name), width.saturating_sub(fixed));
     Line::from(Span::styled(format!("{indent}{glyph} {name}{suffix}"), theme.dim()))
-}
-
-fn pad_right(text: &str, width: usize) -> String {
-    format!("{text}{}", " ".repeat(width.saturating_sub(text.width())))
 }
 
 fn connection_line(

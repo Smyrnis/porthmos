@@ -1,13 +1,17 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Flex, Layout, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+use ratatui::{Frame, layout::Rect};
+
+use crate::{
+    theme::Theme,
+    widgets::{
+        form_fields::render_underline_value,
+        history_view::printable,
+        popup::{content_width, footer, footer_text, render_popup},
+    },
 };
 
-use crate::theme::Theme;
+const MIN_WIDTH: u16 = 40;
+const HEIGHT: u16 = 6;
 
 pub struct TextInputDialog {
     pub title: String,
@@ -87,36 +91,26 @@ impl TextInputDialog {
 }
 
 pub fn render_text_input(frame: &mut Frame, area: Rect, dialog: &TextInputDialog, theme: &Theme) {
-    let displayed_value = dialog.value.clone();
-
-    let popup = centered_popup(area, super::content_width(&[dialog.title.as_str(), displayed_value.as_str()]), 4);
-
-    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
-
-    let chars: Vec<char> = displayed_value.chars().collect();
-    let mut spans: Vec<Span> = chars
-        .iter()
-        .enumerate()
-        .map(|(i, ch)| {
-            let style =
-                if i == dialog.cursor { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default() };
-            Span::styled(ch.to_string(), style)
-        })
-        .collect();
-    if dialog.cursor >= chars.len() {
-        spans.push(Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)));
+    let title = printable(&dialog.title);
+    let value = printable(&dialog.value);
+    let pairs = [("enter", "ok"), ("esc", "cancel")];
+    let footer_line = footer_text(&pairs);
+    let width = content_width(&[title.as_str(), value.as_str(), footer_line.as_str()]).max(MIN_WIDTH).min(area.width);
+    let inner = render_popup(frame, area, (width, HEIGHT.min(area.height)), Some(&title), theme);
+    if inner.width == 0 || inner.height < 2 {
+        return;
     }
-
-    let paragraph = Paragraph::new(Line::from(spans)).block(block);
-
-    crate::widgets::frame::clear_popup(frame, popup, theme);
-    frame.render_widget(paragraph, popup);
-}
-
-fn centered_popup(area: Rect, width: u16, height: u16) -> Rect {
-    let [popup] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
-    let [popup] = Layout::horizontal([Constraint::Length(width.min(area.width))]).flex(Flex::Center).areas(popup);
-    popup
+    render_underline_value(
+        frame,
+        Rect::new(inner.x, inner.y, inner.width, 1),
+        &value,
+        Some(dialog.cursor),
+        true,
+        theme,
+    );
+    if inner.height >= 4 {
+        footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &pairs, theme);
+    }
 }
 
 #[cfg(test)]

@@ -126,6 +126,8 @@ pub struct App {
     sessions: Sessions,
     dialog: Option<Dialog>,
     help_visible: bool,
+    help_scroll: usize,
+    help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
     notifications: Notifications,
     connections: ConnectionsView,
@@ -169,6 +171,8 @@ impl App {
             sessions: Sessions::new(),
             dialog: None,
             help_visible: false,
+            help_scroll: 0,
+            help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
             notifications: Notifications::default(),
             connections: ConnectionsView::new(),
@@ -274,7 +278,7 @@ impl App {
             self.details_popup = false;
         }
         if self.help_visible {
-            self.help_visible = false;
+            self.apply_help_key(key);
         } else if self.details_popup {
             self.details_popup = false;
         } else if self.dialog.is_some() {

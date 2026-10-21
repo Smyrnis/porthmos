@@ -273,35 +273,45 @@ fn no_helper_uses_italic_underline_or_dim_modifiers() {
     }
 }
 
-#[test]
-fn only_the_theme_module_names_a_colour_or_the_dim_modifier() {
-    fn rust_files(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                rust_files(&path, found);
-            } else if path.extension().is_some_and(|ext| ext == "rs") {
-                found.push(path);
-            }
+fn rust_files(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            rust_files(&path, found);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            found.push(path);
         }
     }
+}
 
+fn sources_outside_the_theme_containing(needles: &[&str]) -> Vec<String> {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_files(&source, &mut files);
-
-    let offenders: Vec<String> = files
+    files
         .iter()
         .filter(|path| !path.starts_with(source.join("theme")))
         .filter(|path| path.file_name().is_some_and(|name| name != "tests.rs"))
         .filter(|path| {
             let text = std::fs::read_to_string(path).unwrap();
-            text.contains("Color::") || text.contains("Modifier::DIM")
+            needles.iter().any(|needle| text.contains(needle))
         })
         .map(|path| path.strip_prefix(&source).unwrap().display().to_string())
-        .collect();
+        .collect()
+}
+
+#[test]
+fn only_the_theme_module_names_a_colour_or_the_dim_modifier() {
+    let offenders = sources_outside_the_theme_containing(&["Color::", "Modifier::DIM"]);
 
     assert!(offenders.is_empty(), "colours must come from Theme: {offenders:?}");
+}
+
+#[test]
+fn modifier_reversed_appears_nowhere_outside_the_theme() {
+    let offenders = sources_outside_the_theme_containing(&["Modifier::REVERSED", "REVERSED"]);
+
+    assert!(offenders.is_empty(), "reversed video is not part of the design: {offenders:?}");
 }
 
 #[test]
@@ -342,4 +352,14 @@ fn inactive_panel_colours_are_distinct_from_the_text_ladder_on_256_colours() {
         }
     }
     assert_ne!(theme.inactive_file, theme.inactive_dir);
+}
+
+#[test]
+fn backdrop_is_the_line_strong_foreground_only() {
+    let theme = Theme::default();
+    let style = theme.backdrop();
+
+    assert_eq!(style.fg, Some(theme.line_strong));
+    assert_eq!(style.bg, None);
+    assert!(style.add_modifier.is_empty());
 }

@@ -1059,7 +1059,7 @@ fn the_status_line_shows_a_waiting_keyring() {
 }
 
 #[test]
-fn the_password_prompt_shows_asterisks_never_the_password() {
+fn the_password_prompt_shows_bullets_never_the_password() {
     use ratatui::{Terminal, backend::TestBackend};
     let mut test = app();
     ask_password(&mut test, 1);
@@ -1069,7 +1069,7 @@ fn the_password_prompt_shows_asterisks_never_the_password() {
     terminal.draw(|frame| test.app.dialog.as_ref().unwrap().render(frame, frame.area(), &Theme::default())).unwrap();
     let screen: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
 
-    assert!(screen.contains("******"), "{screen}");
+    assert!(screen.contains("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"), "{screen}");
     assert!(!screen.contains("s3cret"), "{screen}");
 }
 

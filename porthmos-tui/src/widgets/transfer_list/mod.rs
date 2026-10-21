@@ -20,7 +20,7 @@ use crate::{
     widgets::{
         frame::{accent_underline, hairline},
         history_view::printable,
-        text_fit::truncate_with_ellipsis,
+        text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
 };
 
@@ -90,14 +90,6 @@ fn bar_fill_style(state: RowState, theme: &Theme) -> Option<Style> {
 
 fn has_bar(row: &QueueRow) -> bool {
     !matches!(row.kind, RowKind::Scan(_)) && row.state != RowState::AwaitingAnswer
-}
-
-fn pad_right(text: &str, width: usize) -> String {
-    format!("{text}{}", " ".repeat(width.saturating_sub(text.width())))
-}
-
-fn pad_left(text: &str, width: usize) -> String {
-    format!("{}{text}", " ".repeat(width.saturating_sub(text.width())))
 }
 
 fn columns_for(view: &TransferView<'_>, theme: &Theme, width: usize) -> Columns {

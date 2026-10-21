@@ -1,12 +1,19 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
-    style::{Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    layout::Rect,
+    text::{Line, Span},
+    widgets::{List, ListItem, ListState},
 };
 
-use crate::theme::Theme;
+use crate::{
+    theme::Theme,
+    widgets::{
+        history_view::printable,
+        popup::{content_width, footer, footer_text, render_popup},
+        text_fit::truncate_with_ellipsis,
+    },
+};
 
 pub struct ListDialog {
     pub title: String,
@@ -54,35 +61,50 @@ impl ListDialog {
 }
 
 pub fn render_list(frame: &mut Frame, area: Rect, dialog: &ListDialog, theme: &Theme) {
-    let mut width_lines: Vec<&str> = dialog.items.iter().map(String::as_str).collect();
-    width_lines.push(dialog.title.as_str());
-    let width = super::content_width(&width_lines);
-    let height = (dialog.items.len() as u16 + 2).clamp(3, area.height.saturating_sub(2).max(3));
-    let popup = centered_popup(area, width, height);
-
-    let block = Block::default().title(dialog.title.as_str()).borders(Borders::ALL).border_style(theme.popup_border());
-
-    let items: Vec<ListItem> = if dialog.items.is_empty() {
-        vec![ListItem::new("(empty)")]
-    } else {
-        dialog.items.iter().map(|item| ListItem::new(item.as_str())).collect()
-    };
-
-    let mut state = ListState::default();
-    if !dialog.items.is_empty() {
-        state.select(Some(dialog.cursor));
+    let title = printable(&dialog.title);
+    let items: Vec<String> = dialog.items.iter().map(|item| printable(item)).collect();
+    let mut pairs = vec![("enter", "select"), ("esc", "cancel")];
+    if dialog.removable {
+        pairs.push(("f8", "remove"));
+    }
+    let footer_line = footer_text(&pairs);
+    let mut measured: Vec<String> = items.iter().map(|item| format!("  {item}")).collect();
+    measured.push(title.clone());
+    measured.push(footer_line);
+    let measured: Vec<&str> = measured.iter().map(String::as_str).collect();
+    let width = content_width(&measured).min(area.width);
+    let rows = items.len().max(1);
+    let height = u16::try_from(rows + 4).unwrap_or(u16::MAX).min(area.height);
+    let inner = render_popup(frame, area, (width, height), Some(&title), theme);
+    if inner.width == 0 || inner.height == 0 {
+        return;
     }
 
-    let list = List::new(items).block(block).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-
-    crate::widgets::frame::clear_popup(frame, popup, theme);
-    frame.render_stateful_widget(list, popup, &mut state);
-}
-
-fn centered_popup(area: Rect, width: u16, height: u16) -> Rect {
-    let [popup] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
-    let [popup] = Layout::horizontal([Constraint::Length(width.min(area.width))]).flex(Flex::Center).areas(popup);
-    popup
+    let list_items: Vec<ListItem> = if items.is_empty() {
+        vec![ListItem::new(Line::styled("(empty)", theme.dim()))]
+    } else {
+        items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let text = truncate_with_ellipsis(item, usize::from(inner.width).saturating_sub(2));
+                let (marker, style) = if index == dialog.cursor {
+                    (Span::styled("\u{203a} ", theme.accent_text()), theme.focused_name())
+                } else {
+                    (Span::raw("  "), theme.text())
+                };
+                ListItem::new(Line::from(vec![marker, Span::styled(text, style)]))
+            })
+            .collect()
+    };
+    let mut state = ListState::default();
+    if !items.is_empty() {
+        state.select(Some(dialog.cursor));
+    }
+    let list = List::new(list_items).highlight_style(theme.focus_row());
+    let list_area = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(2));
+    frame.render_stateful_widget(list, list_area, &mut state);
+    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &pairs, theme);
 }
 
 #[cfg(test)]

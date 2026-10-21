@@ -46,3 +46,13 @@ fn truncate_start_keeps_the_tail_behind_an_ellipsis() {
 fn truncate_start_never_splits_a_double_width_character() {
     assert_eq!(truncate_start_with_ellipsis("\u{4e00}\u{4e8c}\u{4e09}", 4), "\u{2026}\u{4e09}");
 }
+
+#[test]
+fn pad_right_and_pad_left_fill_by_display_width_and_never_cut() {
+    assert_eq!(pad_right("ab", 5), "ab   ");
+    assert_eq!(pad_left("ab", 5), "   ab");
+    assert_eq!(pad_right("\u{65e5}", 4), "\u{65e5}  ");
+    assert_eq!(pad_left("\u{65e5}", 4), "  \u{65e5}");
+    assert_eq!(pad_right("abcdef", 3), "abcdef");
+    assert_eq!(pad_left("abcdef", 3), "abcdef");
+}

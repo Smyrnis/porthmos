@@ -1,23 +1,22 @@
 use porthmos_core::ProtocolInfo;
 use ratatui::{
     Frame,
-    layout::{Position, Rect},
+    layout::Rect,
     text::{Line, Span},
     widgets::Paragraph,
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     theme::Theme,
     widgets::{
-        dialog::{FieldKind, FormDialog, FormField},
+        dialog::{FieldKind, FormDialog},
+        form_fields::render_field_stack,
         frame::{accent_underline, hairline, vertical_rule},
         history_view::printable,
-        text_fit::{take_width, truncate_with_ellipsis},
+        text_fit::truncate_with_ellipsis,
     },
 };
 
-const LABEL_WIDTH: usize = 15;
 const WIDE_LIST: u16 = 42;
 const MEDIUM_LIST: u16 = 32;
 const NAMES_LIST: u16 = 22;
@@ -25,7 +24,6 @@ const MIN_WIDTH_WITH_DESCRIPTIONS: u16 = 80;
 const MIN_WIDTH_WITH_LIST: u16 = 60;
 const WIDE_LIST_MIN_WIDTH: u16 = 100;
 const GUTTER_AFTER_DIVIDER: u16 = 2;
-const SAVED_SECRET: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022} (saved)";
 const NOT_AVAILABLE: &str = "(not available)";
 
 #[derive(Clone, Copy)]
@@ -121,47 +119,6 @@ fn render_protocol_list(
     }
 }
 
-struct Item {
-    field: usize,
-    top: usize,
-    height: usize,
-}
-
-fn layout_items(dialog: &FormDialog) -> Vec<Item> {
-    let mut items = Vec::new();
-    let mut top = 0;
-    let texts: Vec<usize> = (1..dialog.fields.len()).filter(|index| !dialog.fields[*index].is_toggle()).collect();
-    let toggles: Vec<usize> = (1..dialog.fields.len()).filter(|index| dialog.fields[*index].is_toggle()).collect();
-    for field in texts.iter().copied() {
-        items.push(Item { field, top, height: 2 });
-        top += 2;
-    }
-    if !texts.is_empty() && !toggles.is_empty() {
-        top += 1;
-    }
-    for field in toggles {
-        items.push(Item { field, top, height: 1 });
-        top += 1;
-    }
-    items
-}
-
-fn displayed_value(field: &FormField) -> String {
-    match &field.kind {
-        FieldKind::Text => printable(&field.value),
-        FieldKind::Masked => "\u{2022}".repeat(field.value.chars().count()),
-        FieldKind::SavedSecret => SAVED_SECRET.to_string(),
-        FieldKind::Choice { choices, selected } => {
-            let label = choices.get(*selected).map(|(_, label)| label.as_str()).unwrap_or("");
-            format!("\u{25c0} {} \u{25b6}", printable(label))
-        }
-    }
-}
-
-fn prefix_width(text: &str, characters: usize) -> usize {
-    text.chars().take(characters).map(|character| character.width().unwrap_or(0)).sum()
-}
-
 fn render_fields(frame: &mut Frame, area: Rect, dialog: &FormDialog, list_hidden: bool, theme: &Theme) {
     let (choices, selected) = protocol_choices(dialog);
     let title = choices.get(selected).map(|(_, label)| printable(label)).unwrap_or_default();
@@ -179,116 +136,8 @@ fn render_fields(frame: &mut Frame, area: Rect, dialog: &FormDialog, list_hidden
     hairline(frame, rule, theme);
     accent_underline(frame, rule, 0..area.width, theme);
 
-    let notes = u16::from(dialog.hint.is_some()) + u16::from(dialog.error.is_some());
-    let viewport = usize::from(area.height.saturating_sub(2 + notes));
-    let items = layout_items(dialog);
-    let mut offset = 0;
-    if let Some(focused) = items.iter().find(|item| item.field == dialog.focused) {
-        let bottom = focused.top + focused.height;
-        if bottom > viewport {
-            offset = bottom - viewport;
-        }
-        offset = offset.min(focused.top);
-    }
-
-    let value_x = area.x + LABEL_WIDTH.min(usize::from(area.width)) as u16;
-    let value_width = usize::from(area.width).saturating_sub(LABEL_WIDTH);
-    for item in &items {
-        if item.top < offset || item.top + item.height - offset > viewport {
-            continue;
-        }
-        let y = area.y + 2 + (item.top - offset) as u16;
-        let field = &dialog.fields[item.field];
-        let focused = item.field == dialog.focused;
-        if field.is_toggle() {
-            render_toggle(frame, value_x, y, value_width, field, focused, theme);
-        } else {
-            render_text_field(frame, area, (value_x, value_width), y, field, focused, theme);
-        }
-    }
-
-    let mut bottom = area.bottom();
-    if let Some(error) = &dialog.error {
-        bottom -= 1;
-        let text = truncate_with_ellipsis(&printable(error), usize::from(area.width).saturating_sub(2));
-        let line = Line::from(Span::styled(format!("\u{2022} {text}"), theme.err_text()));
-        frame.render_widget(Paragraph::new(line), Rect::new(area.x, bottom, area.width, 1));
-    }
-    if let Some(hint) = &dialog.hint {
-        bottom -= 1;
-        let text = truncate_with_ellipsis(&printable(hint), usize::from(area.width));
-        frame.render_widget(Paragraph::new(Span::styled(text, theme.dim())), Rect::new(area.x, bottom, area.width, 1));
-    }
-}
-
-fn render_text_field(
-    frame: &mut Frame, area: Rect, value_column: (u16, usize), y: u16, field: &FormField, focused: bool, theme: &Theme,
-) {
-    let (value_x, value_width) = value_column;
-    let label_style = if focused { theme.bright() } else { theme.dim() };
-    let label = truncate_with_ellipsis(&printable(&field.label), LABEL_WIDTH - 1);
-    frame.render_widget(Paragraph::new(Span::styled(label, label_style)), Rect::new(area.x, y, area.width, 1));
-    if value_width == 0 {
-        return;
-    }
-
-    let displayed = displayed_value(field);
-    let has_caret = matches!(field.kind, FieldKind::Text | FieldKind::Masked);
-    let overflows = displayed.width() > value_width;
-    let (shown, caret_column) = if overflows && focused && has_caret {
-        caret_window(&displayed, field.cursor, value_width)
-    } else {
-        (truncate_with_ellipsis(&displayed, value_width), prefix_width(&displayed, field.cursor))
-    };
-    let value_style = if focused { theme.bright() } else { theme.text() };
-    let value_area = Rect::new(value_x, y, value_width as u16, 1);
-    frame.render_widget(Paragraph::new(Span::styled(shown, value_style)), value_area);
-
-    let underline_style = if focused { theme.accent_text() } else { theme.line_strong_text() };
-    let underline = "\u{2500}".repeat(value_width);
-    frame.render_widget(
-        Paragraph::new(Span::styled(underline, underline_style)),
-        Rect::new(value_x, y + 1, value_width as u16, 1),
-    );
-
-    if focused && has_caret {
-        let x = value_x + caret_column.min(value_width.saturating_sub(1)) as u16;
-        frame.set_cursor_position(Position::new(x, y));
-    }
-}
-
-fn caret_window(text: &str, cursor: usize, width: usize) -> (String, usize) {
-    let characters: Vec<char> = text.chars().collect();
-    let cursor = cursor.min(characters.len());
-    let room = width.saturating_sub(1);
-    let mut start = cursor;
-    let mut used = 0;
-    while start > 0 {
-        let character_width = characters[start - 1].width().unwrap_or(0);
-        if used + character_width > room {
-            break;
-        }
-        used += character_width;
-        start -= 1;
-    }
-    let window: String = characters[start..].iter().collect();
-    (take_width(&window, width), used)
-}
-
-fn render_toggle(frame: &mut Frame, x: u16, y: u16, width: usize, field: &FormField, focused: bool, theme: &Theme) {
-    if width < 4 {
-        return;
-    }
-    let checked = field.submitted_value() == "true";
-    let box_style = if checked { theme.accent_text() } else { theme.dim() };
-    let label_style = if focused { theme.bright() } else { theme.text() };
-    let label = truncate_with_ellipsis(&printable(&field.label), width - 4);
-    let line = Line::from(vec![
-        Span::styled(if checked { "[x]" } else { "[ ]" }, box_style),
-        Span::raw(" "),
-        Span::styled(label, label_style),
-    ]);
-    frame.render_widget(Paragraph::new(line), Rect::new(x, y, width as u16, 1));
+    let stack = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
+    render_field_stack(frame, stack, dialog, 1, theme);
 }
 
 #[cfg(test)]

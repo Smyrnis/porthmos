@@ -4,7 +4,10 @@ use porthmos_core::sync::{SyncBy, SyncDirection, SyncFacts, SyncOptions};
 use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
-use crate::theme::{ColorDepth, ThemeSettings};
+use crate::{
+    app::testing::{cell_bg, cell_fg, find_text, has_unprintable_cell, screen_rows},
+    theme::{ColorDepth, ThemeSettings},
+};
 
 fn facts(size: u64, modified: u64) -> Option<SyncFacts> {
     Some(SyncFacts { size, modified: Some(modified) })
@@ -56,10 +59,19 @@ fn sample() -> SyncView {
     view
 }
 
-fn render(view: &SyncView, width: u16, height: u16) -> String {
+fn indexed() -> Theme {
+    Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
+}
+
+fn draw(view: &SyncView, width: u16, height: u16) -> Terminal<TestBackend> {
+    let theme = indexed();
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render_sync(frame, frame.area(), view, "Sync with prod", &Theme::default())).unwrap();
-    terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
+    terminal.draw(|frame| render_sync(frame, frame.area(), view, &theme)).unwrap();
+    terminal
+}
+
+fn render(view: &SyncView, width: u16, height: u16) -> String {
+    draw(view, width, height).backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
 #[test]
@@ -248,19 +260,25 @@ fn rows_show_the_tick_the_arrow_the_reason_the_path_and_both_sides() {
     assert!(screen.contains("target is newer"), "{screen}");
     assert!(screen.contains("file vs folder"), "{screen}");
     assert!(screen.contains("a.txt"), "{screen}");
-    assert!(screen.contains("Sync with prod"), "{screen}");
 }
 
 #[test]
-fn the_footer_shows_the_summary_or_the_filter_status() {
-    let mut view = sample();
-    let plain = render(&view, 120, 12);
-    view.type_filter('a');
-    let filtering = render(&view, 120, 12);
+fn the_top_bar_summary_counts_ticked_uploads_downloads_and_skipped() {
+    let view = sample();
 
-    assert!(plain.contains("2 ticked"), "{plain}");
-    assert!(plain.contains("skipped"), "{plain}");
-    assert!(filtering.contains("filter: a"), "{filtering}");
+    assert_eq!(view.top_bar_summary(), "2 ticked \u{b7} \u{2191} 2 (2.1K) \u{b7} \u{2193} 0 (0) \u{b7} 2 skipped");
+}
+
+#[test]
+fn the_filter_line_shows_the_typed_filter_and_the_counts() {
+    let mut view = sample();
+    view.start_filter();
+    view.type_filter('a');
+
+    let terminal = draw(&view, 120, 12);
+
+    assert!(screen_rows(&terminal)[0].starts_with("/ a\u{2588}"));
+    assert!(screen_rows(&terminal)[0].trim_end().ends_with("1 of 4"));
 }
 
 #[test]
@@ -270,7 +288,7 @@ fn a_filter_that_matches_nothing_says_so() {
         view.type_filter(character);
     }
 
-    assert!(render(&view, 80, 8).contains("No matches"));
+    assert!(render(&view, 80, 8).contains("no matches"));
 }
 
 #[test]
@@ -289,13 +307,16 @@ fn control_characters_in_a_path_are_never_drawn_raw() {
 
 #[test]
 fn a_very_narrow_terminal_does_not_panic() {
-    render(&sample(), 12, 4);
-    render(&sample(), 1, 1);
+    for width in 0..=12 {
+        for height in 0..=4 {
+            render(&sample(), width, height);
+        }
+    }
 }
 
 fn grid(view: &SyncView, width: u16, height: u16) -> Vec<Vec<String>> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render_sync(frame, frame.area(), view, "Sync with prod", &Theme::default())).unwrap();
+    terminal.draw(|frame| render_sync(frame, frame.area(), view, &Theme::default())).unwrap();
     let buffer = terminal.backend().buffer();
     (0..height).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect()).collect()
 }
@@ -305,8 +326,7 @@ fn column_of(row: &[String], symbol: &str) -> Option<usize> {
 }
 
 fn last_text_column(row: &[String]) -> usize {
-    let inside = &row[1..row.len() - 1];
-    inside.iter().rposition(|cell| cell.trim() != "").unwrap()
+    row.iter().rposition(|cell| cell.trim() != "").unwrap()
 }
 
 fn uneven_paths() -> SyncView {
@@ -378,14 +398,12 @@ fn the_choices_to_run_are_only_the_ticked_rows_the_filter_shows() {
 }
 
 #[test]
-fn while_filtering_the_footer_counts_the_ticked_shown_rows_that_will_run() {
+fn while_filtering_the_top_bar_summary_counts_the_ticked_shown_rows_that_will_run() {
     let mut view = sample();
     view.type_filter('b');
 
-    let screen = render(&view, 120, 12);
-
-    assert!(screen.contains("filter: b"), "{screen}");
-    assert!(screen.contains("1 will run"), "{screen}");
+    assert!(view.top_bar_summary().ends_with("\u{b7} 1 will run"), "{}", view.top_bar_summary());
+    assert!(!sample().top_bar_summary().contains("will run"));
 }
 
 #[test]
@@ -422,25 +440,25 @@ fn the_cursor_is_clamped_when_the_filter_hides_the_focused_row() {
 fn long_paths_are_cut_with_an_ellipsis_so_the_columns_stay_aligned() {
     let rows = grid(&uneven_paths(), 120, 8);
 
-    let columns: Vec<_> = (1..=3).map(|y| column_of(&rows[y], "L")).collect();
+    let columns: Vec<_> = (3..=5).map(|y| column_of(&rows[y], "L")).collect();
 
     assert!(columns[0].is_some(), "{rows:?}");
     assert!(columns.iter().all(|column| *column == columns[0]), "{columns:?}");
-    assert!(rows[2].contains(&"\u{2026}".to_string()), "{:?}", rows[2]);
-    assert!(rows[3].contains(&"\u{2026}".to_string()), "{:?}", rows[3]);
-    assert!(rows[2].concat().contains("2.0K"), "{:?}", rows[2]);
+    assert!(rows[4].contains(&"\u{2026}".to_string()), "{:?}", rows[4]);
+    assert!(rows[5].contains(&"\u{2026}".to_string()), "{:?}", rows[5]);
+    assert!(rows[4].concat().contains("2.0K"), "{:?}", rows[4]);
 }
 
 #[test]
 fn on_a_narrow_screen_the_time_columns_give_way_and_the_size_stays_aligned_and_visible() {
     let rows = grid(&uneven_paths(), 70, 8);
 
-    let ends: Vec<_> = (1..=3).map(|y| last_text_column(&rows[y])).collect();
+    let ends: Vec<_> = (3..=5).map(|y| last_text_column(&rows[y])).collect();
 
     assert!(ends.iter().all(|end| *end == ends[0]), "{ends:?}");
-    assert!(rows[1].concat().contains("100"), "{:?}", rows[1]);
-    assert!(rows[2].concat().contains("2.0K"), "{:?}", rows[2]);
-    assert!(rows[3].concat().contains("1.2M"), "{:?}", rows[3]);
+    assert!(rows[3].concat().contains("100"), "{:?}", rows[3]);
+    assert!(rows[4].concat().contains("2.0K"), "{:?}", rows[4]);
+    assert!(rows[5].concat().contains("1.2M"), "{:?}", rows[5]);
 }
 
 #[test]
@@ -491,9 +509,140 @@ fn rows_take_their_colour_from_the_theme() {
         ],
     ));
     let mut terminal = Terminal::new(TestBackend::new(100, 8)).unwrap();
-    terminal.draw(|frame| render_sync(frame, frame.area(), &view, "Sync with prod", &theme)).unwrap();
+    terminal.draw(|frame| render_sync(frame, frame.area(), &view, &theme)).unwrap();
 
     assert_eq!(row_fg(&terminal, SyncReason::KindMismatch), Some(theme.err));
     assert_eq!(row_fg(&terminal, SyncReason::TargetNewer), Some(theme.fg_bright));
     assert_eq!(row_fg(&terminal, SyncReason::SizeDiffers), Some(theme.fg_dim));
+}
+
+fn row_of(terminal: &Terminal<TestBackend>, needle: &str) -> u16 {
+    find_text(terminal, needle).unwrap_or_else(|| panic!("{needle} missing")).1
+}
+
+#[test]
+fn the_header_row_and_accent_rule_come_after_the_filter_line() {
+    let theme = indexed();
+    let terminal = draw(&sample(), 120, 12);
+
+    assert!(screen_rows(&terminal)[0].starts_with("/ filter"));
+    let (x, y) = find_text(&terminal, "reason").unwrap();
+    assert_eq!(y, 1);
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+    assert_eq!(terminal.backend().buffer()[(0, 2)].symbol(), "\u{2500}");
+    assert_eq!(cell_fg(&terminal, 0, 2), theme.accent);
+    assert_eq!(cell_fg(&terminal, 119, 2), theme.accent);
+}
+
+#[test]
+fn the_header_columns_line_up_with_the_rows() {
+    let terminal = draw(&sample(), 120, 12);
+
+    let header_reason = find_text(&terminal, "reason").unwrap().0;
+    let row_reason = find_text(&terminal, "new locally").unwrap().0;
+    let header_path = find_text(&terminal, "path").unwrap().0;
+    let row_path = find_text(&terminal, "a.txt").unwrap().0;
+    assert_eq!((header_reason, header_path), (row_reason, row_path));
+}
+
+#[test]
+fn a_ticked_row_has_an_accent_checkbox_and_an_unticked_one_a_dim_checkbox() {
+    let theme = indexed();
+    let terminal = draw(&sample(), 120, 12);
+
+    let (x, y) = find_text(&terminal, "[x]").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.accent);
+    let (x, y) = find_text(&terminal, "[ ]").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+}
+
+#[test]
+fn direction_arrows_are_up_down_and_a_dot_for_skip() {
+    let mut view = SyncView::new();
+    view.load(plan(
+        SyncDirection::Both,
+        vec![
+            item(0, "up.txt", SyncAction::Upload, SyncReason::OnlyLocal, true, facts(1, 1), None),
+            item(1, "down.txt", SyncAction::Download, SyncReason::OnlyRemote, true, None, facts(1, 1)),
+            item(2, "skip.txt", SyncAction::Skip, SyncReason::KindMismatch, false, facts(1, 1), None),
+        ],
+    ));
+
+    let terminal = draw(&view, 120, 12);
+
+    let rows = screen_rows(&terminal);
+    assert!(rows[3].contains("[x] \u{2191} "), "{:?}", rows[3]);
+    assert!(rows[4].contains("[x] \u{2193} "), "{:?}", rows[4]);
+    assert!(rows[5].contains("[ ] \u{b7} "), "{:?}", rows[5]);
+}
+
+#[test]
+fn times_are_shown_only_when_the_width_allows() {
+    let wide = draw(&sample(), 120, 12);
+    let narrow = draw(&sample(), 80, 12);
+
+    let wide_header = &screen_rows(&wide)[1];
+    let narrow_header = &screen_rows(&narrow)[1];
+    assert!(wide_header.contains("local") && wide_header.contains("remote"), "{wide_header:?}");
+    assert!(find_text(&wide, "L 19").is_some());
+    assert!(!narrow_header.contains("local") && !narrow_header.contains("remote"), "{narrow_header:?}");
+    assert!(find_text(&narrow, "L 19").is_none());
+}
+
+#[test]
+fn the_focused_row_has_a_chevron_and_the_focus_background_and_keeps_its_checkbox_colour() {
+    let theme = indexed();
+    let mut view = sample();
+    view.move_cursor(1);
+
+    let terminal = draw(&view, 120, 12);
+
+    let y = row_of(&terminal, "b.txt");
+    assert_eq!(y, 4);
+    assert_eq!(terminal.backend().buffer()[(0, y)].symbol(), "\u{203a}");
+    assert_eq!(cell_fg(&terminal, 0, y), theme.accent);
+    assert_eq!(cell_bg(&terminal, 60, y), theme.row_focus);
+    assert_eq!(cell_fg(&terminal, 2, y), theme.accent);
+    assert_ne!(cell_bg(&terminal, 60, 3), theme.row_focus);
+}
+
+#[test]
+fn ticked_rows_use_the_text_colour_for_reason_and_path() {
+    let theme = indexed();
+    let terminal = draw(&sample(), 120, 12);
+
+    let (x, y) = find_text(&terminal, "new locally").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg);
+    let (x, y) = find_text(&terminal, "a.txt").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg);
+}
+
+#[test]
+fn hostile_and_very_long_paths_are_sanitised_and_cut_by_display_width() {
+    let mut view = SyncView::new();
+    view.load(plan(
+        SyncDirection::LocalToRemote,
+        vec![item(
+            0,
+            &"d\u{1b}[2J/\u{202e}\u{65e5}\u{672c}".repeat(80),
+            SyncAction::Upload,
+            SyncReason::OnlyLocal,
+            true,
+            facts(1_234_567, 9),
+            None,
+        )],
+    ));
+
+    let terminal = draw(&view, 100, 8);
+
+    assert!(!has_unprintable_cell(&terminal));
+    assert!(screen_rows(&terminal)[3].contains("1.2M"));
+}
+
+#[test]
+fn the_source_no_longer_uses_the_reversed_modifier_or_a_box() {
+    let source = include_str!("mod.rs");
+
+    assert!(!source.contains("REVERSED"));
+    assert!(!source.contains("Borders"));
 }
