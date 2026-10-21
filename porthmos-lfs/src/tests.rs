@@ -220,3 +220,16 @@ async fn set_modified_with_an_absurd_time_is_refused_and_leaves_the_file_alone()
 fn the_local_resolution_is_the_default() {
     assert_eq!(LocalFs::new(PathBuf::from("/")).time_resolution(), 2);
 }
+
+#[test]
+fn list_reports_the_modification_time_of_each_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("data.txt");
+    fs::write(&path, b"hello").unwrap();
+    let expected =
+        fs::metadata(&path).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+    let entries = list(dir.path()).unwrap();
+
+    assert_eq!(entries[0].modified, Some(expected));
+}

@@ -1,6 +1,12 @@
+use chrono::{Local, TimeZone};
 use ratatui::{Terminal, backend::TestBackend};
+use unicode_width::UnicodeWidthStr;
 
 use super::*;
+use crate::{
+    app::testing::{cell_fg, find_text},
+    theme::{ColorDepth, ThemeSettings},
+};
 
 #[test]
 fn toggle_switches_between_local_and_remote() {
@@ -14,6 +20,7 @@ fn toggle_switches_between_local_and_remote() {
 #[test]
 fn from_listing_builds_rows_from_provided_entries() {
     let entries = vec![Entry {
+        modified: None,
         name: "remote_dir".to_string(),
         path: PathBuf::from("/home/user/remote_dir"),
         is_dir: true,
@@ -38,6 +45,7 @@ fn from_listing_at_root_has_no_parent_row() {
 #[test]
 fn target_path_for_open_resolves_parent_and_directory_targets() {
     let entries = vec![Entry {
+        modified: None,
         name: "child".to_string(),
         path: PathBuf::from("/home/user/child"),
         is_dir: true,
@@ -53,11 +61,25 @@ fn target_path_for_open_resolves_parent_and_directory_targets() {
 }
 
 fn file(dir: &str, name: &str, size: u64) -> Entry {
-    Entry { name: name.to_string(), path: PathBuf::from(dir).join(name), is_dir: false, size, permissions: None }
+    Entry {
+        modified: None,
+        name: name.to_string(),
+        path: PathBuf::from(dir).join(name),
+        is_dir: false,
+        size,
+        permissions: None,
+    }
 }
 
 fn folder(dir: &str, name: &str) -> Entry {
-    Entry { name: name.to_string(), path: PathBuf::from(dir).join(name), is_dir: true, size: 0, permissions: None }
+    Entry {
+        modified: None,
+        name: name.to_string(),
+        path: PathBuf::from(dir).join(name),
+        is_dir: true,
+        size: 0,
+        permissions: None,
+    }
 }
 
 fn names(panel: &PanelView) -> Vec<String> {
@@ -192,23 +214,6 @@ fn delete_targets_falls_back_to_cursor_entry_without_selection() {
     panel.cursor = panel.rows().len() - 1;
 
     assert_eq!(panel.targets(), vec![PathBuf::from("/d/only.txt")]);
-}
-
-#[test]
-fn render_panel_draws_the_given_title() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
-    let backend = TestBackend::new(20, 5);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    terminal
-        .draw(|frame| {
-            render_panel(frame, Rect::new(0, 0, 20, 5), "LOCAL", false, &panel);
-        })
-        .unwrap();
-
-    let content: String = terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
-
-    assert!(content.contains("LOCAL"));
 }
 
 #[test]
@@ -356,12 +361,17 @@ fn opening_another_folder_closes_the_filter_line() {
 
 fn rendered(panel: &PanelView) -> String {
     let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
-    terminal.draw(|frame| render_panel(frame, Rect::new(0, 0, 40, 8), "LOCAL", true, panel)).unwrap();
+    terminal
+        .draw(|frame| {
+            let now = Local::now();
+            render_panel(frame, Rect::new(0, 0, 40, 8), panel, &context(&now, true), &Theme::default());
+        })
+        .unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
 #[test]
-fn the_bottom_border_shows_the_filter_line_or_the_active_filter() {
+fn the_footer_shows_the_filter_line_or_the_active_filter() {
     let mut panel = filter_panel();
     panel.start_filter();
     type_text(&mut panel, "port");
@@ -428,7 +438,12 @@ fn the_cursor_returns_to_its_file_after_nothing_matched() {
 
 fn rendered_at(panel: &PanelView, width: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
-    terminal.draw(|frame| render_panel(frame, Rect::new(0, 0, width, 8), "LOCAL", true, panel)).unwrap();
+    terminal
+        .draw(|frame| {
+            let now = Local::now();
+            render_panel(frame, Rect::new(0, 0, width, 8), panel, &context(&now, true), &Theme::default());
+        })
+        .unwrap();
     terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect()
 }
 
@@ -442,4 +457,312 @@ fn a_narrow_panel_keeps_the_end_of_the_filter_the_caret_and_the_count() {
 
     assert!(screen.contains("/\u{2026}"), "{screen}");
     assert!(screen.contains("_text\u{2588} (0 of 4)"), "{screen}");
+}
+
+fn context(now: &DateTime<Local>, active: bool) -> PanelContext<'_> {
+    PanelContext { protocol: "local", location: "/d".to_string(), active, show_modified: true, switch_hint: None, now }
+}
+
+fn indexed() -> Theme {
+    Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
+}
+
+fn fixed_now() -> DateTime<Local> {
+    Local.with_ymd_and_hms(2026, 10, 20, 12, 0, 0).unwrap()
+}
+
+fn draw_with(
+    panel: &PanelView, width: u16, height: u16, context: &PanelContext<'_>, theme: &Theme,
+) -> Terminal<TestBackend> {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render_panel(frame, frame.area(), panel, context, theme)).unwrap();
+    terminal
+}
+
+fn drawn(panel: &PanelView, width: u16, height: u16, active: bool) -> Terminal<TestBackend> {
+    let now = fixed_now();
+    draw_with(panel, width, height, &context(&now, active), &indexed())
+}
+
+fn row_string(terminal: &Terminal<TestBackend>, y: u16) -> String {
+    let buffer = terminal.backend().buffer();
+    let mut text = String::new();
+    let mut x = 0;
+    while x < buffer.area.width {
+        let symbol = buffer[(x, y)].symbol();
+        text.push_str(symbol);
+        x += symbol.width().max(1) as u16;
+    }
+    text
+}
+
+fn sized(name: &str, size: u64) -> Entry {
+    Entry { size, ..file("/d", name, 0) }
+}
+
+fn select_all_files(panel: &mut PanelView) {
+    for row in panel.rows().to_vec() {
+        if let Row::Entry(entry) = row {
+            panel.selected.insert(entry.path);
+        }
+    }
+}
+
+#[test]
+fn the_header_shows_protocol_path_and_sort_indicator() {
+    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+
+    let terminal = drawn(&panel, 40, 8, true);
+
+    let header = row_string(&terminal, 0);
+    assert!(header.starts_with("local  /d"), "{header:?}");
+    assert!(header.trim_end().ends_with("name \u{2191}"), "{header:?}");
+}
+
+#[test]
+fn the_sort_indicator_follows_the_sort_spec() {
+    let spec = SortSpec { key: SortKey::Size, order: SortOrder::Descending };
+    let mut panel = PanelView::new(PathBuf::from("/d"), spec, false);
+    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+
+    let terminal = drawn(&panel, 40, 8, true);
+
+    assert!(row_string(&terminal, 0).trim_end().ends_with("size \u{2193}"));
+}
+
+#[test]
+fn a_long_path_is_cut_from_the_left_with_an_ellipsis() {
+    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let now = fixed_now();
+    let mut long = context(&now, true);
+    long.location = "/very/long/path/that/does/not/fit/in/the/header".to_string();
+
+    let terminal = draw_with(&panel, 30, 8, &long, &indexed());
+
+    let header = row_string(&terminal, 0);
+    assert!(header.starts_with("local  \u{2026}"), "{header:?}");
+    assert!(header.contains("header"), "{header:?}");
+    assert!(header.width() <= 30);
+}
+
+#[test]
+fn the_rule_is_accent_for_the_active_panel_and_line_otherwise() {
+    let theme = indexed();
+    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+
+    let active = drawn(&panel, 40, 8, true);
+    let inactive = drawn(&panel, 40, 8, false);
+
+    assert_eq!(row_string(&active, 1), "\u{2500}".repeat(40));
+    assert_eq!(cell_fg(&active, 5, 1), theme.accent);
+    assert_eq!(cell_fg(&inactive, 5, 1), theme.line);
+}
+
+#[test]
+fn the_header_path_is_bright_when_active_and_muted_when_inactive() {
+    let theme = indexed();
+    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+
+    let active = drawn(&panel, 40, 8, true);
+    let inactive = drawn(&panel, 40, 8, false);
+
+    assert_eq!(cell_fg(&active, 7, 0), theme.fg_bright);
+    assert_eq!(cell_fg(&inactive, 7, 0), theme.fg_muted);
+    assert_eq!(cell_fg(&active, 0, 0), theme.fg_dim);
+}
+
+#[test]
+fn the_footer_counts_items_without_the_parent_row() {
+    let three =
+        PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1), folder("/d", "c")]);
+    let one = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    let none = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+
+    assert!(row_string(&drawn(&three, 40, 8, true), 7).trim_end().ends_with("3 items"));
+    assert!(row_string(&drawn(&one, 40, 8, true), 7).trim_end().ends_with("1 item"));
+    assert!(row_string(&drawn(&none, 40, 8, true), 7).trim_end().ends_with("0 items"));
+}
+
+#[test]
+fn the_footer_shows_the_selection_count_and_the_size_of_selected_files() {
+    let theme = indexed();
+    let mut panel = PanelView::from_listing(
+        PathBuf::from("/d"),
+        vec![sized("a.bin", 6_710_886), sized("b.bin", 6_710_886), sized("c.bin", 1)],
+    );
+    for name in ["a.bin", "b.bin"] {
+        panel.selected.insert(PathBuf::from("/d").join(name));
+    }
+
+    let terminal = drawn(&panel, 50, 8, true);
+
+    assert!(row_string(&terminal, 7).starts_with("2 selected \u{b7} 12.8 MB"), "{:?}", row_string(&terminal, 7));
+    assert_eq!(cell_fg(&terminal, 0, 7), theme.accent);
+    assert_eq!(cell_fg(&terminal, 49, 7), theme.fg_dim);
+}
+
+#[test]
+fn selected_directories_add_no_size() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![folder("/d", "src"), sized("a.bin", 1024)]);
+    select_all_files(&mut panel);
+
+    let terminal = drawn(&panel, 50, 8, true);
+
+    assert!(row_string(&terminal, 7).starts_with("2 selected \u{b7} 1.0 KB"));
+}
+
+#[test]
+fn only_selected_directories_show_just_the_count() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![folder("/d", "src")]);
+    select_all_files(&mut panel);
+
+    let footer = row_string(&drawn(&panel, 50, 8, true), 7);
+
+    assert!(footer.starts_with("1 selected"), "{footer:?}");
+    assert!(!footer.contains('\u{b7}'), "{footer:?}");
+}
+
+#[test]
+fn hidden_selected_entries_are_not_counted() {
+    let mut panel = filter_panel();
+    select_all_files(&mut panel);
+    let total = panel.selected.len();
+    panel.start_filter();
+    type_text(&mut panel, "pdf");
+
+    let footer = row_string(&drawn(&panel, 60, 8, true), 7);
+
+    assert!(total > 1);
+    assert!(footer.contains("1 selected"), "{footer:?}");
+}
+
+#[test]
+fn the_selection_size_sum_saturates() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![sized("a", u64::MAX), sized("b", u64::MAX)]);
+    select_all_files(&mut panel);
+
+    let footer = row_string(&drawn(&panel, 50, 8, true), 7);
+
+    assert!(footer.starts_with("2 selected \u{b7} "), "{footer:?}");
+}
+
+#[test]
+fn the_filter_status_takes_the_left_slot_with_the_selection_after_it() {
+    let mut panel = filter_panel();
+    panel.cursor =
+        panel.rows().iter().position(|row| matches!(row, Row::Entry(entry) if entry.name == "porthmos")).unwrap();
+    panel.toggle_selection();
+    panel.start_filter();
+    type_text(&mut panel, "port");
+
+    let footer = row_string(&drawn(&panel, 60, 8, true), 7);
+
+    assert!(footer.starts_with("/port\u{2588} (2 of 4)   1 selected"), "{footer:?}");
+}
+
+#[test]
+fn the_right_footer_part_is_dropped_before_the_left_is_cut() {
+    let mut panel =
+        PanelView::from_listing(PathBuf::from("/d"), vec![sized("a.bin", 6_710_886), sized("b.bin", 6_710_886)]);
+    select_all_files(&mut panel);
+
+    let wide_enough = row_string(&drawn(&panel, 30, 8, true), 7);
+    let tight = row_string(&drawn(&panel, 20, 8, true), 7);
+    let tighter = row_string(&drawn(&panel, 12, 8, true), 7);
+
+    assert!(wide_enough.trim_end().ends_with("2 items"), "{wide_enough:?}");
+    assert_eq!(tight.trim_end(), "2 selected \u{b7} 12.8 MB");
+    assert!(tighter.contains('\u{2026}') && tighter.width() <= 12, "{tighter:?}");
+}
+
+#[test]
+fn there_are_no_box_borders() {
+    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+
+    let terminal = drawn(&panel, 40, 8, true);
+
+    for y in 0..8 {
+        let row = row_string(&terminal, y);
+        assert!(!row.contains(['\u{250c}', '\u{2510}', '\u{2514}', '\u{2518}', '\u{2502}']), "{row:?}");
+    }
+}
+
+#[test]
+fn hostile_paths_are_sanitised_and_cut() {
+    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let now = fixed_now();
+    let mut hostile = context(&now, true);
+    hostile.location = "a\u{202e}b\nc".to_string();
+
+    let terminal = draw_with(&panel, 40, 8, &hostile, &indexed());
+
+    assert!(find_text(&terminal, "a?b?c").is_some());
+}
+
+#[test]
+fn tiny_panels_do_not_panic() {
+    let theme = indexed();
+    let now = fixed_now();
+    let full = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1), folder("/d", "src")]);
+    let empty = PanelView::new(PathBuf::from("/"), SortSpec::default(), false);
+    let mut filtered = filter_panel();
+    filtered.start_filter();
+    type_text(&mut filtered, "zzzz");
+
+    for panel in [&full, &empty, &filtered] {
+        for width in 0..=12 {
+            for height in 0..=6 {
+                let _ = draw_with(panel, width, height, &context(&now, true), &theme);
+                let _ = draw_with(panel, width, height, &context(&now, false), &theme);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_switch_hint_replaces_the_protocol_label() {
+    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let now = fixed_now();
+    let mut single = context(&now, true);
+    single.switch_hint = Some("local \u{21c4} sftp".to_string());
+
+    let terminal = draw_with(&panel, 50, 8, &single, &indexed());
+
+    assert!(row_string(&terminal, 0).starts_with("local \u{21c4} sftp  /d"));
+}
+
+#[test]
+fn the_placeholder_shows_its_lines_and_the_remote_header() {
+    let theme = indexed();
+    let now = fixed_now();
+    let mut remote = context(&now, false);
+    remote.protocol = "remote";
+    remote.location = String::new();
+    let lines = vec!["not connected".to_string(), "press F9 to connect".to_string()];
+
+    let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+    terminal.draw(|frame| render_placeholder(frame, frame.area(), &lines, &remote, &theme)).unwrap();
+
+    assert!(row_string(&terminal, 0).starts_with("remote"));
+    assert_eq!(cell_fg(&terminal, 5, 1), theme.line);
+    let (x, y) = find_text(&terminal, "not connected").expect("first line is drawn");
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+    assert!(find_text(&terminal, "press F9 to connect").is_some());
+    assert!(x > 5);
+}
+
+#[test]
+fn the_placeholder_survives_tiny_areas() {
+    let theme = indexed();
+    let now = fixed_now();
+    let lines = vec!["not connected".to_string()];
+
+    for width in 0..=12 {
+        for height in 0..=6 {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render_placeholder(frame, frame.area(), &lines, &context(&now, true), &theme))
+                .unwrap();
+        }
+    }
 }

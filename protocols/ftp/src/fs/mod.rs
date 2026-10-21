@@ -333,6 +333,7 @@ impl FileSystem for FtpFs {
                 is_dir,
                 size: item.metadata.size,
                 permissions: item.metadata.permissions,
+                modified: item.metadata.modified,
                 name: item.name,
             });
         }

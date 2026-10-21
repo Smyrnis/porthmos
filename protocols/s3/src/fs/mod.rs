@@ -553,6 +553,7 @@ impl FileSystem for S3Fs {
                 is_dir: item.metadata.is_dir(),
                 size: item.metadata.size,
                 permissions: None,
+                modified: item.metadata.modified,
                 name: item.name,
                 path: item.path,
             })

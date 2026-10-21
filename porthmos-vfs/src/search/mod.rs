@@ -117,6 +117,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
                     is_dir,
                     size: item.metadata.size,
                     permissions: None,
+                    modified: item.metadata.modified,
                 }));
                 found += 1;
             }

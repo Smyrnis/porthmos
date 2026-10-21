@@ -46,7 +46,8 @@ fn modified(month: &str, day: &str, time_or_year: &str, now: u64) -> Option<u64>
             Some(this_year)
         };
     }
-    seconds(time_or_year.parse().ok()?, month, day, 0)
+    let year: i64 = time_or_year.parse().ok().filter(|year| (1900..=9999).contains(year))?;
+    seconds(year, month, day, 0)
 }
 
 fn epoch(token: &str) -> Option<u64> {

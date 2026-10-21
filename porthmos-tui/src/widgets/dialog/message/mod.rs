@@ -1,10 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    text::Line,
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+use ratatui::{Frame, layout::Rect, text::Line, widgets::Paragraph};
+use unicode_width::UnicodeWidthStr;
+
+use crate::{
+    theme::Theme,
+    widgets::{
+        history_view::printable,
+        popup::{content_width, footer, render_popup, wrap_line},
+    },
 };
 
 pub struct MessageDialog {
@@ -31,55 +34,23 @@ impl MessageDialog {
     }
 }
 
-fn wrapped_line_count(text: &str, width: usize) -> usize {
-    let mut lines = 1;
-    let mut used = 0;
-    for word in text.split_whitespace() {
-        let length = word.chars().count();
-        if used == 0 {
-            used = length;
-        } else if used + 1 + length <= width {
-            used += 1 + length;
-        } else {
-            lines += 1;
-            used = length;
-        }
-        while used > width {
-            lines += 1;
-            used -= width;
-        }
+pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog, theme: &Theme) {
+    let title = printable(&dialog.title);
+    let lines: Vec<String> = dialog.message.lines().map(printable).collect();
+    let longest = lines.iter().map(|line| line.width()).max().unwrap_or(0).min(200) as u16;
+    let width = content_width(&[title.as_str(), "enter close"]).max(longest + 4).clamp(50, 76).min(area.width);
+    let rows: Vec<String> =
+        lines.iter().flat_map(|line| wrap_line(line, usize::from(width.saturating_sub(4)))).collect();
+    let height = u16::try_from(rows.len() + 4).unwrap_or(u16::MAX).min(area.height);
+    let inner = render_popup(frame, area, (width, height), Some(&title), theme);
+    if inner.width == 0 || inner.height == 0 {
+        return;
     }
-    lines
-}
 
-fn wrapped_total(text: &str, width: usize) -> usize {
-    text.lines().map(|line| wrapped_line_count(line, width)).sum::<usize>().max(1)
-}
-
-pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog) {
-    let longest_line = dialog.message.lines().map(|line| line.chars().count()).max().unwrap_or(0).min(200) as u16;
-    let width = super::content_width(&[dialog.title.as_str(), "[Enter] OK"])
-        .max(longest_line + 4)
-        .clamp(50, 76)
-        .min(area.width);
-    let inner_width = usize::from(width.saturating_sub(2)).max(1);
-    let lines = wrapped_total(&dialog.message, inner_width) as u16;
-    let height = (lines + 4).min(area.height);
-    let popup = Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
-    let block = Block::default()
-        .title(dialog.title.as_str())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
-    let mut text: Vec<Line> = dialog.message.lines().map(Line::from).collect();
-    text.push(Line::from(""));
-    text.push(Line::from("[Enter] OK"));
-    frame.render_widget(Clear, popup);
-    frame.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: true }), popup);
+    let text: Vec<Line> = rows.into_iter().map(|row| Line::styled(row, theme.text())).collect();
+    let text_area = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(2));
+    frame.render_widget(Paragraph::new(text), text_area);
+    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &[("enter", "close")], theme);
 }
 
 #[cfg(test)]

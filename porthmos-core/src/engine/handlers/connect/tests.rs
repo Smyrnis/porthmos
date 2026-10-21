@@ -413,7 +413,14 @@ async fn disconnecting_during_a_copy_cancels_it_and_late_results_do_not_bring_it
         .iter()
         .map(|name| {
             std::fs::write(t.dir.path().join(name), vec![0u8; 64]).unwrap();
-            Entry { name: name.to_string(), path: t.dir.path().join(name), is_dir: false, size: 64, permissions: None }
+            Entry {
+                modified: None,
+                name: name.to_string(),
+                path: t.dir.path().join(name),
+                is_dir: false,
+                size: 64,
+                permissions: None,
+            }
         })
         .collect();
 

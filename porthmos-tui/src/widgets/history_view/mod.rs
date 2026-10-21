@@ -6,14 +6,29 @@ use porthmos_core::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    style::Style,
+    text::{Line, Span},
+    widgets::{List, ListItem, ListState, Paragraph},
+};
+use unicode_width::UnicodeWidthStr;
+
+use crate::{
+    theme::Theme,
+    widgets::{
+        file_list::format_size,
+        filter_line::{FilterLine, FilterLineState, render_filter_line},
+        frame::{accent_underline, hairline},
+        text_fit::{pad_left, pad_right, truncate_with_ellipsis},
+    },
 };
 
-use crate::widgets::{
-    file_list::format_size,
-    filter_line::{self, FilterLine},
-};
+const MARKER_WIDTH: usize = 2;
+const ARROW_WIDTH: usize = 2;
+const GAP: usize = 2;
+const TIME_WIDTH: usize = 16;
+const MAX_CONNECTION_WIDTH: usize = 18;
+const MIN_ITEM_WIDTH: usize = 12;
+const HEADER_ROWS: u16 = 3;
 
 #[derive(Default)]
 pub struct HistoryView {
@@ -45,6 +60,14 @@ impl HistoryView {
 
     pub fn matched(&self) -> usize {
         self.visible.len()
+    }
+
+    pub fn summary(&self) -> String {
+        match (&self.filter, self.total()) {
+            (Some(_), total) => format!("{} of {total}", self.matched()),
+            (None, 1) => "1 entry".to_string(),
+            (None, total) => format!("{total} entries"),
+        }
     }
 
     pub fn rows(&self) -> impl Iterator<Item = &HistoryEntry> + '_ {
@@ -124,23 +147,6 @@ impl FilterLine for HistoryView {
     }
 }
 
-pub fn result_marker(result: &HistoryResult) -> char {
-    match result {
-        HistoryResult::Failed => '\u{2717}',
-        HistoryResult::PartlyFailed { .. } => '!',
-        HistoryResult::Done | HistoryResult::Cancelled | HistoryResult::Interrupted => ' ',
-    }
-}
-
-fn result_style(result: &HistoryResult) -> Style {
-    match result {
-        HistoryResult::Failed => Style::default().fg(Color::Red),
-        HistoryResult::PartlyFailed { .. } => Style::default().fg(Color::Yellow),
-        HistoryResult::Cancelled | HistoryResult::Interrupted => Style::default().add_modifier(Modifier::DIM),
-        HistoryResult::Done => Style::default(),
-    }
-}
-
 fn is_unprintable(character: char) -> bool {
     character.is_control()
         || matches!(
@@ -153,49 +159,160 @@ pub fn printable(text: &str) -> String {
     text.chars().map(|character| if is_unprintable(character) { '?' } else { character }).collect()
 }
 
-fn row_text(entry: &HistoryEntry) -> String {
-    let time = entry.finished_at.with_timezone(&Local).format("%Y-%m-%d %H:%M");
-    let arrow = match entry.direction {
-        Direction::Upload => '\u{2191}',
-        Direction::Download => '\u{2193}',
-    };
-    format!(
-        "{time} {} {arrow} {}  {}  {}/{}  {}",
-        result_marker(&entry.result),
-        printable(&entry.label),
-        printable(&entry.connection),
-        entry.files_done,
-        entry.files_total,
-        format_size(entry.bytes, false),
-    )
+fn status_of(result: &HistoryResult, theme: &Theme) -> (String, Style) {
+    match result {
+        HistoryResult::Done => ("done".to_string(), theme.ok_text()),
+        HistoryResult::Failed => ("failed".to_string(), theme.err_text()),
+        HistoryResult::PartlyFailed { failed } => (format!("done, {failed} failed"), theme.err_text()),
+        HistoryResult::Cancelled => ("cancelled".to_string(), theme.dim()),
+        HistoryResult::Interrupted => ("interrupted".to_string(), theme.dim()),
+    }
 }
 
-pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView) {
-    let mut block = Block::default().title(format!("History ({})", view.total())).borders(Borders::ALL);
-    let inner_width = usize::from(area.width.saturating_sub(2));
-    if let Some(status) =
-        filter_line::status(view.editing_filter(), view.filter(), view.matched(), view.total(), inner_width)
-    {
-        block = block.title_bottom(status);
-    }
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+fn time_text(entry: &HistoryEntry) -> String {
+    entry.finished_at.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string()
+}
 
-    if view.total() == 0 {
-        frame.render_widget(Paragraph::new("No transfers yet"), inner);
+fn files_text(entry: &HistoryEntry) -> String {
+    format!("{}/{}", entry.files_done, entry.files_total)
+}
+
+struct Columns {
+    item: usize,
+    time: bool,
+    connection: Option<usize>,
+    files: Option<usize>,
+    size: Option<usize>,
+    status: usize,
+}
+
+fn columns_for(view: &HistoryView, theme: &Theme, width: usize) -> Columns {
+    let widest = |texts: &mut dyn Iterator<Item = usize>, header: &str| texts.max().unwrap_or(0).max(header.len());
+    let connection = widest(&mut view.rows().map(|entry| printable(&entry.connection).width()), "connection")
+        .min(MAX_CONNECTION_WIDTH);
+    let files = widest(&mut view.rows().map(|entry| files_text(entry).width()), "files");
+    let size = widest(&mut view.rows().map(|entry| format_size(entry.bytes, false).width()), "size");
+    let status = widest(&mut view.rows().map(|entry| status_of(&entry.result, theme).0.width()), "status");
+    let base = MARKER_WIDTH + ARROW_WIDTH + GAP + status;
+
+    for dropped in 0..=4usize {
+        let fixed = base
+            + if dropped < 4 { TIME_WIDTH + GAP } else { 0 }
+            + if dropped < 3 { GAP + connection } else { 0 }
+            + if dropped < 2 { GAP + files } else { 0 }
+            + if dropped < 1 { GAP + size } else { 0 };
+        if width >= fixed + MIN_ITEM_WIDTH || dropped == 4 {
+            return Columns {
+                item: width.saturating_sub(fixed).max(1),
+                time: dropped < 4,
+                connection: (dropped < 3).then_some(connection),
+                files: (dropped < 2).then_some(files),
+                size: (dropped < 1).then_some(size),
+                status,
+            };
+        }
+    }
+    unreachable!("the loop returns at its last level")
+}
+
+fn header_line(columns: &Columns, theme: &Theme) -> Line<'static> {
+    let gap = " ".repeat(GAP);
+    let mut text = " ".repeat(MARKER_WIDTH);
+    if columns.time {
+        text.push_str(&format!("{}{gap}", pad_right("time", TIME_WIDTH)));
+    }
+    text.push_str(&" ".repeat(ARROW_WIDTH));
+    text.push_str(&pad_right("item", columns.item));
+    if let Some(width) = columns.connection {
+        text.push_str(&format!("{gap}{}", pad_right("connection", width)));
+    }
+    if let Some(width) = columns.files {
+        text.push_str(&format!("{gap}{}", pad_left("files", width)));
+    }
+    if let Some(width) = columns.size {
+        text.push_str(&format!("{gap}{}", pad_left("size", width)));
+    }
+    text.push_str(&format!("{gap}status"));
+    Line::from(Span::styled(text, theme.dim()))
+}
+
+fn row_line(entry: &HistoryEntry, focused: bool, columns: &Columns, theme: &Theme) -> Line<'static> {
+    let gap = " ".repeat(GAP);
+    let marker = if focused { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
+    let mut spans = vec![marker];
+    if columns.time {
+        spans.push(Span::styled(format!("{}{gap}", time_text(entry)), theme.dim()));
+    }
+    let arrow = match entry.direction {
+        Direction::Upload => "\u{2191} ",
+        Direction::Download => "\u{2193} ",
+    };
+    spans.push(Span::styled(arrow, theme.muted()));
+    let name_style = if focused { theme.focused_name() } else { theme.text() };
+    let name = pad_right(&truncate_with_ellipsis(&printable(&entry.label), columns.item), columns.item);
+    spans.push(Span::styled(name, name_style));
+    if let Some(width) = columns.connection {
+        let connection = pad_right(&truncate_with_ellipsis(&printable(&entry.connection), width), width);
+        spans.push(Span::styled(format!("{gap}{connection}"), theme.dim()));
+    }
+    if let Some(width) = columns.files {
+        spans.push(Span::styled(format!("{gap}{}", pad_left(&files_text(entry), width)), theme.dim()));
+    }
+    if let Some(width) = columns.size {
+        spans.push(Span::styled(format!("{gap}{}", pad_left(&format_size(entry.bytes, false), width)), theme.dim()));
+    }
+    let (status, status_style) = status_of(&entry.result, theme);
+    spans.push(Span::raw(gap));
+    spans.push(Span::styled(pad_right(&status, columns.status), status_style));
+    Line::from(spans)
+}
+
+pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView, theme: &Theme) {
+    if area.width == 0 || area.height == 0 {
         return;
     }
-    if view.matched() == 0 {
-        frame.render_widget(Paragraph::new("No matches"), inner);
+    let state = FilterLineState {
+        text: view.filter(),
+        editing: view.editing_filter(),
+        matched: view.matched(),
+        total: view.total(),
+    };
+    render_filter_line(frame, Rect::new(area.x, area.y, area.width, 1), state, theme);
+    if area.height < 3 {
         return;
     }
 
-    let items: Vec<ListItem> =
-        view.rows().map(|entry| ListItem::new(row_text(entry)).style(result_style(&entry.result))).collect();
-    let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+    let columns = columns_for(view, theme, usize::from(area.width));
+    if view.matched() > 0 {
+        frame.render_widget(Paragraph::new(header_line(&columns, theme)), Rect::new(area.x, area.y + 1, area.width, 1));
+    }
+    let rule = Rect::new(area.x, area.y + 2, area.width, 1);
+    hairline(frame, rule, theme);
+    accent_underline(frame, rule, 0..area.width, theme);
+    if area.height <= HEADER_ROWS {
+        return;
+    }
+
+    let body = Rect::new(area.x, area.y + HEADER_ROWS, area.width, area.height - HEADER_ROWS);
+    if view.total() == 0 || view.matched() == 0 {
+        let message = if view.total() == 0 { "no transfers yet" } else { "no matches" };
+        frame.render_widget(
+            Paragraph::new(Span::styled(message, theme.dim())),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+        return;
+    }
+
+    let cursor = view.cursor();
+    let items: Vec<ListItem> = view
+        .rows()
+        .enumerate()
+        .map(|(index, entry)| ListItem::new(row_line(entry, index == cursor, &columns, theme)))
+        .collect();
+    let list = List::new(items).highlight_style(theme.focus_row());
     let mut state = ListState::default();
-    state.select(Some(view.cursor()));
-    frame.render_stateful_widget(list, inner, &mut state);
+    state.select(Some(cursor));
+    frame.render_stateful_widget(list, body, &mut state);
 }
 
 #[cfg(test)]

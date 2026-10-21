@@ -1,171 +1,433 @@
-use porthmos_core::transfer::{ActiveJob, rows::percent_of};
+use std::path::Path;
 
-use super::*;
+use ratatui::{
+    style::Modifier,
+    text::{Line, Span},
+};
+use unicode_width::UnicodeWidthStr;
+
+use super::{
+    hints::{form_hints, help_sections, hints_for, search_hints},
+    *,
+};
+use crate::widgets::{
+    connection_details, connection_form,
+    frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
+    history_view::printable,
+    info_line::render_info_line,
+    panel_view::PanelContext,
+    popup::render_popup,
+    session_tabs::{TabView, tabs_line},
+    text_fit::truncate_with_ellipsis,
+    toast::render_toast,
+    transfer_line::{line_data, render_transfer_line},
+};
+
+const DETAILS_POPUP_WIDTH: u16 = 60;
+const DETAILS_POPUP_HEIGHT: u16 = 16;
 
 impl App {
     pub(super) fn render(&self, frame: &mut Frame) {
-        let (title_area, main_area, status_area) = layout::split_frame(frame.area());
+        let area = frame.area();
+        fill_background(frame, area, &self.theme);
 
-        self.render_title(frame, title_area);
+        let Some(areas) = layout::split_frame(area) else {
+            self.render_too_small(frame, area);
+            return;
+        };
+        self.body_width.set(areas.body.width);
+        hairline(frame, areas.top_rule, &self.theme);
+        hairline(frame, areas.bottom_rule, &self.theme);
 
-        match self.screen {
-            Screen::Files => self.render_files(frame, main_area),
-            Screen::Connections => self.render_connections(frame, main_area),
-            Screen::Search => self.render_search(frame, main_area),
-            Screen::Transfers => self.render_transfers(frame, main_area),
-            Screen::History => self.render_history(frame, main_area),
-            Screen::Sync => self.render_sync(frame, main_area),
+        self.render_top_bar(frame, areas.top_bar, areas.top_rule);
+
+        if let Some(form) = self.screen_form() {
+            connection_form::render_connection_form(frame, areas.body, form, self.core.protocols(), &self.theme);
+        } else {
+            match self.screen {
+                Screen::Files => self.render_files(frame, areas.body),
+                Screen::Connections => self.render_connections(frame, areas.body),
+                Screen::Search => self.render_search(frame, areas.body),
+                Screen::Transfers => self.render_transfers(frame, areas.body),
+                Screen::History => self.render_history(frame, areas.body),
+                Screen::Sync => self.render_sync(frame, areas.body),
+            }
         }
 
-        self.render_status(frame, status_area);
+        self.render_hint_bar(frame, areas.hint_bar);
+
+        if let Some(notification) = self.notifications.current() {
+            render_toast(frame, area, notification.severity, &notification.message, &self.theme);
+        }
 
         if let Some(dialog) = &self.dialog {
-            dialog.render(frame, frame.area());
+            dialog.render(frame, area, &self.theme);
         }
 
         if self.help_visible {
-            help::render_help(frame, frame.area(), &self.key_bindings);
+            let sections = help_sections(&self.key_bindings);
+            self.help_max_scroll.set(help::render_help(frame, area, &sections, self.help_scroll, &self.theme));
+        }
+
+        if self.details_popup_visible() {
+            self.render_details_popup(frame, area, areas.body);
         }
     }
 
-    fn render_title(&self, frame: &mut Frame, area: Rect) {
-        let status_text = match &self.connection_status {
-            ConnectionStatus::Connecting(name) => format!("Connecting to {name}\u{2026}"),
-            ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
-                format!("Connection failed: {message}")
-            }
-            _ => match self.sessions.active() {
-                Some(session) => format!("{} \u{2014} SSH: Connected", session.name),
-                None => "Not connected".to_string(),
-            },
-        };
+    fn render_too_small(&self, frame: &mut Frame, area: Rect) {
+        const MESSAGE: &str = "terminal too small";
+        let width = area.width.min(MESSAGE.len() as u16);
+        let x = area.x + (area.width - width) / 2;
+        let y = area.y + area.height / 2;
+        if area.height == 0 {
+            return;
+        }
+        frame.render_widget(Paragraph::new(MESSAGE).style(self.theme.dim()), Rect::new(x, y, width, 1));
+    }
 
-        let text = format!("Porthmos{:>width$}", status_text, width = status_text.len() + 4);
-        frame.render_widget(Paragraph::new(text), area);
+    fn render_top_bar(&self, frame: &mut Frame, area: Rect, rule: Rect) {
+        const NAME: &str = "porthmos";
+        const GAP: u16 = 3;
+        const TABS_FLOOR: u16 = 16;
+        let theme = &self.theme;
+        let name = Span::styled(NAME, theme.muted().add_modifier(Modifier::BOLD));
+        let name_width = NAME.len() as u16;
+        if let Some(label) = self.form_breadcrumb() {
+            let left = Line::from(vec![
+                name,
+                Span::styled(" / ", theme.dim()),
+                Span::styled("connections", theme.muted()),
+                Span::styled(" / ", theme.dim()),
+                Span::styled(label, theme.bright()),
+            ]);
+            top_bar(frame, area, left, Line::default());
+            return;
+        }
+        let tabs = if self.screen == Screen::Files { self.tab_views() } else { Vec::new() };
+
+        let tail = self.screen_tail();
+        let tail_width = tail.as_ref().map_or(0, |tail| " / ".len() + tail.width()) as u16;
+        let left_minimum = match self.screen {
+            Screen::Files if tabs.is_empty() => name_width,
+            Screen::Files => name_width + GAP + TABS_FLOOR.min(area.width.saturating_sub(name_width + GAP)),
+            _ => name_width + " / ".len() as u16 + self.screen_title().len() as u16 + tail_width,
+        };
+        let status = self.connection_status_line(usize::from(area.width.saturating_sub(left_minimum + GAP)));
+        let status_width = status.width() as u16;
+
+        let mut left = Line::from(name);
+        if self.screen == Screen::Files {
+            let reserved = name_width + GAP + if status_width > 0 { status_width + GAP } else { 0 };
+            let tabs = tabs_line(&tabs, area.width.saturating_sub(reserved), theme);
+            if let Some(columns) = tabs.active_columns.clone() {
+                let offset = (area.x - rule.x) + name_width + GAP;
+                accent_underline(frame, rule, offset + columns.start..offset + columns.end, theme);
+            }
+            if !tabs.line.spans.is_empty() {
+                left.spans.push(Span::raw(" ".repeat(usize::from(GAP))));
+                left.spans.extend(tabs.line.spans);
+            }
+        } else {
+            left.spans.push(Span::styled(" / ", theme.dim()));
+            left.spans.push(Span::styled(self.screen_title(), theme.bright()));
+            if let Some(tail) = tail {
+                left.spans.push(Span::styled(" / ", theme.dim()));
+                left.spans.push(Span::styled(tail, theme.bright()));
+            }
+        }
+        top_bar(frame, area, left, status);
+    }
+
+    fn screen_tail(&self) -> Option<String> {
+        if self.screen != Screen::Sync {
+            return None;
+        }
+        let name =
+            self.sync_view.plan().and_then(|plan| self.sessions.by_id(plan.session)).map(|session| &session.name);
+        Some(name.map_or_else(|| "remote".to_string(), |name| printable(name)))
+    }
+
+    fn screen_form(&self) -> Option<&crate::widgets::dialog::FormDialog> {
+        match &self.dialog {
+            Some(Dialog::Form(form)) if form.layout == crate::widgets::dialog::FormLayout::Screen => Some(form),
+            _ => None,
+        }
+    }
+
+    fn form_breadcrumb(&self) -> Option<&'static str> {
+        self.screen_form()?;
+        match self.pending_action {
+            Some(PendingAction::EditConnection { .. }) => Some("edit"),
+            _ => Some("new"),
+        }
+    }
+
+    fn screen_title(&self) -> &'static str {
+        match self.screen {
+            Screen::Files => "files",
+            Screen::Connections => "connections",
+            Screen::Search => "search",
+            Screen::Transfers => "transfers",
+            Screen::History => "history",
+            Screen::Sync => "sync",
+        }
+    }
+
+    fn tab_views(&self) -> Vec<TabView<'_>> {
+        let active_id = self.sessions.active_id();
+        self.sessions
+            .iter()
+            .enumerate()
+            .map(|(index, session)| TabView {
+                number: index + 1,
+                name: &session.name,
+                protocol: self
+                    .connections
+                    .entries()
+                    .iter()
+                    .find(|entry| entry.name == session.name)
+                    .map_or("", |entry| entry.protocol.as_str()),
+                active: Some(session.id) == active_id,
+            })
+            .collect()
+    }
+
+    fn connection_status_line(&self, budget: usize) -> Line<'static> {
+        if self.screen_form().is_some() {
+            return Line::default();
+        }
+        if self.screen == Screen::Connections {
+            return Line::styled(truncate_with_ellipsis(&self.connections_summary(), budget), self.theme.muted());
+        }
+        if self.screen == Screen::Sync {
+            return Line::styled(truncate_with_ellipsis(&self.sync_view.top_bar_summary(), budget), self.theme.muted());
+        }
+        if self.screen == Screen::History {
+            return Line::styled(truncate_with_ellipsis(&self.history.summary(), budget), self.theme.muted());
+        }
+        if self.screen == Screen::Transfers {
+            let summary = transfer_list::transfer_summary(self.transfer_rows(), self.rates.aggregate_speed());
+            return Line::styled(truncate_with_ellipsis(&summary, budget), self.theme.muted());
+        }
+        let (text, style) = match &self.connection_status {
+            ConnectionStatus::Connecting(name) => {
+                (format!("Connecting to {}\u{2026}", printable(name)), self.theme.muted())
+            }
+            ConnectionStatus::Failed(message) if self.sessions.is_empty() => (
+                format!("Connection failed: {}", printable(message.lines().next().unwrap_or(""))),
+                self.theme.err_text(),
+            ),
+            _ => return Line::default(),
+        };
+        Line::styled(truncate_with_ellipsis(&text, budget), style)
     }
 
     fn render_files(&self, frame: &mut Frame, area: Rect) {
-        let (local_area, remote_area) = layout::split_panels(area);
+        let mode = layout::files_mode(area.width);
+        let line = line_data(&self.transfers.rows, &self.session_names, &self.rates);
+        let layout = layout::files_layout(area, mode, line.is_some());
+        let (single, show_modified) = match mode {
+            layout::FilesMode::TwoPanels => (false, true),
+            layout::FilesMode::SinglePanel { show_modified } => (true, show_modified),
+        };
+        let now = self.clock.now();
+        let theme = &self.theme;
+        let local_active = self.active_panel == ActivePanel::Local;
+        let remote_header = self.sessions.active().map(|session| self.remote_header(session));
+        let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
 
-        panel_view::render_panel(frame, local_area, "LOCAL", self.active_panel == ActivePanel::Local, &self.local);
+        if !single || local_active {
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let context = PanelContext {
+                protocol: "local",
+                location: abbreviate_home(self.local.path(), home.as_deref()),
+                active: local_active,
+                show_modified,
+                switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
+                now: &now,
+            };
+            panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
+        }
 
-        match self.sessions.active() {
-            Some(session) => {
-                if self.sessions.len() > 1 {
-                    let (tabs_area, panel_area) = layout::split_remote_with_tabs(remote_area);
-                    self.render_session_tabs(frame, tabs_area);
-                    panel_view::render_panel(
-                        frame,
-                        panel_area,
-                        "REMOTE",
-                        self.active_panel == ActivePanel::Remote,
-                        &session.panel,
-                    );
-                } else {
-                    panel_view::render_panel(
-                        frame,
-                        remote_area,
-                        "REMOTE",
-                        self.active_panel == ActivePanel::Remote,
-                        &session.panel,
-                    );
+        if !single || !local_active {
+            let switch_hint = single.then(|| format!("{remote_protocol} \u{21c4} local"));
+            match (self.sessions.active(), &remote_header) {
+                (Some(session), Some((protocol, location))) => {
+                    let context = PanelContext {
+                        protocol,
+                        location: location.clone(),
+                        active: !local_active,
+                        show_modified,
+                        switch_hint,
+                        now: &now,
+                    };
+                    panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
+                }
+                _ => {
+                    let context = PanelContext {
+                        protocol: "remote",
+                        location: String::new(),
+                        active: !local_active,
+                        show_modified,
+                        switch_hint,
+                        now: &now,
+                    };
+                    let lines = self.remote_placeholder_lines();
+                    panel_view::render_placeholder(frame, layout.remote, &lines, &context, theme);
                 }
             }
-            None => {
-                let remote_title = match &self.connection_status {
-                    ConnectionStatus::Connecting(name) => {
-                        format!("REMOTE (connecting to {name}\u{2026})")
-                    }
-                    _ => "REMOTE".to_string(),
-                };
-                panel_view::render_placeholder(
-                    frame,
-                    remote_area,
-                    &remote_title,
-                    self.active_panel == ActivePanel::Remote,
-                );
-            }
+        }
+
+        if let Some(divider) = layout.divider {
+            vertical_rule(frame, divider, theme);
+        }
+        hairline(frame, layout.rule, theme);
+
+        let focused = match (local_active, self.sessions.active()) {
+            (true, _) => self.local.current_entry(),
+            (false, Some(session)) => session.panel.current_entry(),
+            (false, None) => None,
+        };
+        render_info_line(frame, layout.info, focused, &now, theme);
+        if let Some(data) = &line {
+            render_transfer_line(frame, layout.transfer, data, theme);
         }
     }
 
-    fn render_session_tabs(&self, frame: &mut Frame, area: Rect) {
-        let active_id = self.sessions.active_id();
-        let labels: Vec<String> = self
-            .sessions
-            .iter()
-            .map(|session| {
-                let marker = if Some(session.id) == active_id { '>' } else { ' ' };
-                format!("{marker}{}", session.name)
-            })
-            .collect();
-        frame.render_widget(Paragraph::new(labels.join("  ")), area);
+    fn remote_header(&self, session: &crate::sessions::Session) -> (String, String) {
+        let path = session.panel.path().display();
+        let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
+        match saved {
+            Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
+            Some(entry) => (entry.protocol.clone(), format!("{}@{}:{path}", entry.username, entry.host)),
+            None => ("remote".to_string(), format!("{}:{path}", session.name)),
+        }
+    }
+
+    fn remote_placeholder_lines(&self) -> Vec<String> {
+        if let ConnectionStatus::Connecting(name) = &self.connection_status {
+            return vec![format!("connecting to {name}\u{2026}")];
+        }
+        let mut lines = vec!["not connected".to_string()];
+        if let Some(spec) = self.key_bindings.key_for(Action::OpenConnections) {
+            lines.push(format!("press {} to connect", input::format_key_spec(spec)));
+        }
+        lines
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
         let connected_names: std::collections::HashSet<&str> =
             self.sessions.iter().map(|session| session.name.as_str()).collect();
-        let active_name = self.sessions.active().map(|session| session.name.as_str());
-        connections_list::render_connections_list(
-            frame,
-            area,
-            &self.connections,
-            &connected_names,
-            active_name,
-            self.core.protocols(),
-        );
+        let context = connections_list::ConnectionsContext {
+            connected: &connected_names,
+            failures: &self.last_failure,
+            protocols: self.core.protocols(),
+        };
+        let layout = layout::connections_layout(area);
+        connections_list::render_connections_list(frame, layout.list, &self.connections, &context, &self.theme);
+        if let Some(divider) = layout.divider {
+            vertical_rule(frame, divider, &self.theme);
+        }
+        if let Some(details) = layout.details {
+            self.render_details(frame, details);
+        }
+    }
+
+    fn render_details(&self, frame: &mut Frame, area: Rect) {
+        let selection = self.connections.selected();
+        let group_count = match self.connections.rows().get(self.connections.cursor) {
+            Some(porthmos_core::connections_tree::TreeRow::Group { count, .. }) => *count,
+            _ => 0,
+        };
+        let (connected, failure) = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
+                (self.sessions.by_name(&entry.name).is_some(), self.last_failure.get(&entry.name).map(String::as_str))
+            }
+            _ => (false, None),
+        };
+        let context = connection_details::DetailsContext { protocols: self.core.protocols(), connected, failure };
+        connection_details::render_connection_details(frame, area, selection, group_count, &context, &self.theme);
+    }
+
+    fn render_details_popup(&self, frame: &mut Frame, screen: Rect, body: Rect) {
+        let size = (body.width.min(DETAILS_POPUP_WIDTH), body.height.min(DETAILS_POPUP_HEIGHT));
+        let inner = render_popup(frame, screen, size, None, &self.theme);
+        self.render_details(frame, inner);
+    }
+
+    fn connections_summary(&self) -> String {
+        let connected = self.sessions.iter().count();
+        let errors = self.last_failure.len();
+        let mut parts = Vec::new();
+        if let ConnectionStatus::Connecting(name) = &self.connection_status {
+            parts.push(format!("connecting to {}\u{2026}", printable(name)));
+        }
+        if connected > 0 {
+            parts.push(format!("{connected} connected"));
+        }
+        if errors > 0 {
+            parts.push(format!("{errors} {}", if errors == 1 { "error" } else { "errors" }));
+        }
+        parts.join(" \u{b7} ")
     }
 
     fn render_transfers(&self, frame: &mut Frame, area: Rect) {
         let copy_key = self.key_bindings.key_for(Action::Copy).map(input::format_key_spec);
-        transfer_list::render_transfer_list(
-            frame,
-            area,
-            self.transfer_rows(),
-            self.transfers_cursor,
-            copy_key.as_deref(),
-        );
+        let rows = self.transfer_rows();
+        let routes: Vec<String> = rows.iter().map(|row| self.route_of(row)).collect();
+        let speeds: Vec<Option<u64>> = rows.iter().map(|row| self.rates.speed(row.kind)).collect();
+        let etas: Vec<Option<u64>> = rows.iter().map(|row| self.rates.eta_seconds(row)).collect();
+        let cursor = self.transfers_cursor.min(rows.len().saturating_sub(1));
+        let failed_time =
+            rows.get(cursor).and_then(|row| self.failed_time_of(row.kind)).map(|time| time.format("%H:%M").to_string());
+        let view = transfer_list::TransferView {
+            rows,
+            cursor,
+            copy_key: copy_key.as_deref(),
+            routes: &routes,
+            speeds: &speeds,
+            etas: &etas,
+            failed_time: failed_time.as_deref(),
+        };
+        transfer_list::render_transfer_list(frame, area, &view, &self.theme);
     }
 
     fn render_history(&self, frame: &mut Frame, area: Rect) {
-        history_view::render_history(frame, area, &self.history);
+        history_view::render_history(frame, area, &self.history, &self.theme);
     }
 
     fn render_sync(&self, frame: &mut Frame, area: Rect) {
-        let name = self
-            .sync_view
-            .plan()
-            .and_then(|plan| self.sessions.by_id(plan.session))
-            .map_or("remote", |session| session.name.as_str());
-        let title = format!("Sync with {name}");
-        sync_view::render_sync(frame, area, &self.sync_view, &title);
+        sync_view::render_sync(frame, area, &self.sync_view, &self.theme);
     }
 
     fn render_search(&self, frame: &mut Frame, area: Rect) {
         if let Some(session) = &self.search {
-            search_view::render_search(frame, area, &session.view);
+            search_view::render_search(frame, area, &session.view, &self.theme);
         }
     }
 
-    pub(super) fn render_status(&self, frame: &mut Frame, area: Rect) {
-        let (text, style) = match self.notifications.current() {
-            Some(notification) => (notification.message.clone(), notification_style(notification.severity)),
-            None => match self
-                .keyring_waiting_text()
-                .or_else(|| self.waiting_for_answer_text())
-                .or_else(|| self.planning_status_text())
-            {
-                Some(text) => (text, Style::default()),
-                None => {
-                    if self.transfers.active.is_empty() {
-                        (build_hint_text(&self.key_bindings), Style::default())
-                    } else {
-                        (self.transfer_status_text(&self.transfers.active), Style::default())
-                    }
+    pub(super) fn render_hint_bar(&self, frame: &mut Frame, area: Rect) {
+        if let Some(text) = self.transient_status() {
+            frame.render_widget(Paragraph::new(printable(&text)).style(self.theme.muted()), area);
+        } else if self.screen_form().is_some() {
+            hint_bar(frame, area, &form_hints(), &self.theme);
+        } else if self.screen == Screen::Search {
+            hint_bar(frame, area, &search_hints(), &self.theme);
+        } else {
+            let mut hints = hints_for(self.screen, &self.key_bindings);
+            if self.screen == Screen::Connections && !self.details_pane_visible() {
+                let details = self.key_bindings.key_for(Action::ToggleSelect);
+                if let Some(spec) = details {
+                    let position = 1.min(hints.entries.len());
+                    hints.entries.insert(position, Hint { key: input::format_key_spec(spec), label: "details" });
                 }
-            },
-        };
+            }
+            hint_bar(frame, area, &hints, &self.theme);
+        }
+    }
 
-        frame.render_widget(Paragraph::new(text).style(style), area);
+    fn transient_status(&self) -> Option<String> {
+        self.keyring_waiting_text().or_else(|| self.waiting_for_answer_text()).or_else(|| self.planning_status_text())
     }
 
     fn keyring_waiting_text(&self) -> Option<String> {
@@ -190,75 +452,15 @@ impl App {
             scans => Some(format!("Scanning {} copies\u{2026}", scans.len())),
         }
     }
-
-    fn transfer_status_text(&self, active: &[ActiveJob]) -> String {
-        let verb = transfer_verb(active);
-        let queued = self.transfers.queued;
-        let suffix = if queued > 0 { format!(" ({queued} queued)") } else { String::new() };
-
-        if let [job] = active {
-            return match job.batch_id.and_then(|batch_id| self.transfers.batches.get(&batch_id)) {
-                Some(progress) => {
-                    let percent = percent_of(progress.transferred_bytes, progress.total_bytes);
-                    format!(
-                        "{verb} {}: {}/{} files, {percent}%{suffix}",
-                        job.display_name, progress.completed_files, progress.total_files
-                    )
-                }
-                None => format!("{verb} {}: {}%{suffix}", job.display_name, job.percent),
-            };
-        }
-
-        let count = active.len();
-        let shared_batch = active
-            .first()
-            .and_then(|first| first.batch_id)
-            .filter(|batch_id| active.iter().all(|job| job.batch_id == Some(*batch_id)));
-        match shared_batch.and_then(|batch_id| self.transfers.batches.get(&batch_id)) {
-            Some(progress) => {
-                let percent = percent_of(progress.transferred_bytes, progress.total_bytes);
-                format!(
-                    "{verb} {count} files: {}/{} files, {percent}%{suffix}",
-                    progress.completed_files, progress.total_files
-                )
-            }
-            None => {
-                let transferred: u64 = active.iter().map(|job| job.transferred_bytes).sum();
-                let total: u64 = active.iter().map(|job| job.total_bytes).sum();
-                format!("{verb} {count} files: {}%{suffix}", percent_of(transferred, total))
-            }
-        }
-    }
 }
 
-fn transfer_verb(active: &[ActiveJob]) -> &'static str {
-    if active.iter().all(|job| job.direction == Direction::Upload) {
-        "Uploading"
-    } else if active.iter().all(|job| job.direction == Direction::Download) {
-        "Downloading"
-    } else {
-        "Transferring"
+fn abbreviate_home(path: &Path, home: Option<&Path>) -> String {
+    let usable_home = home.filter(|home| !home.as_os_str().is_empty() && *home != Path::new("/"));
+    match usable_home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
     }
-}
-
-fn notification_style(severity: Severity) -> Style {
-    match severity {
-        Severity::Info => Style::default(),
-        Severity::Warning => Style::default().fg(Color::Yellow),
-        Severity::Error => Style::default().fg(Color::Red),
-    }
-}
-
-fn build_hint_text(bindings: &input::KeyBindings) -> String {
-    let entries = [(Action::Help, "Help"), (Action::OpenConnections, "Connections"), (Action::Quit, "Quit")];
-
-    entries
-        .into_iter()
-        .filter_map(|(action, label)| {
-            bindings.key_for(action).map(|spec| format!("{} {label}", input::format_key_spec(spec)))
-        })
-        .collect::<Vec<_>>()
-        .join("  ")
 }
 
 #[cfg(test)]

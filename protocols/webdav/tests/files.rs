@@ -33,6 +33,21 @@ async fn read_dir_reports_kinds_sizes_and_times_without_the_directory_itself() {
     assert_eq!(entries.len(), 2);
 }
 
+fn within_a_day_of_now(modified: Option<u64>) -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    modified.is_some_and(|seconds| seconds.abs_diff(now) < 86_400)
+}
+
+#[tokio::test]
+async fn list_reports_the_modification_time_of_a_new_file() {
+    let (server, fs, _dir) = open(Options::default()).await;
+    std::fs::write(server.root.path().join("a.txt"), b"hello").unwrap();
+
+    let entries = fs.list(Path::new("/")).await.unwrap();
+
+    assert!(within_a_day_of_now(entries[0].modified), "{:?}", entries[0].modified);
+}
+
 #[tokio::test]
 async fn stat_finds_files_and_directories_and_reports_missing_ones() {
     let (server, fs, _dir) = open(Options::default()).await;

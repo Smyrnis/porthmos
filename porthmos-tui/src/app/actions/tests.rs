@@ -317,3 +317,55 @@ fn f4_on_a_connection_with_a_shell_asks_the_core_for_it() {
 
     assert_eq!(test.sent(), vec![Command::PrepareShell { session }]);
 }
+
+#[test]
+fn opening_the_help_starts_at_the_top() {
+    let mut test = app_in("/d");
+    test.app.help_scroll = 7;
+
+    test.app.apply_action(Action::Help);
+
+    assert_eq!(test.app.help_scroll, 0);
+}
+
+fn press_key(test: &mut TestApp, code: KeyCode) {
+    test.app.apply_key(KeyEvent::new(code, KeyModifiers::NONE));
+}
+
+#[test]
+fn the_arrow_page_home_and_end_keys_scroll_the_help_and_any_other_key_closes_it() {
+    let mut test = app_in("/d");
+    test.app.apply_action(Action::Help);
+    crate::app::testing::render_app(&test.app, 80, 12);
+    let max_scroll = test.app.help_max_scroll.get();
+    assert!(max_scroll > 2);
+
+    press_key(&mut test, KeyCode::Down);
+    assert_eq!((test.app.help_scroll, test.app.help_visible), (1, true));
+    press_key(&mut test, KeyCode::Up);
+    press_key(&mut test, KeyCode::Up);
+    assert_eq!(test.app.help_scroll, 0);
+    press_key(&mut test, KeyCode::PageDown);
+    assert!(test.app.help_scroll > 1);
+    press_key(&mut test, KeyCode::End);
+    assert_eq!(test.app.help_scroll, max_scroll);
+    press_key(&mut test, KeyCode::Down);
+    assert_eq!(test.app.help_scroll, max_scroll);
+    press_key(&mut test, KeyCode::Home);
+    assert_eq!(test.app.help_scroll, 0);
+
+    press_key(&mut test, KeyCode::Char('x'));
+    assert!(!test.app.help_visible);
+}
+
+#[test]
+fn the_help_never_triggers_the_actions_it_lists() {
+    let mut test = app_in("/d");
+    test.app.apply_action(Action::Help);
+
+    press_key(&mut test, KeyCode::F(10));
+
+    assert!(!test.app.help_visible);
+    assert!(!test.app.should_quit);
+    assert_eq!(test.app.screen, Screen::Files);
+}

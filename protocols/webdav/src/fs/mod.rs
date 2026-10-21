@@ -181,6 +181,7 @@ impl FileSystem for WebDavFs {
                 is_dir: item.metadata.is_dir(),
                 size: item.metadata.size,
                 permissions: item.metadata.permissions,
+                modified: item.metadata.modified,
                 name: item.name,
                 path: item.path,
             })

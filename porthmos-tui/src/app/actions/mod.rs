@@ -1,7 +1,22 @@
 use super::*;
 use crate::widgets::filter_line::FilterLine;
 
+const HELP_PAGE: usize = 5;
+
 impl App {
+    pub(super) fn apply_help_key(&mut self, key: KeyEvent) {
+        let last = self.help_max_scroll.get();
+        match key.code {
+            KeyCode::Up => self.help_scroll = self.help_scroll.saturating_sub(1),
+            KeyCode::Down => self.help_scroll = (self.help_scroll + 1).min(last),
+            KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(HELP_PAGE),
+            KeyCode::PageDown => self.help_scroll = (self.help_scroll + HELP_PAGE).min(last),
+            KeyCode::Home => self.help_scroll = 0,
+            KeyCode::End => self.help_scroll = last,
+            _ => self.help_visible = false,
+        }
+    }
+
     pub(super) fn apply_action(&mut self, action: Action) {
         match action {
             Action::Quit => self.request_quit(),
@@ -35,7 +50,10 @@ impl App {
                     self.sessions.cycle();
                 }
             }
-            Action::Help => self.help_visible = true,
+            Action::Help => {
+                self.help_visible = true;
+                self.help_scroll = 0;
+            }
             Action::Back => self.handle_back(),
             Action::OpenTerminal => self.request_shell(),
             Action::Up
@@ -131,6 +149,7 @@ impl App {
                 None => {}
             },
             Action::Refresh => self.open_connections_screen(),
+            Action::ToggleSelect => self.open_details_popup(),
             _ => {}
         }
     }

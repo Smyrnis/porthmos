@@ -5,10 +5,13 @@ use tracing_subscriber::prelude::*;
 compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
 
 mod app;
+mod clock;
 mod input;
 mod logging;
+mod rate;
 mod sessions;
 mod terminal;
+mod theme;
 mod widgets;
 
 use app::App;
@@ -53,14 +56,19 @@ fn start_app(
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
+    let (theme_settings, theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
     let panel = settings.panel.clone();
     let (core, events) = Core::builder().paths(paths).environment(env).settings(settings).start()?;
 
-    let mut app = App::new(core, std::env::current_dir()?, &panel, key_bindings);
+    let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
+    let mut app = App::new(core, std::env::current_dir()?, &panel, key_bindings).with_theme(theme);
     for warning in config_warnings {
         app.warn(warning.0);
     }
     for warning in key_warnings {
+        app.warn(warning);
+    }
+    for warning in theme_warnings {
         app.warn(warning);
     }
     Ok((app, events))

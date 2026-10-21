@@ -39,6 +39,23 @@ fn put(server: &Server, key: &str, data: &[u8]) {
     std::fs::write(path, data).unwrap();
 }
 
+fn within_a_day_of_now(modified: Option<u64>) -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    modified.is_some_and(|seconds| seconds.abs_diff(now) < 86_400)
+}
+
+#[tokio::test]
+async fn list_reports_the_modification_time_of_an_object_and_none_for_a_folder() {
+    let (server, fs, _dir) = open(Options::default()).await;
+    put(&server, "docs/a.txt", b"hello");
+
+    let root = fs.list(Path::new("/")).await.unwrap();
+    let docs = fs.list(Path::new("/docs")).await.unwrap();
+
+    assert_eq!(root[0].modified, None);
+    assert!(within_a_day_of_now(docs[0].modified), "{:?}", docs[0].modified);
+}
+
 #[tokio::test]
 async fn read_dir_shows_folders_and_files() {
     let (server, fs, _dir) = open(Options::default()).await;

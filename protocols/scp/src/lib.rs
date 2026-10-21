@@ -60,6 +60,10 @@ impl Protocol for Scp {
         "SCP"
     }
 
+    fn description(&self) -> &'static str {
+        "when sftp is disabled"
+    }
+
     fn default_port(&self) -> u16 {
         DEFAULT_PORT
     }

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use porthmos_core::{Command, CoreHandle, Entry, Event, Location, config::settings::PanelSettings};
+use ratatui::{Terminal, backend::TestBackend};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::App;
@@ -26,7 +27,7 @@ pub(crate) fn test_app_with_protocols(path: &Path, protocols: Vec<porthmos_core:
 }
 
 pub(crate) fn entry(dir: &Path, name: &str, is_dir: bool) -> Entry {
-    Entry { name: name.to_string(), path: dir.join(name), is_dir, size: 1, permissions: None }
+    Entry { modified: None, name: name.to_string(), path: dir.join(name), is_dir, size: 1, permissions: None }
 }
 
 impl TestApp {
@@ -55,4 +56,44 @@ impl TestApp {
     pub(crate) fn notification(&self) -> Option<String> {
         self.app.notifications.current().map(|notification| notification.message.clone())
     }
+}
+
+pub(crate) fn render_app(app: &App, width: u16, height: u16) -> Terminal<TestBackend> {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| app.render(frame)).unwrap();
+    terminal
+}
+
+pub(crate) fn find_text(terminal: &Terminal<TestBackend>, needle: &str) -> Option<(u16, u16)> {
+    let buffer = terminal.backend().buffer();
+    let width = buffer.area.width;
+    (0..buffer.area.height).find_map(|y| {
+        let row: String = (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect();
+        row.find(needle).map(|byte_offset| (row[..byte_offset].chars().count() as u16, y))
+    })
+}
+
+pub(crate) fn cell_fg(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratatui::style::Color {
+    terminal.backend().buffer()[(x, y)].fg
+}
+
+pub(crate) fn cell_bg(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratatui::style::Color {
+    terminal.backend().buffer()[(x, y)].bg
+}
+
+pub(crate) fn screen_rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
+    let buffer = terminal.backend().buffer();
+    (0..buffer.area.height).map(|y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol()).collect()).collect()
+}
+
+pub(crate) fn has_unprintable_cell(terminal: &Terminal<TestBackend>) -> bool {
+    terminal.backend().buffer().content().iter().any(|cell| {
+        cell.symbol().chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{61c}'
+                )
+        })
+    })
 }

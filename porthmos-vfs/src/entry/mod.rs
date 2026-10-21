@@ -9,6 +9,7 @@ pub struct Entry {
     pub is_dir: bool,
     pub size: u64,
     pub permissions: Option<u32>,
+    pub modified: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

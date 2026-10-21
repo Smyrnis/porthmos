@@ -58,6 +58,10 @@ impl Protocol for Ftp {
         "FTP"
     }
 
+    fn description(&self) -> &'static str {
+        "legacy hosting, tls"
+    }
+
     fn default_port(&self) -> u16 {
         DEFAULT_PORT
     }

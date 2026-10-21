@@ -51,6 +51,23 @@ impl App {
         self.core.send(Command::ListProfiles);
     }
 
+    pub(super) fn details_pane_visible(&self) -> bool {
+        layout::connections_layout(Rect::new(0, 0, self.body_width.get(), 1)).details.is_some()
+    }
+
+    pub(super) fn details_popup_visible(&self) -> bool {
+        self.details_popup
+            && self.screen == Screen::Connections
+            && self.dialog.is_none()
+            && self.connections.selected().is_some()
+    }
+
+    pub(super) fn open_details_popup(&mut self) {
+        if !self.details_pane_visible() && self.connections.selected().is_some() {
+            self.details_popup = true;
+        }
+    }
+
     pub(super) fn open_add_connection_dialog(&mut self) {
         if self.screen != Screen::Connections {
             return;
@@ -203,6 +220,8 @@ impl App {
 
     pub(super) fn apply_connected(&mut self, session: u64, name: String, shell_available: bool) {
         self.connection_status = ConnectionStatus::Disconnected;
+        self.session_names.insert(session, name.clone());
+        self.last_failure.remove(&name);
         if self.sessions.activate(session) {
             return;
         }

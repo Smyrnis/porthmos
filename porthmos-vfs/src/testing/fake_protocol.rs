@@ -10,6 +10,8 @@ use crate::{
 
 pub struct FakeProtocol {
     id: &'static str,
+    description: &'static str,
+    limits_note: Option<&'static str>,
     form: Option<ConnectionForm>,
     fs: FakeFs,
     password: Option<String>,
@@ -23,6 +25,8 @@ impl FakeProtocol {
     pub fn new(fs: FakeFs) -> Self {
         Self {
             id: "fake",
+            description: "",
+            limits_note: None,
             form: None,
             fs,
             password: None,
@@ -45,6 +49,16 @@ impl FakeProtocol {
 
     pub fn with_id(mut self, id: &'static str) -> Self {
         self.id = id;
+        self
+    }
+
+    pub fn with_description(mut self, description: &'static str) -> Self {
+        self.description = description;
+        self
+    }
+
+    pub fn with_limits_note(mut self, note: &'static str) -> Self {
+        self.limits_note = Some(note);
         self
     }
 
@@ -80,6 +94,14 @@ impl Protocol for FakeProtocol {
 
     fn display_name(&self) -> &'static str {
         "FAKE"
+    }
+
+    fn description(&self) -> &'static str {
+        self.description
+    }
+
+    fn limits_note(&self) -> Option<&'static str> {
+        self.limits_note
     }
 
     fn default_port(&self) -> u16 {

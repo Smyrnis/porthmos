@@ -1,10 +1,11 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
+use chrono::{DateTime, Local};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
@@ -15,21 +16,19 @@ use porthmos_core::{
     transfer::{
         Direction, TransferSnapshot,
         conflicts::{ConflictInfo, Resolution},
-        rows::{QueueRow, RowKind},
+        rows::{QueueRow, RowKind, RowState},
     },
 };
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Paragraph,
-};
+use ratatui::{Frame, layout::Rect, widgets::Paragraph};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
+    clock::Clock,
     input::{self, Action},
+    rate::RateTracker,
     sessions::Sessions,
     terminal::{self, Backend},
+    theme::Theme,
     widgets::{
         connections_list,
         connections_view::{ConnectionsView, Selection},
@@ -54,6 +53,7 @@ mod connections;
 mod dialogs;
 mod edit;
 mod filter;
+mod hints;
 mod history;
 mod render;
 mod search;
@@ -126,6 +126,8 @@ pub struct App {
     sessions: Sessions,
     dialog: Option<Dialog>,
     help_visible: bool,
+    help_scroll: usize,
+    help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
     notifications: Notifications,
     connections: ConnectionsView,
@@ -147,6 +149,15 @@ pub struct App {
     conflict_prompts: VecDeque<ConflictPrompt>,
     key_bindings: input::KeyBindings,
     bookmarks: Vec<Bookmark>,
+    theme: Theme,
+    clock: Clock,
+    session_names: HashMap<u64, String>,
+    rates: RateTracker,
+    details_popup: bool,
+    body_width: std::cell::Cell<u16>,
+    last_failure: HashMap<String, String>,
+    rate_observed_at: Instant,
+    failed_at: HashMap<RowKind, DateTime<Local>>,
     core: CoreHandle,
 }
 
@@ -160,6 +171,8 @@ impl App {
             sessions: Sessions::new(),
             dialog: None,
             help_visible: false,
+            help_scroll: 0,
+            help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
             notifications: Notifications::default(),
             connections: ConnectionsView::new(),
@@ -181,10 +194,30 @@ impl App {
             conflict_prompts: VecDeque::new(),
             key_bindings,
             bookmarks: Vec::new(),
+            theme: Theme::default(),
+            clock: Clock::default(),
+            session_names: HashMap::new(),
+            rates: RateTracker::default(),
+            details_popup: false,
+            body_width: std::cell::Cell::new(0),
+            last_failure: HashMap::new(),
+            rate_observed_at: Instant::now(),
+            failed_at: HashMap::new(),
             core,
         };
         app.core.send(Command::List { location: Location::Local, path: Some(local_path) });
         app
+    }
+
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
     }
 
     pub fn error(&mut self, message: impl Into<String>) {
@@ -230,6 +263,9 @@ impl App {
                 _ = sleep_until_or_pending(self.notifications.next_wake()) => {
                     self.notifications.expire(Instant::now());
                 }
+                _ = sleep_until_or_pending(self.next_rate_wake()) => {
+                    self.tick_rates(Instant::now());
+                }
             }
         }
 
@@ -238,8 +274,13 @@ impl App {
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
+        if self.details_popup && !self.details_popup_visible() {
+            self.details_popup = false;
+        }
         if self.help_visible {
-            self.help_visible = false;
+            self.apply_help_key(key);
+        } else if self.details_popup {
+            self.details_popup = false;
         } else if self.dialog.is_some() {
             self.apply_dialog_key(key);
             self.after_dialog_key();
@@ -268,7 +309,8 @@ impl App {
             Event::Notice { severity, message } => self.notifications.push(severity, message),
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
-            Event::ConnectFailed { message, .. } => {
+            Event::ConnectFailed { name, message } => {
+                self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
                 self.notifications.push(Severity::Error, message);
             }
@@ -280,6 +322,7 @@ impl App {
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
             Event::LocationChanged { location } => self.relist(location),
             Event::Profiles(entries) => {
+                self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
                 self.connections.replace(entries);
                 match self.reveal.take() {
                     Some(Reveal::Ready(name)) => self.connections.reveal(&name),

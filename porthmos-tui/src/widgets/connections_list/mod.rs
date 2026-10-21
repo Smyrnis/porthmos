@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use porthmos_core::{
     ProtocolInfo,
@@ -8,89 +8,209 @@ use porthmos_core::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{List, ListItem, ListState},
+};
+use unicode_width::UnicodeWidthStr;
+
+use crate::{
+    theme::Theme,
+    widgets::{
+        connections_view::ConnectionsView,
+        filter_line::{FilterLine, FilterLineState, render_filter_line},
+        frame::{accent_underline, hairline},
+        history_view::printable,
+        text_fit::{pad_right, truncate_with_ellipsis},
+    },
 };
 
-use crate::widgets::connections_view::ConnectionsView;
+const MARKER_WIDTH: usize = 2;
+const COLUMN_GAP: usize = 2;
+const MIN_NAME_WIDTH: usize = 8;
+const MAX_NAME_WIDTH: usize = 18;
+const MIN_PROTOCOL_WIDTH: usize = 3;
+const MAX_PROTOCOL_WIDTH: usize = 10;
+const DOT: &str = "\u{2022}";
+
+pub struct ConnectionsContext<'a> {
+    pub connected: &'a HashSet<&'a str>,
+    pub failures: &'a HashMap<String, String>,
+    pub protocols: &'a [ProtocolInfo],
+}
+
+struct Columns {
+    name: usize,
+    protocol: usize,
+}
 
 pub fn render_connections_list(
-    frame: &mut Frame, area: Rect, view: &ConnectionsView, connected_names: &HashSet<&str>, active_name: Option<&str>,
-    protocols: &[ProtocolInfo],
+    frame: &mut Frame, area: Rect, view: &ConnectionsView, context: &ConnectionsContext<'_>, theme: &Theme,
 ) {
-    let mut block = Block::default().title("Connections").borders(Borders::ALL);
-    if let Some(status) = view.filter_status(usize::from(area.width.saturating_sub(2))) {
-        block = block.title_bottom(status);
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let (matched, total) = view.match_counts();
+    let state = FilterLineState { text: view.filter(), editing: view.editing_filter(), matched, total };
+    render_filter_line(frame, Rect::new(area.x, area.y, area.width, 1), state, theme);
+    if area.height < 2 {
+        return;
+    }
+    let rule = Rect::new(area.x, area.y + 1, area.width, 1);
+    hairline(frame, rule, theme);
+    accent_underline(frame, rule, 0..area.width, theme);
+    if area.height < 3 {
+        return;
     }
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+    let body = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
     let entries = view.entries();
-    let column = entries.iter().map(|entry| protocol_label(entry, protocols).chars().count()).max().unwrap_or(0);
-    let items: Vec<ListItem> = view
-        .rows()
-        .iter()
-        .map(|row| match row {
+    let columns = columns_for(entries, context);
+    let width = usize::from(body.width);
+
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut display_cursor = 0;
+    for (index, row) in view.rows().iter().enumerate() {
+        if let TreeRow::Group { depth: 0, .. } = row
+            && index > 0
+        {
+            items.push(ListItem::new(Line::default()));
+        }
+        if index == view.cursor {
+            display_cursor = items.len();
+        }
+        let focused = index == view.cursor;
+        let line = match row {
             TreeRow::Group { name, depth, count, expanded, .. } => {
-                let arrow = if *expanded { '\u{25BE}' } else { '\u{25B8}' };
-                ListItem::new(format!("{}{arrow} {name} ({count})", indent(*depth)))
+                group_line(name, *depth, *count, *expanded, width, theme)
             }
-            TreeRow::Connection { index, depth } => {
-                let entry = &entries[*index];
-                ListItem::new(connection_line(entry, *depth, column, connected_names, active_name, protocols))
+            TreeRow::Connection { index: entry_index, depth } => {
+                connection_line(&entries[*entry_index], *depth, focused, &columns, context, width, theme)
             }
-        })
-        .collect();
+        };
+        items.push(ListItem::new(line));
+    }
 
-    let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-
+    let list = List::new(items).highlight_style(theme.focus_row());
     let mut state = ListState::default();
     if !view.rows().is_empty() {
-        state.select(Some(view.cursor));
+        state.select(Some(display_cursor));
     }
-
-    frame.render_stateful_widget(list, inner, &mut state);
+    frame.render_stateful_widget(list, body, &mut state);
 }
 
-fn indent(depth: usize) -> String {
-    "  ".repeat(depth)
-}
-
-fn connection_line<'a>(
-    entry: &'a ConnectionEntry, depth: usize, column: usize, connected_names: &HashSet<&str>,
-    active_name: Option<&str>, protocols: &'a [ProtocolInfo],
-) -> Line<'a> {
-    let indent = indent(depth);
-    let reason = match entry.source {
+fn is_hidden_label(entry: &ConnectionEntry) -> Option<&'static str> {
+    match entry.source {
         ConnectionSource::MissingSshHost => Some("not in ~/.ssh/config"),
         ConnectionSource::ShadowedSshHost => Some("hidden by a saved connection"),
         ConnectionSource::Profile | ConnectionSource::SshConfig => None,
-    };
-    if let Some(reason) = reason {
-        return Line::from(format!("{indent}\u{26A0} {} ({reason})", entry.name));
     }
-
-    let marker = if Some(entry.name.as_str()) == active_name {
-        "* "
-    } else if connected_names.contains(entry.name.as_str()) {
-        "+ "
-    } else {
-        "  "
-    };
-    let protocol = protocol_label(entry, protocols);
-    let mut spans = vec![Span::raw(format!(
-        "{indent}{marker}{protocol:<column$} {} ({}@{}:{})",
-        entry.name, entry.username, entry.host, entry.port
-    ))];
-    let dimmed = Style::default().add_modifier(Modifier::DIM);
-    spans.extend(entry.tags.iter().map(|tag| Span::styled(format!(" #{tag}"), dimmed)));
-    Line::from(spans)
 }
 
-fn protocol_label<'a>(entry: &'a ConnectionEntry, protocols: &'a [ProtocolInfo]) -> &'a str {
-    protocols.iter().find(|info| info.id == entry.protocol).map_or(entry.protocol.as_str(), |info| info.display_name)
+fn columns_for(entries: &[ConnectionEntry], context: &ConnectionsContext<'_>) -> Columns {
+    let name = entries.iter().map(|entry| printable(&entry.name).width()).max().unwrap_or(0);
+    let protocol = entries.iter().map(|entry| protocol_label(entry, context.protocols).width()).max().unwrap_or(0);
+    Columns {
+        name: name.clamp(MIN_NAME_WIDTH, MAX_NAME_WIDTH),
+        protocol: protocol.clamp(MIN_PROTOCOL_WIDTH, MAX_PROTOCOL_WIDTH),
+    }
+}
+
+fn group_line(name: &str, depth: usize, count: usize, expanded: bool, width: usize, theme: &Theme) -> Line<'static> {
+    let glyph = if expanded { "\u{25be}" } else { "\u{25b8}" };
+    let suffix = if expanded { String::new() } else { format!(" ({count})") };
+    let indent = " ".repeat(2 * depth);
+    let fixed = indent.width() + glyph.width() + 1 + suffix.width();
+    let name = truncate_with_ellipsis(&printable(name), width.saturating_sub(fixed));
+    Line::from(Span::styled(format!("{indent}{glyph} {name}{suffix}"), theme.dim()))
+}
+
+fn connection_line(
+    entry: &ConnectionEntry, depth: usize, focused: bool, columns: &Columns, context: &ConnectionsContext<'_>,
+    width: usize, theme: &Theme,
+) -> Line<'static> {
+    let marker = if focused { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
+    let indent = Span::raw(" ".repeat(2 * depth.saturating_sub(1)));
+    let name = printable(&entry.name);
+
+    if let Some(reason) = is_hidden_label(entry) {
+        let fixed = MARKER_WIDTH + indent.width() + 2 + COLUMN_GAP;
+        let budget = width.saturating_sub(fixed);
+        let name = truncate_with_ellipsis(&name, budget.min(columns.name.max(MIN_NAME_WIDTH)));
+        let reason = truncate_with_ellipsis(reason, budget.saturating_sub(name.width()));
+        let name_style = if focused { theme.focused_name() } else { theme.text() };
+        return Line::from(vec![
+            marker,
+            indent,
+            Span::styled("!", theme.bright()),
+            Span::raw(" "),
+            Span::styled(name, name_style),
+            Span::raw(" ".repeat(COLUMN_GAP)),
+            Span::styled(reason, theme.dim()),
+        ]);
+    }
+
+    let connected = context.connected.contains(entry.name.as_str());
+    let failure = context.failures.get(&entry.name);
+    let dot_style = if connected {
+        theme.ok_text()
+    } else if failure.is_some() {
+        theme.err_text()
+    } else {
+        theme.idle_text()
+    };
+    let name_style = if focused {
+        theme.focused_name()
+    } else if connected {
+        theme.bright()
+    } else {
+        theme.text()
+    };
+
+    let protocol = pad_right(
+        &truncate_with_ellipsis(&protocol_label(entry, context.protocols), columns.protocol),
+        columns.protocol,
+    );
+    let fixed = MARKER_WIDTH + indent.width() + 2 + columns.name + COLUMN_GAP + columns.protocol + COLUMN_GAP;
+    let (detail, detail_style) = match failure {
+        Some(message) => (printable(message.lines().next().unwrap_or("")), theme.err_text()),
+        None => (host_text(entry, context.protocols), theme.dim()),
+    };
+    let detail = truncate_with_ellipsis(&detail, width.saturating_sub(fixed));
+    let name = pad_right(&truncate_with_ellipsis(&name, columns.name), columns.name);
+
+    Line::from(vec![
+        marker,
+        indent,
+        Span::styled(DOT, dot_style),
+        Span::raw(" "),
+        Span::styled(name, name_style),
+        Span::raw(" ".repeat(COLUMN_GAP)),
+        Span::styled(protocol, theme.dim()),
+        Span::raw(" ".repeat(COLUMN_GAP)),
+        Span::styled(detail, detail_style),
+    ])
+}
+
+fn host_text(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> String {
+    let default_port = protocols.iter().find(|info| info.id == entry.protocol).map(|info| info.form.port.default);
+    let mut text = if entry.username.is_empty() {
+        printable(&entry.host)
+    } else {
+        format!("{}@{}", printable(&entry.username), printable(&entry.host))
+    };
+    if default_port.is_some_and(|port| port != entry.port) {
+        text.push_str(&format!(":{}", entry.port));
+    }
+    text
+}
+
+fn protocol_label(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> String {
+    printable(
+        protocols
+            .iter()
+            .find(|info| info.id == entry.protocol)
+            .map_or(entry.protocol.as_str(), |info| info.display_name),
+    )
 }
 
 #[cfg(test)]

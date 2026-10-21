@@ -94,7 +94,7 @@ fn the_filter_narrows_and_keeps_the_item_when_it_still_matches() {
     view.start_filter();
     view.type_filter('m');
     assert_eq!(selected_name(&view), "gamma");
-    assert_eq!(view.filter_status(40).as_deref(), Some("/m\u{2588} (1 of 3)"));
+    assert_eq!(view.match_counts(), (1, 3));
     view.clear_filter();
     assert_eq!(selected_name(&view), "gamma");
 }

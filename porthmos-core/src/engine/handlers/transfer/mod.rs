@@ -180,10 +180,10 @@ impl Engine {
             TransferEvent::Failed { id, message } => {
                 let cancelled = self.tasks.take_cancelled(Scope::Transfer(id));
                 let known = self.transfers.get(id).is_some();
-                if let Some(mut job) = self.transfers.get_mut(id) {
-                    job.status = if cancelled { JobStatus::Cancelled } else { JobStatus::Failed(message.clone()) };
+                if cancelled && let Some(mut job) = self.transfers.get_mut(id) {
+                    job.status = JobStatus::Cancelled;
                 }
-                let retried = !cancelled && self.transfers.retry_or_give_up(id);
+                let retried = !cancelled && self.transfers.fail_or_retry(id, message.clone());
                 if !retried {
                     if !cancelled && known {
                         self.announce(Severity::Error, message);

@@ -104,6 +104,30 @@ async fn walk_does_not_descend_into_symlinked_directories() {
     assert_eq!(found, vec![std::path::PathBuf::from("/root/real/match.txt")]);
 }
 
+#[tokio::test]
+async fn list_reports_the_modified_time_set_on_a_file_and_none_for_unknown() {
+    let fs = FakeFs::new();
+    fs.file("/root/dated.txt", b"x", Some(1_700_000_000)).file("/root/undated.txt", b"x", None).dir("/root/sub");
+
+    let mut entries = fs.list(Path::new("/root")).await.unwrap();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let times: Vec<(&str, Option<u64>)> = entries.iter().map(|e| (e.name.as_str(), e.modified)).collect();
+    assert_eq!(times, vec![("dated.txt", Some(1_700_000_000)), ("sub", None), ("undated.txt", None)]);
+}
+
+#[tokio::test]
+async fn a_search_result_carries_the_modified_time_of_the_listing() {
+    let fs = FakeFs::new();
+    fs.file("/root/match.txt", b"", Some(1_700_000_000));
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    walk_search(&fs, SearchQuery::new("/root".into(), "*match*".into()), tx, Default::default()).await;
+
+    let Ok(SearchEvent::Found(entry)) = rx.try_recv() else { panic!("no match found") };
+
+    assert_eq!(entry.modified, Some(1_700_000_000));
+}
+
 struct Scripted(Option<Answer>);
 
 #[async_trait::async_trait]
