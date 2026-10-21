@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     app::testing::{cell_fg, find_text},
     theme::{ColorDepth, Theme, ThemeSettings},
-    widgets::dialog::{FormDialog, FormField},
+    widgets::dialog::{FormDialog, FormField, TestState},
 };
 
 fn indexed() -> Theme {
@@ -119,4 +119,90 @@ fn the_error_and_hint_rows_sit_at_the_bottom_of_the_stack_area() {
 
     assert_eq!(find_text(&terminal, "a hint"), Some((0, 10)));
     assert_eq!(find_text(&terminal, "\u{2022} it broke"), Some((0, 11)));
+}
+
+fn finished_report() -> TestState {
+    TestState::Finished(porthmos_core::TestOutcome::Connected(porthmos_core::TestReport {
+        elapsed: std::time::Duration::from_millis(142),
+        server: Some("OpenSSH 9.6".into()),
+        start_folder: porthmos_core::StartFolder::Opens("/srv".into()),
+    }))
+}
+
+#[test]
+fn stack_height_counts_the_test_line_as_one_more_note() {
+    let mut form = sample();
+    let before = stack_height(&form, 1);
+    form.test = Some(TestState::Running);
+    assert_eq!(stack_height(&form, 1), before + 1);
+    form.hint = Some("hint".into());
+    form.error = Some("error".into());
+    assert_eq!(stack_height(&form, 1), before + 3);
+}
+
+#[test]
+fn the_test_line_sits_above_the_hint_and_the_error() {
+    let theme = indexed();
+    let mut form = sample();
+    form.hint = Some("a hint".into());
+    form.error = Some("it broke".into());
+    form.test = Some(finished_report());
+    let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+    terminal.draw(|frame| render_field_stack(frame, frame.area(), &form, 1, &theme)).unwrap();
+
+    assert_eq!(find_text(&terminal, "\u{25cf} connected"), Some((0, 9)));
+    assert_eq!(find_text(&terminal, "a hint"), Some((0, 10)));
+    assert_eq!(find_text(&terminal, "\u{2022} it broke"), Some((0, 11)));
+}
+
+#[test]
+fn there_is_no_test_line_without_a_test() {
+    let theme = indexed();
+    let form = sample();
+    let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+    terminal.draw(|frame| render_field_stack(frame, frame.area(), &form, 1, &theme)).unwrap();
+
+    assert!(find_text(&terminal, "\u{25cf}").is_none());
+    assert!(find_text(&terminal, "\u{25cb}").is_none());
+}
+
+#[test]
+fn the_focused_field_stays_visible_when_the_test_line_takes_a_row() {
+    let theme = indexed();
+    let mut form = FormDialog::new(
+        "t",
+        (0..8)
+            .map(|index| FormField::text(Box::leak(format!("f{index}").into_boxed_str()), format!("Field{index}"), "v"))
+            .collect(),
+    );
+    form.focused = 7;
+    form.test = Some(TestState::Running);
+    let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+    terminal.draw(|frame| render_field_stack(frame, frame.area(), &form, 0, &theme)).unwrap();
+
+    assert!(find_text(&terminal, "Field7").is_some());
+    assert_eq!(find_text(&terminal, "\u{25cb} testing\u{2026}"), Some((0, 5)));
+}
+
+#[test]
+fn the_test_line_survives_tiny_areas() {
+    let theme = indexed();
+    let mut form = sample();
+    form.test = Some(finished_report());
+    for (width, height) in [(1u16, 1u16), (3, 1), (10, 2), (60, 1), (0, 5), (5, 0)] {
+        let mut terminal = Terminal::new(TestBackend::new(width.max(1), height.max(1))).unwrap();
+        terminal.draw(|frame| render_field_stack(frame, Rect::new(0, 0, width, height), &form, 1, &theme)).unwrap();
+    }
+}
+
+#[test]
+fn a_typed_secret_never_reaches_the_cells_or_debug_output_while_a_test_runs() {
+    let theme = indexed();
+    let mut form = FormDialog::new("t", vec![FormField::masked("password", "Password", "hunter2-secret")]);
+    form.test = Some(TestState::Running);
+    let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+    terminal.draw(|frame| render_field_stack(frame, frame.area(), &form, 0, &theme)).unwrap();
+
+    assert!(find_text(&terminal, "hunter2").is_none());
+    assert!(!format!("{:?}", form.test).contains("hunter2"));
 }

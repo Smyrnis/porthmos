@@ -51,6 +51,7 @@ pub(super) fn form_hints() -> Hints {
         entries: vec![
             Hint { key: "tab".to_string(), label: "next field" },
             Hint { key: "\u{2191}\u{2193}".to_string(), label: "field" },
+            Hint { key: "ctrl+t".to_string(), label: "test" },
             Hint { key: "ctrl+s".to_string(), label: "save" },
         ],
         pinned: None,

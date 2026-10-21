@@ -8,7 +8,7 @@ pub mod text_input;
 pub use confirm::ConfirmDialog;
 pub use conflict::ConflictDialog;
 use crossterm::event::KeyEvent;
-pub use form::{FieldKind, FormDialog, FormField, FormLayout, KEPT_SECRET};
+pub use form::{FieldKind, FormDialog, FormField, FormLayout, KEPT_SECRET, TestState};
 pub use list::ListDialog;
 use ratatui::{Frame, layout::Rect};
 pub use text_input::TextInputDialog;
@@ -33,6 +33,7 @@ pub enum DialogOutcome {
     Selected(usize),
     Removed(usize),
     FormSubmitted(Vec<(&'static str, String)>),
+    FormTest(Vec<(&'static str, String)>),
     FormChoiceChanged { key: &'static str },
     Resolved { resolution: Option<porthmos_core::transfer::conflicts::Resolution>, apply_to_rest: bool },
 }
@@ -49,6 +50,7 @@ impl std::fmt::Debug for DialogOutcome {
             DialogOutcome::FormSubmitted(values) => {
                 f.debug_tuple("FormSubmitted").field(&form::submitted_keys(values)).finish()
             }
+            DialogOutcome::FormTest(values) => f.debug_tuple("FormTest").field(&form::submitted_keys(values)).finish(),
             DialogOutcome::FormChoiceChanged { key } => f.debug_struct("FormChoiceChanged").field("key", key).finish(),
             DialogOutcome::Resolved { resolution, apply_to_rest } => f
                 .debug_struct("Resolved")
@@ -81,6 +83,7 @@ impl Dialog {
             Dialog::Form(dialog) => match dialog.handle_key(key) {
                 form::FormOutcome::Pending => DialogOutcome::Pending,
                 form::FormOutcome::Submitted(values) => DialogOutcome::FormSubmitted(values),
+                form::FormOutcome::TestRequested(values) => DialogOutcome::FormTest(values),
                 form::FormOutcome::ChoiceChanged { key } => DialogOutcome::FormChoiceChanged { key },
                 form::FormOutcome::Cancelled => DialogOutcome::Cancelled,
             },

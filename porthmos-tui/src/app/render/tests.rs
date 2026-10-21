@@ -1298,7 +1298,7 @@ fn the_add_form_replaces_the_connections_screen_with_a_breadcrumb_and_hints() {
 
     assert!(row_symbols(&terminal, 0).contains("porthmos / connections / new"), "{:?}", row_symbols(&terminal, 0));
     let hints = bottom_row(&terminal);
-    assert!(hints.contains("tab next field   \u{2191}\u{2193} field   ctrl+s save"), "{hints:?}");
+    assert!(hints.contains("tab next field   \u{2191}\u{2193} field   ctrl+t test   ctrl+s save"), "{hints:?}");
     assert!(hints.trim_end().ends_with("esc cancel"), "{hints:?}");
     assert!(find_text(&terminal, "ssh file transfer").is_some());
     assert!(find_text(&terminal, "/ filter").is_none());

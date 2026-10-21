@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use porthmos_core::TestOutcome;
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
@@ -16,6 +17,12 @@ pub const KEPT_SECRET: &str = "\u{0}kept";
 const MIN_POPUP_WIDTH: u16 = 44;
 const FOOTER_ROWS: u16 = 2;
 const BORDER_ROWS: u16 = 2;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestState {
+    Running,
+    Finished(TestOutcome),
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FormLayout {
@@ -130,12 +137,14 @@ pub struct FormDialog {
     pub remembered: BTreeMap<String, String>,
     pub prefilled: BTreeMap<&'static str, String>,
     pub layout: FormLayout,
+    pub test: Option<TestState>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum FormOutcome {
     Pending,
     Submitted(Vec<(&'static str, String)>),
+    TestRequested(Vec<(&'static str, String)>),
     ChoiceChanged { key: &'static str },
     Cancelled,
 }
@@ -149,6 +158,9 @@ impl std::fmt::Debug for FormOutcome {
         match self {
             FormOutcome::Pending => write!(f, "Pending"),
             FormOutcome::Submitted(values) => f.debug_tuple("Submitted").field(&submitted_keys(values)).finish(),
+            FormOutcome::TestRequested(values) => {
+                f.debug_tuple("TestRequested").field(&submitted_keys(values)).finish()
+            }
             FormOutcome::ChoiceChanged { key } => f.debug_struct("ChoiceChanged").field("key", key).finish(),
             FormOutcome::Cancelled => write!(f, "Cancelled"),
         }
@@ -167,6 +179,7 @@ impl FormDialog {
             remembered: BTreeMap::new(),
             prefilled: BTreeMap::new(),
             layout: FormLayout::Popup,
+            test: None,
         }
     }
 
@@ -178,14 +191,46 @@ impl FormDialog {
         if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return self.submit();
         }
-        match self.layout {
+        if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return self.request_test();
+        }
+        let before = self.test.as_ref().map(|_| self.fingerprint());
+        let outcome = match self.layout {
             FormLayout::Popup => self.handle_editing_key(key),
             FormLayout::Screen => self.handle_screen_key(key),
+        };
+        if before.is_some_and(|before| before != self.fingerprint()) {
+            self.test = None;
         }
+        outcome
+    }
+
+    fn request_test(&mut self) -> FormOutcome {
+        if self.layout != FormLayout::Screen || self.test == Some(TestState::Running) {
+            return FormOutcome::Pending;
+        }
+        self.test = Some(TestState::Running);
+        FormOutcome::TestRequested(self.values())
+    }
+
+    fn values(&self) -> Vec<(&'static str, String)> {
+        self.fields.iter().map(|field| (field.key, field.submitted_value())).collect()
+    }
+
+    fn fingerprint(&self) -> Vec<String> {
+        self.fields
+            .iter()
+            .map(|field| match &field.kind {
+                FieldKind::Choice { selected, .. } => format!("choice:{selected}"),
+                FieldKind::Text => format!("text:{}", field.value),
+                FieldKind::Masked => format!("masked:{}", field.value),
+                FieldKind::SavedSecret => "saved".to_string(),
+            })
+            .collect()
     }
 
     fn submit(&self) -> FormOutcome {
-        FormOutcome::Submitted(self.fields.iter().map(|field| (field.key, field.submitted_value())).collect())
+        FormOutcome::Submitted(self.values())
     }
 
     fn flip_focused_toggle(&mut self) -> FormOutcome {

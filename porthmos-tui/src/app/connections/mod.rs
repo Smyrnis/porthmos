@@ -1,10 +1,10 @@
 mod form;
 mod missing;
 
-use porthmos_core::Answer;
+use porthmos_core::{Answer, TestOutcome};
 
 use super::*;
-use crate::widgets::dialog::{FormDialog, FormField};
+use crate::widgets::dialog::{FormDialog, FormField, FormLayout, TestState};
 
 const NO_KEYRING_HINT: &str = "Passwords are not saved: no system keyring. They are kept until Porthmos quits.";
 
@@ -92,7 +92,53 @@ impl App {
         }
     }
 
+    pub(super) fn start_connection_test(&mut self, values: Vec<(&'static str, String)>) {
+        let original = match &self.pending_action {
+            Some(PendingAction::AddConnection) => None,
+            Some(PendingAction::EditConnection { original }) => Some(original.name.clone()),
+            _ => {
+                if let Some(Dialog::Form(form)) = self.dialog.as_mut() {
+                    form.test = None;
+                }
+                return;
+            }
+        };
+        let protocol = values.iter().find(|(key, _)| *key == "protocol").map(|(_, value)| value.as_str()).unwrap_or("");
+        let secret_keys = form::secret_keys(self.core.protocols(), protocol);
+        let draft = form::draft(values, &secret_keys);
+        let test_id = self.next_test_id;
+        self.next_test_id += 1;
+        self.connection_test = Some(test_id);
+        self.core.send(Command::TestConnection { test_id, original, draft: Box::new(draft) });
+    }
+
+    pub(super) fn apply_test_finished(&mut self, test_id: u64, outcome: TestOutcome) {
+        if self.connection_test != Some(test_id) {
+            return;
+        }
+        self.connection_test = None;
+        if let Some(form) = self.running_test_form() {
+            form.test = Some(TestState::Finished(outcome));
+        }
+    }
+
+    pub(super) fn sync_connection_test(&mut self) {
+        if self.connection_test.is_some() && self.running_test_form().is_none() {
+            self.cancel_connection_test();
+        }
+    }
+
+    pub(super) fn cancel_connection_test(&mut self) {
+        if self.connection_test.take().is_some() {
+            self.core.send(Command::CancelTest);
+        }
+        if let Some(form) = self.running_test_form() {
+            form.test = None;
+        }
+    }
+
     pub(super) fn submit_connection_form(&mut self, values: Vec<(&'static str, String)>, original: Option<String>) {
+        self.cancel_connection_test();
         self.reveal = values
             .iter()
             .find(|(key, _)| *key == "name")
@@ -173,6 +219,85 @@ impl App {
         }
         self.dialog = Some(Dialog::Form(FormDialog::new(format!("Password for {username}@{name}"), fields)));
         self.pending_action = Some(PendingAction::SubmitPassword { request_id });
+    }
+
+    pub(super) fn open_test_password_prompt(&mut self, request_id: RequestId, username: String, name: String) {
+        let fields = vec![FormField::masked("password", "Password", "")];
+        self.dialog = Some(Dialog::Form(FormDialog::new(format!("Password for {username}@{name}"), fields)));
+        self.pending_action = Some(PendingAction::SubmitTestPassword { request_id });
+    }
+
+    pub(super) fn ask_test(&mut self, test_id: u64, request_id: RequestId, question: Question) {
+        if self.connection_test != Some(test_id) {
+            return;
+        }
+        match question {
+            Question::Password { username, name } => {
+                self.make_room_for_question();
+                self.open_test_password_prompt(request_id, username, name);
+            }
+            Question::TrustHostKey { .. } | Question::TrustCertificate { .. } => {
+                self.core.send(Command::Answer { request_id, answer: None, save: false });
+            }
+        }
+    }
+
+    pub(super) fn make_room_for_question(&mut self) {
+        self.requeue_open_edit_question();
+        self.answer_displaced_question();
+        self.stash_screen_form();
+    }
+
+    fn answer_displaced_question(&mut self) {
+        let request_id = match &self.pending_action {
+            Some(
+                PendingAction::SubmitPassword { request_id }
+                | PendingAction::SubmitTestPassword { request_id }
+                | PendingAction::TrustHostKey { request_id }
+                | PendingAction::TrustCertificate { request_id },
+            ) => *request_id,
+            _ => return,
+        };
+        self.pending_action = None;
+        self.core.send(Command::Answer { request_id, answer: None, save: false });
+    }
+
+    fn stash_screen_form(&mut self) {
+        let is_screen_form = matches!(&self.dialog, Some(Dialog::Form(form)) if form.layout == FormLayout::Screen);
+        if !is_screen_form || self.pending_action.is_none() {
+            return;
+        }
+        if let (Some(dialog), Some(action)) = (self.dialog.take(), self.pending_action.take()) {
+            self.stashed_form = Some((dialog, action));
+        }
+    }
+
+    pub(super) fn restore_stashed_form(&mut self) {
+        if self.dialog.is_some() {
+            return;
+        }
+        if let Some((dialog, action)) = self.stashed_form.take() {
+            self.dialog = Some(dialog);
+            self.pending_action = Some(action);
+        }
+    }
+
+    pub(super) fn submit_test_password(&mut self, request_id: RequestId, values: Vec<(&'static str, String)>) {
+        let password =
+            values.into_iter().find(|(key, _)| *key == "password").map(|(_, value)| value).unwrap_or_default();
+        self.core.send(Command::Answer { request_id, answer: Some(Answer::Password(password)), save: false });
+        self.dialog = None;
+        self.pending_action = None;
+    }
+
+    fn running_test_form(&mut self) -> Option<&mut FormDialog> {
+        let in_dialog = matches!(&self.dialog, Some(Dialog::Form(form)) if form.test == Some(TestState::Running));
+        let candidate =
+            if in_dialog { self.dialog.as_mut() } else { self.stashed_form.as_mut().map(|(dialog, _)| dialog) };
+        match candidate {
+            Some(Dialog::Form(form)) if form.test == Some(TestState::Running) => Some(form),
+            _ => None,
+        }
     }
 
     pub(super) fn submit_password(&mut self, request_id: RequestId, values: Vec<(&'static str, String)>) {

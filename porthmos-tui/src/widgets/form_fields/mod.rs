@@ -12,6 +12,7 @@ use crate::{
     widgets::{
         dialog::{FieldKind, FormDialog, FormField},
         history_view::printable,
+        test_line,
         text_fit::{take_width, truncate_with_ellipsis},
     },
 };
@@ -47,7 +48,7 @@ fn layout_items(dialog: &FormDialog, first_field: usize) -> Vec<Item> {
 }
 
 fn notes_of(dialog: &FormDialog) -> usize {
-    usize::from(dialog.hint.is_some()) + usize::from(dialog.error.is_some())
+    usize::from(dialog.hint.is_some()) + usize::from(dialog.error.is_some()) + usize::from(dialog.test.is_some())
 }
 
 pub fn stack_height(dialog: &FormDialog, first_field: usize) -> u16 {
@@ -114,6 +115,11 @@ pub fn render_field_stack(frame: &mut Frame, area: Rect, dialog: &FormDialog, fi
         bottom -= 1;
         let text = truncate_with_ellipsis(&printable(hint), usize::from(area.width));
         frame.render_widget(Paragraph::new(Span::styled(text, theme.dim())), Rect::new(area.x, bottom, area.width, 1));
+    }
+    if let Some(state) = &dialog.test {
+        bottom -= 1;
+        let line = test_line::line(state, usize::from(area.width), theme);
+        frame.render_widget(Paragraph::new(line), Rect::new(area.x, bottom, area.width, 1));
     }
 }
 

@@ -71,6 +71,7 @@ enum PendingAction {
     Delete,
     AddBookmark,
     SubmitPassword { request_id: RequestId },
+    SubmitTestPassword { request_id: RequestId },
     TrustHostKey { request_id: RequestId },
     TrustCertificate { request_id: RequestId },
     AddConnection,
@@ -141,10 +142,13 @@ pub struct App {
     sessions: Sessions,
     dialog: Option<Dialog>,
     palette: Option<Palette>,
+    connection_test: Option<u64>,
+    next_test_id: u64,
     help_visible: bool,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
+    stashed_form: Option<(Dialog, PendingAction)>,
     notifications: Notifications,
     connections: ConnectionsView,
     reveal: Option<Reveal>,
@@ -187,10 +191,13 @@ impl App {
             sessions: Sessions::new(),
             dialog: None,
             palette: None,
+            connection_test: None,
+            next_test_id: 0,
             help_visible: false,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
+            stashed_form: None,
             notifications: Notifications::default(),
             connections: ConnectionsView::new(),
             reveal: None,
@@ -338,6 +345,8 @@ impl App {
                 self.notifications.push(Severity::Error, message);
             }
             Event::Question { request_id, question } => self.ask(request_id, question),
+            Event::TestQuestion { test_id, request_id, question } => self.ask_test(test_id, request_id, question),
+            Event::TestFinished { test_id, outcome } => self.apply_test_finished(test_id, outcome),
             Event::Disconnected { session, .. } => {
                 self.sessions.remove(session);
             }
@@ -356,6 +365,7 @@ impl App {
             Event::ProfileSaved => {
                 self.dialog = None;
                 self.pending_action = None;
+                self.stashed_form = None;
                 if let Some(Reveal::AwaitingSave(name)) = self.reveal.take() {
                     self.reveal = Some(Reveal::Ready(name));
                 }
@@ -397,7 +407,7 @@ impl App {
     }
 
     fn ask(&mut self, request_id: RequestId, question: Question) {
-        self.requeue_open_edit_question();
+        self.make_room_for_question();
         match question {
             Question::Password { username, name } => self.open_password_prompt(request_id, username, name),
             Question::TrustHostKey { name, host, port, key_type, fingerprint } => {

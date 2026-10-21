@@ -339,3 +339,11 @@ fn hints_never_show_a_key_that_belongs_to_another_screens_scope() {
     assert!(!transfers.contains(&pair("c", "copy")));
     assert!(!transfers.contains(&pair("n", "mkdir")));
 }
+
+#[test]
+fn the_form_hint_bar_lists_ctrl_t_test() {
+    let hints = form_hints();
+
+    assert!(keys_and_labels(&hints).contains(&pair("ctrl+t", "test")));
+    assert!(keys_and_labels(&hints).contains(&pair("ctrl+s", "save")));
+}

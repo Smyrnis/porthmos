@@ -108,6 +108,9 @@ impl App {
                         self.core.send(Command::Answer { request_id, answer: None, save: false });
                         self.connection_status = ConnectionStatus::Disconnected;
                     }
+                    Some(PendingAction::SubmitTestPassword { request_id }) => {
+                        self.core.send(Command::Answer { request_id, answer: None, save: false });
+                    }
                     Some(PendingAction::EditUpload { edit_id } | PendingAction::EditConflict { edit_id }) => {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Cancel });
                     }
@@ -141,6 +144,7 @@ impl App {
                     Some(PendingAction::Rename) => self.rename_current(&value),
                     Some(PendingAction::AddBookmark) => self.add_bookmark(value),
                     Some(PendingAction::SubmitPassword { .. })
+                    | Some(PendingAction::SubmitTestPassword { .. })
                     | Some(PendingAction::Delete)
                     | Some(PendingAction::TrustHostKey { .. })
                     | Some(PendingAction::TrustCertificate { .. })
@@ -196,12 +200,17 @@ impl App {
                     let request_id = *request_id;
                     self.submit_password(request_id, values);
                 }
+                Some(PendingAction::SubmitTestPassword { request_id }) => {
+                    let request_id = *request_id;
+                    self.submit_test_password(request_id, values);
+                }
                 Some(PendingAction::StartSync { session }) => {
                     let session = *session;
                     self.submit_sync_options(session, values);
                 }
                 _ => self.dialog = None,
             },
+            DialogOutcome::FormTest(values) => self.start_connection_test(values),
             DialogOutcome::FormChoiceChanged { key } => self.form_choice_changed(key),
             DialogOutcome::Resolved { resolution, apply_to_rest } => {
                 self.dialog = None;
@@ -209,6 +218,8 @@ impl App {
                 self.answer_conflict(resolution, apply_to_rest);
             }
         }
+        self.restore_stashed_form();
+        self.sync_connection_test();
         self.open_next_conflict_prompt();
         self.announce_missing_hosts();
     }

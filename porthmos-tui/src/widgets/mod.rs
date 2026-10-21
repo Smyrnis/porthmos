@@ -18,6 +18,7 @@ pub mod popup;
 pub mod search_view;
 pub mod session_tabs;
 pub mod sync_view;
+pub mod test_line;
 pub mod text_fit;
 pub mod toast;
 pub mod transfer_line;

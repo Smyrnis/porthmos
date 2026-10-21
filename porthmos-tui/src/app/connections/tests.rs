@@ -7,7 +7,7 @@ use super::*;
 use crate::{
     app::testing::{TestApp, test_app, test_app_with_protocols},
     widgets::{
-        dialog::{FormLayout, confirm::ConfirmFocus},
+        dialog::{FieldKind, FormLayout, confirm::ConfirmFocus},
         filter_line::FilterLine,
     },
 };
@@ -1198,4 +1198,479 @@ fn n_on_the_connections_screen_adds_a_connection_and_does_not_make_a_folder() {
 
     assert_eq!(open_form(&test).layout, FormLayout::Screen);
     assert!(!matches!(test.app.dialog, Some(Dialog::TextInput(_))));
+}
+
+fn ctrl_t() -> KeyEvent {
+    KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)
+}
+
+fn key_event(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn test_request(commands: Vec<Command>) -> (u64, Option<String>, Box<ProfileDraft>) {
+    match commands.as_slice() {
+        [Command::TestConnection { test_id, original, draft }] => (*test_id, original.clone(), draft.clone()),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn open_add_form() -> TestApp {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    fill_form(&mut test, ["nas", "nas.example.com", "22", "deploy"]);
+    if let Some(Dialog::Form(form)) = test.app.dialog.as_mut() {
+        form.focused = form.fields.iter().position(|field| field.key == "name").unwrap();
+    }
+    test.sent();
+    test
+}
+
+fn open_edit_form(entry: ConnectionEntry) -> TestApp {
+    let mut test = on_connections_screen(vec![entry]);
+    test.app.apply_action(Action::Rename);
+    test.sent();
+    test
+}
+
+#[test]
+fn ctrl_t_in_the_add_form_sends_test_connection_with_a_draft_and_no_original() {
+    let mut test = open_add_form();
+
+    test.app.apply_key(ctrl_t());
+
+    let (test_id, original, draft) = test_request(test.sent());
+    assert_eq!((test_id, original), (0, None));
+    assert_eq!(
+        (draft.name.as_str(), draft.host.as_str(), draft.username.as_str()),
+        ("nas", "nas.example.com", "deploy")
+    );
+    assert_eq!(draft.protocol, "sftp");
+    assert_eq!(open_form(&test).test, Some(TestState::Running));
+}
+
+#[test]
+fn ctrl_t_in_the_edit_form_sends_the_original_name() {
+    let mut test = open_edit_form(connection("prod", ConnectionSource::Profile));
+
+    test.app.apply_key(ctrl_t());
+
+    let (_, original, draft) = test_request(test.sent());
+    assert_eq!(original.as_deref(), Some("prod"));
+    assert_eq!(draft.name, "prod");
+}
+
+#[test]
+fn a_kept_password_stays_keep_in_the_draft() {
+    let mut entry = connection("prod", ConnectionSource::Profile);
+    entry.saved_password = true;
+    entry.in_keyring = vec!["password".to_string()];
+    let mut test = open_edit_form(entry);
+
+    test.app.apply_key(ctrl_t());
+
+    let (_, _, draft) = test_request(test.sent());
+    assert_eq!(draft.password, porthmos_core::profiles::SecretEdit::Keep);
+}
+
+#[test]
+fn pressing_ctrl_t_while_a_test_runs_does_nothing() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_key(ctrl_t());
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn an_edit_while_a_test_runs_cancels_it_and_clears_the_line() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_key(key_event(KeyCode::Char('x')));
+
+    assert_eq!(test.sent(), vec![Command::CancelTest]);
+    assert_eq!(open_form(&test).test, None);
+}
+
+#[test]
+fn a_protocol_change_cancels_the_test() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+    if let Some(Dialog::Form(form)) = test.app.dialog.as_mut() {
+        form.focused = 0;
+    }
+
+    test.app.apply_key(key_event(KeyCode::Down));
+
+    assert!(test.sent().contains(&Command::CancelTest));
+    assert_eq!(open_form(&test).test, None);
+}
+
+#[test]
+fn a_finished_event_stores_the_outcome_and_the_next_test_uses_a_new_id() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+
+    assert_eq!(open_form(&test).test, Some(TestState::Finished(TestOutcome::Cancelled)));
+    assert!(test.sent().is_empty());
+    test.app.apply_key(ctrl_t());
+    let (test_id, _, _) = test_request(test.sent());
+    assert_eq!(test_id, 1);
+}
+
+#[test]
+fn a_finished_event_for_an_old_id_is_ignored() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.app.apply_key(key_event(KeyCode::Char('x')));
+    test.sent();
+
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+
+    assert_eq!(open_form(&test).test, None);
+}
+
+#[test]
+fn a_finished_event_without_an_open_form_is_ignored() {
+    let mut test = on_connections_screen(Vec::new());
+
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+
+    assert!(test.app.dialog.is_none());
+}
+
+#[test]
+fn cancelling_the_form_while_a_test_runs_sends_cancel_test() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_key(key_event(KeyCode::Esc));
+
+    assert_eq!(test.sent(), vec![Command::CancelTest]);
+    assert!(test.app.dialog.is_none());
+}
+
+#[test]
+fn saving_the_form_while_a_test_runs_sends_cancel_test_before_the_save() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_key(ctrl_s());
+
+    let sent = test.sent();
+    assert_eq!(sent[0], Command::CancelTest);
+    assert!(matches!(sent[1], Command::SaveProfile { .. }), "{sent:?}");
+}
+
+#[test]
+fn ctrl_t_elsewhere_still_opens_the_transfers_screen() {
+    let mut test = app();
+
+    test.app.apply_key(ctrl_t());
+
+    assert_eq!(test.app.screen, Screen::Transfers);
+}
+
+#[test]
+fn ctrl_t_in_the_password_prompt_does_nothing() {
+    let mut test = app();
+    ask_password(&mut test, 1);
+    test.sent();
+
+    test.app.apply_key(ctrl_t());
+
+    assert!(test.sent().is_empty());
+    assert_eq!(prompt(&test).fields[0].value, "");
+}
+
+fn screen_text(test: &TestApp) -> String {
+    crate::app::testing::screen_rows(&crate::app::testing::render_app(&test.app, 100, 30)).join("\n")
+}
+
+#[test]
+fn the_form_screen_shows_the_testing_line_then_the_result_line() {
+    let mut test = open_add_form();
+    assert!(!screen_text(&test).contains("testing"));
+
+    test.app.apply_key(ctrl_t());
+    assert!(screen_text(&test).contains("\u{25cb} testing\u{2026}"));
+
+    test.app.apply_core_event(Event::TestFinished {
+        test_id: 0,
+        outcome: TestOutcome::Failed { stage: porthmos_core::TestStage::Login, message: "denied".into() },
+    });
+    let text = screen_text(&test);
+    assert!(text.contains("\u{25cf} failed at login \u{b7} denied"), "{text}");
+    assert!(!text.contains("testing"));
+}
+
+#[test]
+fn the_edit_form_shows_the_result_line_too() {
+    let mut test = open_edit_form(connection("prod", ConnectionSource::Profile));
+    test.app.apply_key(ctrl_t());
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+
+    assert!(screen_text(&test).contains("\u{25cf} test cancelled"));
+}
+
+#[test]
+fn a_typed_password_is_never_on_the_screen_with_a_result_line() {
+    let mut test = open_add_form();
+    set_field(&mut test, "password", "hunter2-secret");
+    test.app.apply_key(ctrl_t());
+
+    assert!(!screen_text(&test).contains("hunter2"));
+}
+
+fn ask_test_password(test: &mut TestApp, test_id: u64, request_id: u64) {
+    test.app.apply_core_event(Event::TestQuestion {
+        test_id,
+        request_id,
+        question: Question::Password { username: "deploy".into(), name: "nas".into() },
+    });
+}
+
+fn running_test_with_prompt() -> TestApp {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+    ask_test_password(&mut test, 0, 31);
+    test
+}
+
+#[test]
+fn a_test_question_opens_the_masked_prompt_without_the_save_field() {
+    let mut test = open_add_form();
+    test.app.apply_core_event(Event::SaveChoice { save: true });
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    ask_test_password(&mut test, 0, 31);
+
+    assert_eq!(prompt(&test).title, "Password for deploy@nas");
+    assert_eq!(prompt(&test).fields.len(), 1);
+    assert_eq!(prompt(&test).fields[0].key, "password");
+    assert!(matches!(prompt(&test).fields[0].kind, FieldKind::Masked));
+    assert!(test.app.stashed_form.is_some());
+    assert!(matches!(test.app.pending_action, Some(PendingAction::SubmitTestPassword { request_id: 31 })));
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn submitting_answers_with_save_false_and_restores_the_form_with_its_values() {
+    let mut test = open_add_form();
+    test.app.apply_core_event(Event::SaveChoice { save: true });
+    test.app.apply_key(ctrl_t());
+    test.sent();
+    ask_test_password(&mut test, 0, 31);
+
+    test.type_text("p w");
+    test.app.apply_key(key(KeyCode::Enter));
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Answer { request_id: 31, answer: Some(Answer::Password("p w".into())), save: false }]
+    );
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert_eq!(open_form(&test).value("name").as_deref(), Some("nas"));
+    assert_eq!(open_form(&test).value("host").as_deref(), Some("nas.example.com"));
+    assert_eq!(open_form(&test).test, Some(TestState::Running));
+    assert!(test.app.stashed_form.is_none());
+    assert!(matches!(test.app.pending_action, Some(PendingAction::AddConnection)));
+    assert!(test.app.connection_test.is_some());
+}
+
+#[test]
+fn esc_answers_none_ends_the_test_as_cancelled_and_restores_the_form() {
+    let mut test = running_test_with_prompt();
+
+    test.app.apply_key(key(KeyCode::Esc));
+
+    assert_eq!(test.sent(), vec![Command::Answer { request_id: 31, answer: None, save: false }]);
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert!(test.app.stashed_form.is_none());
+    assert!(matches!(test.app.connection_status, ConnectionStatus::Disconnected));
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+    assert_eq!(open_form(&test).test, Some(TestState::Finished(TestOutcome::Cancelled)));
+}
+
+#[test]
+fn esc_on_the_test_prompt_does_not_touch_the_connection_status() {
+    let mut test = running_test_with_prompt();
+    test.app.connection_status = ConnectionStatus::Connecting("web".into());
+
+    test.app.apply_key(key(KeyCode::Esc));
+
+    assert!(matches!(test.app.connection_status, ConnectionStatus::Connecting(_)));
+}
+
+#[test]
+fn the_form_focus_and_typed_values_survive_the_prompt() {
+    let mut test = open_add_form();
+    set_field(&mut test, "password", "keep-me");
+    let (focused, cursor) = {
+        let form = open_form(&test);
+        (form.focused, form.fields[form.focused].cursor)
+    };
+    test.app.apply_key(ctrl_t());
+    test.sent();
+    ask_test_password(&mut test, 0, 31);
+    test.type_text("abc");
+    test.app.apply_key(key(KeyCode::Enter));
+    test.sent();
+
+    let form = open_form(&test);
+    assert_eq!(form.focused, focused);
+    assert_eq!(form.fields[form.focused].cursor, cursor);
+    assert_eq!(form.value("password").as_deref(), Some("keep-me"));
+    assert_eq!(form.value("protocol").as_deref(), Some("sftp"));
+}
+
+#[test]
+fn a_regular_connect_question_arriving_while_a_form_is_open_stashes_and_restores_the_form() {
+    let mut test = open_add_form();
+
+    ask_password(&mut test, 9);
+
+    assert_eq!(prompt(&test).title, "Password for u@web");
+    assert!(test.app.stashed_form.is_some());
+    test.app.apply_key(key(KeyCode::Esc));
+    assert_eq!(test.sent(), vec![Command::Answer { request_id: 9, answer: None, save: false }]);
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert_eq!(open_form(&test).value("name").as_deref(), Some("nas"));
+    assert!(matches!(test.app.pending_action, Some(PendingAction::AddConnection)));
+}
+
+#[test]
+fn a_regular_trust_question_while_a_form_is_open_restores_the_form_after_the_answer() {
+    let mut test = open_add_form();
+    ask_to_trust_a_host_key(&mut test);
+    assert!(matches!(test.app.dialog, Some(Dialog::Confirm(_))));
+
+    test.app.apply_key(key(KeyCode::Char('y')));
+    test.sent();
+
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert!(test.app.stashed_form.is_none());
+}
+
+#[test]
+fn a_password_prompt_never_shows_the_typed_text() {
+    let mut test = running_test_with_prompt();
+    test.type_text("hunter2-secret");
+
+    assert!(!screen_text(&test).contains("hunter2"));
+    assert!(matches!(prompt(&test).fields[0].kind, FieldKind::Masked));
+    assert!(!format!("{:?}", prompt(&test).fields[0].kind).contains("hunter2"));
+}
+
+#[test]
+fn typing_in_the_test_prompt_triggers_no_action() {
+    let mut test = running_test_with_prompt();
+
+    test.type_text(crate::app::testing::TYPED);
+
+    assert_eq!(prompt(&test).fields[0].value, crate::app::testing::TYPED);
+    test.assert_inert(Screen::Connections);
+}
+
+#[test]
+fn the_prompts_esc_is_the_only_way_out_and_the_form_is_not_closed_by_it() {
+    let mut test = running_test_with_prompt();
+
+    test.app.apply_key(key(KeyCode::Esc));
+
+    assert!(matches!(test.app.dialog, Some(Dialog::Form(_))));
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert!(!test.sent().contains(&Command::CancelTest));
+}
+
+#[test]
+fn the_pending_edit_action_is_restored_exactly() {
+    let mut test = open_edit_form(connection("prod", ConnectionSource::Profile));
+    test.app.apply_key(ctrl_t());
+    test.sent();
+    ask_test_password(&mut test, 0, 31);
+    test.app.apply_key(key(KeyCode::Esc));
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+    test.sent();
+
+    match &test.app.pending_action {
+        Some(PendingAction::EditConnection { original }) => assert_eq!(original.name, "prod"),
+        _ => panic!("the edit action was lost"),
+    }
+    test.app.apply_key(ctrl_t());
+    let (_, original, _) = test_request(test.sent());
+    assert_eq!(original.as_deref(), Some("prod"));
+}
+
+#[test]
+fn a_test_finished_while_the_prompt_is_open_is_stored_for_the_restored_form() {
+    let mut test = running_test_with_prompt();
+
+    test.app.apply_core_event(Event::TestFinished { test_id: 0, outcome: TestOutcome::Cancelled });
+    assert!(test.app.connection_test.is_none());
+    assert!(matches!(test.app.dialog, Some(Dialog::Form(_))));
+    test.app.apply_key(key(KeyCode::Esc));
+
+    assert_eq!(open_form(&test).test, Some(TestState::Finished(TestOutcome::Cancelled)));
+}
+
+#[test]
+fn the_running_test_is_not_cancelled_by_keys_typed_in_the_prompt() {
+    let mut test = running_test_with_prompt();
+
+    test.type_text("abc");
+    test.app.apply_key(key(KeyCode::Backspace));
+
+    assert!(test.sent().is_empty());
+    assert!(test.app.connection_test.is_some());
+}
+
+#[test]
+fn a_second_question_while_one_is_stashed_does_not_lose_the_form() {
+    let mut test = running_test_with_prompt();
+
+    ask_password(&mut test, 9);
+
+    assert_eq!(test.sent(), vec![Command::Answer { request_id: 31, answer: None, save: false }]);
+    assert_eq!(prompt(&test).title, "Password for u@web");
+    assert!(test.app.stashed_form.is_some());
+    test.app.apply_key(key(KeyCode::Esc));
+    test.sent();
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert_eq!(open_form(&test).value("name").as_deref(), Some("nas"));
+}
+
+#[test]
+fn a_test_question_for_an_old_test_is_ignored() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    ask_test_password(&mut test, 99, 31);
+
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert!(test.app.stashed_form.is_none());
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_test_question_with_no_form_open_is_ignored() {
+    let mut test = app();
+
+    ask_test_password(&mut test, 0, 31);
+
+    assert!(test.app.dialog.is_none());
+    assert!(test.app.stashed_form.is_none());
 }
