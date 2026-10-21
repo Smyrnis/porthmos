@@ -28,24 +28,30 @@ editor = ""
 
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
-# "delete" or a single character), optionally prefixed with "ctrl+", "alt+"
-# or "shift+". Leave an action out to keep its default.
-[keys]
-quit = "f10"
-switch_panel = "tab"
-up = "up"
-down = "down"
+# "delete" or a single character such as "c" or "?"), optionally prefixed with
+# "ctrl+", "alt+" or "shift+". An action takes one key or a list of keys; an
+# empty list unbinds it. Leave an action out to keep its default.
+#
+# Keys belong to a screen. A key is looked up in the table of the current
+# screen first, then in [keys.global]. The same key may mean different things
+# on different screens. Every table below lists the defaults for its screen.
+#
+# Older files used one flat entry per action directly under [keys], for
+# example `copy = "f5"`. Those still work: a flat entry sets the action's keys
+# on every screen that uses it, so it also removes the letter alternates shown
+# here. Write `copy = ["c", "f5"]`, or use the tables below, to keep both.
+[keys.global]
+quit = ["q", "f10"]
+help = ["?", "f1"]
+back = "esc"
+up = ["up", "k"]
+down = ["down", "j"]
 open = "enter"
 toggle_select = "space"
-rename = "f2"
-open_terminal = "f4"
-copy = "f5"
-add_connection = "f6"
-mkdir = "f7"
-delete = "f8"
+filter = "/"
 open_connections = "f9"
-delete_connection = "delete"
-back = "esc"
+open_terminal = "f4"
+add_connection = "f6"
 refresh = "ctrl+r"
 cancel_transfer = "ctrl+c"
 toggle_hidden = "ctrl+h"
@@ -53,13 +59,43 @@ cycle_sort = "ctrl+s"
 bookmark_here = "ctrl+d"
 open_bookmarks = "ctrl+b"
 open_search = "ctrl+f"
-filter = "/"
 open_transfers = "ctrl+t"
 open_history = "ctrl+y"
 open_sync = "ctrl+u"
-edit = "f3"
+open_palette = "ctrl+p"
 cycle_session = "ctrl+n"
-help = "f1"
+
+[keys.files]
+switch_panel = "tab"
+copy = ["c", "f5"]
+mkdir = ["n", "f7"]
+delete = ["d", "f8"]
+rename = ["r", "f2"]
+edit = ["e", "f3"]
+open_transfers = "t"
+session_1 = "1"
+session_2 = "2"
+session_3 = "3"
+session_4 = "4"
+session_5 = "5"
+session_6 = "6"
+session_7 = "7"
+session_8 = "8"
+session_9 = "9"
+
+[keys.connections]
+rename = ["e", "f2"]
+add_connection = "n"
+disconnect = ["x", "f8"]
+delete_connection = "delete"
+
+[keys.transfers]
+open = "r"
+delete = ["x", "f8"]
+refresh = "c"
+
+[keys.history]
+delete = ["c", "f8"]
 
 [theme]
 # Accent colour used for focus and progress, as "#rrggbb".

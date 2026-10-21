@@ -193,7 +193,7 @@ fn disconnect_selected_reports_a_confirmation_notification() {
     let mut test = on_connections_screen(vec![connection("test", ConnectionSource::Profile)]);
     let session = test.connect(1, "test");
 
-    test.app.apply_action(Action::Delete);
+    test.app.apply_action(Action::Disconnect);
 
     assert_eq!(test.sent(), vec![Command::Disconnect { session }]);
     test.app
@@ -1146,4 +1146,56 @@ fn typing_in_the_name_field_never_triggers_actions() {
     assert_eq!(test.app.screen, Screen::Connections);
     assert!(!test.app.should_quit);
     assert!(test.sent().is_empty());
+}
+
+#[test]
+fn f8_on_the_connections_screen_disconnects_through_the_disconnect_action() {
+    let mut test = on_connections_screen(vec![connection("test", ConnectionSource::Profile)]);
+    let session = test.connect(1, "test");
+
+    test.app.apply_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::F(8),
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    assert_eq!(test.sent(), vec![Command::Disconnect { session }]);
+    assert!(test.app.dialog.is_none());
+}
+
+#[test]
+fn typing_in_the_popup_password_form_only_types() {
+    let mut test = app();
+    ask_password(&mut test, 1);
+    test.sent();
+
+    test.type_text(crate::app::testing::TYPED);
+
+    assert_eq!(prompt(&test).fields[0].value, crate::app::testing::TYPED);
+    test.assert_inert(Screen::Files);
+}
+
+#[test]
+fn typing_in_the_screen_connection_form_only_types() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    if let Some(Dialog::Form(form)) = test.app.dialog.as_mut() {
+        form.focused = form.fields.iter().position(|field| field.key == "name").unwrap();
+    }
+    test.sent();
+
+    test.type_text(crate::app::testing::TYPED);
+
+    assert_eq!(open_form(&test).value("name").as_deref(), Some(crate::app::testing::TYPED));
+    test.assert_inert(Screen::Connections);
+}
+
+#[test]
+fn n_on_the_connections_screen_adds_a_connection_and_does_not_make_a_folder() {
+    let mut test = on_connections_screen(Vec::new());
+    test.sent();
+
+    test.type_text("n");
+
+    assert_eq!(open_form(&test).layout, FormLayout::Screen);
+    assert!(!matches!(test.app.dialog, Some(Dialog::TextInput(_))));
 }

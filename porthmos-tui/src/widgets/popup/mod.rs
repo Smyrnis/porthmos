@@ -24,10 +24,14 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 pub fn render_popup(frame: &mut Frame, screen: Rect, size: (u16, u16), title: Option<&str>, theme: &Theme) -> Rect {
+    render_popup_at(frame, screen, centered(screen, size.0, size.1), title, theme)
+}
+
+pub fn render_popup_at(frame: &mut Frame, screen: Rect, popup: Rect, title: Option<&str>, theme: &Theme) -> Rect {
     frame.buffer_mut().set_style(screen, theme.backdrop());
-    let popup = centered(screen, size.0, size.1);
+    let popup = popup.intersection(screen);
     if popup.width == 0 || popup.height == 0 {
-        return Rect::new(popup.x, popup.y, 0, 0);
+        return Rect::new(screen.x, screen.y, 0, 0);
     }
     clear_popup(frame, popup, theme);
     let mut block = Block::bordered().border_style(theme.popup_border());

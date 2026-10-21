@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{Command, CoreHandle, Entry, Event, Location, config::settings::PanelSettings};
 use ratatui::{Terminal, backend::TestBackend};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::App;
+use super::{App, Screen};
 use crate::input::KeyBindings;
 
 pub(crate) struct TestApp {
@@ -96,4 +97,23 @@ pub(crate) fn has_unprintable_cell(terminal: &Terminal<TestBackend>) -> bool {
                 )
         })
     })
+}
+
+pub(crate) const TYPED: &str = "cdqnxr1?jk te";
+pub(crate) const TYPED_WITHOUT_ANSWERS: &str = "cdqrxjk1?t e";
+
+impl TestApp {
+    pub(crate) fn type_text(&mut self, text: &str) {
+        for character in text.chars() {
+            self.app.apply_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+    }
+
+    pub(super) fn assert_inert(&mut self, screen: Screen) {
+        assert!(!self.app.should_quit, "the app quit");
+        assert_eq!(self.app.screen, screen);
+        assert!(!self.app.help_visible, "the help opened");
+        let sent = self.sent();
+        assert!(sent.is_empty(), "commands were sent: {sent:?}");
+    }
 }

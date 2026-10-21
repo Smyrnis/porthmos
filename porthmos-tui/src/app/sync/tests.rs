@@ -8,7 +8,7 @@ use porthmos_core::sync::{SyncAction, SyncFacts, SyncItem, SyncReason};
 
 use super::*;
 use crate::{
-    app::testing::{TestApp, test_app},
+    app::testing::{TYPED, TestApp, test_app},
     widgets::dialog::FieldKind,
 };
 
@@ -666,4 +666,28 @@ fn the_sync_summary_is_right_aligned_in_the_top_bar() {
     let top: String = (0..120).map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_string()).collect();
     assert!(top.trim_end().ends_with("0 skipped"), "{top:?}");
     assert!(top.contains("1 ticked"), "{top:?}");
+}
+
+#[test]
+fn typing_in_the_sync_filter_only_types() {
+    let mut test = with_plan(vec![upload(0, "a.txt")]);
+
+    press(&mut test, KeyCode::Char('/'));
+    test.type_text(TYPED);
+
+    assert_eq!(test.app.sync_view.filter(), Some(TYPED));
+    assert!(test.app.dialog.is_none());
+    test.assert_inert(Screen::Sync);
+}
+
+#[test]
+fn n_on_the_sync_screen_unticks_all_and_does_not_make_a_folder() {
+    let mut test = with_plan(vec![upload(0, "a.txt"), upload(1, "b.txt")]);
+    assert_eq!(test.app.sync_view.choices().len(), 2);
+
+    press(&mut test, KeyCode::Char('n'));
+
+    assert!(test.app.sync_view.choices().is_empty());
+    assert!(test.app.dialog.is_none());
+    test.assert_inert(Screen::Sync);
 }

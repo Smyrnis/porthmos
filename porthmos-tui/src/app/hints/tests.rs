@@ -7,6 +7,11 @@ fn keys_and_labels(hints: &Hints) -> Vec<(String, &'static str)> {
     hints.entries.iter().map(|hint| (hint.key.clone(), hint.label)).collect()
 }
 
+fn configured(text: &str) -> KeyBindings {
+    let table: toml::Table = toml::from_str(text).unwrap();
+    KeyBindings::from_frontend(&table).0
+}
+
 fn pair(key: &str, label: &'static str) -> (String, &'static str) {
     (key.to_string(), label)
 }
@@ -24,19 +29,19 @@ fn files_hints_use_the_default_keys_in_order() {
     assert_eq!(
         keys_and_labels(&hints),
         vec![
-            pair("F5", "copy"),
-            pair("F7", "mkdir"),
-            pair("F8", "delete"),
+            pair("c", "copy"),
+            pair("n", "mkdir"),
+            pair("d", "delete"),
             pair("F9", "connections"),
-            pair("F10", "quit"),
-            pair("F3", "edit"),
-            pair("F2", "rename"),
+            pair("q", "quit"),
+            pair("e", "edit"),
+            pair("r", "rename"),
             pair("/", "filter"),
             pair("Space", "select"),
             pair("Tab", "panel"),
         ]
     );
-    assert_eq!(hints.pinned, Some(Hint { key: "F1".to_string(), label: "help" }));
+    assert_eq!(hints.pinned, Some(Hint { key: "?".to_string(), label: "help" }));
 }
 
 #[test]
@@ -54,17 +59,16 @@ fn a_remapped_action_shows_its_new_key() {
 
 #[test]
 fn an_unbound_action_is_omitted_without_leaving_a_gap() {
-    let hints = hints_for(Screen::Files, &remapped(&[("mkdir", "f5")]));
+    let hints = hints_for(Screen::Files, &configured("[keys]\ncopy = []\n"));
 
     let labels: Vec<&str> = hints.entries.iter().map(|hint| hint.label).collect();
     assert!(!labels.contains(&"copy"));
-    assert!(keys_and_labels(&hints).contains(&pair("F5", "mkdir")));
     assert_eq!(hints.entries.len(), 9);
 }
 
 #[test]
 fn removing_the_help_binding_leaves_no_pinned_pair() {
-    let hints = hints_for(Screen::Files, &remapped(&[("open", "f1")]));
+    let hints = hints_for(Screen::Files, &configured("[keys]\nhelp = []\n"));
 
     assert_eq!(hints.pinned, None);
 }
@@ -83,7 +87,7 @@ fn non_files_screens_put_back_in_the_right_slot() {
     for screen in [Screen::Connections, Screen::Search, Screen::Transfers, Screen::History, Screen::Sync] {
         let hints = hints_for(screen, &bindings);
         assert_eq!(hints.right, Some(Hint { key: "Esc".to_string(), label: "back" }), "{screen:?}");
-        assert_eq!(hints.pinned, Some(Hint { key: "F1".to_string(), label: "help" }), "{screen:?}");
+        assert_eq!(hints.pinned, Some(Hint { key: "?".to_string(), label: "help" }), "{screen:?}");
     }
 }
 
@@ -95,15 +99,15 @@ fn connections_history_and_sync_list_their_own_actions() {
         keys_and_labels(&hints_for(Screen::Connections, &bindings)),
         vec![
             pair("Enter", "connect"),
-            pair("F6", "new"),
-            pair("F2", "edit"),
+            pair("n", "new"),
+            pair("e", "edit"),
             pair("Delete", "delete"),
-            pair("F8", "disconnect"),
+            pair("x", "disconnect"),
         ]
     );
     assert_eq!(
         keys_and_labels(&hints_for(Screen::History, &bindings)),
-        vec![pair("Enter", "details"), pair("F8", "clear")]
+        vec![pair("Enter", "details"), pair("c", "clear")]
     );
     assert_eq!(keys_and_labels(&hints_for(Screen::Sync, &bindings)), vec![pair("Enter", "run"), pair("Space", "tick")]);
 }
@@ -119,7 +123,7 @@ fn search_has_only_the_pinned_help_and_back() {
 fn transfers_list_retry_cancel_and_clear_done() {
     assert_eq!(
         keys_and_labels(&hints_for(Screen::Transfers, &KeyBindings::defaults())),
-        vec![pair("Enter", "retry"), pair("F8", "cancel"), pair("Ctrl+R", "clear done")]
+        vec![pair("r", "retry"), pair("x", "cancel"), pair("c", "clear done")]
     );
 }
 
@@ -157,17 +161,17 @@ fn screen_sections_use_the_hint_labels_and_the_live_keys() {
     let sections = help_sections(&KeyBindings::defaults());
 
     let files = rows_of(section(&sections, "files"));
-    assert!(files.contains(&(Some("F5"), "copy")));
-    assert!(files.contains(&(Some("F10"), "quit")));
+    assert!(files.contains(&(Some("c / F5"), "copy")));
+    assert!(files.contains(&(Some("q / F10"), "quit")));
     let connections = rows_of(section(&sections, "connections"));
     assert_eq!(
         connections,
         vec![
             (Some("Enter"), "connect"),
-            (Some("F6"), "new"),
-            (Some("F2"), "edit"),
+            (Some("n / F6"), "new"),
+            (Some("e / F2"), "edit"),
             (Some("Delete"), "delete"),
-            (Some("F8"), "disconnect"),
+            (Some("x / F8"), "disconnect"),
         ]
     );
 }
@@ -182,7 +186,7 @@ fn a_remapped_key_shows_its_new_key() {
 
 #[test]
 fn an_unbound_action_shows_no_key() {
-    let sections = help_sections(&remapped(&[("copy", "F10")]));
+    let sections = help_sections(&configured("[keys]\nquit = []\n"));
 
     assert!(rows_of(section(&sections, "files")).contains(&(None, "quit")));
 }
@@ -195,7 +199,8 @@ fn global_lists_the_remaining_actions_by_their_config_names_and_one_movement_row
     assert!(global.contains(&(Some("Ctrl+T"), "open_transfers")));
     assert!(global.contains(&(Some("Ctrl+Y"), "open_history")));
     assert!(global.contains(&(Some("Ctrl+U"), "open_sync")));
-    assert!(global.contains(&(Some("F1"), "help")));
+    assert!(global.contains(&(Some("Ctrl+P"), "open_palette")));
+    assert!(global.contains(&(Some("? / F1"), "help")));
     assert!(global.contains(&(Some("Up/Down"), "move")));
     assert!(!global.iter().any(|(_, action)| *action == "up" || *action == "down"));
     assert!(!global.iter().any(|(_, action)| *action == "copy"));
@@ -225,4 +230,112 @@ fn every_action_is_listed_somewhere_and_no_section_lists_an_action_twice() {
         let actions: HashSet<_> = section.rows.iter().map(|row| row.action).collect();
         assert_eq!(actions.len(), section.rows.len(), "{} repeats an action", section.title);
     }
+}
+
+fn files_rows(bindings: &KeyBindings) -> Vec<(Option<String>, &'static str)> {
+    let sections = help_sections(bindings);
+    section(&sections, "files").rows.iter().map(|row| (row.key.clone(), row.action)).collect()
+}
+
+fn row_key(rows: &[(Option<String>, &'static str)], action: &str) -> Option<String> {
+    rows.iter().find(|(_, name)| *name == action).and_then(|(key, _)| key.clone())
+}
+
+#[test]
+fn a_row_lists_the_letter_and_the_function_key() {
+    let sections = help_sections(&KeyBindings::defaults());
+
+    let files = rows_of(section(&sections, "files"));
+    assert!(files.contains(&(Some("c / F5"), "copy")));
+    assert!(files.contains(&(Some("d / F8"), "delete")));
+    let transfers = rows_of(section(&sections, "transfers"));
+    assert!(transfers.contains(&(Some("r / Enter"), "retry")));
+    assert!(transfers.contains(&(Some("c / Ctrl+R"), "clear done")));
+}
+
+#[test]
+fn an_alternate_added_in_the_config_shows_as_the_second_key() {
+    let rows = files_rows(&configured("[keys.files]\ncopy = [\"f12\", \"c\"]\n"));
+
+    assert_eq!(row_key(&rows, "copy").as_deref(), Some("F12 / c"));
+}
+
+#[test]
+fn only_the_first_two_keys_are_shown() {
+    let rows = files_rows(&configured("[keys.files]\ncopy = [\"c\", \"f5\", \"f12\"]\n"));
+
+    assert_eq!(row_key(&rows, "copy").as_deref(), Some("c / F5"));
+}
+
+#[test]
+fn a_remapped_key_replaces_the_defaults_in_the_row() {
+    let rows = files_rows(&remapped(&[("copy", "f6")]));
+
+    assert_eq!(row_key(&rows, "copy").as_deref(), Some("F6"));
+}
+
+#[test]
+fn an_unbound_action_still_shows_no_key_in_its_row() {
+    let rows = files_rows(&configured("[keys]\ncopy = []\n"));
+
+    assert!(rows.contains(&(None, "copy")));
+}
+
+#[test]
+fn the_files_section_has_a_one_to_nine_session_row() {
+    let rows = files_rows(&KeyBindings::defaults());
+
+    assert_eq!(row_key(&rows, "session").as_deref(), Some("1-9"));
+    assert!(!rows.iter().any(|(_, action)| action.starts_with("session_")));
+}
+
+#[test]
+fn a_session_row_with_remapped_keys_lists_the_bound_ones() {
+    let rows = files_rows(&configured("[keys.files]\nsession_1 = \"a\"\nsession_5 = []\n"));
+
+    assert_eq!(row_key(&rows, "session_1").as_deref(), Some("a"));
+    assert_eq!(row_key(&rows, "session_2").as_deref(), Some("2"));
+    assert_eq!(row_key(&rows, "session_5"), None);
+    assert!(rows.iter().filter(|(_, action)| action.starts_with("session_")).count() == 8);
+    assert_eq!(row_key(&rows, "session"), None);
+}
+
+#[test]
+fn without_any_session_key_there_is_no_session_row() {
+    let text: String = (1..=9).map(|number| format!("session_{number} = []\n")).collect();
+
+    let rows = files_rows(&configured(&format!("[keys.files]\n{text}")));
+
+    assert!(!rows.iter().any(|(_, action)| action.starts_with("session")));
+}
+
+#[test]
+fn every_default_key_text_fits_the_help_key_column() {
+    use unicode_width::UnicodeWidthStr;
+
+    for section in help_sections(&KeyBindings::defaults()) {
+        for row in &section.rows {
+            let width = row.key.as_deref().map_or(0, |key| key.width());
+            assert!(width <= 11, "{} {}: {:?}", section.title, row.action, row.key);
+        }
+    }
+}
+
+#[test]
+fn hints_show_only_the_first_key_of_each_action() {
+    let hints = hints_for(Screen::Files, &KeyBindings::defaults());
+
+    assert!(keys_and_labels(&hints).contains(&pair("c", "copy")));
+    assert!(!keys_and_labels(&hints).iter().any(|(key, _)| key.contains(" / ")));
+}
+
+#[test]
+fn hints_never_show_a_key_that_belongs_to_another_screens_scope() {
+    let bindings = KeyBindings::defaults();
+
+    assert!(keys_and_labels(&hints_for(Screen::Files, &bindings)).contains(&pair("n", "mkdir")));
+    assert!(keys_and_labels(&hints_for(Screen::Connections, &bindings)).contains(&pair("n", "new")));
+    let transfers = keys_and_labels(&hints_for(Screen::Transfers, &bindings));
+    assert!(!transfers.contains(&pair("c", "copy")));
+    assert!(!transfers.contains(&pair("n", "mkdir")));
 }

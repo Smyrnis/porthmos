@@ -49,7 +49,7 @@ fn key_bindings_from_config_are_used_for_key_mapping() {
         state: KeyEventState::NONE,
     };
 
-    assert_eq!(test.app.key_bindings.map_key(event), Action::Quit);
+    assert_eq!(test.app.key_bindings.map_key(test.app.screen.scope(), event), Action::Quit);
 }
 
 #[test]
@@ -108,4 +108,36 @@ fn an_error_is_in_the_log_as_well_as_on_screen() {
     let logs = crate::logging::testing::capture_logs(|| test.app.error("Failed to launch ssh: not found"));
 
     assert!(logs.contains("ERROR") && logs.contains("Failed to launch ssh: not found"), "{logs}");
+}
+
+#[test]
+fn file_letters_do_nothing_on_the_screens_that_do_not_bind_them() {
+    let cases = [
+        (Screen::Connections, "cdrt12"),
+        (Screen::Transfers, "dent12"),
+        (Screen::History, "drentx12"),
+        (Screen::Sync, "cdretx12"),
+    ];
+    for (screen, letters) in cases {
+        let mut test = test_app(Path::new("/d"));
+        test.app.screen = screen;
+        test.sent();
+
+        test.type_text(letters);
+
+        assert!(test.app.dialog.is_none(), "{screen:?}");
+        test.assert_inert(screen);
+    }
+}
+
+#[test]
+fn q_quits_from_every_screen_when_nothing_owns_the_keyboard() {
+    for screen in [Screen::Files, Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync] {
+        let mut test = test_app(Path::new("/d"));
+        test.app.screen = screen;
+
+        test.type_text("q");
+
+        assert!(test.app.should_quit, "{screen:?}");
+    }
 }

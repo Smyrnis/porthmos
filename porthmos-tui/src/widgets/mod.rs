@@ -12,6 +12,7 @@ pub mod history_view;
 pub mod info_line;
 pub mod layout;
 pub mod notifications;
+pub mod palette_view;
 pub mod panel_view;
 pub mod popup;
 pub mod search_view;

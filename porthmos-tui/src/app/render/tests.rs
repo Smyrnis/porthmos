@@ -341,8 +341,8 @@ fn the_hint_bar_lists_the_actions_of_the_screen_with_their_keys() {
 
     let terminal = render_app(&app, 120, 12);
 
-    assert!(bottom_row(&terminal).contains("F5 copy   F7 mkdir"), "{:?}", bottom_row(&terminal));
-    let (x, y) = find_text(&terminal, "F5 copy").expect("hint is drawn");
+    assert!(bottom_row(&terminal).contains("c copy   n mkdir"), "{:?}", bottom_row(&terminal));
+    let (x, y) = find_text(&terminal, "c copy").expect("hint is drawn");
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
     assert_eq!(cell_fg(&terminal, x + 3, y), theme.fg_dim);
 }
@@ -356,7 +356,7 @@ fn a_transient_status_replaces_the_whole_hint_bar_in_the_muted_colour() {
 
     let row = bottom_row(&terminal);
     assert!(row.contains("Scanning myfolder"), "{row:?}");
-    assert!(!row.contains("F1 help"));
+    assert!(!row.contains("? help"));
     let (x, y) = find_text(&terminal, "Scanning myfolder").expect("status is drawn");
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_muted);
 }
@@ -367,7 +367,7 @@ fn a_narrow_terminal_keeps_the_help_pair() {
 
     for width in [60, 40, 30, 20, 12] {
         let terminal = render_app(&app, width, 12);
-        assert!(bottom_row(&terminal).contains("F1 help"), "width {width}: {:?}", bottom_row(&terminal));
+        assert!(bottom_row(&terminal).contains("? help"), "width {width}: {:?}", bottom_row(&terminal));
     }
 }
 
@@ -444,7 +444,7 @@ fn a_notification_no_longer_replaces_the_hint_bar() {
 
     let terminal = render_app(&app, 100, 12);
 
-    assert!(bottom_row(&terminal).contains("F1 help"), "{:?}", bottom_row(&terminal));
+    assert!(bottom_row(&terminal).contains("? help"), "{:?}", bottom_row(&terminal));
     assert!(!bottom_row(&terminal).contains("boom"));
 }
 
@@ -482,7 +482,7 @@ fn an_overlay_is_drawn_above_a_toast_so_an_error_never_blocks_a_dialog() {
 
     let terminal = render_app(&app, 60, 20);
 
-    assert!(find_text(&terminal, &format!("F10{}quit", " ".repeat(9))).is_some());
+    assert!(find_text(&terminal, &format!("q / F10{}quit", " ".repeat(5))).is_some());
 }
 
 #[test]
@@ -560,8 +560,8 @@ fn at_eighty_columns_the_files_hint_bar_still_shows_how_to_connect_and_quit() {
 
     let row = bottom_row(&terminal);
     assert!(row.contains("F9 connections"), "{row:?}");
-    assert!(row.contains("F10 quit"), "{row:?}");
-    assert!(row.contains("F1 help"), "{row:?}");
+    assert!(row.contains("q quit"), "{row:?}");
+    assert!(row.contains("? help"), "{row:?}");
 }
 
 #[test]
@@ -899,7 +899,7 @@ fn progress_no_longer_replaces_the_hint_bar() {
 
     let terminal = render_app(&app, 120, 24);
 
-    assert!(bottom_row(&terminal).contains("F1 help"), "{:?}", bottom_row(&terminal));
+    assert!(bottom_row(&terminal).contains("? help"), "{:?}", bottom_row(&terminal));
 }
 
 #[test]
@@ -1020,11 +1020,7 @@ fn the_hint_bar_lists_retry_cancel_and_clear_done_on_the_transfers_screen() {
 
     let terminal = render_app(&app, 120, 24);
 
-    assert!(
-        bottom_row(&terminal).contains("Enter retry   F8 cancel   Ctrl+R clear done"),
-        "{:?}",
-        bottom_row(&terminal)
-    );
+    assert!(bottom_row(&terminal).contains("r retry   x cancel   c clear done"), "{:?}", bottom_row(&terminal));
 }
 
 #[test]
@@ -1189,6 +1185,23 @@ fn the_details_popup_dims_the_screen_behind_it() {
     assert_eq!(cell_fg(&terminal, x, y), theme.line_strong);
     let (x, y) = find_text(&terminal, "username").unwrap();
     assert_ne!(cell_fg(&terminal, x, y), theme.line_strong);
+}
+
+#[test]
+fn the_details_popup_closes_on_any_key_without_acting() {
+    for character in crate::app::testing::TYPED.chars() {
+        let (mut app, _) = connections_app();
+        let _ = render_app(&app, 80, 24);
+        app.apply_action(Action::ToggleSelect);
+        assert!(app.details_popup);
+
+        app.apply_key(plain_key(character));
+
+        assert!(!app.details_popup, "{character:?}");
+        assert!(!app.should_quit, "{character:?}");
+        assert!(!app.help_visible, "{character:?}");
+        assert_eq!(app.screen, Screen::Connections);
+    }
 }
 
 #[test]

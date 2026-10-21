@@ -25,6 +25,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::{
     clock::Clock,
     input::{self, Action},
+    palette::Palette,
     rate::RateTracker,
     sessions::Sessions,
     terminal::{self, Backend},
@@ -55,6 +56,7 @@ mod edit;
 mod filter;
 mod hints;
 mod history;
+mod palette;
 mod render;
 mod search;
 mod sync;
@@ -100,6 +102,19 @@ enum Screen {
     Sync,
 }
 
+impl Screen {
+    fn scope(self) -> input::Scope {
+        match self {
+            Screen::Files => input::Scope::Files,
+            Screen::Connections => input::Scope::Connections,
+            Screen::Transfers => input::Scope::Transfers,
+            Screen::History => input::Scope::History,
+            Screen::Sync => input::Scope::Sync,
+            Screen::Search => input::Scope::Global,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ConnectionStatus {
     Disconnected,
@@ -125,6 +140,7 @@ pub struct App {
     local: PanelView,
     sessions: Sessions,
     dialog: Option<Dialog>,
+    palette: Option<Palette>,
     help_visible: bool,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
@@ -170,6 +186,7 @@ impl App {
             local: PanelView::new(local_path.clone(), panel.sort, panel.show_hidden),
             sessions: Sessions::new(),
             dialog: None,
+            palette: None,
             help_visible: false,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
@@ -281,15 +298,21 @@ impl App {
             self.apply_help_key(key);
         } else if self.details_popup {
             self.details_popup = false;
+        } else if self.palette.is_some() {
+            self.apply_palette_key(key);
         } else if self.dialog.is_some() {
             self.apply_dialog_key(key);
             self.after_dialog_key();
         } else if self.screen == Screen::Search {
-            self.apply_search_key(key);
+            if self.opens_palette(key) {
+                self.open_palette();
+            } else {
+                self.apply_search_key(key);
+            }
         } else if self.editing_filter() {
             self.apply_filter_key(key);
         } else {
-            let action = self.key_bindings.map_key(key);
+            let action = self.key_bindings.map_key(self.screen.scope(), key);
             if action == Action::Noop && self.screen == Screen::Connections && key.modifiers.is_empty() {
                 match key.code {
                     KeyCode::Right => self.connections.expand(),

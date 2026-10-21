@@ -182,6 +182,17 @@ impl PanelView {
         }
     }
 
+    pub fn focus_name(&mut self, name: &str) -> bool {
+        let position = self.rows().iter().position(|row| matches!(row, Row::Entry(entry) if entry.name == name));
+        match position {
+            Some(position) => {
+                self.cursor = position;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn on_parent_row(&self) -> bool {
         matches!(self.rows().get(self.cursor), Some(Row::Parent))
     }

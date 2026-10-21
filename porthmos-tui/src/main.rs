@@ -8,6 +8,7 @@ mod app;
 mod clock;
 mod input;
 mod logging;
+mod palette;
 mod rate;
 mod sessions;
 mod terminal;

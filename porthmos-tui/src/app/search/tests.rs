@@ -125,3 +125,18 @@ fn opening_a_result_lists_its_folder_in_the_right_panel() {
         ]
     );
 }
+
+#[test]
+fn typing_in_the_search_pattern_only_types() {
+    let mut test = test_app(Path::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    test.sent();
+
+    test.type_text(crate::app::testing::TYPED);
+
+    assert_eq!(test.app.search.as_ref().unwrap().view.pattern, crate::app::testing::TYPED);
+    assert!(test.sent().iter().all(|command| matches!(command, Command::Search { .. } | Command::CancelSearch)));
+    assert_eq!(test.app.screen, Screen::Search);
+    assert!(!test.app.should_quit);
+    assert!(test.app.dialog.is_none());
+}
