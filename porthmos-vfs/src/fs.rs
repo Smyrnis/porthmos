@@ -36,6 +36,9 @@ pub trait FileSystem: Send + Sync {
     fn resume_backoff(&self) -> u64 {
         0
     }
+    fn server_info(&self) -> Option<String> {
+        None
+    }
     async fn set_modified(&self, _path: &Path, _seconds: u64) -> Result<(), ProtocolError> {
         Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("this connection can't set modification times")))
     }

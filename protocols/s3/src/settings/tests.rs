@@ -94,3 +94,58 @@ fn a_pasted_port_and_scheme_are_used() {
     assert_eq!((ipv6.endpoint.as_str(), ipv6.port, ipv6.secure), ("::1", 9443, true));
     assert_eq!(S3Settings::from_target(&target("minio.local:9000", &[])).port, 9000);
 }
+
+fn identity_of(host: &str, port: u16, options: &[(&str, &str)], region: &str) -> Option<String> {
+    let mut target = target(host, options);
+    target.port = port;
+    S3Settings::from_target(&target).identity(region)
+}
+
+#[test]
+fn aws_endpoints_show_host_and_region() {
+    assert_eq!(
+        identity_of("s3.eu-west-1.amazonaws.com", 443, &[], "eu-west-1").as_deref(),
+        Some("s3.eu-west-1.amazonaws.com \u{b7} eu-west-1")
+    );
+    assert_eq!(
+        identity_of("s3.amazonaws.com", 443, &[], "us-east-1").as_deref(),
+        Some("s3.amazonaws.com \u{b7} us-east-1")
+    );
+}
+
+#[test]
+fn custom_endpoints_show_the_host_and_the_configured_region() {
+    assert_eq!(
+        identity_of("minio.local", 443, &[("region", "eu-west-1")], "eu-west-1").as_deref(),
+        Some("minio.local \u{b7} eu-west-1")
+    );
+}
+
+#[test]
+fn the_default_region_on_a_custom_endpoint_is_left_out() {
+    assert_eq!(identity_of("minio.local", 443, &[], "us-east-1").as_deref(), Some("minio.local"));
+}
+
+#[test]
+fn a_region_corrected_by_the_server_is_shown_on_a_custom_endpoint() {
+    assert_eq!(identity_of("minio.local", 443, &[], "eu-north-1").as_deref(), Some("minio.local \u{b7} eu-north-1"));
+}
+
+#[test]
+fn an_ip_endpoint_with_a_port_is_shown_as_typed_without_a_scheme() {
+    assert_eq!(identity_of("127.0.0.1", 9000, &[("security", "http")], "us-east-1").as_deref(), Some("127.0.0.1:9000"));
+    assert_eq!(identity_of("https://minio.local:9000", 9000, &[], "us-east-1").as_deref(), Some("minio.local:9000"));
+}
+
+#[test]
+fn the_default_port_of_the_scheme_is_not_shown() {
+    assert_eq!(identity_of("minio.local", 443, &[], "us-east-1").as_deref(), Some("minio.local"));
+    assert_eq!(identity_of("minio.local", 80, &[("security", "http")], "us-east-1").as_deref(), Some("minio.local"));
+}
+
+#[test]
+fn a_hostile_or_long_endpoint_is_cleaned_and_cut() {
+    let long = format!("{}.example.com", "a".repeat(100));
+    let shown = identity_of(&long, 443, &[], "us-east-1").unwrap();
+    assert!(shown.chars().count() <= 40 && shown.ends_with('\u{2026}'), "{shown}");
+}

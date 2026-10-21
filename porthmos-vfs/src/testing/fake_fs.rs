@@ -25,6 +25,9 @@ struct Tree {
     failing_read_dirs: BTreeSet<PathBuf>,
     failing_reads: BTreeSet<PathBuf>,
     failing_home: bool,
+    denied_stats: BTreeSet<PathBuf>,
+    hanging_stats: BTreeSet<PathBuf>,
+    server_info: Option<String>,
     failing_shutdowns: BTreeSet<PathBuf>,
     written_sizes: Vec<(PathBuf, u64)>,
 }
@@ -106,6 +109,25 @@ impl FakeFs {
         };
         fs.dir("/home/user");
         fs
+    }
+
+    pub fn denying_stat(&self, path: impl AsRef<Path>) -> &Self {
+        self.tree.lock().unwrap().denied_stats.insert(path.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn hanging_stat(&self, path: impl AsRef<Path>) -> &Self {
+        self.tree.lock().unwrap().hanging_stats.insert(path.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn handles(&self) -> usize {
+        Arc::strong_count(&self.tree)
+    }
+
+    pub fn with_server_info(&self, text: &str) -> &Self {
+        self.tree.lock().unwrap().server_info = Some(text.to_string());
+        self
     }
 
     pub fn dir(&self, path: impl AsRef<Path>) -> &Self {
@@ -253,6 +275,10 @@ impl FileSystem for FakeFs {
         self.time_support
     }
 
+    fn server_info(&self) -> Option<String> {
+        self.tree.lock().unwrap().server_info.clone()
+    }
+
     fn time_resolution(&self) -> u64 {
         self.time_resolution
     }
@@ -295,7 +321,14 @@ impl FileSystem for FakeFs {
     }
 
     async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
+        let hangs = self.tree.lock().unwrap().hanging_stats.contains(path);
+        if hangs {
+            std::future::pending::<()>().await;
+        }
         let tree = self.tree.lock().unwrap();
+        if tree.denied_stats.contains(path) {
+            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("permission denied")));
+        }
         tree.resolve(path).map(metadata_of).ok_or_else(|| not_found(path))
     }
 

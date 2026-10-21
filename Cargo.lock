@@ -3356,6 +3356,7 @@ dependencies = [
  "porthmos-vfs",
  "tempfile",
  "tokio",
+ "unicode-width",
 ]
 
 [[package]]

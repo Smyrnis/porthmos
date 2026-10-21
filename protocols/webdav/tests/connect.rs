@@ -163,3 +163,16 @@ async fn a_share_that_only_protects_writes_uses_the_saved_password() {
     assert!(prompter.asked.is_empty());
     assert!(server.root.path().join("made").is_dir());
 }
+
+#[tokio::test]
+async fn the_filesystem_reports_what_the_server_announces() {
+    let server = support::start(Options::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+
+    let fs =
+        webdav(&dir).connect(&support::target(server.port, "", None), &mut support::answers(vec![])).await.unwrap();
+
+    let info = fs.server_info().expect("the test server sends a DAV header");
+    assert!(info.chars().count() <= 40, "{info}");
+    assert!(!info.is_empty());
+}

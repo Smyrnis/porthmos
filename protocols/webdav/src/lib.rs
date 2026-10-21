@@ -8,6 +8,7 @@ mod fs;
 mod idle;
 mod paths;
 mod propfind;
+mod server_info;
 mod settings;
 mod upload;
 
@@ -107,8 +108,14 @@ impl Protocol for WebDav {
         let first = probe_trusted(&client, target, &settings, &store, problem.as_ref(), prompter).await?;
         let answered = authenticate(&client, first, target, &settings, prompter).await?;
         check_probe(&answered, &settings)?;
-        let partial_update = supports_partial_update(&client).await;
-        Ok(Arc::new(WebDavFs::new(Arc::new(client), partial_update)))
+        let options = options_headers(&client).await;
+        let mut announced = answered.headers().clone();
+        for (name, value) in options.iter().flatten() {
+            announced.append(name.clone(), value.clone());
+        }
+        let info = server_info::server_info(&announced);
+        let partial_update = options.as_ref().is_some_and(allows_partial_update);
+        Ok(Arc::new(WebDavFs::new(Arc::new(client), partial_update, info)))
     }
 }
 
@@ -193,13 +200,14 @@ fn check_probe(response: &Response, settings: &WebDavSettings) -> Result<(), Pro
     ))
 }
 
-async fn supports_partial_update(client: &DavClient) -> bool {
+async fn options_headers(client: &DavClient) -> Option<reqwest::header::HeaderMap> {
     let root = client.locator().href(Path::new("/"), true);
-    let Ok(response) = client.send(Method::OPTIONS, &root, |builder| builder).await else {
-        return false;
-    };
-    response
-        .headers()
+    let response = client.send(Method::OPTIONS, &root, |builder| builder).await.ok()?;
+    Some(response.headers().clone())
+}
+
+fn allows_partial_update(headers: &reqwest::header::HeaderMap) -> bool {
+    headers
         .get_all("dav")
         .iter()
         .filter_map(|value| value.to_str().ok())

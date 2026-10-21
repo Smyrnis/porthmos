@@ -60,6 +60,7 @@ pub(crate) struct S3Fs {
     client: Arc<S3Client>,
     bucket: Option<String>,
     started: StartedUploads,
+    info: Option<String>,
 }
 
 fn other(failure: Failure) -> ProtocolError {
@@ -111,8 +112,8 @@ fn object(location: &Location) -> Result<(&str, &str), ProtocolError> {
 }
 
 impl S3Fs {
-    pub(crate) fn new(client: Arc<S3Client>, bucket: Option<String>) -> Self {
-        Self { client, bucket, started: Arc::default() }
+    pub(crate) fn new(client: Arc<S3Client>, bucket: Option<String>, info: Option<String>) -> Self {
+        Self { client, bucket, started: Arc::default(), info }
     }
 
     fn started(&self) -> std::sync::MutexGuard<'_, Vec<Started>> {
@@ -544,6 +545,10 @@ impl S3Fs {
 
 #[async_trait]
 impl FileSystem for S3Fs {
+    fn server_info(&self) -> Option<String> {
+        self.info.clone()
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         Ok(self
             .items(dir)

@@ -165,3 +165,89 @@ async fn without_a_known_hosts_location_the_key_is_refused() {
     assert!(error.to_string().contains("known_hosts"), "{error}");
     assert!(asked.try_recv().is_err());
 }
+
+#[test]
+fn the_version_loses_the_protocol_prefix() {
+    assert_eq!(
+        software_version(b"SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.4\r\n").as_deref(),
+        Some("OpenSSH_9.6p1 Ubuntu-3ubuntu13.4")
+    );
+    assert_eq!(software_version(b"SSH-1.99-Dropbear_2022.83\n").as_deref(), Some("Dropbear_2022.83"));
+}
+
+#[test]
+fn a_line_that_is_not_an_identification_gives_none() {
+    for line in [&b"HTTP/1.1 400 Bad Request\r\n"[..], b"", b"SSH-2.0-\r\n", b"SSH-\r\n", b"SSH-2.0\r\n"] {
+        assert_eq!(software_version(line), None, "{line:?}");
+    }
+}
+
+#[test]
+fn an_unfinished_line_gives_none() {
+    assert_eq!(software_version(b"SSH-2.0-OpenSS"), None);
+}
+
+#[test]
+fn control_characters_and_long_text_in_the_version_are_cleaned_and_cut() {
+    let cleaned = software_version(b"SSH-2.0-a\x1b[2Jb\x07c\r\n").unwrap();
+    assert_eq!(cleaned, "a [2Jb c");
+
+    let long = format!("SSH-2.0-{}\r\n", "x".repeat(200));
+    let cut = software_version(long.as_bytes()).unwrap();
+    assert!(cut.chars().count() <= 40 && cut.ends_with('\u{2026}'), "{cut}");
+}
+
+#[tokio::test]
+async fn the_sniffer_records_the_first_line_only() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let (client, mut server) = tokio::io::duplex(1024);
+    let seen = ServerId::default();
+    let mut sniffing = Sniffing::new(client, seen.clone());
+    server.write_all(b"SSH-2.0-test_1.0\r\nbinary\x00data").await.unwrap();
+
+    let mut buffer = [0u8; 64];
+    let mut total = 0;
+    while total < 29 {
+        total += sniffing.read(&mut buffer[total..]).await.unwrap();
+    }
+
+    assert_eq!(seen.version().as_deref(), Some("test_1.0"));
+    server.write_all(b"SSH-2.0-other\r\n").await.unwrap();
+    let _ = sniffing.read(&mut buffer).await.unwrap();
+    assert_eq!(seen.version().as_deref(), Some("test_1.0"));
+}
+
+#[tokio::test]
+async fn the_sniffer_passes_writes_through_unchanged() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let (client, mut server) = tokio::io::duplex(1024);
+    let mut sniffing = Sniffing::new(client, ServerId::default());
+
+    sniffing.write_all(b"hello").await.unwrap();
+    sniffing.flush().await.unwrap();
+
+    let mut received = [0u8; 5];
+    server.read_exact(&mut received).await.unwrap();
+    assert_eq!(&received, b"hello");
+}
+
+#[tokio::test]
+async fn the_sniffer_never_stores_more_than_a_bounded_amount_without_a_newline() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let (client, mut server) = tokio::io::duplex(8192);
+    let seen = ServerId::default();
+    let mut sniffing = Sniffing::new(client, seen.clone());
+    server.write_all(&vec![b'a'; 4000]).await.unwrap();
+
+    let mut buffer = vec![0u8; 4000];
+    let mut total = 0;
+    while total < 4000 {
+        total += sniffing.read(&mut buffer[total..]).await.unwrap();
+    }
+
+    assert_eq!(seen.version(), None);
+    assert!(seen.len() <= 512);
+}

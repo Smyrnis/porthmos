@@ -154,3 +154,17 @@ async fn a_closed_port_is_a_connect_error() {
 
     assert_eq!(kind, ErrorKind::Connect);
 }
+
+#[tokio::test]
+async fn the_filesystem_reports_the_endpoint_it_reached() {
+    let server = support::start(Options::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+
+    let fs = s3(&dir)
+        .connect(&support::target(server.port, None, Some(SECRET)), &mut support::answers(vec![]))
+        .await
+        .unwrap();
+
+    let info = fs.server_info().expect("an endpoint is always known");
+    assert!(info.starts_with("127.0.0.1"), "{info}");
+}

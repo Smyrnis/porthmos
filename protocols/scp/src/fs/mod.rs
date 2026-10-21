@@ -194,6 +194,10 @@ impl ScpFs {
 
 #[async_trait]
 impl FileSystem for ScpFs {
+    fn server_info(&self) -> Option<String> {
+        self.session.server_version()
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         Ok(self
             .read_dir(dir)

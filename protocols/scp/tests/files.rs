@@ -227,3 +227,13 @@ async fn set_modified_on_a_dangling_link_is_not_found_and_creates_nothing() {
     assert_eq!(error.kind(), ErrorKind::NotFound);
     assert!(!at(&server, "target").exists());
 }
+
+#[tokio::test]
+async fn the_filesystem_reports_the_servers_version_as_its_identity() {
+    let (_server, fs) = open().await;
+
+    let info = fs.server_info().expect("the test server announces itself");
+
+    assert!(info.starts_with("russh_"), "{info}");
+    assert!(info.chars().count() <= 40);
+}

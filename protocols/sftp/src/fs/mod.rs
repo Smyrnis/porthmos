@@ -98,6 +98,10 @@ fn remove_dir_recursive<'a>(sftp: &'a SftpSession, path: &'a str) -> BoxFuture<'
 
 #[async_trait]
 impl FileSystem for SftpFs {
+    fn server_info(&self) -> Option<String> {
+        self.session.server_version()
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         let path = remote(dir);
         let mut entries = Vec::new();

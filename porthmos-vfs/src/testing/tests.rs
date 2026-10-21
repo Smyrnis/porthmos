@@ -333,3 +333,143 @@ fn a_fake_supports_times_by_default_with_a_two_second_resolution() {
     assert_eq!(fs.time_resolution(), 2);
     assert_eq!(FakeFs::new().with_time_resolution(60).time_resolution(), 60);
 }
+
+#[tokio::test]
+async fn a_filesystem_has_no_server_info_by_default() {
+    struct Plain;
+    #[async_trait::async_trait]
+    impl FileSystem for Plain {
+        async fn list(&self, _: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+            Ok(Vec::new())
+        }
+
+        async fn read_dir(&self, _: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+            Ok(Vec::new())
+        }
+
+        async fn stat(&self, _: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+            Err(crate::ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("none")))
+        }
+
+        async fn create_dir(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn rename(&self, _: &Path, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn remove_file(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn delete(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
+            Ok("/".into())
+        }
+
+        async fn open_read(&self, _: &Path, _: u64) -> Result<crate::Reader, crate::ProtocolError> {
+            Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("none")))
+        }
+
+        async fn open_write(&self, _: &Path, _: u64) -> Result<crate::Writer, crate::ProtocolError> {
+            Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("none")))
+        }
+    }
+
+    assert_eq!(Plain.server_info(), None);
+}
+
+#[test]
+fn the_fake_filesystem_returns_the_configured_server_info() {
+    let fs = FakeFs::new();
+    assert_eq!(fs.server_info(), None);
+
+    fs.with_server_info("OpenSSH_9.6");
+
+    assert_eq!(fs.server_info().as_deref(), Some("OpenSSH_9.6"));
+    assert_eq!(fs.clone().server_info().as_deref(), Some("OpenSSH_9.6"));
+}
+
+#[test]
+fn the_hook_is_object_safe_through_arc_dyn_filesystem() {
+    let fs = FakeFs::new();
+    fs.with_server_info("vsFTPd 3.0");
+    let shared: std::sync::Arc<dyn FileSystem> = std::sync::Arc::new(fs);
+
+    assert_eq!(shared.server_info().as_deref(), Some("vsFTPd 3.0"));
+}
+
+#[tokio::test]
+async fn a_denied_stat_is_a_permission_error_and_a_hanging_one_never_returns() {
+    let fs = FakeFs::new();
+    fs.dir("/a").dir("/b").denying_stat("/a").hanging_stat("/b");
+
+    assert_eq!(fs.stat(Path::new("/a")).await.unwrap_err().kind(), ErrorKind::PermissionDenied);
+    let hung = tokio::time::timeout(std::time::Duration::from_millis(20), fs.stat(Path::new("/b"))).await;
+    assert!(hung.is_err());
+}
+
+#[test]
+fn handles_count_the_live_clones_of_the_filesystem() {
+    let fs = FakeFs::new();
+    let before = fs.handles();
+    let clone = fs.clone();
+    assert_eq!(fs.handles(), before + 1);
+    drop(clone);
+    assert_eq!(fs.handles(), before);
+}
+
+#[tokio::test]
+async fn a_declined_trust_question_cancels_the_fake_connect() {
+    struct Declining(Vec<Question>);
+    #[async_trait::async_trait]
+    impl Prompter for Declining {
+        async fn ask(&mut self, question: Question) -> Option<Answer> {
+            self.0.push(question);
+            None
+        }
+    }
+    let target = Target {
+        name: "t".into(),
+        host: "h".into(),
+        port: 22,
+        username: "u".into(),
+        password: None,
+        options: Default::default(),
+    };
+    let mut prompter = Declining(Vec::new());
+
+    let host_key = FakeProtocol::new(FakeFs::new()).asking_to_trust_host_key("ssh-ed25519", "SHA256:abc");
+    assert_eq!(host_key.connect(&target, &mut prompter).await.err().unwrap().kind(), ErrorKind::Cancelled);
+    let certificate = FakeProtocol::new(FakeFs::new()).asking_to_trust_certificate("AA:BB", "CN=x");
+    assert_eq!(certificate.connect(&target, &mut prompter).await.err().unwrap().kind(), ErrorKind::Cancelled);
+
+    assert!(matches!(prompter.0[0], Question::TrustHostKey { .. }));
+    assert!(matches!(prompter.0[1], Question::TrustCertificate { .. }));
+}
+
+#[tokio::test]
+async fn failing_with_uses_the_given_kind() {
+    let protocol = FakeProtocol::new(FakeFs::new()).failing_with(ErrorKind::AuthRejected, "no");
+    let target = Target {
+        name: "t".into(),
+        host: "h".into(),
+        port: 22,
+        username: "u".into(),
+        password: None,
+        options: Default::default(),
+    };
+    struct Never;
+    #[async_trait::async_trait]
+    impl Prompter for Never {
+        async fn ask(&mut self, _: Question) -> Option<Answer> {
+            None
+        }
+    }
+
+    assert_eq!(protocol.connect(&target, &mut Never).await.err().unwrap().kind(), ErrorKind::AuthRejected);
+}

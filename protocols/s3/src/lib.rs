@@ -159,7 +159,8 @@ impl Protocol for S3 {
             }
             return Err(probe_failure(&error, status, location, &settings));
         }
-        Ok(Arc::new(S3Fs::new(Arc::new(client), settings.bucket.clone())))
+        let info = settings.identity(&client.region());
+        Ok(Arc::new(S3Fs::new(Arc::new(client), settings.bucket.clone(), info)))
     }
 }
 
