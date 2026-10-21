@@ -7,6 +7,7 @@ mod profiles;
 mod search;
 mod secrets;
 mod sync;
+mod test_connection;
 mod transfer;
 
 use std::fmt::Display;

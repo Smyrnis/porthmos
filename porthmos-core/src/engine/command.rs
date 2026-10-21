@@ -22,6 +22,8 @@ pub enum Location {
 pub enum Command {
     Connect { profile: String },
     Disconnect { session: SessionId },
+    TestConnection { test_id: u64, original: Option<String>, draft: Box<ProfileDraft> },
+    CancelTest,
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
     PrepareShell { session: SessionId },
     List { location: Location, path: Option<PathBuf> },

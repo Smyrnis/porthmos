@@ -10,6 +10,7 @@ use crate::{
     history::HistoryEntry,
     profiles::ConnectionEntry,
     sync::SyncPlan,
+    test_connection::TestOutcome,
     transfer::{TransferSnapshot, conflicts::ConflictInfo},
 };
 
@@ -21,6 +22,8 @@ pub enum Event {
     SessionCapabilities { session: SessionId, preserves_times: bool },
     ConnectFailed { name: String, message: String },
     Question { request_id: RequestId, question: Question },
+    TestQuestion { test_id: u64, request_id: RequestId, question: Question },
+    TestFinished { test_id: u64, outcome: TestOutcome },
     Disconnected { session: SessionId, name: String },
     ShellReady { session: SessionId, invocation: ShellInvocation },
     Listed { location: Location, path: PathBuf, entries: Vec<Entry> },

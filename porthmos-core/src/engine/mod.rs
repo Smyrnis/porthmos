@@ -290,6 +290,8 @@ impl Engine {
         match command {
             Command::Connect { profile } => self.connect(&profile),
             Command::Disconnect { session } => self.disconnect(session),
+            Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
+            Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session } => self.prepare_shell(session),
             Command::List { location, path } => self.list(location, path),

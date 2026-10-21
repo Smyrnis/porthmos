@@ -16,6 +16,7 @@ pub mod secrets;
 pub mod state;
 pub mod sync;
 pub mod tasks;
+mod test_connection;
 pub mod transfer;
 
 use std::{path::PathBuf, sync::Arc};
@@ -30,6 +31,7 @@ pub use porthmos_vfs::{
     ShellInvocation, Target, glob_match, path_to_remote_string,
 };
 pub use protocol_info::ProtocolInfo;
+pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::{
