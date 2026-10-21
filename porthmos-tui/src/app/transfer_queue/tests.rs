@@ -384,3 +384,38 @@ fn a_rate_wake_up_re_observes_the_rows_so_a_stalled_transfer_reports_zero() {
 
     assert_eq!(test.app.rates.speed(kind), Some(0));
 }
+
+#[test]
+fn r_on_the_transfers_screen_retries_like_enter_and_does_not_rename() {
+    let outcome = |code: KeyCode| {
+        let mut test = app_on_transfers_screen();
+        let mut queue = TransferQueue::new();
+        add_job(&mut queue, "a", None, JobStatus::Failed("boom".to_string()));
+        show(&mut test, &queue, &[]);
+        test.sent();
+        test.app.apply_key(crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE));
+        (test.sent(), test.app.dialog.is_some(), test.app.screen)
+    };
+
+    let by_letter = outcome(KeyCode::Char('r'));
+
+    assert_eq!(by_letter, outcome(KeyCode::Enter));
+    assert!(matches!(by_letter.0.as_slice(), [Command::RetryRow { .. }]));
+    assert!(!by_letter.1);
+}
+
+#[test]
+fn x_and_c_on_the_transfers_screen_cancel_and_clear() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("photos".to_string());
+    add_job(&mut queue, "a", Some(batch), JobStatus::Queued);
+    show(&mut test, &queue, &[]);
+    test.sent();
+
+    test.type_text("x");
+    assert_eq!(test.sent(), vec![Command::CancelRow { kind: RowKind::Batch(batch) }]);
+
+    test.type_text("c");
+    assert!(test.app.dialog.is_none());
+}

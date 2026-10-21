@@ -195,16 +195,25 @@ impl App {
     }
 
     pub(super) fn connect_to_selected(&mut self) {
-        let Some(entry) = self.connections.selected_entry() else {
+        let Some(name) = self.connections.selected_entry().map(|entry| entry.name.clone()) else {
             return;
         };
+        self.connect_profile(&name);
+    }
 
-        if let Some(session) = self.sessions.by_name(&entry.name) {
-            self.sessions.activate(session.id);
-            return;
+    pub(super) fn connect_profile(&mut self, name: &str) -> bool {
+        let known =
+            self.connections.entries().iter().any(|entry| entry.name == name && !entry.source.is_orphan_labels());
+        if !known {
+            self.notifications.push(Severity::Warning, "That connection no longer exists");
+            return false;
         }
-
-        self.core.send(Command::Connect { profile: entry.name.clone() });
+        if let Some(session) = self.sessions.by_name(name).map(|session| session.id) {
+            self.sessions.activate(session);
+            return true;
+        }
+        self.core.send(Command::Connect { profile: name.to_string() });
+        true
     }
 
     pub(super) fn disconnect_selected(&mut self) {

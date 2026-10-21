@@ -27,11 +27,13 @@ impl App {
                 _ => self.open_rename_dialog(),
             },
             Action::Delete => match self.screen {
-                Screen::Connections => self.disconnect_selected(),
                 Screen::Transfers => self.cancel_selected_row(),
                 Screen::History => self.open_clear_history_dialog(),
                 _ => self.open_delete_dialog(),
             },
+            Action::Disconnect => self.disconnect_selected(),
+            Action::OpenPalette => self.open_palette(),
+            Action::JumpToSession(number) => self.jump_to_session(number),
             Action::Copy => self.start_copy(),
             Action::Edit => self.start_edit(),
             Action::CancelTransfer => self.core.send(Command::CancelAllTransfers),
@@ -66,6 +68,18 @@ impl App {
                 self.apply_screen_action(action);
             }
             Action::Noop => {}
+        }
+    }
+
+    fn jump_to_session(&mut self, number: u8) {
+        if self.screen != Screen::Files {
+            return;
+        }
+        let target = usize::from(number).checked_sub(1).and_then(|index| self.sessions.iter().nth(index));
+        if let Some(id) = target.map(|session| session.id)
+            && self.sessions.activate(id)
+        {
+            self.active_panel = ActivePanel::Remote;
         }
     }
 

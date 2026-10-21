@@ -193,14 +193,14 @@ fn cycle_session_action_advances_the_active_session() {
 }
 
 #[test]
-fn delete_on_the_connections_screen_disconnects_the_selected_session() {
+fn disconnect_on_the_connections_screen_disconnects_the_selected_session() {
     let mut test = app_in("/d");
     let session = test.connect(5, "test");
     test.app.connections.replace(vec![connection("test", ConnectionSource::Profile)]);
     test.app.connections.cursor = 0;
     test.app.screen = Screen::Connections;
 
-    test.app.apply_action(Action::Delete);
+    test.app.apply_action(Action::Disconnect);
     test.app.apply_core_event(Event::Disconnected { session, name: "test".to_string() });
 
     assert!(test.sent().contains(&Command::Disconnect { session }));
@@ -368,4 +368,207 @@ fn the_help_never_triggers_the_actions_it_lists() {
     assert!(!test.app.help_visible);
     assert!(!test.app.should_quit);
     assert_eq!(test.app.screen, Screen::Files);
+}
+
+#[test]
+fn file_operation_keys_do_nothing_outside_the_files_screen() {
+    let mut test = app_in("/d");
+
+    test.app.screen = Screen::Connections;
+    press_key(&mut test, KeyCode::Tab);
+    assert_eq!(test.app.active_panel, ActivePanel::Local);
+    press_key(&mut test, KeyCode::F(7));
+    assert!(test.app.dialog.is_none());
+
+    test.app.screen = Screen::Transfers;
+    test.sent();
+    press_key(&mut test, KeyCode::F(5));
+    press_key(&mut test, KeyCode::F(3));
+    assert!(test.sent().is_empty());
+    assert!(test.app.dialog.is_none());
+}
+
+fn letter_key(test: &mut TestApp, character: char) {
+    press_key(test, KeyCode::Char(character));
+}
+
+fn sessions_abc() -> TestApp {
+    let mut test = app_in("/d");
+    test.connect(1, "a");
+    test.connect(2, "b");
+    test.connect(3, "c");
+    test.sent();
+    test
+}
+
+#[test]
+fn digits_jump_to_the_nth_session_on_the_files_screen() {
+    let mut test = sessions_abc();
+
+    letter_key(&mut test, '2');
+    assert_eq!(test.app.sessions.active_id(), Some(2));
+    assert_eq!(test.app.active_panel, ActivePanel::Remote);
+
+    test.app.active_panel = ActivePanel::Local;
+    letter_key(&mut test, '1');
+    assert_eq!(test.app.sessions.active_id(), Some(1));
+    assert_eq!(test.app.active_panel, ActivePanel::Remote);
+    letter_key(&mut test, '3');
+    assert_eq!(test.app.sessions.active_id(), Some(3));
+}
+
+#[test]
+fn a_digit_without_that_session_does_nothing() {
+    let mut none = app_in("/d");
+    for digit in '1'..='9' {
+        letter_key(&mut none, digit);
+    }
+    assert_eq!(none.app.active_panel, ActivePanel::Local);
+    assert!(none.app.sessions.is_empty());
+
+    let mut test = sessions_abc();
+    letter_key(&mut test, '2');
+    test.app.active_panel = ActivePanel::Local;
+    for digit in '4'..='9' {
+        letter_key(&mut test, digit);
+    }
+    assert_eq!(test.app.sessions.active_id(), Some(2));
+    assert_eq!(test.app.active_panel, ActivePanel::Local);
+}
+
+#[test]
+fn nine_sessions_can_all_be_reached() {
+    let mut test = app_in("/d");
+    for session in 1..=9u64 {
+        test.connect(session, &format!("s{session}"));
+    }
+
+    for digit in 1..=9u64 {
+        letter_key(&mut test, char::from(b'0' + digit as u8));
+        assert_eq!(test.app.sessions.active_id(), Some(digit));
+    }
+}
+
+#[test]
+fn a_digit_after_a_disconnect_follows_the_tab_order() {
+    let mut test = sessions_abc();
+    test.app.apply_core_event(Event::Disconnected { session: 2, name: "b".to_string() });
+
+    letter_key(&mut test, '2');
+
+    assert_eq!(test.app.sessions.active_id(), Some(3));
+    letter_key(&mut test, '3');
+    assert_eq!(test.app.sessions.active_id(), Some(3));
+}
+
+#[test]
+fn digits_do_nothing_on_other_screens() {
+    let mut test = sessions_abc();
+    letter_key(&mut test, '3');
+    for screen in [Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync] {
+        test.app.screen = screen;
+        letter_key(&mut test, '1');
+        assert_eq!(test.app.sessions.active_id(), Some(3), "{screen:?}");
+    }
+}
+
+fn outcome(test: &mut TestApp) -> (&'static str, Vec<Command>, Option<String>, Screen) {
+    let dialog = match &test.app.dialog {
+        None => "none",
+        Some(Dialog::Confirm(_)) => "confirm",
+        Some(Dialog::TextInput(_)) => "text input",
+        Some(Dialog::List(_)) => "list",
+        Some(Dialog::Form(_)) => "form",
+        Some(Dialog::Conflict(_)) => "conflict",
+        Some(Dialog::Message(_)) => "message",
+    };
+    (dialog, test.sent(), test.notification(), test.app.screen)
+}
+
+fn with_a_local_file() -> TestApp {
+    let mut test = app_in("/d");
+    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.app.local.cursor = 1;
+    test.sent();
+    test
+}
+
+#[test]
+fn the_letters_do_what_the_function_keys_do_on_the_files_screen() {
+    let pairs =
+        [('c', KeyCode::F(5)), ('d', KeyCode::F(8)), ('n', KeyCode::F(7)), ('r', KeyCode::F(2)), ('e', KeyCode::F(3))];
+    for (letter, function) in pairs {
+        let mut by_letter = with_a_local_file();
+        let mut by_function = with_a_local_file();
+        letter_key(&mut by_letter, letter);
+        press_key(&mut by_function, function);
+        assert_eq!(outcome(&mut by_letter), outcome(&mut by_function), "{letter}");
+    }
+
+    let mut mkdir = with_a_local_file();
+    letter_key(&mut mkdir, 'n');
+    assert!(matches!(mkdir.app.dialog, Some(Dialog::TextInput(_))));
+    let mut delete = with_a_local_file();
+    letter_key(&mut delete, 'd');
+    assert!(matches!(delete.app.dialog, Some(Dialog::Confirm(_))));
+    let mut rename = with_a_local_file();
+    letter_key(&mut rename, 'r');
+    assert!(matches!(rename.app.dialog, Some(Dialog::TextInput(_))));
+}
+
+#[test]
+fn t_opens_the_transfers_screen_like_ctrl_t() {
+    let mut test = app_in("/d");
+
+    letter_key(&mut test, 't');
+
+    assert_eq!(test.app.screen, Screen::Transfers);
+}
+
+#[test]
+fn q_quits_like_f10() {
+    let mut test = app_in("/d");
+
+    letter_key(&mut test, 'q');
+
+    assert!(test.app.should_quit);
+}
+
+#[test]
+fn the_question_mark_opens_the_help_with_and_without_shift() {
+    let mut plain = app_in("/d");
+    letter_key(&mut plain, '?');
+    assert!(plain.app.help_visible);
+
+    let mut shifted = app_in("/d");
+    shifted.app.apply_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT));
+    assert!(shifted.app.help_visible);
+}
+
+#[test]
+fn j_and_k_move_the_cursor() {
+    let mut test = app_in("/d");
+    test.list_local(vec![entry(Path::new("/d"), "a", false), entry(Path::new("/d"), "b", false)]);
+    test.app.local.cursor = 0;
+
+    letter_key(&mut test, 'j');
+    assert_eq!(test.app.local.cursor, 1);
+    letter_key(&mut test, 'j');
+    assert_eq!(test.app.local.cursor, 2);
+    letter_key(&mut test, 'k');
+    assert_eq!(test.app.local.cursor, 1);
+}
+
+#[test]
+fn the_help_overlay_closes_on_any_other_key_without_acting() {
+    for character in crate::app::testing::TYPED.chars() {
+        let mut test = app_in("/d");
+        test.app.apply_action(Action::Help);
+        test.sent();
+
+        letter_key(&mut test, character);
+
+        assert!(!test.app.help_visible, "{character:?}");
+        test.assert_inert(Screen::Files);
+    }
 }

@@ -15,6 +15,7 @@ use crate::widgets::{
     frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
+    palette_view::render_palette,
     panel_view::PanelContext,
     popup::render_popup,
     session_tabs::{TabView, tabs_line},
@@ -58,6 +59,10 @@ impl App {
 
         if let Some(notification) = self.notifications.current() {
             render_toast(frame, area, notification.severity, &notification.message, &self.theme);
+        }
+
+        if let Some(palette) = &self.palette {
+            render_palette(frame, area, palette, &self.theme);
         }
 
         if let Some(dialog) = &self.dialog {
@@ -309,7 +314,7 @@ impl App {
             return vec![format!("connecting to {name}\u{2026}")];
         }
         let mut lines = vec!["not connected".to_string()];
-        if let Some(spec) = self.key_bindings.key_for(Action::OpenConnections) {
+        if let Some(spec) = self.key_bindings.key_for(input::Scope::Files, Action::OpenConnections) {
             lines.push(format!("press {} to connect", input::format_key_spec(spec)));
         }
         lines
@@ -372,7 +377,7 @@ impl App {
     }
 
     fn render_transfers(&self, frame: &mut Frame, area: Rect) {
-        let copy_key = self.key_bindings.key_for(Action::Copy).map(input::format_key_spec);
+        let copy_key = self.key_bindings.key_for(input::Scope::Files, Action::Copy).map(input::format_key_spec);
         let rows = self.transfer_rows();
         let routes: Vec<String> = rows.iter().map(|row| self.route_of(row)).collect();
         let speeds: Vec<Option<u64>> = rows.iter().map(|row| self.rates.speed(row.kind)).collect();
@@ -416,7 +421,7 @@ impl App {
         } else {
             let mut hints = hints_for(self.screen, &self.key_bindings);
             if self.screen == Screen::Connections && !self.details_pane_visible() {
-                let details = self.key_bindings.key_for(Action::ToggleSelect);
+                let details = self.key_bindings.key_for(input::Scope::Connections, Action::ToggleSelect);
                 if let Some(spec) = details {
                     let position = 1.min(hints.entries.len());
                     hints.entries.insert(position, Hint { key: input::format_key_spec(spec), label: "details" });

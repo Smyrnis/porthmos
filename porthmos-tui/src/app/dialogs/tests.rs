@@ -3,7 +3,10 @@ use std::path::Path;
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
 use super::*;
-use crate::app::testing::{TestApp, entry, test_app};
+use crate::app::{
+    Screen,
+    testing::{TYPED, TYPED_WITHOUT_ANSWERS, TestApp, entry, test_app},
+};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent { code, modifiers: KeyModifiers::NONE, kind: KeyEventKind::Press, state: KeyEventState::NONE }
@@ -127,4 +130,31 @@ fn failed_operation_sets_a_status_message() {
     });
 
     assert!(test.app.notifications.current().is_some());
+}
+
+#[test]
+fn typing_in_a_text_input_dialog_only_types() {
+    let mut test = app_with_file("a.txt");
+    test.app.apply_action(Action::Mkdir);
+    test.sent();
+
+    test.type_text(TYPED);
+
+    match &test.app.dialog {
+        Some(Dialog::TextInput(dialog)) => assert_eq!(dialog.value, TYPED),
+        _ => panic!("the dialog closed"),
+    }
+    test.assert_inert(Screen::Files);
+}
+
+#[test]
+fn a_confirm_dialog_ignores_keys_it_does_not_own() {
+    let mut test = app_with_file("a.txt");
+    test.app.apply_action(Action::Delete);
+    test.sent();
+
+    test.type_text(TYPED_WITHOUT_ANSWERS);
+
+    assert!(matches!(test.app.dialog, Some(Dialog::Confirm(_))));
+    test.assert_inert(Screen::Files);
 }

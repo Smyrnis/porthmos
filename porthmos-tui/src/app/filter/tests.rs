@@ -4,7 +4,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{Command, Location};
 
 use crate::{
-    app::testing::{entry, test_app},
+    app::{
+        Screen,
+        testing::{TYPED, entry, test_app},
+    },
     widgets::{filter_line::FilterLine, panel_view::Row},
 };
 
@@ -208,4 +211,45 @@ fn the_remote_panel_filters_too() {
     assert_eq!(panel.filter(), Some("ww"));
     assert_eq!(panel.current_entry_name(), Some("www"));
     assert_eq!(test.app.local.filter(), None);
+}
+
+#[test]
+fn typing_in_the_panel_filter_only_types() {
+    let mut test = filtered_app();
+    test.sent();
+
+    press(&mut test, KeyCode::Char('/'));
+    test.type_text(TYPED);
+
+    assert_eq!(test.app.local.filter(), Some(TYPED));
+    assert!(test.app.dialog.is_none());
+    test.assert_inert(Screen::Files);
+}
+
+#[test]
+fn typing_in_the_connections_filter_only_types() {
+    let mut test = test_app(Path::new("/d"));
+    test.app.screen = Screen::Connections;
+    test.sent();
+
+    press(&mut test, KeyCode::Char('/'));
+    test.type_text(TYPED);
+
+    assert_eq!(test.app.connections.filter(), Some(TYPED));
+    assert!(test.app.dialog.is_none());
+    test.assert_inert(Screen::Connections);
+}
+
+#[test]
+fn typing_in_the_history_filter_only_types() {
+    let mut test = test_app(Path::new("/d"));
+    test.app.screen = Screen::History;
+    test.sent();
+
+    press(&mut test, KeyCode::Char('/'));
+    test.type_text(TYPED);
+
+    assert_eq!(test.app.history.filter(), Some(TYPED));
+    assert!(test.app.dialog.is_none());
+    test.assert_inert(Screen::History);
 }

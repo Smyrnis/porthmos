@@ -198,3 +198,39 @@ fn wrap_line_with_no_room_makes_progress() {
     assert_eq!(wrap_line("abc", 0), vec!["a", "b", "c"]);
     assert_eq!(wrap_line("\u{65e5}\u{672c}", 1), vec!["\u{65e5}", "\u{672c}"]);
 }
+
+#[test]
+fn render_popup_at_uses_the_given_rectangle_clamped_to_the_screen() {
+    let theme = indexed();
+    let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    let mut inner = Rect::default();
+    let mut clamped = Rect::default();
+    terminal
+        .draw(|frame| {
+            fill(frame, &theme);
+            inner = render_popup_at(frame, frame.area(), Rect::new(5, 2, 20, 6), Some("t"), &theme);
+        })
+        .unwrap();
+    assert_eq!(inner, Rect::new(7, 3, 16, 4));
+    assert_eq!(terminal.backend().buffer()[(5, 2)].symbol(), "\u{250c}");
+    assert_eq!(cell_fg(&terminal, 0, 0), theme.line_strong);
+
+    terminal
+        .draw(|frame| clamped = render_popup_at(frame, frame.area(), Rect::new(30, 8, 50, 20), None, &theme))
+        .unwrap();
+    assert_eq!(clamped, Rect::new(32, 9, 6, 2));
+}
+
+#[test]
+fn render_popup_at_a_rectangle_outside_the_screen_or_empty_does_not_panic() {
+    let theme = indexed();
+    let mut terminal = Terminal::new(TestBackend::new(20, 6)).unwrap();
+    for popup in [Rect::new(100, 100, 5, 5), Rect::new(0, 0, 0, 0), Rect::new(19, 5, 9, 9), Rect::new(3, 3, 1, 1)] {
+        terminal
+            .draw(|frame| {
+                let inner = render_popup_at(frame, frame.area(), popup, Some("title"), &theme);
+                assert!(inner.right() <= 20 && inner.bottom() <= 6, "{popup:?} {inner:?}");
+            })
+            .unwrap();
+    }
+}

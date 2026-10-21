@@ -6,6 +6,7 @@ use super::*;
 use crate::{
     app::testing::{cell_fg, find_text},
     theme::{ColorDepth, ThemeSettings},
+    widgets::filter_line::FilterLine,
 };
 
 #[test]
@@ -765,4 +766,58 @@ fn the_placeholder_survives_tiny_areas() {
                 .unwrap();
         }
     }
+}
+
+fn listing_of(names: &[&str]) -> PanelView {
+    let entries = names
+        .iter()
+        .map(|name| Entry {
+            modified: None,
+            name: name.to_string(),
+            path: PathBuf::from(format!("/home/user/{name}")),
+            is_dir: false,
+            size: 0,
+            permissions: None,
+        })
+        .collect();
+    PanelView::from_listing(PathBuf::from("/home/user"), entries)
+}
+
+#[test]
+fn focus_name_moves_the_cursor_to_the_named_entry() {
+    let mut panel = listing_of(&["a", "b", "c"]);
+
+    assert!(panel.focus_name("c"));
+    assert_eq!(panel.current_entry_name(), Some("c"));
+    assert!(panel.focus_name("a"));
+    assert_eq!(panel.current_entry_name(), Some("a"));
+}
+
+#[test]
+fn focus_name_is_false_and_changes_nothing_for_an_unknown_name() {
+    let mut panel = listing_of(&["a", "b"]);
+    panel.cursor = 2;
+
+    assert!(!panel.focus_name("zzz"));
+    assert_eq!(panel.cursor, 2);
+}
+
+#[test]
+fn focus_name_ignores_the_parent_row() {
+    let mut panel = listing_of(&["a"]);
+    panel.cursor = 1;
+
+    assert!(!panel.focus_name(".."));
+    assert_eq!(panel.cursor, 1);
+}
+
+#[test]
+fn focus_name_with_a_filter_only_finds_visible_rows() {
+    let mut panel = listing_of(&["apple", "banana"]);
+    panel.start_filter();
+    panel.type_filter('b');
+
+    assert!(!panel.focus_name("apple"));
+    assert!(panel.focus_name("banana"));
+    assert_eq!(panel.current_entry_name(), Some("banana"));
 }

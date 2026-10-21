@@ -2,6 +2,56 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+const SESSION_NAMES: [&str; 9] = [
+    "session_1",
+    "session_2",
+    "session_3",
+    "session_4",
+    "session_5",
+    "session_6",
+    "session_7",
+    "session_8",
+    "session_9",
+];
+
+fn session_name(number: u8) -> &'static str {
+    usize::from(number).checked_sub(1).and_then(|index| SESSION_NAMES.get(index)).copied().unwrap_or("session")
+}
+
+fn session_number(name: &str) -> Option<u8> {
+    SESSION_NAMES.iter().position(|candidate| *candidate == name).map(|index| index as u8 + 1)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Scope {
+    Global,
+    Files,
+    Connections,
+    Transfers,
+    History,
+    Sync,
+}
+
+pub const SCOPES: &[Scope] =
+    &[Scope::Global, Scope::Files, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync];
+
+impl Scope {
+    pub fn name(self) -> &'static str {
+        match self {
+            Scope::Global => "global",
+            Scope::Files => "files",
+            Scope::Connections => "connections",
+            Scope::Transfers => "transfers",
+            Scope::History => "history",
+            Scope::Sync => "sync",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Scope> {
+        SCOPES.iter().copied().find(|scope| scope.name() == name)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     Quit,
@@ -20,6 +70,8 @@ pub enum Action {
     OpenConnections,
     AddConnection,
     DeleteConnection,
+    Disconnect,
+    JumpToSession(u8),
     OpenTerminal,
     ToggleHidden,
     CycleSort,
@@ -30,6 +82,7 @@ pub enum Action {
     OpenTransfers,
     OpenHistory,
     OpenSync,
+    OpenPalette,
     CycleSession,
     Help,
     Back,
@@ -55,6 +108,8 @@ impl Action {
             Action::OpenConnections => "open_connections",
             Action::AddConnection => "add_connection",
             Action::DeleteConnection => "delete_connection",
+            Action::Disconnect => "disconnect",
+            Action::JumpToSession(number) => session_name(*number),
             Action::OpenTerminal => "open_terminal",
             Action::ToggleHidden => "toggle_hidden",
             Action::CycleSort => "cycle_sort",
@@ -65,6 +120,7 @@ impl Action {
             Action::OpenTransfers => "open_transfers",
             Action::OpenHistory => "open_history",
             Action::OpenSync => "open_sync",
+            Action::OpenPalette => "open_palette",
             Action::CycleSession => "cycle_session",
             Action::Help => "help",
             Action::Back => "back",
@@ -90,6 +146,7 @@ impl Action {
             "open_connections" => Action::OpenConnections,
             "add_connection" => Action::AddConnection,
             "delete_connection" => Action::DeleteConnection,
+            "disconnect" => Action::Disconnect,
             "open_terminal" => Action::OpenTerminal,
             "toggle_hidden" => Action::ToggleHidden,
             "cycle_sort" => Action::CycleSort,
@@ -100,10 +157,11 @@ impl Action {
             "open_transfers" => Action::OpenTransfers,
             "open_history" => Action::OpenHistory,
             "open_sync" => Action::OpenSync,
+            "open_palette" => Action::OpenPalette,
             "cycle_session" => Action::CycleSession,
             "help" => Action::Help,
             "back" => Action::Back,
-            _ => return None,
+            other => return session_number(other).map(Action::JumpToSession),
         })
     }
 }
@@ -145,7 +203,7 @@ pub fn parse_key_spec(s: &str) -> Result<KeySpec, ParseKeyError> {
     }
 
     let code = parse_key_code(&remainder)?;
-    Ok(KeySpec { code, modifiers })
+    Ok(normalized(KeySpec { code, modifiers }))
 }
 
 fn parse_key_code(s: &str) -> Result<KeyCode, ParseKeyError> {
@@ -205,6 +263,7 @@ pub fn format_key_spec(spec: KeySpec) -> String {
         KeyCode::End => "End".to_string(),
         KeyCode::Backspace => "Backspace".to_string(),
         KeyCode::Delete => "Delete".to_string(),
+        KeyCode::Char(c) if spec.modifiers.is_empty() => c.to_string(),
         KeyCode::Char(c) => c.to_uppercase().to_string(),
         other => format!("{other:?}"),
     };
@@ -213,97 +272,108 @@ pub fn format_key_spec(spec: KeySpec) -> String {
     parts.join("+")
 }
 
-pub struct KeyBindings(HashMap<Action, KeySpec>);
+fn normalized(mut spec: KeySpec) -> KeySpec {
+    if matches!(spec.code, KeyCode::Char(_)) {
+        spec.modifiers.remove(KeyModifiers::SHIFT);
+    }
+    spec
+}
+
+pub struct KeyBindings(HashMap<Scope, HashMap<Action, Vec<KeySpec>>>);
+
+fn defaults_table() -> Vec<(Scope, Action, Vec<KeySpec>)> {
+    let plain = |code: KeyCode| KeySpec { code, modifiers: KeyModifiers::NONE };
+    let ctrl = |character: char| KeySpec { code: KeyCode::Char(character), modifiers: KeyModifiers::CONTROL };
+    let function = |number: u8| plain(KeyCode::F(number));
+    let letter = |character: char| plain(KeyCode::Char(character));
+    let mut table = vec![
+        (Scope::Global, Action::Quit, vec![letter('q'), function(10)]),
+        (Scope::Global, Action::Up, vec![plain(KeyCode::Up), letter('k')]),
+        (Scope::Global, Action::Down, vec![plain(KeyCode::Down), letter('j')]),
+        (Scope::Global, Action::Open, vec![plain(KeyCode::Enter)]),
+        (Scope::Global, Action::ToggleSelect, vec![plain(KeyCode::Char(' '))]),
+        (Scope::Global, Action::Back, vec![plain(KeyCode::Esc)]),
+        (Scope::Global, Action::Help, vec![letter('?'), function(1)]),
+        (Scope::Global, Action::Filter, vec![plain(KeyCode::Char('/'))]),
+        (Scope::Global, Action::OpenConnections, vec![function(9)]),
+        (Scope::Global, Action::OpenTerminal, vec![function(4)]),
+        (Scope::Global, Action::AddConnection, vec![function(6)]),
+        (Scope::Global, Action::Refresh, vec![ctrl('r')]),
+        (Scope::Global, Action::CancelTransfer, vec![ctrl('c')]),
+        (Scope::Global, Action::ToggleHidden, vec![ctrl('h')]),
+        (Scope::Global, Action::CycleSort, vec![ctrl('s')]),
+        (Scope::Global, Action::BookmarkHere, vec![ctrl('d')]),
+        (Scope::Global, Action::OpenBookmarks, vec![ctrl('b')]),
+        (Scope::Global, Action::OpenSearch, vec![ctrl('f')]),
+        (Scope::Global, Action::OpenTransfers, vec![ctrl('t')]),
+        (Scope::Global, Action::OpenHistory, vec![ctrl('y')]),
+        (Scope::Global, Action::OpenSync, vec![ctrl('u')]),
+        (Scope::Global, Action::OpenPalette, vec![ctrl('p')]),
+        (Scope::Global, Action::CycleSession, vec![ctrl('n')]),
+        (Scope::Files, Action::SwitchPanel, vec![plain(KeyCode::Tab)]),
+        (Scope::Files, Action::Rename, vec![letter('r'), function(2)]),
+        (Scope::Files, Action::Edit, vec![letter('e'), function(3)]),
+        (Scope::Files, Action::Copy, vec![letter('c'), function(5)]),
+        (Scope::Files, Action::Mkdir, vec![letter('n'), function(7)]),
+        (Scope::Files, Action::Delete, vec![letter('d'), function(8)]),
+        (Scope::Files, Action::OpenTransfers, vec![letter('t')]),
+        (Scope::Connections, Action::Rename, vec![letter('e'), function(2)]),
+        (Scope::Connections, Action::AddConnection, vec![letter('n')]),
+        (Scope::Connections, Action::Disconnect, vec![letter('x'), function(8)]),
+        (Scope::Connections, Action::DeleteConnection, vec![plain(KeyCode::Delete)]),
+        (Scope::Transfers, Action::Open, vec![letter('r')]),
+        (Scope::Transfers, Action::Delete, vec![letter('x'), function(8)]),
+        (Scope::Transfers, Action::Refresh, vec![letter('c')]),
+        (Scope::History, Action::Delete, vec![letter('c'), function(8)]),
+    ];
+    for (number, action) in (1..=9u8).zip(SESSION_ACTIONS) {
+        table.push((Scope::Files, *action, vec![letter(char::from(b'0' + number))]));
+    }
+    table
+}
+
+fn lookup_order(scope: Scope) -> impl Iterator<Item = Scope> {
+    let fallback = (scope != Scope::Global).then_some(Scope::Global);
+    std::iter::once(scope).chain(fallback)
+}
 
 impl KeyBindings {
     pub fn defaults() -> Self {
-        let mut map = HashMap::new();
-        let mut bind = |action: Action, code: KeyCode, modifiers: KeyModifiers| {
-            map.insert(action, KeySpec { code, modifiers });
-        };
-
-        bind(Action::Quit, KeyCode::F(10), KeyModifiers::NONE);
-        bind(Action::SwitchPanel, KeyCode::Tab, KeyModifiers::NONE);
-        bind(Action::Up, KeyCode::Up, KeyModifiers::NONE);
-        bind(Action::Down, KeyCode::Down, KeyModifiers::NONE);
-        bind(Action::Open, KeyCode::Enter, KeyModifiers::NONE);
-        bind(Action::ToggleSelect, KeyCode::Char(' '), KeyModifiers::NONE);
-        bind(Action::Rename, KeyCode::F(2), KeyModifiers::NONE);
-        bind(Action::Edit, KeyCode::F(3), KeyModifiers::NONE);
-        bind(Action::OpenTerminal, KeyCode::F(4), KeyModifiers::NONE);
-        bind(Action::Copy, KeyCode::F(5), KeyModifiers::NONE);
-        bind(Action::Mkdir, KeyCode::F(7), KeyModifiers::NONE);
-        bind(Action::Delete, KeyCode::F(8), KeyModifiers::NONE);
-        bind(Action::OpenConnections, KeyCode::F(9), KeyModifiers::NONE);
-        bind(Action::AddConnection, KeyCode::F(6), KeyModifiers::NONE);
-        bind(Action::DeleteConnection, KeyCode::Delete, KeyModifiers::NONE);
-        bind(Action::Back, KeyCode::Esc, KeyModifiers::NONE);
-        bind(Action::Refresh, KeyCode::Char('r'), KeyModifiers::CONTROL);
-        bind(Action::CancelTransfer, KeyCode::Char('c'), KeyModifiers::CONTROL);
-        bind(Action::ToggleHidden, KeyCode::Char('h'), KeyModifiers::CONTROL);
-        bind(Action::CycleSort, KeyCode::Char('s'), KeyModifiers::CONTROL);
-        bind(Action::BookmarkHere, KeyCode::Char('d'), KeyModifiers::CONTROL);
-        bind(Action::OpenBookmarks, KeyCode::Char('b'), KeyModifiers::CONTROL);
-        bind(Action::OpenSearch, KeyCode::Char('f'), KeyModifiers::CONTROL);
-        bind(Action::Filter, KeyCode::Char('/'), KeyModifiers::NONE);
-        bind(Action::OpenTransfers, KeyCode::Char('t'), KeyModifiers::CONTROL);
-        bind(Action::OpenHistory, KeyCode::Char('y'), KeyModifiers::CONTROL);
-        bind(Action::OpenSync, KeyCode::Char('u'), KeyModifiers::CONTROL);
-        bind(Action::CycleSession, KeyCode::Char('n'), KeyModifiers::CONTROL);
-        bind(Action::Help, KeyCode::F(1), KeyModifiers::NONE);
-
+        let mut map: HashMap<Scope, HashMap<Action, Vec<KeySpec>>> = HashMap::new();
+        for (scope, action, keys) in defaults_table() {
+            map.entry(scope).or_default().insert(action, keys);
+        }
         Self(map)
     }
 
-    pub fn from_frontend(frontend: &toml::Table) -> (Self, Vec<String>) {
-        let Some(keys) = frontend.get("keys") else {
-            return (Self::defaults(), Vec::new());
-        };
-        match keys.clone().try_into::<HashMap<String, String>>() {
-            Ok(overrides) => Self::from_overrides(&overrides),
-            Err(err) => (Self::defaults(), vec![format!("failed to parse config.toml: {err}")]),
-        }
-    }
-
-    pub fn from_overrides(overrides: &HashMap<String, String>) -> (Self, Vec<String>) {
-        let mut bindings = Self::defaults();
-        let mut warnings = Vec::new();
-
-        for (action_name, key_str) in overrides {
-            let Some(action) = Action::from_name(action_name) else {
-                warnings.push(format!("unknown key binding action \"{action_name}\""));
-                continue;
-            };
-
-            let spec = match parse_key_spec(key_str) {
-                Ok(spec) => spec,
-                Err(err) => {
-                    warnings.push(format!("invalid key \"{key_str}\" for \"{action_name}\": {err}"));
-                    continue;
-                }
-            };
-
-            if let Some((conflicting, _)) = bindings.0.iter().find(|(a, s)| **a != action && **s == spec) {
-                warnings.push(format!(
-                    "key \"{key_str}\" is already bound to \"{}\"; \"{action_name}\" now overrides it",
-                    conflicting.name()
-                ));
+    pub fn map_key(&self, scope: Scope, key: KeyEvent) -> Action {
+        let spec = normalized(KeySpec { code: key.code, modifiers: key.modifiers });
+        for domain in lookup_order(scope) {
+            let found = self
+                .0
+                .get(&domain)
+                .and_then(|actions| actions.iter().find(|(_, keys)| keys.contains(&spec)).map(|(action, _)| *action));
+            if let Some(action) = found {
+                return action;
             }
-
-            bindings.0.retain(|existing_action, existing_spec| *existing_action == action || *existing_spec != spec);
-            bindings.0.insert(action, spec);
         }
-
-        (bindings, warnings)
+        Action::Noop
     }
 
-    pub fn map_key(&self, key: KeyEvent) -> Action {
-        let spec = KeySpec { code: key.code, modifiers: key.modifiers };
-        self.0.iter().find(|(_, bound)| **bound == spec).map(|(action, _)| *action).unwrap_or(Action::Noop)
+    pub fn keys_for(&self, scope: Scope, action: Action) -> Vec<KeySpec> {
+        let mut keys: Vec<KeySpec> = Vec::new();
+        for domain in lookup_order(scope) {
+            for spec in self.0.get(&domain).and_then(|actions| actions.get(&action)).into_iter().flatten() {
+                if !keys.contains(spec) {
+                    keys.push(*spec);
+                }
+            }
+        }
+        keys
     }
 
-    pub fn key_for(&self, action: Action) -> Option<KeySpec> {
-        self.0.get(&action).copied()
+    pub fn key_for(&self, scope: Scope, action: Action) -> Option<KeySpec> {
+        self.keys_for(scope, action).first().copied()
     }
 }
 
@@ -324,6 +394,7 @@ pub const ALL_ACTIONS: &[Action] = &[
     Action::OpenConnections,
     Action::AddConnection,
     Action::DeleteConnection,
+    Action::Disconnect,
     Action::OpenTerminal,
     Action::ToggleHidden,
     Action::CycleSort,
@@ -334,10 +405,25 @@ pub const ALL_ACTIONS: &[Action] = &[
     Action::OpenTransfers,
     Action::OpenHistory,
     Action::OpenSync,
+    Action::OpenPalette,
     Action::CycleSession,
     Action::Help,
     Action::Back,
 ];
+
+pub const SESSION_ACTIONS: &[Action] = &[
+    Action::JumpToSession(1),
+    Action::JumpToSession(2),
+    Action::JumpToSession(3),
+    Action::JumpToSession(4),
+    Action::JumpToSession(5),
+    Action::JumpToSession(6),
+    Action::JumpToSession(7),
+    Action::JumpToSession(8),
+    Action::JumpToSession(9),
+];
+
+mod config;
 
 #[cfg(test)]
 mod tests;

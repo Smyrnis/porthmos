@@ -71,7 +71,7 @@ impl App {
             KeyCode::Down => line.move_cursor(1),
             _ => {
                 line.finish_filter();
-                let action = self.key_bindings.map_key(key);
+                let action = self.key_bindings.map_key(self.screen.scope(), key);
                 self.apply_action(action);
             }
         }
