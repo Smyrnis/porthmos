@@ -9,6 +9,7 @@ use crate::{
 
 const FILES: &[(Action, &str)] = &[
     (Action::Copy, "copy"),
+    (Action::Move, "move"),
     (Action::Mkdir, "mkdir"),
     (Action::Delete, "delete"),
     (Action::OpenConnections, "connections"),
@@ -138,7 +139,7 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
         (Some(up), Some(down)) => Some(format!("{up}/{down}")),
         _ => None,
     };
-    let mut global = vec![HelpRow { key: movement_key, action: "move" }];
+    let mut global = vec![HelpRow { key: movement_key, action: "move cursor" }];
     global.extend(
         ALL_ACTIONS
             .iter()

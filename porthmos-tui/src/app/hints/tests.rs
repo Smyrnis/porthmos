@@ -30,6 +30,7 @@ fn files_hints_use_the_default_keys_in_order() {
         keys_and_labels(&hints),
         vec![
             pair("c", "copy"),
+            pair("m", "move"),
             pair("n", "mkdir"),
             pair("d", "delete"),
             pair("F9", "connections"),
@@ -63,7 +64,7 @@ fn an_unbound_action_is_omitted_without_leaving_a_gap() {
 
     let labels: Vec<&str> = hints.entries.iter().map(|hint| hint.label).collect();
     assert!(!labels.contains(&"copy"));
-    assert_eq!(hints.entries.len(), 9);
+    assert_eq!(hints.entries.len(), 10);
 }
 
 #[test]
@@ -162,6 +163,7 @@ fn screen_sections_use_the_hint_labels_and_the_live_keys() {
 
     let files = rows_of(section(&sections, "files"));
     assert!(files.contains(&(Some("c / F5"), "copy")));
+    assert!(files.contains(&(Some("m / F6"), "move")));
     assert!(files.contains(&(Some("q / F10"), "quit")));
     let connections = rows_of(section(&sections, "connections"));
     assert_eq!(
@@ -201,7 +203,7 @@ fn global_lists_the_remaining_actions_by_their_config_names_and_one_movement_row
     assert!(global.contains(&(Some("Ctrl+U"), "open_sync")));
     assert!(global.contains(&(Some("Ctrl+P"), "open_palette")));
     assert!(global.contains(&(Some("? / F1"), "help")));
-    assert!(global.contains(&(Some("Up/Down"), "move")));
+    assert!(global.contains(&(Some("Up/Down"), "move cursor")));
     assert!(!global.iter().any(|(_, action)| *action == "up" || *action == "down"));
     assert!(!global.iter().any(|(_, action)| *action == "copy"));
 }

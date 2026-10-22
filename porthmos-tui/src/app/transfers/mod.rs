@@ -1,18 +1,36 @@
+use porthmos_core::Entry;
+
 use super::*;
 
 impl App {
     pub(super) fn start_copy(&mut self) {
+        self.start_transfer(false);
+    }
+
+    pub(super) fn start_move(&mut self) {
+        self.start_transfer(true);
+    }
+
+    fn start_transfer(&mut self, moving: bool) {
         if self.screen != Screen::Files {
             return;
         }
 
         match self.active_panel {
-            ActivePanel::Local => self.copy_to_remote(),
-            ActivePanel::Remote => self.copy_to_local(),
+            ActivePanel::Local => self.send_to_remote(moving),
+            ActivePanel::Remote => self.send_to_local(moving),
         }
     }
 
-    fn copy_to_remote(&mut self) {
+    fn transfer_command(moving: bool, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf) -> Command {
+        if moving {
+            Command::Move { from, entries, to, dest_dir }
+        } else {
+            Command::Copy { from, entries, to, dest_dir }
+        }
+    }
+
+    fn send_to_remote(&mut self, moving: bool) {
         let Some(session) = self.sessions.active() else {
             self.notifications.push(Severity::Warning, "Connect to a remote server first");
             return;
@@ -21,15 +39,16 @@ impl App {
         if entries.is_empty() {
             return;
         }
-        self.core.send(Command::Copy {
-            from: Location::Local,
+        self.core.send(Self::transfer_command(
+            moving,
+            Location::Local,
             entries,
-            to: Location::Session(session.id),
-            dest_dir: session.panel.path().to_path_buf(),
-        });
+            Location::Session(session.id),
+            session.panel.path().to_path_buf(),
+        ));
     }
 
-    fn copy_to_local(&mut self) {
+    fn send_to_local(&mut self, moving: bool) {
         let Some(session) = self.sessions.active() else {
             return;
         };
@@ -37,12 +56,13 @@ impl App {
         if entries.is_empty() {
             return;
         }
-        self.core.send(Command::Copy {
-            from: Location::Session(session.id),
+        self.core.send(Self::transfer_command(
+            moving,
+            Location::Session(session.id),
             entries,
-            to: Location::Local,
-            dest_dir: self.local.path().to_path_buf(),
-        });
+            Location::Local,
+            self.local.path().to_path_buf(),
+        ));
     }
 }
 

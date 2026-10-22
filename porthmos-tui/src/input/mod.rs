@@ -65,6 +65,7 @@ pub enum Action {
     Delete,
     Refresh,
     Copy,
+    Move,
     Edit,
     CancelTransfer,
     OpenConnections,
@@ -103,6 +104,7 @@ impl Action {
             Action::Delete => "delete",
             Action::Refresh => "refresh",
             Action::Copy => "copy",
+            Action::Move => "move",
             Action::Edit => "edit",
             Action::CancelTransfer => "cancel_transfer",
             Action::OpenConnections => "open_connections",
@@ -141,6 +143,7 @@ impl Action {
             "delete" => Action::Delete,
             "refresh" => Action::Refresh,
             "copy" => Action::Copy,
+            "move" => Action::Move,
             "edit" => Action::Edit,
             "cancel_transfer" => Action::CancelTransfer,
             "open_connections" => Action::OpenConnections,
@@ -314,6 +317,7 @@ fn defaults_table() -> Vec<(Scope, Action, Vec<KeySpec>)> {
         (Scope::Files, Action::Rename, vec![letter('r'), function(2)]),
         (Scope::Files, Action::Edit, vec![letter('e'), function(3)]),
         (Scope::Files, Action::Copy, vec![letter('c'), function(5)]),
+        (Scope::Files, Action::Move, vec![letter('m'), function(6)]),
         (Scope::Files, Action::Mkdir, vec![letter('n'), function(7)]),
         (Scope::Files, Action::Delete, vec![letter('d'), function(8)]),
         (Scope::Files, Action::OpenTransfers, vec![letter('t')]),
@@ -360,11 +364,18 @@ impl KeyBindings {
         Action::Noop
     }
 
+    fn action_in(&self, domain: Scope, spec: &KeySpec) -> Option<Action> {
+        self.0
+            .get(&domain)
+            .and_then(|actions| actions.iter().find(|(_, keys)| keys.contains(spec)).map(|(action, _)| *action))
+    }
+
     pub fn keys_for(&self, scope: Scope, action: Action) -> Vec<KeySpec> {
         let mut keys: Vec<KeySpec> = Vec::new();
         for domain in lookup_order(scope) {
             for spec in self.0.get(&domain).and_then(|actions| actions.get(&action)).into_iter().flatten() {
-                if !keys.contains(spec) {
+                let taken = domain != scope && self.action_in(scope, spec).is_some_and(|other| other != action);
+                if !taken && !keys.contains(spec) {
                     keys.push(*spec);
                 }
             }
@@ -389,6 +400,7 @@ pub const ALL_ACTIONS: &[Action] = &[
     Action::Delete,
     Action::Refresh,
     Action::Copy,
+    Action::Move,
     Action::Edit,
     Action::CancelTransfer,
     Action::OpenConnections,

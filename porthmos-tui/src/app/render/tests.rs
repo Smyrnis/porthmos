@@ -341,7 +341,7 @@ fn the_hint_bar_lists_the_actions_of_the_screen_with_their_keys() {
 
     let terminal = render_app(&app, 120, 12);
 
-    assert!(bottom_row(&terminal).contains("c copy   n mkdir"), "{:?}", bottom_row(&terminal));
+    assert!(bottom_row(&terminal).contains("c copy   m move   n mkdir"), "{:?}", bottom_row(&terminal));
     let (x, y) = find_text(&terminal, "c copy").expect("hint is drawn");
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
     assert_eq!(cell_fg(&terminal, x + 3, y), theme.fg_dim);

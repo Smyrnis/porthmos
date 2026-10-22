@@ -254,3 +254,30 @@ fn from_overrides_still_takes_a_string_map() {
     assert!(warnings.is_empty());
     assert_eq!(keys(&bindings, Scope::Global, Action::Quit), ["Ctrl+Q"]);
 }
+
+#[test]
+fn a_flat_global_key_wins_over_a_default_screen_key_and_says_so() {
+    let (bindings, warnings) = load("[keys]\nquit = \"m\"\n");
+
+    assert_eq!(warnings, [r#"key "m" is already bound to "move"; "quit" now overrides it"#]);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Char('m'))), Action::Quit);
+    assert_eq!(keys(&bindings, Scope::Files, Action::Move), ["F6"]);
+}
+
+#[test]
+fn restating_a_default_key_in_a_flat_entry_does_not_take_it_from_a_screen() {
+    let (bindings, warnings) = load("[keys]\nadd_connection = \"f6\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(6))), Action::Move);
+    assert_eq!(bindings.map_key(Scope::Connections, key(KeyCode::F(6))), Action::AddConnection);
+}
+
+#[test]
+fn a_flat_global_key_that_nothing_else_uses_displaces_nothing() {
+    let (bindings, warnings) = load("[keys]\nquit = \"f11\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(11))), Action::Quit);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Char('m'))), Action::Move);
+}

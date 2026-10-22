@@ -86,6 +86,9 @@ fn every_default_key_still_maps_to_its_action_on_the_screens_it_worked_on() {
         assert_eq!(bindings.map_key(scope, event), action, "{scope:?} {action:?}");
         if scope == Scope::Global {
             for other in SCOPES {
+                if *other == Scope::Files && event == key(KeyCode::F(6)) {
+                    continue;
+                }
                 assert_eq!(bindings.map_key(*other, event), action, "{other:?} {action:?}");
             }
         }
@@ -606,4 +609,56 @@ fn open_palette_round_trips_by_name_and_is_listed() {
     assert_eq!(Action::OpenPalette.name(), "open_palette");
     assert_eq!(Action::from_name("open_palette"), Some(Action::OpenPalette));
     assert!(ALL_ACTIONS.contains(&Action::OpenPalette));
+}
+
+#[test]
+fn move_is_m_and_f6_on_the_files_screen() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Files, letter('m')), Action::Move);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(6))), Action::Move);
+}
+
+#[test]
+fn f6_still_adds_a_connection_on_every_other_screen() {
+    let bindings = KeyBindings::defaults();
+
+    for scope in [Scope::Global, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, key(KeyCode::F(6))), Action::AddConnection, "{scope:?}");
+    }
+}
+
+#[test]
+fn m_does_nothing_outside_the_files_screen() {
+    let bindings = KeyBindings::defaults();
+
+    for scope in [Scope::Global, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, letter('m')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn move_lists_the_letter_before_the_function_key() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert_eq!(shown(Scope::Files, Action::Move), ["m", "F6"]);
+}
+
+#[test]
+fn a_global_key_taken_by_a_screen_is_not_listed_for_the_global_action_there() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert!(shown(Scope::Files, Action::AddConnection).is_empty());
+    assert_eq!(shown(Scope::Connections, Action::AddConnection), ["n", "F6"]);
+    assert_eq!(shown(Scope::Global, Action::AddConnection), ["F6"]);
+    assert_eq!(shown(Scope::Files, Action::Quit), ["q", "F10"]);
+}
+
+#[test]
+fn move_has_a_name_that_round_trips_and_is_in_the_action_list() {
+    assert_eq!(Action::Move.name(), "move");
+    assert_eq!(Action::from_name("move"), Some(Action::Move));
+    assert!(ALL_ACTIONS.contains(&Action::Move));
 }

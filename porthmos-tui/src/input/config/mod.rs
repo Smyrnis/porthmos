@@ -124,8 +124,10 @@ impl KeyBindings {
         if scopes.is_empty() && !entry.keys.is_empty() {
             scopes.push(Scope::Global);
         }
+        let previously: Vec<KeySpec> =
+            scopes.iter().filter_map(|scope| self.0.get(scope)?.get(&entry.action)).flatten().copied().collect();
         let mut displaced: Vec<(KeySpec, Action)> = Vec::new();
-        for scope in scopes {
+        for scope in scopes.iter().copied() {
             for (_, spec) in &entry.keys {
                 for domain in lookup_order(scope) {
                     if let Some(map) = self.0.get_mut(&domain) {
@@ -138,6 +140,19 @@ impl KeyBindings {
                 }
             }
             self.set_keys(scope, entry);
+        }
+        if scopes.contains(&Scope::Global) {
+            for (_, spec) in entry.keys.iter().filter(|(_, spec)| !previously.contains(spec)) {
+                for screen in SCOPES.iter().filter(|screen| **screen != Scope::Global) {
+                    if let Some(map) = self.0.get_mut(screen) {
+                        for lost in unlisted(map, *spec, entry.action) {
+                            if !displaced.contains(&(*spec, lost)) {
+                                displaced.push((*spec, lost));
+                            }
+                        }
+                    }
+                }
+            }
         }
         displaced
     }

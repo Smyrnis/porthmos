@@ -68,6 +68,7 @@ cycle_session = "ctrl+n"
 [keys.files]
 switch_panel = "tab"
 copy = ["c", "f5"]
+move = ["m", "f6"]
 mkdir = ["n", "f7"]
 delete = ["d", "f8"]
 rename = ["r", "f2"]
