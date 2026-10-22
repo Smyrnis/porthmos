@@ -37,6 +37,9 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::DeleteConnection, "Delete connection", Availability::On(Screen::Connections)),
     (Action::Filter, "Filter connections", Availability::On(Screen::Connections)),
     (Action::Refresh, "Reload connections", Availability::On(Screen::Connections)),
+    (Action::Pause, "Pause or resume the selected transfer", Availability::On(Screen::Transfers)),
+    (Action::RowUp, "Move the selected transfer earlier", Availability::On(Screen::Transfers)),
+    (Action::RowDown, "Move the selected transfer later", Availability::On(Screen::Transfers)),
     (Action::Open, "Retry the selected transfer", Availability::On(Screen::Transfers)),
     (Action::Delete, "Cancel the selected transfer", Availability::On(Screen::Transfers)),
     (Action::Refresh, "Clear finished transfers", Availability::On(Screen::Transfers)),
@@ -51,6 +54,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::OpenTransfers, "Transfers", Availability::Everywhere),
     (Action::OpenHistory, "Transfer history", Availability::Everywhere),
     (Action::CancelTransfer, "Cancel all transfers", Availability::Everywhere),
+    (Action::SpeedLimit, "Set the speed limit", Availability::Everywhere),
 ];
 
 const PAGE: isize = 5;

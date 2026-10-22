@@ -28,8 +28,15 @@ const CONNECTIONS: &[(Action, &str)] = &[
     (Action::Disconnect, "disconnect"),
 ];
 const HISTORY: &[(Action, &str)] = &[(Action::Open, "details"), (Action::Delete, "clear")];
-const TRANSFERS: &[(Action, &str)] =
-    &[(Action::Open, "retry"), (Action::Delete, "cancel"), (Action::Refresh, "clear done")];
+const TRANSFERS: &[(Action, &str)] = &[
+    (Action::Pause, "pause"),
+    (Action::RowUp, "move earlier"),
+    (Action::RowDown, "move later"),
+    (Action::Open, "retry"),
+    (Action::Delete, "cancel"),
+    (Action::Refresh, "clear done"),
+    (Action::SpeedLimit, "limit"),
+];
 const SYNC: &[(Action, &str)] = &[(Action::Open, "run"), (Action::ToggleSelect, "tick")];
 
 pub(super) fn screen_actions(screen: Screen) -> &'static [(Action, &'static str)] {
@@ -71,13 +78,26 @@ pub(super) fn search_hints() -> Hints {
     }
 }
 
+const REORDER_LABELS: [&str; 2] = ["move earlier", "move later"];
+
+fn merge_reorder(entries: Vec<Hint>) -> Vec<Hint> {
+    let (reorder, mut rest): (Vec<Hint>, Vec<Hint>) =
+        entries.into_iter().partition(|hint| REORDER_LABELS.contains(&hint.label));
+    if reorder.is_empty() {
+        return rest;
+    }
+    let key = reorder.iter().map(|hint| hint.key.as_str()).collect::<Vec<_>>().join(" ");
+    let at = rest.iter().position(|hint| hint.label == "pause").map_or(0, |index| index + 1);
+    rest.insert(at, Hint { key, label: "reorder" });
+    rest
+}
+
 pub(super) fn hints_for(screen: Screen, bindings: &KeyBindings) -> Hints {
     let scope = screen.scope();
     Hints {
-        entries: screen_actions(screen)
-            .iter()
-            .filter_map(|(action, label)| pair(bindings, scope, *action, label))
-            .collect(),
+        entries: merge_reorder(
+            screen_actions(screen).iter().filter_map(|(action, label)| pair(bindings, scope, *action, label)).collect(),
+        ),
         pinned: pair(bindings, scope, Action::Help, "help"),
         right: if screen == Screen::Files { None } else { pair(bindings, scope, Action::Back, "back") },
     }

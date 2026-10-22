@@ -129,7 +129,8 @@ pub(crate) struct Engine {
     pub(crate) shutdown_grace: Duration,
     pub(crate) upload_grace: Duration,
     pub(crate) flush_grace: Duration,
-    state_protected: bool,
+    pub(crate) state_protected: bool,
+    pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
     sessions: BTreeMap<SessionId, LiveSession>,
     next_session_id: SessionId,
@@ -148,6 +149,9 @@ pub(crate) struct Engine {
     transfers_dirty: bool,
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
+    pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
+    pub(crate) pause_stops: std::collections::HashSet<u64>,
+    pub(crate) source_removals: std::collections::HashSet<u64>,
     history: handlers::HistoryLog,
     edit: handlers::EditState,
     keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
@@ -206,6 +210,7 @@ impl Engine {
             upload_grace: EDIT_UPLOAD_GRACE,
             flush_grace: PERSIST_FLUSH_GRACE,
             state_protected: false,
+            ui_state: crate::state::UiState::default(),
             writer,
             sessions: BTreeMap::new(),
             next_session_id: 0,
@@ -224,6 +229,9 @@ impl Engine {
             transfers_dirty: false,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
+            speed_limit: crate::transfer::limit::SpeedLimit::new(),
+            pause_stops: std::collections::HashSet::new(),
+            source_removals: std::collections::HashSet::new(),
             history: handlers::HistoryLog::new(parts.history),
             edit: handlers::EditState::new(parts.edit),
             keyring_jobs: None,
@@ -309,9 +317,13 @@ impl Engine {
             Command::Delete { location, paths } => self.delete(location, paths),
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
             Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
+            Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),
             Command::ResolveConflicts { batch_id, answers } => self.resolve_conflicts(batch_id, answers),
             Command::CancelAllTransfers => self.cancel_all_copies(),
             Command::CancelRow { kind } => self.cancel_row(kind),
+            Command::PauseRow { kind } => self.pause_row(kind),
+            Command::ResumeRow { kind } => self.resume_row(kind),
+            Command::ReorderRow { kind, earlier } => self.reorder_row(kind, earlier),
             Command::RetryRow { kind } => self.retry_row(kind),
             Command::ClearFinished => self.clear_finished_rows(),
             Command::Search { location, root, pattern } => self.search(location, root, pattern),
@@ -450,7 +462,7 @@ impl Engine {
     }
 
     fn snapshot(&self) -> TransferSnapshot {
-        TransferSnapshot::of(&self.transfers, &self.scans())
+        TransferSnapshot { speed_limit: self.speed_limit.get(), ..TransferSnapshot::of(&self.transfers, &self.scans()) }
     }
 
     fn publish_transfers(&mut self) {

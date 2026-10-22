@@ -86,6 +86,7 @@ enum PendingAction {
     EditConflict { edit_id: u64 },
     QuitWhileSaving,
     StartSync { session: SessionId },
+    SpeedLimit,
 }
 
 enum Reveal {

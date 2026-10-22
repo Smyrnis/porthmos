@@ -143,6 +143,7 @@ impl App {
                     Some(PendingAction::Mkdir) => self.create_directory(&value),
                     Some(PendingAction::Rename) => self.rename_current(&value),
                     Some(PendingAction::AddBookmark) => self.add_bookmark(value),
+                    Some(PendingAction::SpeedLimit) => self.apply_speed_limit(&value),
                     Some(PendingAction::SubmitPassword { .. })
                     | Some(PendingAction::SubmitTestPassword { .. })
                     | Some(PendingAction::Delete)

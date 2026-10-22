@@ -91,9 +91,13 @@ disconnect = ["x", "f8"]
 delete_connection = "delete"
 
 [keys.transfers]
+pause = "p"
 open = "r"
 delete = ["x", "f8"]
 refresh = "c"
+speed_limit = "ctrl+l"
+row_up = "K"
+row_down = "J"
 
 [keys.history]
 delete = ["c", "f8"]

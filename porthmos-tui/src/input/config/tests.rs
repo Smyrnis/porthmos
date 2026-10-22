@@ -281,3 +281,52 @@ fn a_flat_global_key_that_nothing_else_uses_displaces_nothing() {
     assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(11))), Action::Quit);
     assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Char('m'))), Action::Move);
 }
+
+#[test]
+fn a_capital_letter_in_the_config_is_a_capital_letter_not_the_lowercase_one() {
+    let (bindings, warnings) = load("[keys.transfers]\nrow_up = \"K\"\nrow_down = \"J\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        bindings.map_key(Scope::Transfers, KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT)),
+        Action::RowUp
+    );
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('k'))), Action::Up);
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('j'))), Action::Down);
+}
+
+#[test]
+fn shift_plus_a_letter_means_the_capital_letter() {
+    let (bindings, warnings) = load("[keys.transfers]\nrow_up = \"shift+k\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        bindings.map_key(Scope::Transfers, KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT)),
+        Action::RowUp
+    );
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('k'))), Action::Up);
+}
+
+#[test]
+fn control_and_alt_combinations_ignore_the_case_of_the_letter() {
+    for text in ["ctrl+R", "ctrl+r", "CTRL+r", "alt+X", "alt+x"] {
+        let spec = parse_key_spec(text).unwrap();
+        assert!(matches!(spec.code, KeyCode::Char(c) if c.is_ascii_lowercase()), "{text}: {spec:?}");
+    }
+}
+
+#[test]
+fn a_plain_capital_keeps_its_case_and_a_plain_lowercase_stays_lowercase() {
+    assert_eq!(parse_key_spec("K").unwrap().code, KeyCode::Char('K'));
+    assert_eq!(parse_key_spec("k").unwrap().code, KeyCode::Char('k'));
+    assert_eq!(parse_key_spec("?").unwrap().code, KeyCode::Char('?'));
+}
+
+#[test]
+fn named_keys_and_function_keys_are_still_case_insensitive() {
+    assert_eq!(parse_key_spec("ENTER").unwrap().code, KeyCode::Enter);
+    assert_eq!(parse_key_spec("Tab").unwrap().code, KeyCode::Tab);
+    assert_eq!(parse_key_spec("F5").unwrap().code, KeyCode::F(5));
+    assert_eq!(parse_key_spec("f5").unwrap().code, KeyCode::F(5));
+    assert_eq!(parse_key_spec("Space").unwrap().code, KeyCode::Char(' '));
+}

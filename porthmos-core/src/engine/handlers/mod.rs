@@ -5,12 +5,16 @@ mod fs;
 mod history;
 mod last_used;
 mod moves;
+mod pause;
 mod profiles;
+mod reorder;
 mod search;
 mod secrets;
+mod speed_limit;
 mod sync;
 mod test_connection;
 mod transfer;
+mod ui_state;
 
 use std::fmt::Display;
 

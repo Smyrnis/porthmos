@@ -231,7 +231,7 @@ impl CoreBuilder {
         }
         engine.publish_bookmarks();
         engine.publish_last_used();
-        engine.publish_save_choice();
+        engine.load_ui_state();
         engine.start_keyring_probe();
         tokio::spawn(engine.run(command_receiver, internal_receiver));
         Ok((CoreHandle { commands, protocols: infos, finished }, event_receiver))

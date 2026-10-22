@@ -471,7 +471,7 @@ use std::time::Instant;
 
 use super::super::rows::{QueueRow, RowKind, RowState};
 
-fn reference_rows(queue: &TransferQueue) -> Vec<QueueRow> {
+fn reference_rows(queue: &TransferQueue, positions: &HashMap<RowKind, u64>) -> Vec<QueueRow> {
     let mut groups: Vec<Vec<&TransferJob>> = Vec::new();
     let mut batch_group: HashMap<u64, usize> = HashMap::new();
     for job in queue.jobs() {
@@ -486,6 +486,11 @@ fn reference_rows(queue: &TransferQueue) -> Vec<QueueRow> {
             None => groups.push(vec![job]),
         }
     }
+    let kind_of = |jobs: &Vec<&TransferJob>| match jobs[0].batch_id {
+        Some(batch_id) => RowKind::Batch(batch_id),
+        None => RowKind::Single(jobs[0].id),
+    };
+    groups.sort_by_key(|jobs| (positions[&kind_of(jobs)], jobs[0].id));
     groups
         .iter()
         .map(|jobs| {
@@ -501,7 +506,11 @@ fn reference_rows(queue: &TransferQueue) -> Vec<QueueRow> {
             let state = if jobs.iter().any(|job| job.status == JobStatus::InProgress) {
                 RowState::Running
             } else if jobs.iter().any(|job| job.status == JobStatus::Queued) {
-                RowState::Queued
+                if jobs.iter().filter(|job| job.status == JobStatus::Queued).all(|job| job.paused) {
+                    RowState::Paused
+                } else {
+                    RowState::Queued
+                }
             } else if completed == jobs.len() {
                 RowState::Done
             } else if failed == 0 {
@@ -520,6 +529,9 @@ fn reference_rows(queue: &TransferQueue) -> Vec<QueueRow> {
                 bytes_done: jobs.iter().map(|job| job.transferred_bytes).sum(),
                 bytes_total: jobs.iter().map(|job| job.total_bytes).sum(),
                 state,
+                paused: jobs
+                    .iter()
+                    .any(|job| job.paused && matches!(job.status, JobStatus::Queued | JobStatus::InProgress)),
                 session_id: None,
                 failure: None,
             }
@@ -548,7 +560,10 @@ fn add_job(queue: &mut TransferQueue, name: &str, batch: Option<u64>, session: u
     )
 }
 
-fn reference_startable(queue: &TransferQueue, limit: usize, session_limit: impl Fn(u64) -> Option<usize>) -> Vec<u64> {
+fn reference_startable(
+    queue: &TransferQueue, positions: &HashMap<RowKind, u64>, limit: usize,
+    session_limit: impl Fn(u64) -> Option<usize>,
+) -> Vec<u64> {
     let running = |job: &&TransferJob| job.status == JobStatus::InProgress;
     let free_slots = limit.saturating_sub(queue.jobs().filter(running).count());
     let mut busy_destinations: HashSet<Destination> =
@@ -557,8 +572,15 @@ fn reference_startable(queue: &TransferQueue, limit: usize, session_limit: impl 
     for job in queue.jobs().filter(running) {
         *per_session.entry(job.session_id).or_default() += 1;
     }
+    for job in queue.jobs().filter(|job| job.status == JobStatus::Queued && job.paused && job.resume) {
+        busy_destinations.insert(job.destination());
+    }
+    let rank = |job: &TransferJob| positions[&job.batch_id.map_or(RowKind::Single(job.id), RowKind::Batch)];
+    let mut waiting: Vec<&TransferJob> =
+        queue.jobs().filter(|job| job.status == JobStatus::Queued && !job.paused).collect();
+    waiting.sort_by_key(|job| (rank(job), job.id));
     let mut startable = Vec::new();
-    for job in queue.jobs().filter(|job| job.status == JobStatus::Queued) {
+    for job in waiting {
         if startable.len() == free_slots {
             break;
         }
@@ -590,8 +612,9 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
     let mut ids: Vec<u64> = Vec::new();
     let mut removals = 0;
     let mut previous = finished_map(&queue.rows());
+    let mut positions: HashMap<RowKind, u64> = HashMap::new();
     for step in 0..1200u64 {
-        match random.next(11) {
+        match random.next(13) {
             0 | 1 => {
                 let batch = match random.next(4) {
                     3 => None,
@@ -636,6 +659,14 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
                     queue.retry_or_give_up(id);
                 }
             }
+            10 | 11 => {
+                if let Some(id) = pick(&mut random, &ids)
+                    && let Some(mut job) = queue.get_mut(id)
+                {
+                    job.paused = random.next(2) == 0;
+                    job.resume = random.next(2) == 0;
+                }
+            }
             9 => {
                 if let Some(id) = pick(&mut random, &ids)
                     && let Some(mut job) = queue.get_mut(id)
@@ -657,9 +688,13 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
             }
         }
         let rows = queue.rows();
+        positions.retain(|kind, _| rows.iter().any(|row| row.kind == *kind));
+        for row in &rows {
+            positions.entry(row.kind).or_insert_with(|| queue.jobs_of(row.kind)[0].id);
+        }
         let without_extras: Vec<QueueRow> =
             rows.iter().map(|row| QueueRow { session_id: None, failure: None, ..row.clone() }).collect();
-        assert_eq!(without_extras, reference_rows(&queue), "rows differ after step {step}");
+        assert_eq!(without_extras, reference_rows(&queue, &positions), "rows differ after step {step}");
         for row in &rows {
             match row.state {
                 RowState::Failed | RowState::PartlyFailed(_) => {
@@ -695,7 +730,7 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
                 let expected = queue.jobs().any(|job| {
                     job.session_id == session
                         && job.direction == direction
-                        && matches!(job.status, JobStatus::Queued | JobStatus::InProgress)
+                        && (job.status == JobStatus::InProgress || job.status == JobStatus::Queued && !job.paused)
                 });
                 assert_eq!(queue.has_pending(session, direction), expected, "pending after step {step}");
             }
@@ -717,7 +752,7 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
         for limit in [1, 3, 8] {
             assert_eq!(
                 queue.startable_limited(limit, limit_of),
-                reference_startable(&queue, limit, limit_of),
+                reference_startable(&queue, &positions, limit, limit_of),
                 "startable at limit {limit} after step {step}"
             );
         }
@@ -741,7 +776,7 @@ fn removing_the_last_unfinished_job_of_a_row_finishes_it() {
 }
 
 #[test]
-fn a_row_keeps_the_order_and_label_of_its_first_remaining_job_after_a_partial_removal() {
+fn a_row_keeps_its_place_and_takes_the_label_of_its_first_remaining_job_after_a_partial_removal() {
     let mut queue = TransferQueue::new();
     let first = add_job(&mut queue, "first", Some(99), 1, Direction::Upload);
     let single = add_job(&mut queue, "single", None, 1, Direction::Upload);
@@ -750,9 +785,9 @@ fn a_row_keeps_the_order_and_label_of_its_first_remaining_job_after_a_partial_re
     queue.remove_jobs(&[first]);
 
     let rows = queue.rows();
-    assert_eq!(rows.iter().map(|row| row.kind).collect::<Vec<_>>(), vec![RowKind::Single(single), RowKind::Batch(99)]);
-    assert_eq!(rows[1].label, "second");
-    assert_eq!(rows[1].direction, Direction::Download);
+    assert_eq!(rows.iter().map(|row| row.kind).collect::<Vec<_>>(), vec![RowKind::Batch(99), RowKind::Single(single)]);
+    assert_eq!(rows[0].label, "second");
+    assert_eq!(rows[0].direction, Direction::Download);
     queue.assert_consistent();
 }
 
@@ -1156,4 +1191,653 @@ fn a_retried_failure_never_flips_a_row_to_finished() {
     queue.fail_or_retry(id, "reset".to_string());
 
     assert!(queue.take_changes().is_empty());
+}
+
+fn named_job(queue: &mut TransferQueue, name: &str) -> u64 {
+    queue.enqueue(
+        1,
+        Direction::Upload,
+        PathBuf::from(format!("/local/{name}")),
+        format!("/remote/{name}"),
+        name.to_string(),
+        10,
+        None,
+    )
+}
+
+fn pause(queue: &mut TransferQueue, id: u64) {
+    queue.get_mut(id).unwrap().paused = true;
+}
+
+fn row_state(queue: &TransferQueue, kind: RowKind) -> RowState {
+    queue.row(kind).unwrap().state
+}
+
+#[test]
+fn a_paused_job_is_never_started_and_the_next_one_takes_its_place() {
+    let mut queue = TransferQueue::new();
+    let first = named_job(&mut queue, "first");
+    let second = named_job(&mut queue, "second");
+    pause(&mut queue, first);
+
+    assert_eq!(queue.startable(4), vec![second]);
+    assert_eq!(queue.startable(1), vec![second]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn unpausing_makes_the_job_startable_again_in_its_old_place() {
+    let mut queue = TransferQueue::new();
+    let first = named_job(&mut queue, "first");
+    let second = named_job(&mut queue, "second");
+    pause(&mut queue, first);
+
+    queue.get_mut(first).unwrap().paused = false;
+
+    assert_eq!(queue.startable(4), vec![first, second]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn nothing_starts_while_every_queued_job_is_paused() {
+    let mut queue = TransferQueue::new();
+    let ids: Vec<u64> = ["a", "b", "c", "d", "e"].iter().map(|name| named_job(&mut queue, name)).collect();
+    for id in ids {
+        pause(&mut queue, id);
+    }
+
+    assert!(queue.startable(4).is_empty());
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_paused_job_of_another_session_does_not_block_the_first_job_of_this_one() {
+    let mut queue = TransferQueue::new();
+    let blocked =
+        queue.enqueue(1, Direction::Upload, PathBuf::from("/l/a"), "/r/a".to_string(), "a".to_string(), 1, None);
+    let other =
+        queue.enqueue(2, Direction::Upload, PathBuf::from("/l/b"), "/r/b".to_string(), "b".to_string(), 1, None);
+    pause(&mut queue, blocked);
+
+    assert_eq!(queue.startable(4), vec![other]);
+}
+
+#[test]
+fn a_row_whose_queued_jobs_are_all_paused_is_paused() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("b".to_string());
+    let a = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    let b = queue_with_a_batch_job(&mut queue, batch, "b", 10);
+    assert_eq!(row_state(&queue, RowKind::Batch(batch)), RowState::Queued);
+
+    pause(&mut queue, a);
+    assert_eq!(row_state(&queue, RowKind::Batch(batch)), RowState::Queued);
+
+    pause(&mut queue, b);
+    assert_eq!(row_state(&queue, RowKind::Batch(batch)), RowState::Paused);
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_row_with_a_running_job_stays_running_even_if_the_rest_is_paused() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("b".to_string());
+    let a = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    let b = queue_with_a_batch_job(&mut queue, batch, "b", 10);
+    queue.get_mut(a).unwrap().status = JobStatus::InProgress;
+    pause(&mut queue, b);
+
+    assert_eq!(row_state(&queue, RowKind::Batch(batch)), RowState::Running);
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_paused_job_that_is_then_cancelled_no_longer_counts_as_paused() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("b".to_string());
+    let a = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    pause(&mut queue, a);
+
+    queue.get_mut(a).unwrap().status = JobStatus::Cancelled;
+
+    assert_eq!(row_state(&queue, RowKind::Batch(batch)), RowState::Cancelled);
+    queue.assert_consistent();
+}
+
+#[test]
+fn retrying_a_failed_job_clears_its_pause() {
+    let mut queue = TransferQueue::new();
+    let id = queue_with_one_job(&mut queue);
+    {
+        let mut job = queue.get_mut(id).unwrap();
+        job.paused = true;
+        job.status = JobStatus::Failed("boom".to_string());
+    }
+
+    queue.retry_jobs(&[id]);
+
+    assert!(!queue.get(id).unwrap().paused);
+    assert_eq!(queue.startable(4), vec![id]);
+}
+
+#[test]
+fn a_finished_row_whose_last_job_was_paused_and_completed_is_done() {
+    let mut queue = TransferQueue::new();
+    let id = queue_with_one_job(&mut queue);
+    {
+        let mut job = queue.get_mut(id).unwrap();
+        job.paused = true;
+        job.status = JobStatus::Completed;
+    }
+
+    assert_eq!(row_state(&queue, RowKind::Single(id)), RowState::Done);
+    queue.assert_consistent();
+}
+
+#[test]
+fn pausing_and_unpausing_reports_no_finished_or_reopened_row() {
+    let mut queue = TransferQueue::new();
+    let id = queue_with_one_job(&mut queue);
+    queue.take_changes();
+
+    pause(&mut queue, id);
+    queue.get_mut(id).unwrap().paused = false;
+
+    assert!(queue.take_changes().is_empty());
+}
+
+fn row_of_files(queue: &mut TransferQueue, name: &str, session: u64, files: &[&str]) -> RowKind {
+    let batch = queue.start_batch(name.to_string());
+    for file in files {
+        queue.enqueue(
+            session,
+            Direction::Upload,
+            PathBuf::from(format!("/local/{name}/{file}")),
+            format!("/remote/{name}/{file}"),
+            file.to_string(),
+            10,
+            Some(batch),
+        );
+    }
+    RowKind::Batch(batch)
+}
+
+fn labels(queue: &TransferQueue) -> Vec<String> {
+    queue.rows().into_iter().map(|row| row.label).collect()
+}
+
+fn started_names(queue: &TransferQueue, limit: usize) -> Vec<String> {
+    queue.startable(limit).into_iter().map(|id| queue.get(id).unwrap().display_name.clone()).collect()
+}
+
+#[test]
+fn rows_start_in_the_order_they_were_added() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+    row_of_files(&mut queue, "B", 1, &["b1"]);
+    row_of_files(&mut queue, "C", 1, &["c1"]);
+
+    assert_eq!(labels(&queue), ["A", "B", "C"]);
+    assert_eq!(started_names(&queue, 3), ["a1", "b1", "c1"]);
+}
+
+#[test]
+fn moving_a_row_later_swaps_it_with_the_next_one_in_the_list_and_in_the_start_order() {
+    let mut queue = TransferQueue::new();
+    let a = row_of_files(&mut queue, "A", 1, &["a1"]);
+    row_of_files(&mut queue, "B", 1, &["b1"]);
+    row_of_files(&mut queue, "C", 1, &["c1"]);
+
+    assert!(queue.move_row(a, false));
+
+    assert_eq!(labels(&queue), ["B", "A", "C"]);
+    assert_eq!(started_names(&queue, 3), ["b1", "a1", "c1"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn moving_a_row_earlier_puts_it_before_the_previous_one() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+    row_of_files(&mut queue, "B", 1, &["b1"]);
+    let c = row_of_files(&mut queue, "C", 1, &["c1"]);
+
+    assert!(queue.move_row(c, true));
+    assert!(queue.move_row(c, true));
+
+    assert_eq!(labels(&queue), ["C", "A", "B"]);
+    assert_eq!(started_names(&queue, 1), ["c1"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn the_first_row_cannot_go_earlier_and_the_last_cannot_go_later() {
+    let mut queue = TransferQueue::new();
+    let a = row_of_files(&mut queue, "A", 1, &["a1"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1"]);
+
+    assert!(!queue.move_row(a, true));
+    assert!(!queue.move_row(b, false));
+
+    assert_eq!(labels(&queue), ["A", "B"]);
+}
+
+#[test]
+fn an_unknown_row_or_a_scan_cannot_be_moved() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+
+    assert!(!queue.move_row(RowKind::Batch(99), true));
+    assert!(!queue.move_row(RowKind::Single(99), false));
+    assert!(!queue.move_row(RowKind::Scan(1), false));
+}
+
+#[test]
+fn a_finished_row_is_skipped_when_looking_for_the_neighbour() {
+    let mut queue = TransferQueue::new();
+    let a = row_of_files(&mut queue, "A", 1, &["a1"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1"]);
+    let c = row_of_files(&mut queue, "C", 1, &["c1"]);
+    let a_job = queue.jobs_of(a)[0].id;
+    queue.get_mut(a_job).unwrap().status = JobStatus::Completed;
+
+    assert!(!queue.move_row(b, true));
+    assert!(queue.move_row(c, true));
+
+    assert_eq!(labels(&queue), ["A", "C", "B"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_running_row_may_swap_places_with_a_waiting_one_without_disturbing_it() {
+    let mut queue = TransferQueue::new();
+    let a = row_of_files(&mut queue, "A", 1, &["a1"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1"]);
+    let a_job = queue.jobs_of(a)[0].id;
+    queue.get_mut(a_job).unwrap().status = JobStatus::InProgress;
+
+    assert!(queue.move_row(b, true));
+
+    assert_eq!(labels(&queue), ["B", "A"]);
+    assert_eq!(queue.get(a_job).unwrap().status, JobStatus::InProgress);
+    assert_eq!(started_names(&queue, 4), ["b1"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_paused_row_can_be_moved_and_keeps_its_pause() {
+    let mut queue = TransferQueue::new();
+    let a = row_of_files(&mut queue, "A", 1, &["a1"]);
+    row_of_files(&mut queue, "B", 1, &["b1"]);
+    let a_job = queue.jobs_of(a)[0].id;
+    pause(&mut queue, a_job);
+
+    assert!(queue.move_row(a, false));
+
+    assert_eq!(labels(&queue), ["B", "A"]);
+    assert!(queue.get(a_job).unwrap().paused);
+    queue.assert_consistent();
+}
+
+#[test]
+fn every_waiting_job_of_a_moved_row_moves_with_it_in_order() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1", "a2"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1", "b2", "b3"]);
+
+    assert!(queue.move_row(b, true));
+
+    assert_eq!(started_names(&queue, 5), ["b1", "b2", "b3", "a1", "a2"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn the_order_is_shared_by_sessions_so_a_moved_row_starts_before_another_sessions_row() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+    row_of_files(&mut queue, "B", 2, &["b1"]);
+    let c = row_of_files(&mut queue, "C", 1, &["c1"]);
+
+    assert!(queue.move_row(c, true));
+    assert!(queue.move_row(c, true));
+
+    assert_eq!(started_names(&queue, 3), ["c1", "a1", "b1"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_file_added_to_a_moved_row_later_keeps_that_rows_place() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1"]);
+    assert!(queue.move_row(b, true));
+    let RowKind::Batch(batch) = b else { unreachable!() };
+
+    queue.enqueue(
+        1,
+        Direction::Upload,
+        PathBuf::from("/local/B/b2"),
+        "/remote/B/b2".to_string(),
+        "b2".to_string(),
+        10,
+        Some(batch),
+    );
+
+    assert_eq!(started_names(&queue, 4), ["b1", "b2", "a1"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn cancelling_removing_and_failing_after_a_move_keep_the_queue_consistent() {
+    let mut queue = TransferQueue::new();
+    let a = row_of_files(&mut queue, "A", 1, &["a1", "a2"]);
+    let b = row_of_files(&mut queue, "B", 2, &["b1"]);
+    assert!(queue.move_row(b, true));
+
+    assert_eq!(queue.fail_queued_for_session(2, "gone"), 1);
+    queue.assert_consistent();
+    let ids: Vec<u64> = queue.jobs_of(a).iter().map(|job| job.id).collect();
+    assert_eq!(queue.cancel_all_queued(), 2);
+    queue.remove_jobs(&ids);
+    queue.assert_consistent();
+    assert_eq!(queue.queued_count(), 0);
+}
+
+#[test]
+fn moving_rows_reports_no_finished_or_reopened_row() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1"]);
+    queue.take_changes();
+
+    queue.move_row(b, true);
+
+    assert!(queue.take_changes().is_empty());
+}
+
+#[test]
+fn single_file_rows_can_be_reordered_too() {
+    let mut queue = TransferQueue::new();
+    let first = named_job(&mut queue, "one");
+    let second = named_job(&mut queue, "two");
+
+    assert!(queue.move_row(RowKind::Single(second), true));
+
+    assert_eq!(started_names(&queue, 2), ["two", "one"]);
+    assert_eq!(queue.rows().first().map(|row| row.kind), Some(RowKind::Single(second)));
+    assert_eq!(queue.rows().last().map(|row| row.kind), Some(RowKind::Single(first)));
+}
+
+#[test]
+fn moving_rows_at_random_keeps_the_queue_consistent_and_starts_jobs_in_row_order() {
+    let mut queue = TransferQueue::new();
+    let mut random = Lcg(11);
+    let batches: Vec<u64> = (0..4).map(|index| queue.start_batch(format!("batch {index}"))).collect();
+    let mut ids: Vec<u64> = Vec::new();
+    let mut moves = 0;
+    for step in 0..900u64 {
+        match random.next(9) {
+            0 | 1 => {
+                let batch = match random.next(5) {
+                    4 => None,
+                    index => Some(batches[index as usize]),
+                };
+                let direction = if random.next(2) == 0 { Direction::Upload } else { Direction::Download };
+                ids.push(add_job(&mut queue, &format!("f{step}"), batch, random.next(3), direction));
+            }
+            2 => {
+                if let Some(id) = pick(&mut random, &ids)
+                    && let Some(mut job) = queue.get_mut(id)
+                {
+                    job.status = match random.next(5) {
+                        0 => JobStatus::Queued,
+                        1 => JobStatus::InProgress,
+                        2 => JobStatus::Completed,
+                        3 => JobStatus::Failed("boom".to_string()),
+                        _ => JobStatus::Cancelled,
+                    };
+                }
+            }
+            3..=5 => {
+                let rows = queue.rows();
+                if !rows.is_empty() {
+                    let row = &rows[random.next(rows.len() as u64) as usize];
+                    moves += usize::from(queue.move_row(row.kind, random.next(2) == 0));
+                }
+            }
+            6 => {
+                if let Some(id) = pick(&mut random, &ids)
+                    && let Some(mut job) = queue.get_mut(id)
+                {
+                    job.paused = random.next(2) == 0;
+                }
+            }
+            7 => {
+                let chosen: Vec<u64> = ids.iter().copied().filter(|_| random.next(5) == 0).collect();
+                queue.retry_jobs(&chosen);
+            }
+            _ => {
+                let chosen: Vec<u64> = ids.iter().copied().filter(|_| random.next(9) == 0).collect();
+                queue.remove_jobs(&chosen);
+                ids.retain(|id| queue.get(*id).is_some());
+            }
+        }
+        queue.assert_consistent();
+        let rank: HashMap<RowKind, usize> =
+            queue.rows().iter().enumerate().map(|(index, row)| (row.kind, index)).collect();
+        let kind_of = |job: &TransferJob| job.batch_id.map_or(RowKind::Single(job.id), RowKind::Batch);
+        let mut expected: Vec<&TransferJob> =
+            queue.jobs().filter(|job| job.status == JobStatus::Queued && !job.paused).collect();
+        expected.sort_by_key(|job| (rank[&kind_of(job)], job.id));
+        let running = queue.active_count();
+        let expected: Vec<u64> = expected.iter().take(1000).map(|job| job.id).collect();
+        assert_eq!(queue.startable(running + 1000), expected, "start order after step {step}");
+    }
+    assert!(moves > 50, "only {moves} moves happened");
+}
+
+fn shared_destination_job(queue: &mut TransferQueue, local: &str) -> u64 {
+    queue.enqueue(
+        1,
+        Direction::Upload,
+        PathBuf::from(format!("/local/{local}")),
+        "/remote/shared.txt".to_string(),
+        local.to_string(),
+        10,
+        None,
+    )
+}
+
+fn pause_with_partial(queue: &mut TransferQueue, id: u64) {
+    let mut job = queue.get_mut(id).unwrap();
+    job.paused = true;
+    job.resume = true;
+}
+
+#[test]
+fn a_paused_job_holding_a_partial_file_keeps_its_destination_from_other_jobs() {
+    let mut queue = TransferQueue::new();
+    let held = shared_destination_job(&mut queue, "one");
+    let other = shared_destination_job(&mut queue, "two");
+    pause_with_partial(&mut queue, held);
+
+    assert!(queue.startable(4).is_empty());
+    queue.assert_consistent();
+
+    queue.get_mut(held).unwrap().paused = false;
+    assert_eq!(queue.startable(4), vec![held]);
+    assert_ne!(held, other);
+}
+
+#[test]
+fn a_paused_job_without_a_partial_file_does_not_hold_its_destination() {
+    let mut queue = TransferQueue::new();
+    let held = shared_destination_job(&mut queue, "one");
+    let other = shared_destination_job(&mut queue, "two");
+    pause(&mut queue, held);
+
+    assert_eq!(queue.startable(4), vec![other]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn the_held_destination_is_released_when_the_paused_job_ends_in_any_way() {
+    for end in [JobStatus::Cancelled, JobStatus::Completed, JobStatus::Failed("no".to_string())] {
+        let mut queue = TransferQueue::new();
+        let held = shared_destination_job(&mut queue, "one");
+        let other = shared_destination_job(&mut queue, "two");
+        pause_with_partial(&mut queue, held);
+
+        queue.get_mut(held).unwrap().status = end;
+
+        assert_eq!(queue.startable(4), vec![other]);
+        queue.assert_consistent();
+    }
+}
+
+#[test]
+fn removing_a_paused_job_that_held_a_destination_releases_it() {
+    let mut queue = TransferQueue::new();
+    let held = shared_destination_job(&mut queue, "one");
+    let other = shared_destination_job(&mut queue, "two");
+    pause_with_partial(&mut queue, held);
+
+    queue.remove_jobs(&[held]);
+
+    assert_eq!(queue.startable(4), vec![other]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn only_paused_jobs_waiting_is_not_pending_but_a_running_paused_job_is() {
+    let mut queue = TransferQueue::new();
+    let id = named_job(&mut queue, "one");
+    assert!(queue.has_pending(1, Direction::Upload));
+
+    pause(&mut queue, id);
+    assert!(!queue.has_pending(1, Direction::Upload));
+
+    queue.get_mut(id).unwrap().status = JobStatus::InProgress;
+    assert!(queue.has_pending(1, Direction::Upload));
+
+    queue.get_mut(id).unwrap().status = JobStatus::Queued;
+    assert!(!queue.has_pending(1, Direction::Upload));
+
+    named_job(&mut queue, "two");
+    assert!(queue.has_pending(1, Direction::Upload));
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_row_reports_paused_as_soon_as_any_unfinished_job_is_paused_even_while_it_is_still_stopping() {
+    let mut queue = TransferQueue::new();
+    let batch = queue.start_batch("b".to_string());
+    let a = queue_with_a_batch_job(&mut queue, batch, "a", 10);
+    queue_with_a_batch_job(&mut queue, batch, "b", 10);
+    queue.get_mut(a).unwrap().status = JobStatus::InProgress;
+    assert!(!queue.row(RowKind::Batch(batch)).unwrap().paused);
+
+    queue.get_mut(a).unwrap().paused = true;
+    let row = queue.row(RowKind::Batch(batch)).unwrap();
+
+    assert_eq!(row.state, RowState::Running);
+    assert!(row.paused);
+    queue.assert_consistent();
+
+    queue.get_mut(a).unwrap().status = JobStatus::Completed;
+    assert!(!queue.row(RowKind::Batch(batch)).unwrap().paused);
+    queue.assert_consistent();
+}
+
+#[test]
+fn failing_a_sessions_queued_jobs_includes_the_paused_ones() {
+    let mut queue = TransferQueue::new();
+    let paused = named_job(&mut queue, "p");
+    let waiting = named_job(&mut queue, "w");
+    pause(&mut queue, paused);
+
+    assert_eq!(queue.fail_queued_for_session(1, "gone"), 2);
+
+    assert!(matches!(queue.get(paused).unwrap().status, JobStatus::Failed(_)));
+    assert!(matches!(queue.get(waiting).unwrap().status, JobStatus::Failed(_)));
+    queue.assert_consistent();
+}
+
+#[test]
+fn cancelling_every_queued_job_includes_the_paused_ones() {
+    let mut queue = TransferQueue::new();
+    let paused = named_job(&mut queue, "p");
+    named_job(&mut queue, "w");
+    pause(&mut queue, paused);
+
+    assert_eq!(queue.cancel_all_queued(), 2);
+    assert_eq!(queue.get(paused).unwrap().status, JobStatus::Cancelled);
+    queue.assert_consistent();
+}
+
+#[test]
+fn a_manual_retry_resumes_a_job_that_had_written_something_even_with_no_failed_attempt() {
+    let mut queue = TransferQueue::new();
+    let id = named_job(&mut queue, "one");
+    {
+        let mut job = queue.get_mut(id).unwrap();
+        job.status = JobStatus::Cancelled;
+        job.attempts = 0;
+        job.transferred_bytes = 5;
+    }
+
+    queue.retry_jobs(&[id]);
+
+    assert!(queue.get(id).unwrap().resume);
+}
+
+#[test]
+fn a_manual_retry_of_a_job_that_wrote_nothing_does_not_resume() {
+    let mut queue = TransferQueue::new();
+    let id = named_job(&mut queue, "one");
+    queue.get_mut(id).unwrap().status = JobStatus::Cancelled;
+
+    queue.retry_jobs(&[id]);
+
+    assert!(!queue.get(id).unwrap().resume);
+}
+
+#[test]
+fn a_row_keeps_its_place_when_its_first_job_is_removed_even_if_it_sits_at_its_own_key_again() {
+    let mut queue = TransferQueue::new();
+    row_of_files(&mut queue, "A", 1, &["a1"]);
+    let b = row_of_files(&mut queue, "B", 1, &["b1"]);
+    let c = row_of_files(&mut queue, "C", 1, &["c1"]);
+    let RowKind::Batch(b_batch) = b else { unreachable!() };
+    queue.enqueue(
+        1,
+        Direction::Upload,
+        PathBuf::from("/local/B/b2"),
+        "/remote/B/b2".to_string(),
+        "b2".to_string(),
+        10,
+        Some(b_batch),
+    );
+    assert!(queue.move_row(c, true));
+    assert!(queue.move_row(c, true));
+    assert!(queue.move_row(b, true));
+    assert_eq!(labels(&queue), ["C", "B", "A"]);
+    let first_of_b = queue.jobs_of(b)[0].id;
+
+    queue.remove_jobs(&[first_of_b]);
+
+    assert_eq!(labels(&queue), ["C", "B", "A"]);
+    assert_eq!(started_names(&queue, 4), ["c1", "b2", "a1"]);
+    queue.assert_consistent();
+}
+
+#[test]
+fn rows_never_share_a_position() {
+    let mut queue = TransferQueue::new();
+    let kinds: Vec<RowKind> =
+        ["A", "B", "C", "D"].iter().map(|name| row_of_files(&mut queue, name, 1, &["f", "g"])).collect();
+    for step in 0..40 {
+        queue.move_row(kinds[step % 4], step % 3 == 0);
+        queue.assert_consistent();
+    }
 }

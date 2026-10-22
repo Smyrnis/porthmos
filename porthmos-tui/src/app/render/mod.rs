@@ -21,7 +21,7 @@ use crate::widgets::{
     session_tabs::{TabView, tabs_line},
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
-    transfer_line::{line_data, render_transfer_line},
+    transfer_line::{line_data, paused_summary, render_transfer_line},
 };
 
 const DETAILS_POPUP_WIDTH: u16 = 60;
@@ -211,7 +211,11 @@ impl App {
             return Line::styled(truncate_with_ellipsis(&self.history.summary(), budget), self.theme.muted());
         }
         if self.screen == Screen::Transfers {
-            let summary = transfer_list::transfer_summary(self.transfer_rows(), self.rates.aggregate_speed());
+            let summary = transfer_list::transfer_summary(
+                self.transfer_rows(),
+                self.rates.aggregate_speed(),
+                self.transfers.speed_limit,
+            );
             return Line::styled(truncate_with_ellipsis(&summary, budget), self.theme.muted());
         }
         let (text, style) = match &self.connection_status {
@@ -230,7 +234,8 @@ impl App {
     fn render_files(&self, frame: &mut Frame, area: Rect) {
         let mode = layout::files_mode(area.width);
         let line = line_data(&self.transfers.rows, &self.session_names, &self.rates);
-        let layout = layout::files_layout(area, mode, line.is_some());
+        let paused_only = line.is_none().then(|| paused_summary(&self.transfers.rows)).flatten();
+        let layout = layout::files_layout(area, mode, line.is_some() || paused_only.is_some());
         let (single, show_modified) = match mode {
             layout::FilesMode::TwoPanels => (false, true),
             layout::FilesMode::SinglePanel { show_modified } => (true, show_modified),
@@ -296,6 +301,9 @@ impl App {
         render_info_line(frame, layout.info, focused, &now, theme);
         if let Some(data) = &line {
             render_transfer_line(frame, layout.transfer, data, theme);
+        } else if let Some(text) = &paused_only {
+            let text = truncate_with_ellipsis(text, usize::from(layout.transfer.width));
+            frame.render_widget(Paragraph::new(Span::styled(text, theme.muted())), layout.transfer);
         }
     }
 

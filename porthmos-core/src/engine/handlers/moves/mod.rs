@@ -171,6 +171,7 @@ impl Engine {
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
             return self.source_removal_failed(id, "the session disconnected".to_string());
         };
+        self.source_removals.insert(id);
         let internal = self.internal.clone();
         self.tasks.spawn("remove-source", Scope::Transfer(id), move |cancel| async move {
             let event = if cancel.load(Ordering::Relaxed) {
@@ -189,14 +190,21 @@ impl Engine {
 
     pub(crate) fn source_removed(&mut self, id: u64) {
         self.tasks.forget(Scope::Transfer(id));
+        self.source_removals.remove(&id);
+        self.pause_stops.remove(&id);
         if let Some(mut job) = self.transfers.get_mut(id) {
             job.status = JobStatus::Completed;
+            job.paused = false;
         }
         self.moved_job_settled(id);
     }
 
     pub(crate) fn source_removal_cancelled(&mut self, id: u64) {
         self.tasks.forget(Scope::Transfer(id));
+        self.source_removals.remove(&id);
+        if self.requeue_stopped(id) {
+            return;
+        }
         if let Some(mut job) = self.transfers.get_mut(id) {
             job.status = JobStatus::Cancelled;
         }
@@ -205,9 +213,12 @@ impl Engine {
 
     pub(crate) fn source_removal_failed(&mut self, id: u64, message: String) {
         self.tasks.forget(Scope::Transfer(id));
+        self.source_removals.remove(&id);
+        self.pause_stops.remove(&id);
         let Some(mut job) = self.transfers.get_mut(id) else {
             return;
         };
+        job.paused = false;
         let name = job.display_name.clone();
         job.status = JobStatus::Failed(format!("copied, but the original couldn't be removed: {message}"));
         drop(job);

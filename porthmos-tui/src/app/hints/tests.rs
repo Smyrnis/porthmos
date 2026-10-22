@@ -124,7 +124,14 @@ fn search_has_only_the_pinned_help_and_back() {
 fn transfers_list_retry_cancel_and_clear_done() {
     assert_eq!(
         keys_and_labels(&hints_for(Screen::Transfers, &KeyBindings::defaults())),
-        vec![pair("r", "retry"), pair("x", "cancel"), pair("c", "clear done")]
+        vec![
+            pair("p", "pause"),
+            pair("K J", "reorder"),
+            pair("r", "retry"),
+            pair("x", "cancel"),
+            pair("c", "clear done"),
+            pair("Ctrl+L", "limit")
+        ]
     );
 }
 
@@ -348,4 +355,41 @@ fn the_form_hint_bar_lists_ctrl_t_test() {
 
     assert!(keys_and_labels(&hints).contains(&pair("ctrl+t", "test")));
     assert!(keys_and_labels(&hints).contains(&pair("ctrl+s", "save")));
+}
+
+#[test]
+fn the_transfers_hints_offer_the_speed_limit_with_its_key() {
+    let hints = hints_for(Screen::Transfers, &KeyBindings::defaults());
+
+    assert!(keys_and_labels(&hints).contains(&pair("Ctrl+L", "limit")));
+}
+
+#[test]
+fn the_help_lists_the_speed_limit_on_the_transfers_section() {
+    let sections = help_sections(&KeyBindings::defaults());
+
+    assert!(rows_of(section(&sections, "transfers")).contains(&(Some("Ctrl+L"), "limit")));
+}
+
+#[test]
+fn the_help_lists_both_reorder_keys_on_the_transfers_section() {
+    let sections = help_sections(&KeyBindings::defaults());
+    let rows = rows_of(section(&sections, "transfers"));
+
+    assert!(rows.contains(&(Some("K"), "move earlier")));
+    assert!(rows.contains(&(Some("J"), "move later")));
+}
+
+#[test]
+fn an_unbound_reorder_key_leaves_the_other_one_alone_in_the_hint() {
+    let hints = hints_for(Screen::Transfers, &configured("[keys.transfers]\nrow_down = []\n"));
+
+    assert!(keys_and_labels(&hints).contains(&pair("K", "reorder")));
+}
+
+#[test]
+fn both_reorder_keys_unbound_leave_no_reorder_hint() {
+    let hints = hints_for(Screen::Transfers, &configured("[keys.transfers]\nrow_up = []\nrow_down = []\n"));
+
+    assert!(keys_and_labels(&hints).iter().all(|(_, label)| *label != "reorder"));
 }

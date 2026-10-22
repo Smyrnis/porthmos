@@ -203,6 +203,10 @@ impl Theme {
         Style::default().fg(self.idle)
     }
 
+    pub fn paused_text(&self) -> Style {
+        Style::default().fg(self.paused)
+    }
+
     pub fn ok_dim_text(&self) -> Style {
         Style::default().fg(self.ok_dim)
     }

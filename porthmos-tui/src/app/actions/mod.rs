@@ -36,6 +36,7 @@ impl App {
             Action::JumpToSession(number) => self.jump_to_session(number),
             Action::Copy => self.start_copy(),
             Action::Move => self.start_move(),
+            Action::SpeedLimit => self.open_speed_limit_dialog(),
             Action::Edit => self.start_edit(),
             Action::CancelTransfer => self.core.send(Command::CancelAllTransfers),
             Action::OpenConnections => self.open_connections_screen(),
@@ -63,6 +64,9 @@ impl App {
             | Action::Down
             | Action::ToggleSelect
             | Action::Open
+            | Action::Pause
+            | Action::RowUp
+            | Action::RowDown
             | Action::Refresh
             | Action::ToggleHidden
             | Action::CycleSort => {

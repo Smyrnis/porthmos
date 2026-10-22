@@ -1,13 +1,19 @@
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 
 use porthmos_vfs::{FileSystem, PART_SUFFIX, ProtocolError};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    time::Instant,
+};
 
-const CHUNK_SIZE: usize = 256 * 1024;
+use super::limit::{MAX_CHUNK, SpeedLimit};
+
 const PROGRESS_STEP_BYTES: u64 = 64 * 1024;
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
 const CLOCK_SKEW_TOLERANCE_SECS: u64 = 120;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -25,15 +31,26 @@ pub async fn execute(
     source: &dyn FileSystem, source_path: &Path, destination: &dyn FileSystem, destination_path: &Path,
     cancel: &AtomicBool, resume: bool, on_progress: impl FnMut(u64) + Send,
 ) -> Result<TransferOutcome, ProtocolError> {
-    execute_preserving(source, source_path, destination, destination_path, cancel, resume, None, on_progress)
-        .await
-        .map(|executed| executed.outcome)
+    execute_preserving(
+        source,
+        source_path,
+        destination,
+        destination_path,
+        cancel,
+        resume,
+        None,
+        &SpeedLimit::new(),
+        on_progress,
+    )
+    .await
+    .map(|executed| executed.outcome)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_preserving(
     source: &dyn FileSystem, source_path: &Path, destination: &dyn FileSystem, destination_path: &Path,
-    cancel: &AtomicBool, resume: bool, keep_modified: Option<u64>, on_progress: impl FnMut(u64) + Send,
+    cancel: &AtomicBool, resume: bool, keep_modified: Option<u64>, limit: &SpeedLimit,
+    on_progress: impl FnMut(u64) + Send,
 ) -> Result<Executed, ProtocolError> {
     let source_metadata = source.stat(source_path).await?;
     let part = part_path(destination_path);
@@ -54,7 +71,7 @@ pub async fn execute_preserving(
     };
     let mut writer = destination.open_write_sized(&part, offset, source_metadata.size).await?;
     let mut reader = source.open_read(source_path, writer.offset).await?;
-    let result = copy_with_progress(&mut reader, &mut writer.stream, writer.offset, cancel, on_progress).await;
+    let result = copy_with_progress(&mut reader, &mut writer.stream, writer.offset, cancel, limit, on_progress).await;
     let shutdown = writer.stream.shutdown().await;
     let result = match (result, shutdown) {
         (Ok(TransferOutcome::Completed), Err(err)) => Err(ProtocolError::from(err)),
@@ -83,34 +100,41 @@ pub(crate) fn resume_offset(
 }
 
 async fn copy_with_progress<R, W>(
-    source: &mut R, destination: &mut W, start: u64, cancel: &AtomicBool, mut on_progress: impl FnMut(u64),
+    source: &mut R, destination: &mut W, start: u64, cancel: &AtomicBool, limit: &SpeedLimit,
+    mut on_progress: impl FnMut(u64),
 ) -> Result<TransferOutcome, ProtocolError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut buf = vec![0u8; CHUNK_SIZE];
+    let mut buf = vec![0u8; MAX_CHUNK];
     let mut transferred: u64 = start;
     let mut since_last_report: u64 = 0;
     on_progress(start);
+    let mut reported_at = Instant::now();
 
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Ok(TransferOutcome::Cancelled);
         }
 
-        let bytes_read = source.read(&mut buf).await?;
+        let chunk = limit.chunk_cap().min(buf.len());
+        let bytes_read = source.read(&mut buf[..chunk]).await?;
         if bytes_read == 0 {
             break;
+        }
+        if !limit.throttle(bytes_read as u64, cancel).await {
+            return Ok(TransferOutcome::Cancelled);
         }
 
         destination.write_all(&buf[..bytes_read]).await?;
         transferred += bytes_read as u64;
         since_last_report += bytes_read as u64;
 
-        if since_last_report >= PROGRESS_STEP_BYTES {
+        if since_last_report >= PROGRESS_STEP_BYTES || reported_at.elapsed() >= PROGRESS_INTERVAL {
             on_progress(transferred);
             since_last_report = 0;
+            reported_at = Instant::now();
         }
     }
 

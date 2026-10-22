@@ -66,7 +66,7 @@ fn history_result(state: RowState) -> HistoryResult {
         RowState::PartlyFailed(failed) => HistoryResult::PartlyFailed { failed },
         RowState::Failed => HistoryResult::Failed,
         RowState::Cancelled => HistoryResult::Cancelled,
-        RowState::Scanning | RowState::AwaitingAnswer | RowState::Running | RowState::Queued => {
+        RowState::Scanning | RowState::AwaitingAnswer | RowState::Running | RowState::Queued | RowState::Paused => {
             HistoryResult::Interrupted
         }
     }

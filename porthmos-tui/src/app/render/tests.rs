@@ -1020,7 +1020,11 @@ fn the_hint_bar_lists_retry_cancel_and_clear_done_on_the_transfers_screen() {
 
     let terminal = render_app(&app, 120, 24);
 
-    assert!(bottom_row(&terminal).contains("r retry   x cancel   c clear done"), "{:?}", bottom_row(&terminal));
+    assert!(
+        bottom_row(&terminal).contains("p pause   K J reorder   r retry   x cancel   c clear done"),
+        "{:?}",
+        bottom_row(&terminal)
+    );
 }
 
 #[test]
@@ -1572,4 +1576,26 @@ fn the_search_screen_shows_its_hints_in_the_hint_bar_at_120x24() {
     assert!(hint_row.trim_end().ends_with("esc close"), "{hint_row:?}");
     assert!(find_text(&terminal, "/ type").is_none());
     assert!(find_text(&terminal, "type to search").is_some());
+}
+
+#[test]
+fn the_files_screen_reminds_you_of_paused_transfers_when_nothing_else_is_running() {
+    let mut app = themed_app().0;
+    let mut queue = porthmos_core::transfer::TransferQueue::new();
+    let id = queue.enqueue(
+        1,
+        porthmos_core::transfer::Direction::Upload,
+        std::path::PathBuf::from("/l/a"),
+        "/r/a".to_string(),
+        "a".to_string(),
+        10,
+        None,
+    );
+    queue.get_mut(id).unwrap().paused = true;
+    app.apply_core_event(Event::TransfersChanged(porthmos_core::transfer::TransferSnapshot::of(&queue, &[])));
+
+    let terminal = render_app(&app, 120, 24);
+
+    let bottom = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(bottom.contains("1 paused"), "{bottom}");
 }

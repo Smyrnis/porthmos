@@ -33,6 +33,7 @@ fn row(
         bytes_done: bytes.0,
         bytes_total: bytes.1,
         state,
+        paused: false,
         session_id: Some(1),
         failure: None,
     }
@@ -60,6 +61,7 @@ fn full_data() -> LineData {
         speed: Some(13_002_342),
         eta: Some(41),
         queued: 2,
+        paused: 0,
         incoming: false,
         waiting: false,
     }
@@ -319,4 +321,45 @@ fn a_queued_only_line_says_queued_instead_of_showing_a_bar() {
 #[test]
 fn a_running_line_is_not_marked_waiting() {
     assert!(!data_of(&[running(1, "a", Direction::Upload, (1, 2))]).unwrap().waiting);
+}
+
+fn paused_row(id: u64) -> QueueRow {
+    row(RowKind::Single(id), "p", Direction::Upload, (1, 2), (0, 1), RowState::Paused)
+}
+
+#[test]
+fn paused_rows_are_counted_beside_the_running_one_and_not_shown_as_queued() {
+    let data = data_of(&[running(1, "a", Direction::Upload, (1, 2)), paused_row(2), paused_row(3)]).unwrap();
+
+    assert_eq!((data.queued, data.paused), (0, 2));
+}
+
+#[test]
+fn the_right_end_lists_queued_and_paused_counts_together() {
+    let mut data = full_data();
+    data.paused = 3;
+
+    let shown = text(&draw(&data, 100));
+
+    assert!(shown.trim_end().ends_with("+2 queued \u{b7} 3 paused"), "{shown:?}");
+}
+
+#[test]
+fn the_paused_count_alone_is_shown_at_the_right_end() {
+    let mut data = full_data();
+    data.queued = 0;
+    data.paused = 1;
+
+    let shown = text(&draw(&data, 100));
+
+    assert!(shown.trim_end().ends_with("1 paused"), "{shown:?}");
+    assert!(!shown.contains("queued"), "{shown:?}");
+}
+
+#[test]
+fn only_paused_rows_give_no_progress_line_but_a_paused_summary() {
+    assert!(data_of(&[paused_row(1)]).is_none());
+    assert_eq!(paused_summary(&[paused_row(1), paused_row(2)]).as_deref(), Some("2 paused"));
+    assert_eq!(paused_summary(&[running(1, "a", Direction::Upload, (1, 2))]), None);
+    assert_eq!(paused_summary(&[]), None);
 }

@@ -62,6 +62,7 @@ fn status_of(state: RowState, theme: &Theme) -> (String, Style) {
     match state {
         RowState::Running => ("active".to_string(), theme.bright()),
         RowState::Queued => ("queued".to_string(), theme.dim()),
+        RowState::Paused => ("paused".to_string(), theme.muted()),
         RowState::Done => ("done".to_string(), theme.ok_text()),
         RowState::Failed => ("failed".to_string(), theme.err_text()),
         RowState::PartlyFailed(failed) => (format!("done, {failed} failed"), theme.err_text()),
@@ -82,6 +83,7 @@ fn percent_label(row: &QueueRow) -> Option<String> {
 fn bar_fill_style(state: RowState, theme: &Theme) -> Option<Style> {
     match state {
         RowState::Running => Some(theme.accent_text()),
+        RowState::Paused => Some(theme.paused_text()),
         RowState::Done => Some(theme.ok_dim_text()),
         RowState::Failed | RowState::PartlyFailed(_) => Some(theme.err_text()),
         _ => None,
@@ -291,13 +293,14 @@ pub fn render_transfer_list(frame: &mut Frame, area: Rect, view: &TransferView<'
     }
 }
 
-pub fn transfer_summary(rows: &[QueueRow], speed: Option<u64>) -> String {
+pub fn transfer_summary(rows: &[QueueRow], speed: Option<u64>, limit: Option<u64>) -> String {
     let active = rows.iter().filter(|row| row.state == RowState::Running).count();
     let queued = rows.iter().filter(|row| row.state == RowState::Queued).count();
+    let paused = rows.iter().filter(|row| row.state == RowState::Paused).count();
     let failed = rows.iter().filter(|row| matches!(row.state, RowState::Failed | RowState::PartlyFailed(_))).count();
 
     let mut parts = Vec::new();
-    for (count, label) in [(active, "active"), (queued, "queued"), (failed, "failed")] {
+    for (count, label) in [(active, "active"), (queued, "queued"), (paused, "paused"), (failed, "failed")] {
         if count > 0 {
             parts.push(format!("{count} {label}"));
         }
@@ -305,6 +308,7 @@ pub fn transfer_summary(rows: &[QueueRow], speed: Option<u64>) -> String {
     if !parts.is_empty() || speed.is_some() {
         parts.extend(speed.map(format_speed));
     }
+    parts.extend(limit.map(|limit| format!("limit {}", format_speed(limit))));
     parts.join(" \u{b7} ")
 }
 

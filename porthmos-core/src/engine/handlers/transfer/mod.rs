@@ -149,6 +149,7 @@ impl Engine {
         drop(job);
 
         let internal = self.internal.clone();
+        let limit = self.speed_limit.clone();
         self.tasks.spawn("transfer", Scope::Transfer(id), move |cancel| async move {
             let progress = internal.clone();
             let result = transfer::execute_preserving(
@@ -159,6 +160,7 @@ impl Engine {
                 &cancel,
                 resume,
                 keep_modified,
+                &limit,
                 move |transferred| {
                     let _ = progress.send(Internal::Transfer(TransferEvent::Progress { id, transferred }));
                 },
@@ -193,14 +195,20 @@ impl Engine {
             }
             TransferEvent::Finished { id, outcome } => {
                 self.tasks.forget(Scope::Transfer(id));
+                if outcome == TransferOutcome::Cancelled && self.requeue_stopped(id) {
+                    return;
+                }
                 if outcome == TransferOutcome::Completed && self.removes_source(id) {
+                    self.pause_stops.remove(&id);
                     return self.remove_moved_source(id);
                 }
+                self.pause_stops.remove(&id);
                 if let Some(mut job) = self.transfers.get_mut(id) {
                     job.status = match outcome {
                         TransferOutcome::Completed => JobStatus::Completed,
                         TransferOutcome::Cancelled => JobStatus::Cancelled,
                     };
+                    job.paused = false;
                 }
                 self.refresh_transfer_destination(id);
                 self.fill_transfer_slots();
@@ -216,9 +224,15 @@ impl Engine {
             }
             TransferEvent::Failed { id, message } => {
                 let cancelled = self.tasks.take_cancelled(Scope::Transfer(id));
+                if cancelled && self.requeue_stopped(id) {
+                    tracing::debug!("{message}");
+                    return;
+                }
+                self.pause_stops.remove(&id);
                 let known = self.transfers.get(id).is_some();
                 if cancelled && let Some(mut job) = self.transfers.get_mut(id) {
                     job.status = JobStatus::Cancelled;
+                    job.paused = false;
                 }
                 let retried = !cancelled && self.transfers.fail_or_retry(id, message.clone());
                 if !retried {
@@ -482,6 +496,7 @@ impl Engine {
             self.tasks.cancel(Scope::Planning(batch_id));
         }
         let running: Vec<u64> = self.transfers.active_jobs().map(|job| job.id).collect();
+        self.pause_stops.clear();
         for id in running {
             self.tasks.cancel(Scope::Transfer(id));
         }
@@ -504,6 +519,7 @@ impl Engine {
         }
         let active_ids = self.transfers.active_ids_for_session(session_id);
         for id in &active_ids {
+            self.pause_stops.remove(id);
             self.tasks.cancel(Scope::Transfer(*id));
         }
         scans.len() + active_ids.len()
@@ -526,12 +542,14 @@ impl Engine {
             match job.status {
                 JobStatus::Queued => {
                     job.status = JobStatus::Cancelled;
+                    job.paused = false;
                     let destination = (job.session_id, job.direction);
                     if !cancelled_destinations.contains(&destination) {
                         cancelled_destinations.push(destination);
                     }
                 }
                 JobStatus::InProgress => {
+                    self.pause_stops.remove(id);
                     self.tasks.cancel(Scope::Transfer(*id));
                 }
                 _ => {}

@@ -419,3 +419,318 @@ fn x_and_c_on_the_transfers_screen_cancel_and_clear() {
     test.type_text("c");
     assert!(test.app.dialog.is_none());
 }
+
+fn dialog_text(test: &TestApp) -> Option<(String, String)> {
+    match &test.app.dialog {
+        Some(crate::widgets::dialog::Dialog::TextInput(dialog)) => Some((dialog.title.clone(), dialog.value.clone())),
+        _ => None,
+    }
+}
+
+fn type_limit(test: &mut TestApp, text: &str) {
+    if let Some(crate::widgets::dialog::Dialog::TextInput(dialog)) = test.app.dialog.as_mut() {
+        dialog.value = text.to_string();
+    }
+    test.app.apply_dialog_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+}
+
+fn snapshot_with_limit(limit: Option<u64>) -> Event {
+    Event::TransfersChanged(TransferSnapshot { speed_limit: limit, ..TransferSnapshot::default() })
+}
+
+#[test]
+fn the_speed_limit_dialog_starts_with_off_when_there_is_no_limit() {
+    let mut test = app_on_transfers_screen();
+
+    test.app.apply_action(Action::SpeedLimit);
+
+    let (title, value) = dialog_text(&test).expect("a text dialog");
+    assert!(title.contains("Speed limit"), "{title}");
+    assert_eq!(value, "off");
+}
+
+#[test]
+fn the_speed_limit_dialog_starts_with_the_current_limit_in_the_form_it_accepts() {
+    let mut test = app_on_transfers_screen();
+    test.app.apply_core_event(snapshot_with_limit(Some(2 * 1024 * 1024)));
+
+    test.app.apply_action(Action::SpeedLimit);
+
+    assert_eq!(dialog_text(&test).unwrap().1, "2M");
+}
+
+#[test]
+fn the_speed_limit_can_be_set_from_any_screen() {
+    let mut test = test_app(Path::new("/d"));
+
+    test.app.apply_action(Action::SpeedLimit);
+
+    assert!(dialog_text(&test).is_some());
+}
+
+#[test]
+fn submitting_a_speed_sets_the_limit_and_says_so() {
+    let mut test = app_on_transfers_screen();
+    test.app.apply_action(Action::SpeedLimit);
+    test.sent();
+
+    type_limit(&mut test, "2M");
+
+    assert_eq!(test.sent(), vec![Command::SetSpeedLimit { bytes_per_second: Some(2 * 1024 * 1024) }]);
+    assert_eq!(test.notification().as_deref(), Some("Speed limit set to 2.0 MB/s"));
+    assert!(test.app.dialog.is_none());
+}
+
+#[test]
+fn submitting_off_removes_the_limit_and_says_so() {
+    let mut test = app_on_transfers_screen();
+    test.app.apply_core_event(snapshot_with_limit(Some(1000)));
+    test.app.apply_action(Action::SpeedLimit);
+    test.sent();
+
+    type_limit(&mut test, "off");
+
+    assert_eq!(test.sent(), vec![Command::SetSpeedLimit { bytes_per_second: None }]);
+    assert_eq!(test.notification().as_deref(), Some("Speed limit off"));
+}
+
+#[test]
+fn something_that_is_not_a_speed_sends_nothing_and_explains() {
+    let mut test = app_on_transfers_screen();
+    test.app.apply_action(Action::SpeedLimit);
+    test.sent();
+
+    type_limit(&mut test, "fast");
+
+    assert!(test.sent().is_empty());
+    assert_eq!(test.notification().as_deref(), Some("\"fast\" isn't a speed; try 500k, 2M or off"));
+}
+
+#[test]
+fn cancelling_the_speed_limit_dialog_sends_nothing() {
+    let mut test = app_on_transfers_screen();
+    test.app.apply_action(Action::SpeedLimit);
+    test.sent();
+
+    test.app.apply_dialog_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    assert!(test.sent().is_empty());
+    assert!(test.app.dialog.is_none());
+}
+
+fn showing_rows(test: &mut TestApp, states: &[RowState]) {
+    let mut queue = TransferQueue::new();
+    for (index, state) in states.iter().enumerate() {
+        let status = match state {
+            RowState::Running => JobStatus::InProgress,
+            RowState::Done => JobStatus::Completed,
+            _ => JobStatus::Queued,
+        };
+        let id = add_job(&mut queue, &format!("f{index}"), None, status);
+        if *state == RowState::Paused {
+            queue.get_mut(id).unwrap().paused = true;
+        }
+    }
+    show(test, &queue, &[]);
+}
+
+fn press_pause(test: &mut TestApp, cursor: usize) -> Vec<Command> {
+    test.app.transfers_cursor = cursor;
+    test.sent();
+    test.app.apply_action(Action::Pause);
+    test.sent()
+}
+
+#[test]
+fn p_pauses_a_running_or_queued_row() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Running, RowState::Queued]);
+    let kinds: Vec<RowKind> = test.app.transfer_rows().iter().map(|row| row.kind).collect();
+
+    assert_eq!(press_pause(&mut test, 0), vec![Command::PauseRow { kind: kinds[0] }]);
+    assert_eq!(press_pause(&mut test, 1), vec![Command::PauseRow { kind: kinds[1] }]);
+}
+
+#[test]
+fn p_on_a_paused_row_resumes_it() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Paused]);
+    let kind = test.app.transfer_rows()[0].kind;
+
+    assert_eq!(press_pause(&mut test, 0), vec![Command::ResumeRow { kind }]);
+}
+
+#[test]
+fn p_on_a_finished_row_or_with_no_rows_sends_nothing() {
+    let mut test = app_on_transfers_screen();
+    assert!(press_pause(&mut test, 0).is_empty());
+
+    showing_rows(&mut test, &[RowState::Done]);
+
+    assert!(press_pause(&mut test, 0).is_empty());
+}
+
+#[test]
+fn pausing_is_available_only_on_the_transfers_screen() {
+    let mut test = test_app(Path::new("/d"));
+    showing_rows(&mut test, &[RowState::Running]);
+
+    test.sent();
+    test.app.apply_action(Action::Pause);
+
+    assert!(test.sent().is_empty());
+}
+
+fn press_reorder(test: &mut TestApp, cursor: usize, action: Action) -> Vec<Command> {
+    test.app.transfers_cursor = cursor;
+    test.sent();
+    test.app.apply_action(action);
+    test.sent()
+}
+
+#[test]
+fn capital_k_moves_the_selected_row_earlier_and_capital_j_later() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Running, RowState::Queued, RowState::Paused]);
+    let kinds: Vec<RowKind> = test.app.transfer_rows().iter().map(|row| row.kind).collect();
+
+    assert_eq!(press_reorder(&mut test, 1, Action::RowUp), vec![Command::ReorderRow { kind: kinds[1], earlier: true }]);
+    assert_eq!(
+        press_reorder(&mut test, 1, Action::RowDown),
+        vec![Command::ReorderRow { kind: kinds[1], earlier: false }]
+    );
+    assert_eq!(press_reorder(&mut test, 2, Action::RowUp), vec![Command::ReorderRow { kind: kinds[2], earlier: true }]);
+}
+
+#[test]
+fn the_cursor_follows_the_row_to_its_new_place() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Queued, RowState::Queued, RowState::Queued]);
+    let kinds: Vec<RowKind> = test.app.transfer_rows().iter().map(|row| row.kind).collect();
+    press_reorder(&mut test, 2, Action::RowUp);
+
+    let mut queue = TransferQueue::new();
+    for name in ["f0", "f1", "f2"] {
+        add_job(&mut queue, name, None, JobStatus::Queued);
+    }
+    queue.move_row(kinds[2], true);
+    show(&mut test, &queue, &[]);
+
+    assert_eq!(test.app.transfers_cursor, 1);
+}
+
+#[test]
+fn reordering_a_finished_row_or_with_no_rows_sends_nothing() {
+    let mut test = app_on_transfers_screen();
+    assert!(press_reorder(&mut test, 0, Action::RowUp).is_empty());
+
+    showing_rows(&mut test, &[RowState::Done]);
+
+    assert!(press_reorder(&mut test, 0, Action::RowDown).is_empty());
+}
+
+#[test]
+fn reordering_is_available_only_on_the_transfers_screen() {
+    let mut test = test_app(Path::new("/d"));
+    showing_rows(&mut test, &[RowState::Queued, RowState::Queued]);
+
+    test.sent();
+    test.app.apply_action(Action::RowUp);
+    test.app.apply_action(Action::RowDown);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn moving_the_first_row_earlier_or_the_last_later_sends_nothing() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Queued, RowState::Queued]);
+
+    assert!(press_reorder(&mut test, 0, Action::RowUp).is_empty());
+    assert!(press_reorder(&mut test, 1, Action::RowDown).is_empty());
+    assert!(test.app.reselect_row.is_none());
+}
+
+#[test]
+fn finished_rows_and_scans_are_not_neighbours_for_reordering() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Done, RowState::Queued, RowState::Queued]);
+    let kinds: Vec<RowKind> = test.app.transfer_rows().iter().map(|row| row.kind).collect();
+
+    assert!(press_reorder(&mut test, 1, Action::RowUp).is_empty());
+    assert_eq!(press_reorder(&mut test, 2, Action::RowUp), vec![Command::ReorderRow { kind: kinds[2], earlier: true }]);
+}
+
+#[test]
+fn a_scan_row_after_the_last_row_is_not_a_target_for_moving_later() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    add_job(&mut queue, "f0", None, JobStatus::Queued);
+    show(&mut test, &queue, &[scan(5, "scanning")]);
+
+    assert!(press_reorder(&mut test, 0, Action::RowDown).is_empty());
+    assert!(press_reorder(&mut test, 1, Action::RowUp).is_empty());
+}
+
+#[test]
+fn moving_the_cursor_cancels_a_pending_follow() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Queued, RowState::Queued, RowState::Queued]);
+    press_reorder(&mut test, 2, Action::RowUp);
+    assert!(test.app.reselect_row.is_some());
+
+    test.app.apply_action(Action::Up);
+
+    assert!(test.app.reselect_row.is_none());
+}
+
+#[test]
+fn leaving_and_reopening_the_transfers_screen_forgets_a_pending_follow() {
+    let mut test = app_on_transfers_screen();
+    showing_rows(&mut test, &[RowState::Queued, RowState::Queued, RowState::Queued]);
+    press_reorder(&mut test, 2, Action::RowUp);
+    assert!(test.app.reselect_row.is_some());
+
+    test.app.apply_action(Action::OpenTransfers);
+
+    assert!(test.app.reselect_row.is_none());
+    assert_eq!(test.app.transfers_cursor, 0);
+}
+
+#[test]
+fn p_on_a_running_row_that_is_still_stopping_resumes_it() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    let id = add_job(&mut queue, "f0", None, JobStatus::InProgress);
+    queue.get_mut(id).unwrap().paused = true;
+    show(&mut test, &queue, &[]);
+    let row = test.app.transfer_rows()[0].clone();
+    assert_eq!(row.state, RowState::Running);
+    assert!(row.paused);
+
+    assert_eq!(press_pause(&mut test, 0), vec![Command::ResumeRow { kind: row.kind }]);
+}
+
+#[test]
+fn an_invalid_speed_reopens_the_dialog_with_what_was_typed_so_it_can_be_fixed() {
+    let mut test = app_on_transfers_screen();
+    test.app.apply_action(Action::SpeedLimit);
+    test.sent();
+
+    type_limit(&mut test, "2 fast");
+
+    assert!(test.sent().is_empty());
+    assert_eq!(dialog_text(&test).map(|(_, value)| value).as_deref(), Some("2 fast"));
+    assert!(matches!(test.app.pending_action, Some(PendingAction::SpeedLimit)));
+
+    type_limit(&mut test, "2M");
+
+    assert_eq!(test.sent(), vec![Command::SetSpeedLimit { bytes_per_second: Some(2 * 1024 * 1024) }]);
+    assert!(test.app.dialog.is_none());
+}

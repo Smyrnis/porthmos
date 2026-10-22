@@ -41,6 +41,7 @@ pub struct TransferJob {
     pub resume: bool,
     pub modified: Option<u64>,
     pub remove_source: bool,
+    pub paused: bool,
 }
 
 impl TransferJob {
