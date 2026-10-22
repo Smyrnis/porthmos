@@ -1,11 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::PathBuf,
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
@@ -176,6 +176,7 @@ pub struct App {
     details_popup: bool,
     body_width: std::cell::Cell<u16>,
     last_failure: HashMap<String, String>,
+    last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     core: CoreHandle,
@@ -225,6 +226,7 @@ impl App {
             details_popup: false,
             body_width: std::cell::Cell::new(0),
             last_failure: HashMap::new(),
+            last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             core,
@@ -362,6 +364,7 @@ impl App {
                 }
                 self.announce_missing_hosts();
             }
+            Event::LastUsed(times) => self.last_used = times,
             Event::ProfileSaved => {
                 self.dialog = None;
                 self.pending_action = None;

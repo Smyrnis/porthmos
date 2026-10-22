@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use chrono::{DateTime, Utc};
 
 use porthmos_core::{
     ProtocolInfo,
@@ -20,7 +22,8 @@ use crate::{
         filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
         history_view::printable,
-        text_fit::{pad_right, truncate_with_ellipsis},
+        last_used::last_used_text,
+        text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
 };
 
@@ -30,17 +33,22 @@ const MIN_NAME_WIDTH: usize = 8;
 const MAX_NAME_WIDTH: usize = 18;
 const MIN_PROTOCOL_WIDTH: usize = 3;
 const MAX_PROTOCOL_WIDTH: usize = 10;
+const MIN_DETAIL_WIDTH: usize = 14;
 const DOT: &str = "\u{2022}";
 
 pub struct ConnectionsContext<'a> {
     pub connected: &'a HashSet<&'a str>,
     pub failures: &'a HashMap<String, String>,
     pub protocols: &'a [ProtocolInfo],
+    pub last_used: &'a BTreeMap<String, DateTime<Utc>>,
+    pub now: DateTime<Utc>,
 }
 
 struct Columns {
     name: usize,
     protocol: usize,
+    age: usize,
+    show_age: bool,
 }
 
 pub fn render_connections_list(
@@ -64,8 +72,8 @@ pub fn render_connections_list(
 
     let body = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
     let entries = view.entries();
-    let columns = columns_for(entries, context);
     let width = usize::from(body.width);
+    let columns = columns_for(entries, context, width, deepest_indent(view));
 
     let mut items: Vec<ListItem> = Vec::new();
     let mut display_cursor = 0;
@@ -106,13 +114,40 @@ fn is_hidden_label(entry: &ConnectionEntry) -> Option<&'static str> {
     }
 }
 
-fn columns_for(entries: &[ConnectionEntry], context: &ConnectionsContext<'_>) -> Columns {
+fn row_indent(depth: usize) -> usize {
+    2 * depth.saturating_sub(1)
+}
+
+fn deepest_indent(view: &ConnectionsView) -> usize {
+    view.rows()
+        .iter()
+        .filter_map(|row| match row {
+            TreeRow::Connection { depth, .. } => Some(row_indent(*depth)),
+            TreeRow::Group { .. } => None,
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn age_text(entry: &ConnectionEntry, context: &ConnectionsContext<'_>) -> String {
+    last_used_text(context.now, context.last_used.get(&entry.name).copied())
+}
+
+fn columns_for(
+    entries: &[ConnectionEntry], context: &ConnectionsContext<'_>, width: usize, deepest_indent: usize,
+) -> Columns {
     let name = entries.iter().map(|entry| printable(&entry.name).width()).max().unwrap_or(0);
     let protocol = entries.iter().map(|entry| protocol_label(entry, context.protocols).width()).max().unwrap_or(0);
-    Columns {
-        name: name.clamp(MIN_NAME_WIDTH, MAX_NAME_WIDTH),
-        protocol: protocol.clamp(MIN_PROTOCOL_WIDTH, MAX_PROTOCOL_WIDTH),
-    }
+    let age = entries
+        .iter()
+        .filter(|entry| is_hidden_label(entry).is_none())
+        .map(|entry| age_text(entry, context).width())
+        .max()
+        .unwrap_or(0);
+    let name = name.clamp(MIN_NAME_WIDTH, MAX_NAME_WIDTH);
+    let protocol = protocol.clamp(MIN_PROTOCOL_WIDTH, MAX_PROTOCOL_WIDTH);
+    let widest_fixed = MARKER_WIDTH + deepest_indent + 2 + name + COLUMN_GAP + protocol + COLUMN_GAP;
+    Columns { name, protocol, age, show_age: age > 0 && width >= widest_fixed + MIN_DETAIL_WIDTH + COLUMN_GAP + age }
 }
 
 fn group_line(name: &str, depth: usize, count: usize, expanded: bool, width: usize, theme: &Theme) -> Line<'static> {
@@ -129,7 +164,7 @@ fn connection_line(
     width: usize, theme: &Theme,
 ) -> Line<'static> {
     let marker = if focused { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
-    let indent = Span::raw(" ".repeat(2 * depth.saturating_sub(1)));
+    let indent = Span::raw(" ".repeat(row_indent(depth)));
     let name = printable(&entry.name);
 
     if let Some(reason) = is_hidden_label(entry) {
@@ -175,10 +210,18 @@ fn connection_line(
         Some(message) => (printable(message.lines().next().unwrap_or("")), theme.err_text()),
         None => (host_text(entry, context.protocols), theme.dim()),
     };
-    let detail = truncate_with_ellipsis(&detail, width.saturating_sub(fixed));
+    let age_width = if columns.show_age { COLUMN_GAP + columns.age } else { 0 };
+    let detail_budget = width.saturating_sub(fixed + age_width);
+    let detail = truncate_with_ellipsis(&detail, detail_budget);
     let name = pad_right(&truncate_with_ellipsis(&name, columns.name), columns.name);
+    let (detail, age_spans) = if columns.show_age {
+        let age = pad_left(&age_text(entry, context), columns.age);
+        (pad_right(&detail, detail_budget), vec![Span::raw(" ".repeat(COLUMN_GAP)), Span::styled(age, theme.dim())])
+    } else {
+        (detail, Vec::new())
+    };
 
-    Line::from(vec![
+    let mut spans = vec![
         marker,
         indent,
         Span::styled(DOT, dot_style),
@@ -188,7 +231,9 @@ fn connection_line(
         Span::styled(protocol, theme.dim()),
         Span::raw(" ".repeat(COLUMN_GAP)),
         Span::styled(detail, detail_style),
-    ])
+    ];
+    spans.extend(age_spans);
+    Line::from(spans)
 }
 
 fn host_text(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> String {

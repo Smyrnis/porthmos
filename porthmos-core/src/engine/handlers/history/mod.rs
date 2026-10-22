@@ -144,7 +144,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn persist_failed(&mut self, _path: PathBuf, message: String, tag: u64) {
+    pub(crate) fn history_write_failed(&mut self, message: String, tag: u64) {
         let clearing = self.history.clear_tag == Some(tag);
         self.report_history_failure(message, clearing);
     }

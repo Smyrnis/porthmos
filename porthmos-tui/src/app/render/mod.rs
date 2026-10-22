@@ -327,6 +327,8 @@ impl App {
             connected: &connected_names,
             failures: &self.last_failure,
             protocols: self.core.protocols(),
+            last_used: &self.last_used,
+            now: self.clock.now().with_timezone(&chrono::Utc),
         };
         let layout = layout::connections_layout(area);
         connections_list::render_connections_list(frame, layout.list, &self.connections, &context, &self.theme);
@@ -350,7 +352,19 @@ impl App {
             }
             _ => (false, None),
         };
-        let context = connection_details::DetailsContext { protocols: self.core.protocols(), connected, failure };
+        let last_used = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
+                self.last_used.get(&entry.name).copied()
+            }
+            _ => None,
+        };
+        let context = connection_details::DetailsContext {
+            protocols: self.core.protocols(),
+            connected,
+            failure,
+            last_used,
+            now: self.clock.now().with_timezone(&chrono::Utc),
+        };
         connection_details::render_connection_details(frame, area, selection, group_count, &context, &self.theme);
     }
 

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use porthmos_core::{
     ConnectionForm, ProtocolInfo,
     profiles::{ConnectionEntry, ConnectionSource},
@@ -13,6 +14,10 @@ use crate::{
     theme::{ColorDepth, ThemeSettings},
     widgets::filter_line::FilterLine,
 };
+
+fn now() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 10, 22, 12, 0, 0).unwrap()
+}
 
 fn indexed() -> Theme {
     Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
@@ -67,18 +72,24 @@ fn protocols() -> Vec<ProtocolInfo> {
 struct Setup<'a> {
     connected: HashSet<&'a str>,
     failures: HashMap<String, String>,
+    last_used: BTreeMap<String, DateTime<Utc>>,
 }
 
 impl<'a> Setup<'a> {
     fn new() -> Self {
-        Self { connected: HashSet::new(), failures: HashMap::new() }
+        Self { connected: HashSet::new(), failures: HashMap::new(), last_used: BTreeMap::new() }
     }
 
     fn draw(&self, view: &ConnectionsView, width: u16, height: u16) -> Terminal<TestBackend> {
         let theme = indexed();
         let protocols = protocols();
-        let context =
-            ConnectionsContext { connected: &self.connected, failures: &self.failures, protocols: &protocols };
+        let context = ConnectionsContext {
+            connected: &self.connected,
+            failures: &self.failures,
+            protocols: &protocols,
+            last_used: &self.last_used,
+            now: now(),
+        };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|frame| render_connections_list(frame, frame.area(), view, &context, &theme)).unwrap();
         terminal
@@ -433,4 +444,149 @@ fn an_unknown_protocol_id_is_sanitised_in_the_row() {
     let text = screen(&Setup::new().draw(&view_of(vec![odd]), 80, 6));
 
     assert!(!text.contains('\u{202e}') && text.contains("my?stery?"), "{text}");
+}
+
+fn used(setup: &mut Setup<'_>, name: &str, age: Duration) {
+    setup.last_used.insert(name.to_string(), now() - age);
+}
+
+fn right_edge(terminal: &Terminal<TestBackend>, y: u16, needle: &str) -> Option<usize> {
+    column_of(terminal, y, needle).map(|column| usize::from(column) + needle.width())
+}
+
+#[test]
+fn a_used_connection_shows_its_age_at_the_right_edge() {
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::hours(3));
+
+    let terminal = setup.draw(&view_of(vec![entry("web")]), 80, 6);
+
+    assert_eq!(right_edge(&terminal, 2, "3 h ago"), Some(80), "{:?}", row(&terminal, 2));
+}
+
+#[test]
+fn a_connection_never_used_says_never_at_the_right_edge() {
+    let terminal = Setup::new().draw(&view_of(vec![entry("web")]), 80, 6);
+
+    assert_eq!(right_edge(&terminal, 2, "never"), Some(80), "{:?}", row(&terminal, 2));
+}
+
+#[test]
+fn every_row_ends_at_the_same_column_whatever_the_text() {
+    let mut setup = Setup::new();
+    used(&mut setup, "a", Duration::minutes(3));
+    used(&mut setup, "b", Duration::days(12));
+
+    let terminal = setup.draw(&view_of(vec![entry("a"), entry("b"), entry("c")]), 80, 8);
+
+    assert_eq!(right_edge(&terminal, 2, "3 min ago"), Some(80));
+    assert_eq!(right_edge(&terminal, 3, "12 d ago"), Some(80));
+    assert_eq!(right_edge(&terminal, 4, "never"), Some(80));
+}
+
+#[test]
+fn the_age_is_dim() {
+    let theme = indexed();
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::hours(3));
+
+    let terminal = setup.draw(&view_of(vec![entry("web")]), 80, 6);
+
+    let (x, y) = find_text(&terminal, "3 h ago").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+}
+
+#[test]
+fn the_host_stays_on_the_row_beside_the_age() {
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::hours(3));
+
+    let terminal = setup.draw(&view_of(vec![entry("web")]), 80, 6);
+
+    let line = row(&terminal, 2);
+    assert!(line.contains("deploy@web.example.com") && line.contains("3 h ago"), "{line:?}");
+}
+
+#[test]
+fn a_failed_connection_keeps_its_message_and_still_shows_the_age() {
+    let mut setup = Setup::new();
+    setup.failures.insert("web".to_string(), "Authentication failed for web".to_string());
+    used(&mut setup, "web", Duration::days(2));
+
+    let terminal = setup.draw(&view_of(vec![entry("web")]), 80, 6);
+
+    let line = row(&terminal, 2);
+    assert!(line.contains("Authentication failed for web") && line.contains("2 d ago"), "{line:?}");
+}
+
+#[test]
+fn a_narrow_list_drops_the_age_before_it_squeezes_the_host() {
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::hours(3));
+    let view = view_of(vec![entry("web")]);
+
+    let wide = setup.draw(&view, 60, 6);
+    let narrow = setup.draw(&view, 40, 6);
+
+    assert!(row(&wide, 2).contains("3 h ago"), "{:?}", row(&wide, 2));
+    assert!(!row(&narrow, 2).contains("3 h ago"), "{:?}", row(&narrow, 2));
+    assert!(row(&narrow, 2).contains("deploy@web.exa"), "{:?}", row(&narrow, 2));
+}
+
+#[test]
+fn the_age_never_runs_over_the_width_at_any_size() {
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::days(400));
+    let view = view_of(vec![entry("web"), grouped("db", "prod")]);
+
+    for width in 0..=100 {
+        let terminal = setup.draw(&view, width, 8);
+        for y in 0..8 {
+            assert!(row(&terminal, y).width() <= usize::from(width), "{width}x{y}");
+        }
+    }
+}
+
+#[test]
+fn a_group_row_has_no_age() {
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::hours(3));
+
+    let terminal = setup.draw(&view_of(vec![grouped("web", "prod")]), 80, 8);
+
+    let group = (2..8).map(|y| row(&terminal, y)).find(|line| line.contains("prod")).unwrap();
+    assert!(!group.contains("ago") && !group.contains("never"), "{group:?}");
+}
+
+#[test]
+fn a_hidden_ssh_label_row_has_no_age() {
+    let mut setup = Setup::new();
+    used(&mut setup, "ghost", Duration::hours(3));
+    let ghost = ConnectionEntry { source: ConnectionSource::MissingSshHost, ..entry("ghost") };
+
+    let terminal = setup.draw(&view_of(vec![ghost]), 80, 6);
+
+    let line = row(&terminal, 2);
+    assert!(line.contains("not in ~/.ssh/config") && !line.contains("ago") && !line.contains("never"), "{line:?}");
+}
+
+#[test]
+fn the_age_column_is_shown_on_every_row_or_on_none_whatever_the_nesting() {
+    let mut setup = Setup::new();
+    used(&mut setup, "web", Duration::hours(3));
+    let mut view = view_of(vec![entry("web"), grouped("db", "a"), grouped("cache", "a/b/c")]);
+    let mut index = 0;
+    while index < view.rows().len() {
+        view.cursor = index;
+        view.expand();
+        index += 1;
+    }
+
+    for width in 20..=80 {
+        let terminal = setup.draw(&view, width, 14);
+        let rows: Vec<String> = (2..14).map(|y| row(&terminal, y)).filter(|line| line.contains('\u{2022}')).collect();
+        let with_age = rows.iter().filter(|line| line.contains("ago") || line.contains("never")).count();
+        assert_eq!(rows.len(), 3, "{width}");
+        assert!(with_age == 0 || with_age == rows.len(), "{width}: {rows:?}");
+    }
 }

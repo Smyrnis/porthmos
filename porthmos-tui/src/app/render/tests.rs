@@ -1052,6 +1052,56 @@ fn the_connections_screen_shows_the_filter_line_and_a_row_at_120x24() {
     assert!(row_symbols(&terminal, 5).contains("deploy@backup.example.com"), "{:?}", row_symbols(&terminal, 5));
 }
 
+fn noon() -> chrono::DateTime<chrono::Local> {
+    chrono::Local.with_ymd_and_hms(2026, 10, 22, 12, 0, 0).unwrap()
+}
+
+fn connections_app_at_noon() -> App {
+    let (app, _) = connections_app();
+    app.with_clock(crate::clock::Clock::fixed(noon()))
+}
+
+fn used_three_hours_ago(name: &str) -> Event {
+    let at = noon().with_timezone(&chrono::Utc) - chrono::Duration::hours(3);
+    Event::LastUsed(std::collections::BTreeMap::from([(name.to_string(), at)]))
+}
+
+#[test]
+fn a_last_used_event_replaces_the_remembered_times() {
+    let mut app = connections_app_at_noon();
+    app.apply_core_event(used_three_hours_ago("prod"));
+
+    app.apply_core_event(used_three_hours_ago("backup"));
+
+    assert_eq!(app.last_used.keys().collect::<Vec<_>>(), ["backup"]);
+}
+
+#[test]
+fn the_connections_list_shows_how_long_ago_each_connection_was_used() {
+    let mut app = connections_app_at_noon();
+    app.apply_core_event(used_three_hours_ago("prod"));
+
+    let terminal = render_app(&app, 120, 24);
+
+    let screen: Vec<String> = (0..24).map(|y| row_symbols(&terminal, y)).collect();
+    let prod = screen.iter().find(|line| line.contains("deploy@prod")).expect("the prod row");
+    let backup = screen.iter().find(|line| line.contains("deploy@backup")).expect("the backup row");
+    assert!(prod.contains("3 h ago"), "{prod:?}");
+    assert!(backup.contains("never"), "{backup:?}");
+}
+
+#[test]
+fn the_details_pane_shows_the_last_used_time_of_the_focused_connection() {
+    let mut app = connections_app_at_noon();
+    app.apply_core_event(used_three_hours_ago("prod"));
+    app.connections.cursor = 0;
+
+    let terminal = render_app(&app, 120, 24);
+
+    let screen = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(screen.contains("last used") && screen.contains("\u{b7} 3 h ago"), "{screen}");
+}
+
 #[test]
 fn a_connect_failure_is_remembered_for_the_list_and_cleared_by_a_later_success() {
     let (mut app, theme) = connections_app();

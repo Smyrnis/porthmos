@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use porthmos_core::{
     OptionKind, ProtocolInfo,
     profiles::{ConnectionEntry, ConnectionSource},
@@ -13,17 +14,21 @@ use unicode_width::UnicodeWidthStr;
 use crate::{
     theme::Theme,
     widgets::{
-        connections_view::Selection, frame::hairline, history_view::printable, text_fit::truncate_with_ellipsis,
+        connections_view::Selection, frame::hairline, history_view::printable, last_used::last_used_detail,
+        text_fit::truncate_with_ellipsis,
     },
 };
 
 const KEY_WIDTH: usize = 12;
 const SAVED: &str = "saved";
+const LAST_USED_KEY: &str = "last used";
 
 pub struct DetailsContext<'a> {
     pub protocols: &'a [ProtocolInfo],
     pub connected: bool,
     pub failure: Option<&'a str>,
+    pub last_used: Option<DateTime<Utc>>,
+    pub now: DateTime<Utc>,
 }
 
 fn protocol_info<'a>(entry: &ConnectionEntry, protocols: &'a [ProtocolInfo]) -> Option<&'a ProtocolInfo> {
@@ -164,7 +169,11 @@ pub fn render_connection_details(
 
     let Selection::Connection(entry) = selection else { return };
     let mut y = area.y + 2;
-    for (key, value) in details_lines(entry, context.protocols) {
+    let mut lines = details_lines(entry, context.protocols);
+    if !entry.source.is_orphan_labels() {
+        lines.push((LAST_USED_KEY.to_string(), last_used_detail(context.now, context.last_used)));
+    }
+    for (key, value) in lines {
         if y >= area.bottom() {
             return;
         }

@@ -142,6 +142,7 @@ pub(crate) struct Engine {
     publish_interval: Duration,
     transfers_dirty: bool,
     secrets: Secrets,
+    last_used: handlers::LastUsedLog,
     history: handlers::HistoryLog,
     edit: handlers::EditState,
     keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
@@ -160,6 +161,7 @@ pub(crate) struct EngineParts {
     pub(crate) bookmarks: Bookmarks,
     pub(crate) secrets: Secrets,
     pub(crate) history: History,
+    pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
     pub(crate) publish_interval: Duration,
     pub(crate) persist_interval: Duration,
@@ -215,6 +217,7 @@ impl Engine {
             publish_interval: parts.publish_interval,
             transfers_dirty: false,
             secrets: parts.secrets,
+            last_used: handlers::LastUsedLog::new(parts.last_used),
             history: handlers::HistoryLog::new(parts.history),
             edit: handlers::EditState::new(parts.edit),
             keyring_jobs: None,
@@ -396,6 +399,14 @@ impl Engine {
     #[track_caller]
     pub(crate) fn report(&self, severity: Severity, message: impl Into<String>) {
         self.reporter.report(severity, message);
+    }
+
+    pub(crate) fn persist_failed(&mut self, path: PathBuf, message: String, tag: u64) {
+        if path == self.last_used.store.path() {
+            self.last_used_write_failed(message);
+        } else {
+            self.history_write_failed(message, tag);
+        }
     }
 
     pub(crate) fn announce(&self, severity: Severity, message: impl Into<String>) {

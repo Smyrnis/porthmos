@@ -687,3 +687,14 @@ mod hardening {
         let _ = ConnectionEntry::target;
     }
 }
+
+#[tokio::test]
+async fn a_connection_test_leaves_the_last_used_time_alone() {
+    let mut t = engine_with(FakeProtocol::new(FakeFs::new()));
+    t.drain();
+
+    connected(outcome_of(&mut t, draft()).await);
+
+    assert!(t.engine.last_used.store.times().is_empty());
+    assert!(t.drain().iter().all(|event| !matches!(event, Event::LastUsed(_))));
+}

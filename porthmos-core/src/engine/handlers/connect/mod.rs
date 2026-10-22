@@ -137,7 +137,10 @@ impl Engine {
         let shell_available = self
             .shell_target(session)
             .is_some_and(|target| self.sessions[&session].protocol.shell_command(&target, &self.env).is_some());
-        self.emit_connected(session, name, shell_available);
+        self.emit_connected(session, name.clone(), shell_available);
+        if self.names_a_live_connection(&name) {
+            self.record_use(&name);
+        }
         self.open_start_directory(session);
     }
 

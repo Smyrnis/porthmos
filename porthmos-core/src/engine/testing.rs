@@ -36,6 +36,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
     let (internal_tx, internal) = unbounded_channel();
     let paths = Paths::in_dir(dir.path());
     let history = crate::history::History::load(&paths).0;
+    let last_used = crate::last_used::LastUsed::load(&paths).0;
     let parts = EngineParts {
         paths,
         env: Environment::default(),
@@ -45,6 +46,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         bookmarks: Bookmarks::default(),
         secrets,
         history,
+        last_used,
         edit: crate::config::settings::EditSettings::default(),
         publish_interval: std::time::Duration::ZERO,
         persist_interval: std::time::Duration::ZERO,

@@ -10,6 +10,7 @@ pub mod frame;
 pub mod help;
 pub mod history_view;
 pub mod info_line;
+pub mod last_used;
 pub mod layout;
 pub mod notifications;
 pub mod palette_view;

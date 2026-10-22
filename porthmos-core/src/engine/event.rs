@@ -1,4 +1,6 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+
+use chrono::{DateTime, Utc};
 
 use porthmos_vfs::{Entry, Question, ShellInvocation};
 
@@ -29,6 +31,7 @@ pub enum Event {
     Listed { location: Location, path: PathBuf, entries: Vec<Entry> },
     LocationChanged { location: Location },
     Profiles(Vec<ConnectionEntry>),
+    LastUsed(BTreeMap<String, DateTime<Utc>>),
     ProfileSaved,
     ProfileRejected { message: String },
     Bookmarks(Vec<Bookmark>),

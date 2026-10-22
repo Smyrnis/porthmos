@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use chrono::{DateTime, TimeZone, Utc};
 use porthmos_core::{
     CommonField, ConnectionForm, OptionField, OptionKind, PortField, ProtocolInfo,
     profiles::{ConnectionEntry, ConnectionSource},
@@ -12,6 +13,10 @@ use crate::{
     app::testing::{cell_fg, find_text},
     theme::{ColorDepth, Theme, ThemeSettings},
 };
+
+fn now() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 10, 22, 12, 0, 0).unwrap()
+}
 
 fn indexed() -> Theme {
     Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
@@ -213,16 +218,23 @@ struct Draw<'a> {
     protocols: Vec<ProtocolInfo>,
     connected: bool,
     failure: Option<&'a str>,
+    last_used: Option<DateTime<Utc>>,
 }
 
 impl<'a> Draw<'a> {
     fn new() -> Self {
-        Self { protocols: protocols(), connected: false, failure: None }
+        Self { protocols: protocols(), connected: false, failure: None, last_used: None }
     }
 
     fn selection(&self, selection: Option<Selection<'_>>, width: u16, height: u16) -> Terminal<TestBackend> {
         let theme = indexed();
-        let context = DetailsContext { protocols: &self.protocols, connected: self.connected, failure: self.failure };
+        let context = DetailsContext {
+            protocols: &self.protocols,
+            connected: self.connected,
+            failure: self.failure,
+            last_used: self.last_used,
+            now: now(),
+        };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|frame| render_connection_details(frame, frame.area(), selection, 4, &context, &theme)).unwrap();
         terminal
@@ -404,4 +416,64 @@ fn unknown_protocol_ids_and_option_keys_are_sanitised() {
     assert!(lines.iter().any(|(key, _)| key == "fla?vour"));
     assert!(!screen(&terminal).contains('\u{202e}'));
     assert!(row(&terminal, 0).contains("my?stery"));
+}
+
+#[test]
+fn the_details_end_with_the_last_used_time_and_its_age() {
+    let at = now() - chrono::Duration::hours(3);
+    let mut draw = Draw::new();
+    draw.last_used = Some(at);
+
+    let terminal = draw.entry(&sftp_entry(), 60, 10);
+
+    let expected = format!("last used   {} \u{b7} 3 h ago", at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M"));
+    let text = screen(&terminal);
+    assert!(text.lines().any(|line| line.trim_end() == expected), "{text}");
+}
+
+#[test]
+fn a_connection_never_used_says_so_in_the_details() {
+    let terminal = Draw::new().entry(&sftp_entry(), 60, 10);
+
+    let text = screen(&terminal);
+    assert!(text.lines().any(|line| line.trim_end() == "last used   never"), "{text}");
+}
+
+#[test]
+fn last_used_comes_after_the_other_rows() {
+    let mut entry = sftp_entry();
+    entry.group = Some("prod".to_string());
+
+    let text = screen(&Draw::new().entry(&entry, 60, 10));
+
+    let position = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle} in {text}"));
+    assert!(position("group") < position("last used"), "{text}");
+}
+
+#[test]
+fn a_group_selection_has_no_last_used_row() {
+    let terminal = Draw::new().selection(Some(Selection::Group("prod")), 60, 10);
+
+    assert!(!screen(&terminal).contains("last used"));
+}
+
+#[test]
+fn a_long_last_used_value_is_cut_to_the_width() {
+    let mut draw = Draw::new();
+    draw.last_used = Some(now() - chrono::Duration::hours(3));
+
+    let terminal = draw.entry(&sftp_entry(), 24, 10);
+
+    assert!(row(&terminal, 4).width() <= 24, "{:?}", row(&terminal, 4));
+}
+
+#[test]
+fn a_hidden_ssh_label_row_has_no_last_used_row() {
+    for source in [ConnectionSource::MissingSshHost, ConnectionSource::ShadowedSshHost] {
+        let entry = ConnectionEntry { source, ..sftp_entry() };
+
+        let text = screen(&Draw::new().entry(&entry, 60, 10));
+
+        assert!(!text.contains("last used"), "{source:?}\n{text}");
+    }
 }

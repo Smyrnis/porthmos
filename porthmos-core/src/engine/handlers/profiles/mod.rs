@@ -16,6 +16,11 @@ impl Engine {
         profiles::list_all(&self.paths, &self.protocols, &self.env)
     }
 
+    pub(crate) fn names_a_live_connection(&self, name: &str) -> bool {
+        self.all_profiles()
+            .is_ok_and(|entries| entries.iter().any(|entry| entry.name == name && !entry.source.is_orphan_labels()))
+    }
+
     pub(crate) fn list_profiles(&mut self) {
         match self.all_profiles() {
             Ok(entries) => self.emit(Event::Profiles(entries)),
@@ -70,6 +75,9 @@ impl Engine {
 
         match store::save(&self.paths, &profile) {
             Ok(()) => {
+                if let Some(original) = &original {
+                    self.carry_last_used(original, &profile.name);
+                }
                 self.emit(Event::ProfileSaved);
                 self.list_profiles();
             }
@@ -116,8 +124,14 @@ impl Engine {
             Ok(true) => {
                 let saved = self.ssh_markers(from);
                 match store::move_ssh_labels(&self.paths, from, to) {
-                    Ok(()) if !saved.is_empty() => self.move_ssh_password(from, to, saved),
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if !self.names_a_live_connection(from) {
+                            self.merge_last_used(from, to);
+                        }
+                        if !saved.is_empty() {
+                            self.move_ssh_password(from, to, saved);
+                        }
+                    }
                     Err(err) => self.report(Severity::Error, err.to_string()),
                 }
             }
@@ -132,6 +146,9 @@ impl Engine {
         if let Err(err) = store::forget_ssh_labels(&self.paths, name) {
             self.report(Severity::Error, err.to_string());
             return self.list_profiles();
+        }
+        if !self.names_a_live_connection(name) {
+            self.forget_last_used(name);
         }
         self.list_profiles();
         self.drop_ssh_password(name, saved, false);
@@ -156,6 +173,7 @@ impl Engine {
             self.report(Severity::Error, err.to_string());
             return self.list_profiles();
         }
+        self.forget_last_used(name);
         self.list_profiles();
         self.forget_profile_secrets(name.to_string(), saved);
     }
