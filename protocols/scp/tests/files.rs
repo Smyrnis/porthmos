@@ -237,3 +237,34 @@ async fn the_filesystem_reports_the_servers_version_as_its_identity() {
     assert!(info.starts_with("russh_"), "{info}");
     assert!(info.chars().count() <= 40);
 }
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let (server, fs) = open().await;
+    std::fs::create_dir(at(&server, "empty")).unwrap();
+
+    fs.remove_dir(&at(&server, "empty")).await.unwrap();
+
+    assert!(!at(&server, "empty").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
+    let (server, fs) = open().await;
+    std::fs::create_dir_all(at(&server, "full/inner")).unwrap();
+    std::fs::write(at(&server, "full/inner/keep.txt"), b"keep").unwrap();
+
+    assert!(fs.remove_dir(&at(&server, "full")).await.is_err());
+
+    assert!(at(&server, "full/inner/keep.txt").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_file_and_keeps_it() {
+    let (server, fs) = open().await;
+    std::fs::write(at(&server, "f"), b"f").unwrap();
+
+    assert!(fs.remove_dir(&at(&server, "f")).await.is_err());
+
+    assert!(at(&server, "f").exists());
+}

@@ -17,6 +17,7 @@ fn operations_quote_every_path_after_a_double_dash() {
     assert_eq!(mkdir(Path::new("/-x")), "mkdir -- '/-x'");
     assert_eq!(remove(Path::new("/$HOME")), "rm -- '/$HOME'");
     assert_eq!(remove_tree(Path::new("/`id`")), "rm -rf -- '/`id`'");
+    assert_eq!(remove_dir(Path::new("/-d e")), "rmdir -- '/-d e'");
     assert_eq!(rename(Path::new("/a"), Path::new("/b c")), "mv -f -- '/a' '/b c'");
 }
 

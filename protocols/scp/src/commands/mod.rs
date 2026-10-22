@@ -37,6 +37,10 @@ pub(crate) fn remove(path: &Path) -> String {
     format!("rm -- {}", quoted(path))
 }
 
+pub(crate) fn remove_dir(path: &Path) -> String {
+    format!("rmdir -- {}", quoted(path))
+}
+
 pub(crate) fn remove_tree(path: &Path) -> String {
     format!("rm -rf -- {}", quoted(path))
 }

@@ -112,6 +112,11 @@ impl FileSystem for LocalFs {
         blocking(move || delete(&path)).await
     }
 
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        let path = path.to_path_buf();
+        blocking(move || fs::remove_dir(&path)).await
+    }
+
     async fn home(&self) -> Result<PathBuf, ProtocolError> {
         Ok(self.home.clone())
     }

@@ -275,6 +275,10 @@ impl FileSystem for ScpFs {
         self.run_ok(&commands::remove(path), path).await.map(|_| ())
     }
 
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        self.run_ok(&commands::remove_dir(path), path).await.map(|_| ())
+    }
+
     async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
         self.stat(path).await?;
         self.run_ok(&commands::remove_tree(path), path).await.map(|_| ())

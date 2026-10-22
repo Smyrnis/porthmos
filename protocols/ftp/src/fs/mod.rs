@@ -398,6 +398,10 @@ impl FileSystem for FtpFs {
         self.remove_path(path_to_remote_string(path)).await
     }
 
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        self.simple(&path_to_remote_string(path), SimpleCommand::RemoveDir).await
+    }
+
     async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
         if !self.mfmt {
             return Err(ProtocolError::new(

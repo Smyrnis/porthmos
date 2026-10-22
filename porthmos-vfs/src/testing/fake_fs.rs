@@ -372,6 +372,21 @@ impl FileSystem for FakeFs {
         }
     }
 
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        let mut tree = self.tree.lock().unwrap();
+        match tree.nodes.get(path) {
+            None => Err(not_found(path)),
+            Some(Node::Dir) if !tree.children(path).is_empty() => {
+                Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not empty", path.display())))
+            }
+            Some(Node::Dir) => {
+                tree.nodes.remove(path);
+                Ok(())
+            }
+            Some(_) => Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not a folder", path.display()))),
+        }
+    }
+
     async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
         if !tree.nodes.contains_key(path) {

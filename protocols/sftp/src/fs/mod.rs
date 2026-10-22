@@ -175,6 +175,10 @@ impl FileSystem for SftpFs {
         }
     }
 
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        self.sftp.remove_dir(remote(path)).await.map_err(sftp_error)
+    }
+
     async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
         let stamp = sftp_time(seconds);
         let mut attributes = FileAttributes::empty();

@@ -24,6 +24,12 @@ pub trait FileSystem: Send + Sync {
     async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError>;
     async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError>;
     async fn delete(&self, path: &Path) -> Result<(), ProtocolError>;
+    async fn remove_dir(&self, _path: &Path) -> Result<(), ProtocolError> {
+        Err(ProtocolError::new(
+            ErrorKind::Unsupported,
+            anyhow::anyhow!("this connection can't remove a folder without deleting what is inside it"),
+        ))
+    }
     async fn home(&self) -> Result<PathBuf, ProtocolError>;
     async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError>;
     async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError>;

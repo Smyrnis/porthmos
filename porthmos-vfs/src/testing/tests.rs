@@ -473,3 +473,106 @@ async fn failing_with_uses_the_given_kind() {
 
     assert_eq!(protocol.connect(&target, &mut Never).await.err().unwrap().kind(), ErrorKind::AuthRejected);
 }
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let fs = FakeFs::new();
+    fs.dir("/data/empty");
+
+    fs.remove_dir(Path::new("/data/empty")).await.unwrap();
+
+    assert!(!fs.exists("/data/empty"));
+    assert!(fs.exists("/data"));
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_a_file_and_keeps_it() {
+    let fs = FakeFs::new();
+    fs.file("/data/keep.txt", b"x", None);
+
+    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+
+    assert!(fs.exists("/data/keep.txt"));
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_that_holds_an_empty_folder() {
+    let fs = FakeFs::new();
+    fs.dir("/data/inner");
+
+    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+
+    assert!(fs.exists("/data/inner"));
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_that_holds_a_symlink() {
+    let fs = FakeFs::new();
+    fs.file("/elsewhere/a.txt", b"x", None).symlink("/data/link", "/elsewhere/a.txt");
+
+    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+
+    assert!(fs.exists("/data/link") && fs.exists("/elsewhere/a.txt"));
+}
+
+#[tokio::test]
+async fn remove_dir_of_a_missing_folder_is_not_found() {
+    let fs = FakeFs::new();
+
+    let err = fs.remove_dir(Path::new("/nope")).await.unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn remove_dir_never_removes_a_file() {
+    let fs = FakeFs::new();
+    fs.file("/data/a.txt", b"x", None);
+
+    assert!(fs.remove_dir(Path::new("/data/a.txt")).await.is_err());
+
+    assert!(fs.exists("/data/a.txt"));
+}
+
+struct Bare;
+
+#[async_trait::async_trait]
+impl FileSystem for Bare {
+    async fn list(&self, _dir: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+        Ok(Vec::new())
+    }
+    async fn read_dir(&self, _dir: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+        Ok(Vec::new())
+    }
+    async fn stat(&self, _path: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+        Ok(crate::Metadata { kind: FileKind::Dir, size: 0, modified: None, permissions: None })
+    }
+    async fn create_dir(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+        Ok(())
+    }
+    async fn rename(&self, _from: &Path, _to: &Path) -> Result<(), crate::ProtocolError> {
+        Ok(())
+    }
+    async fn remove_file(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+        Ok(())
+    }
+    async fn delete(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+        panic!("a default remove_dir must never fall back to the recursive delete");
+    }
+    async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
+        Ok(std::path::PathBuf::from("/"))
+    }
+    async fn open_read(&self, _path: &Path, _offset: u64) -> Result<crate::Reader, crate::ProtocolError> {
+        Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no reads")))
+    }
+    async fn open_write(&self, _path: &Path, _offset: u64) -> Result<crate::Writer, crate::ProtocolError> {
+        Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no writes")))
+    }
+}
+
+#[tokio::test]
+async fn a_filesystem_without_its_own_remove_dir_refuses_instead_of_deleting_recursively() {
+    let err = Bare.remove_dir(Path::new("/empty")).await.unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+}

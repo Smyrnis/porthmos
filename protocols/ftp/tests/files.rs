@@ -134,3 +134,37 @@ async fn a_dropped_idle_connection_is_reopened_transparently() {
 
     assert_eq!(names(&fs, "/").await, ["a.txt"]);
 }
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::create_dir(server.root.path().join("empty")).unwrap();
+    let fs = connect_to(&server).await;
+
+    fs.remove_dir(Path::new("/empty")).await.unwrap();
+
+    assert!(!server.root.path().join("empty").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::create_dir_all(server.root.path().join("full/inner")).unwrap();
+    std::fs::write(server.root.path().join("full/inner/keep.txt"), b"keep").unwrap();
+    let fs = connect_to(&server).await;
+
+    assert!(fs.remove_dir(Path::new("/full")).await.is_err());
+
+    assert!(server.root.path().join("full/inner/keep.txt").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_file_and_keeps_it() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::write(server.root.path().join("a.txt"), b"a").unwrap();
+    let fs = connect_to(&server).await;
+
+    assert!(fs.remove_dir(Path::new("/a.txt")).await.is_err());
+
+    assert!(server.root.path().join("a.txt").exists());
+}

@@ -233,3 +233,70 @@ fn list_reports_the_modification_time_of_each_entry() {
 
     assert_eq!(entries[0].modified, Some(expected));
 }
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("empty");
+    fs::create_dir(&target).unwrap();
+
+    LocalFs::new(dir.path().to_path_buf()).remove_dir(&target).await.unwrap();
+
+    assert!(!target.exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("full");
+    fs::create_dir_all(target.join("inner")).unwrap();
+    fs::write(target.join("inner/keep.txt"), b"keep").unwrap();
+
+    assert!(LocalFs::new(dir.path().to_path_buf()).remove_dir(&target).await.is_err());
+
+    assert!(target.join("inner/keep.txt").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_file_and_a_symlink_and_keeps_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("file.txt");
+    fs::write(&file, b"x").unwrap();
+    let folder = dir.path().join("real");
+    fs::create_dir(&folder).unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    let local = LocalFs::new(dir.path().to_path_buf());
+
+    assert!(local.remove_dir(&file).await.is_err());
+    assert!(local.remove_dir(&alias).await.is_err());
+
+    assert!(file.exists() && folder.exists() && alias.exists());
+}
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder_that_cannot_be_listed() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("sealed");
+    fs::create_dir(&target).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o300)).unwrap();
+    if fs::read_dir(&target).is_ok() {
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+
+    LocalFs::new(dir.path().to_path_buf()).remove_dir(&target).await.unwrap();
+
+    assert!(!target.exists());
+}
+
+#[tokio::test]
+async fn remove_dir_of_a_missing_folder_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let err = LocalFs::new(dir.path().to_path_buf()).remove_dir(&dir.path().join("nope")).await.unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+}
