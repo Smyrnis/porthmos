@@ -576,3 +576,18 @@ async fn a_filesystem_without_its_own_remove_dir_refuses_instead_of_deleting_rec
 
     assert_eq!(err.kind(), ErrorKind::Unsupported);
 }
+
+#[tokio::test]
+async fn a_hanging_read_gives_the_first_bytes_then_never_answers() {
+    use tokio::io::AsyncReadExt;
+    let fs = FakeFs::new();
+    fs.file("/d/a.txt", b"abcdef", None).hanging_reads("/d/a.txt", 3);
+    let mut reader = fs.open_read(Path::new("/d/a.txt"), 0).await.unwrap();
+    let mut first = [0u8; 8];
+
+    let got = reader.read(&mut first).await.unwrap();
+    let stalled = tokio::time::timeout(std::time::Duration::from_millis(100), reader.read(&mut first)).await;
+
+    assert_eq!(&first[..got], b"abc");
+    assert!(stalled.is_err());
+}

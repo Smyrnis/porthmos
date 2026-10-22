@@ -56,6 +56,8 @@ pub enum Command {
     ListHistory,
     ClearHistory,
     EditFile { location: Location, path: PathBuf },
+    Preview { request_id: RequestId, location: Location, path: PathBuf },
+    CancelPreview,
     FinishEdit { edit_id: u64, exit: EditorExit },
     ResolveEdit { edit_id: u64, choice: EditChoice },
     StartSync { session: SessionId, local_dir: PathBuf, remote_dir: PathBuf, options: SyncOptions },

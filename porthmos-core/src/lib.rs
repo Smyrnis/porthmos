@@ -11,6 +11,7 @@ pub mod last_used;
 pub mod listing;
 pub mod paths;
 pub mod persist;
+pub mod preview;
 pub mod profiles;
 mod protocol_info;
 pub mod secrets;

@@ -696,7 +696,7 @@ fn pause_is_p_on_the_transfers_screen_only() {
     let bindings = KeyBindings::defaults();
 
     assert_eq!(bindings.map_key(Scope::Transfers, letter('p')), Action::Pause);
-    for scope in [Scope::Global, Scope::Files, Scope::Connections, Scope::History, Scope::Sync] {
+    for scope in [Scope::Global, Scope::Connections, Scope::History, Scope::Sync] {
         assert_eq!(bindings.map_key(scope, letter('p')), Action::Noop, "{scope:?}");
     }
 }
@@ -742,4 +742,26 @@ fn the_reorder_keys_are_listed_as_capital_letters() {
 
     assert_eq!(shown(Scope::Transfers, Action::RowUp), ["K"]);
     assert_eq!(shown(Scope::Transfers, Action::RowDown), ["J"]);
+}
+
+#[test]
+fn p_previews_on_the_files_screen_and_pauses_on_the_transfers_screen() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Files, letter('p')), Action::Preview);
+    assert_eq!(bindings.map_key(Scope::Transfers, letter('p')), Action::Pause);
+    for scope in [Scope::Global, Scope::Connections, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, letter('p')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn preview_has_a_name_that_round_trips_and_is_listed_with_its_key() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert_eq!(Action::Preview.name(), "preview");
+    assert_eq!(Action::from_name("preview"), Some(Action::Preview));
+    assert!(ALL_ACTIONS.contains(&Action::Preview));
+    assert_eq!(shown(Scope::Files, Action::Preview), ["p"]);
 }

@@ -17,6 +17,7 @@ enum Availability {
 const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::Copy, "Copy to the other panel", Availability::On(Screen::Files)),
     (Action::Move, "Move to the other panel", Availability::On(Screen::Files)),
+    (Action::Preview, "Preview the file", Availability::On(Screen::Files)),
     (Action::Mkdir, "New folder", Availability::On(Screen::Files)),
     (Action::Delete, "Delete", Availability::On(Screen::Files)),
     (Action::Rename, "Rename", Availability::On(Screen::Files)),

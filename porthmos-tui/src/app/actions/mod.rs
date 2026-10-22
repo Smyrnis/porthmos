@@ -37,6 +37,7 @@ impl App {
             Action::Copy => self.start_copy(),
             Action::Move => self.start_move(),
             Action::SpeedLimit => self.open_speed_limit_dialog(),
+            Action::Preview => self.start_preview(),
             Action::Edit => self.start_edit(),
             Action::CancelTransfer => self.core.send(Command::CancelAllTransfers),
             Action::OpenConnections => self.open_connections_screen(),

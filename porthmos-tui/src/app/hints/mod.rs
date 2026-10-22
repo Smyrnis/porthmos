@@ -15,6 +15,7 @@ const FILES: &[(Action, &str)] = &[
     (Action::OpenConnections, "connections"),
     (Action::Quit, "quit"),
     (Action::Edit, "edit"),
+    (Action::Preview, "preview"),
     (Action::Rename, "rename"),
     (Action::Filter, "filter"),
     (Action::ToggleSelect, "select"),

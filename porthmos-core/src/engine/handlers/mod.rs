@@ -6,6 +6,7 @@ mod history;
 mod last_used;
 mod moves;
 mod pause;
+mod preview;
 mod profiles;
 mod reorder;
 mod search;

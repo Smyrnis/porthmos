@@ -73,6 +73,7 @@ mkdir = ["n", "f7"]
 delete = ["d", "f8"]
 rename = ["r", "f2"]
 edit = ["e", "f3"]
+preview = "p"
 open_transfers = "t"
 session_1 = "1"
 session_2 = "2"

@@ -16,6 +16,7 @@ pub mod notifications;
 pub mod palette_view;
 pub mod panel_view;
 pub mod popup;
+pub mod preview_view;
 pub mod search_view;
 pub mod session_tabs;
 pub mod sync_view;

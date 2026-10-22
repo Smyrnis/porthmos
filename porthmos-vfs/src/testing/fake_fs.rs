@@ -24,6 +24,7 @@ struct Tree {
     nodes: BTreeMap<PathBuf, Node>,
     failing_read_dirs: BTreeSet<PathBuf>,
     failing_reads: BTreeSet<PathBuf>,
+    hanging_reads: BTreeMap<PathBuf, usize>,
     failing_home: bool,
     denied_stats: BTreeSet<PathBuf>,
     hanging_stats: BTreeSet<PathBuf>,
@@ -156,6 +157,11 @@ impl FakeFs {
         self
     }
 
+    pub fn hanging_reads(&self, path: impl AsRef<Path>, after: usize) -> &Self {
+        self.tree.lock().unwrap().hanging_reads.insert(path.as_ref().to_path_buf(), after);
+        self
+    }
+
     pub fn fail_reads(&self, path: impl AsRef<Path>) -> &Self {
         self.tree.lock().unwrap().failing_reads.insert(path.as_ref().to_path_buf());
         self
@@ -212,6 +218,19 @@ impl FakeFs {
 
     pub fn exists(&self, path: impl AsRef<Path>) -> bool {
         self.tree.lock().unwrap().nodes.contains_key(path.as_ref())
+    }
+}
+
+struct HangingReader {
+    data: std::io::Cursor<Vec<u8>>,
+}
+
+impl AsyncRead for HangingReader {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        if self.data.position() < self.data.get_ref().len() as u64 {
+            return Pin::new(&mut self.data).poll_read(cx, buf);
+        }
+        Poll::Pending
     }
 }
 
@@ -411,6 +430,10 @@ impl FileSystem for FakeFs {
         match tree.resolve(path) {
             Some(Node::File { data, .. }) => {
                 let start = (offset as usize).min(data.len());
+                if let Some(after) = tree.hanging_reads.get(path) {
+                    let end = (start + after).min(data.len());
+                    return Ok(Box::new(HangingReader { data: std::io::Cursor::new(data[start..end].to_vec()) }));
+                }
                 Ok(Box::new(std::io::Cursor::new(data[start..].to_vec())))
             }
             _ => Err(not_found(path)),

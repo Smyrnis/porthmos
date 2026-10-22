@@ -76,12 +76,17 @@ fn actions_follow_the_current_screen() {
     let files = labels(&files, Group::Actions);
     assert!(files.contains(&"Copy to the other panel") && files.contains(&"New folder"));
     assert!(files.contains(&"Move to the other panel"));
+    assert!(files.contains(&"Preview the file"));
     assert!(!files.contains(&"Delete connection") && !files.contains(&"Retry the selected transfer"));
 
     let connections = on(Screen::Connections).app.palette_entries();
     let connections = labels(&connections, Group::Actions);
     assert!(connections.contains(&"Delete connection") && connections.contains(&"Edit connection"));
-    assert!(!connections.contains(&"Copy to the other panel") && !connections.contains(&"Move to the other panel"));
+    assert!(
+        !connections.contains(&"Copy to the other panel")
+            && !connections.contains(&"Move to the other panel")
+            && !connections.contains(&"Preview the file")
+    );
 
     let transfers = on(Screen::Transfers).app.palette_entries();
     let transfers = labels(&transfers, Group::Actions);
@@ -161,6 +166,7 @@ fn an_action_hint_is_its_first_live_key_in_the_current_scope() {
     let files = on(Screen::Files).app.palette_entries();
     assert_eq!(find(&files, "Copy to the other panel").hint.as_deref(), Some("c"));
     assert_eq!(find(&files, "Move to the other panel").hint.as_deref(), Some("m"));
+    assert_eq!(find(&files, "Preview the file").hint.as_deref(), Some("p"));
     assert_eq!(find(&files, "Quit").hint.as_deref(), Some("q"));
     assert_eq!(find(&files, "New connection").hint, None);
     let connections = on(Screen::Connections).app.palette_entries();

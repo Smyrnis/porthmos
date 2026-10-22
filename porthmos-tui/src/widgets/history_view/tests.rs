@@ -447,3 +447,15 @@ fn a_label_with_a_right_to_left_override_is_never_drawn_raw() {
     assert!(!screen.contains('\u{202e}'));
     assert!(screen.contains("fake?txt.exe"), "{screen}");
 }
+
+#[test]
+fn printable_also_replaces_line_and_paragraph_separators_and_invisible_format_characters() {
+    assert_eq!(printable("a\u{2028}b\u{2029}c\u{200b}d\u{2060}e\u{2064}f\u{feff}g"), "a?b?c?d?e?f?g");
+}
+
+#[test]
+fn printable_keeps_joiners_and_variation_selectors_that_emoji_and_scripts_need() {
+    let text = "\u{2764}\u{fe0f} \u{1f469}\u{200d}\u{1f469} \u{0645}\u{200c}\u{0646}";
+
+    assert_eq!(printable(text), text);
+}

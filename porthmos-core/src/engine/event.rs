@@ -10,6 +10,7 @@ use crate::{
     config::bookmarks::Bookmark,
     edit::{EditQuestionKind, EditorCommand},
     history::HistoryEntry,
+    preview::Preview,
     profiles::ConnectionEntry,
     sync::SyncPlan,
     test_connection::TestOutcome,
@@ -48,6 +49,7 @@ pub enum Event {
     EditReady { edit_id: u64, file: PathBuf, editor: EditorCommand },
     EditQuestion { edit_id: u64, name: String, kind: EditQuestionKind },
     EditsBusy(bool),
+    PreviewReady { request_id: RequestId, name: String, result: Result<Arc<Preview>, String> },
     SyncPlanReady(Arc<SyncPlan>),
     SyncWithdrawn { sync_ids: Vec<u64> },
 }

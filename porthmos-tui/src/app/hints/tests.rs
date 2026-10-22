@@ -36,6 +36,7 @@ fn files_hints_use_the_default_keys_in_order() {
             pair("F9", "connections"),
             pair("q", "quit"),
             pair("e", "edit"),
+            pair("p", "preview"),
             pair("r", "rename"),
             pair("/", "filter"),
             pair("Space", "select"),
@@ -64,7 +65,7 @@ fn an_unbound_action_is_omitted_without_leaving_a_gap() {
 
     let labels: Vec<&str> = hints.entries.iter().map(|hint| hint.label).collect();
     assert!(!labels.contains(&"copy"));
-    assert_eq!(hints.entries.len(), 10);
+    assert_eq!(hints.entries.len(), 11);
 }
 
 #[test]
@@ -171,6 +172,7 @@ fn screen_sections_use_the_hint_labels_and_the_live_keys() {
     let files = rows_of(section(&sections, "files"));
     assert!(files.contains(&(Some("c / F5"), "copy")));
     assert!(files.contains(&(Some("m / F6"), "move")));
+    assert!(files.contains(&(Some("p"), "preview")));
     assert!(files.contains(&(Some("q / F10"), "quit")));
     let connections = rows_of(section(&sections, "connections"));
     assert_eq!(

@@ -18,6 +18,7 @@ use crate::widgets::{
     palette_view::render_palette,
     panel_view::PanelContext,
     popup::render_popup,
+    preview_view,
     session_tabs::{TabView, tabs_line},
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
@@ -34,6 +35,9 @@ impl App {
 
         let Some(areas) = layout::split_frame(area) else {
             self.render_too_small(frame, area);
+            if let Some(preview) = &self.preview {
+                preview_view::render_preview(frame, area, preview, &self.theme);
+            }
             return;
         };
         self.body_width.set(areas.body.width);
@@ -56,6 +60,10 @@ impl App {
         }
 
         self.render_hint_bar(frame, areas.hint_bar);
+
+        if let Some(preview) = &self.preview {
+            preview_view::render_preview(frame, area, preview, &self.theme);
+        }
 
         if let Some(notification) = self.notifications.current() {
             render_toast(frame, area, notification.severity, &notification.message, &self.theme);

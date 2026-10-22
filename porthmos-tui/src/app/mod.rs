@@ -57,6 +57,7 @@ mod filter;
 mod hints;
 mod history;
 mod palette;
+mod preview;
 mod render;
 mod search;
 mod sync;
@@ -146,6 +147,8 @@ pub struct App {
     connection_test: Option<u64>,
     next_test_id: u64,
     help_visible: bool,
+    preview: Option<crate::widgets::preview_view::PreviewView>,
+    next_preview_id: RequestId,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -196,6 +199,8 @@ impl App {
             connection_test: None,
             next_test_id: 0,
             help_visible: false,
+            preview: None,
+            next_preview_id: 0,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
@@ -304,7 +309,9 @@ impl App {
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
-        if self.help_visible {
+        if self.preview.is_some() && self.dialog.is_none() {
+            self.apply_preview_key(key);
+        } else if self.help_visible {
             self.apply_help_key(key);
         } else if self.details_popup {
             self.details_popup = false;
@@ -401,6 +408,7 @@ impl App {
             Event::History(entries) => self.history.replace(entries),
             Event::EditReady { .. } => {}
             Event::EditsBusy(busy) => self.edits_busy = busy,
+            Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)
