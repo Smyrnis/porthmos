@@ -181,6 +181,7 @@ impl Engine {
             + self.cancel_session_transfers(session)
             + self.drop_conflict_reviews(|review| review.session_id == session);
         self.drop_sync_plans(|plan| plan.session == session);
+        self.finish_move_batches_of(session);
         if affected > 0 {
             let plural = if affected == 1 { "" } else { "s" };
             self.info(format!("{affected} transfer{plural} cancelled \u{2014} session disconnected"));

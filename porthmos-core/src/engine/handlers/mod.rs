@@ -4,6 +4,7 @@ mod edit;
 mod fs;
 mod history;
 mod last_used;
+mod moves;
 mod profiles;
 mod search;
 mod secrets;
@@ -16,6 +17,7 @@ use std::fmt::Display;
 pub(crate) use edit::{EditEvent, EditState};
 pub(crate) use history::HistoryLog;
 pub(crate) use last_used::LastUsedLog;
+pub(crate) use moves::{MoveBatch, without_symlinks};
 #[cfg(test)]
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};

@@ -31,6 +31,7 @@ pub enum Command {
     Rename { location: Location, from: PathBuf, to: PathBuf },
     Delete { location: Location, paths: Vec<PathBuf> },
     Copy { from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf },
+    Move { from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf },
     ResolveConflicts { batch_id: u64, answers: Option<Vec<Resolution>> },
     CancelAllTransfers,
     CancelRow { kind: RowKind },

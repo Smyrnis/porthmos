@@ -215,6 +215,7 @@ impl TransferQueue {
             batch_id,
             resume: false,
             modified: None,
+            remove_source: false,
         };
         let shape = Shape::of(&job);
         let key = match batch_id {

@@ -165,6 +165,26 @@ impl Rig {
         });
     }
 
+    pub fn move_up(&self, names: &[(&str, bool)]) {
+        let entries = names.iter().map(|(name, is_dir)| Self::entry(&self.local(name), *is_dir)).collect();
+        self.core.send(Command::Move {
+            from: Location::Local,
+            entries,
+            to: Location::Session(self.session),
+            dest_dir: self.server.root.path().to_path_buf(),
+        });
+    }
+
+    pub fn move_down(&self, names: &[(&str, bool)]) {
+        let entries = names.iter().map(|(name, is_dir)| Self::entry(&self.remote(name), *is_dir)).collect();
+        self.core.send(Command::Move {
+            from: Location::Session(self.session),
+            entries,
+            to: Location::Local,
+            dest_dir: self.local.path().to_path_buf(),
+        });
+    }
+
     pub async fn settle(&mut self, answers: impl Fn(&[ConflictInfo]) -> Option<Vec<Resolution>>) -> Vec<RowState> {
         let mut started = false;
         loop {
