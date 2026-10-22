@@ -300,3 +300,91 @@ async fn remove_dir_of_a_missing_folder_is_not_found() {
 
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
+
+#[test]
+fn list_reports_the_owner_and_group_of_each_entry() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("data.txt");
+    fs::write(&path, b"hello").unwrap();
+    let metadata = fs::metadata(&path).unwrap();
+
+    let entries = list(dir.path()).unwrap();
+
+    assert_eq!(entries[0].owner.as_deref(), Some(ownership::user_name(metadata.uid()).as_str()));
+    assert_eq!(entries[0].group.as_deref(), Some(ownership::group_name(metadata.gid()).as_str()));
+}
+
+#[test]
+fn list_gives_a_symlink_its_target_as_written() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("real.txt"), b"x").unwrap();
+    std::os::unix::fs::symlink("real.txt", dir.path().join("alias")).unwrap();
+
+    let entries = list(dir.path()).unwrap();
+    let alias = entries.iter().find(|entry| entry.name == "alias").unwrap();
+    let real = entries.iter().find(|entry| entry.name == "real.txt").unwrap();
+
+    assert_eq!(alias.link_target.as_deref(), Some("real.txt"));
+    assert_eq!(real.link_target, None);
+}
+
+#[test]
+fn list_keeps_a_symlink_to_a_folder_a_non_folder_so_nothing_walks_into_it() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("real")).unwrap();
+    std::os::unix::fs::symlink("real", dir.path().join("alias")).unwrap();
+
+    let entries = list(dir.path()).unwrap();
+    let alias = entries.iter().find(|entry| entry.name == "alias").unwrap();
+
+    assert!(!alias.is_dir);
+    assert_eq!(alias.link_target.as_deref(), Some("real"));
+}
+
+#[test]
+fn list_keeps_a_broken_symlink_as_a_file_with_its_target() {
+    let dir = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("nowhere", dir.path().join("dangling")).unwrap();
+
+    let entries = list(dir.path()).unwrap();
+
+    assert!(!entries[0].is_dir);
+    assert_eq!(entries[0].link_target.as_deref(), Some("nowhere"));
+}
+
+#[tokio::test]
+async fn free_space_of_a_local_folder_is_known() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let free = LocalFs::new(dir.path().into()).free_space(dir.path()).await.unwrap();
+
+    assert!(free.unwrap() > 0);
+}
+
+#[tokio::test]
+async fn free_space_of_a_missing_local_folder_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let error = LocalFs::new(dir.path().into()).free_space(&dir.path().join("missing")).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+}
+
+#[test]
+fn list_resolves_each_distinct_owner_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+    fn counted(id: u32) -> String {
+        LOOKUPS.fetch_add(1, Ordering::SeqCst);
+        id.to_string()
+    }
+    let mut cache = ownership::NameCache::new(counted);
+
+    let names: Vec<String> = [5, 5, 6, 5, 6].into_iter().map(|id| cache.name(id)).collect();
+
+    assert_eq!(names, ["5", "5", "6", "5", "6"]);
+    assert_eq!(LOOKUPS.load(Ordering::SeqCst), 2);
+}

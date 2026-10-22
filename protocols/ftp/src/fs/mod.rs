@@ -323,6 +323,10 @@ impl FileSystem for FtpFs {
         self.greeting.clone()
     }
 
+    async fn connection_alive(&self) -> Option<bool> {
+        Some(self.pool.check().await)
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         let parent = path_to_remote_string(dir);
         let mut entries = Vec::new();
@@ -340,6 +344,9 @@ impl FileSystem for FtpFs {
                 permissions: item.metadata.permissions,
                 modified: item.metadata.modified,
                 name: item.name,
+                owner: item.owner,
+                group: item.group,
+                link_target: item.link_target,
             });
         }
         Ok(entries)

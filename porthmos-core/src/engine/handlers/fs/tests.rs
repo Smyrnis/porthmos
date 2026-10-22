@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use super::*;
 use crate::engine::{Command, testing::test_engine};
@@ -197,4 +200,106 @@ fn each_failure_is_logged_at_the_line_that_reported_it() {
     assert_eq!(places.len(), 2, "{logs}");
     assert_ne!(places[0], places[1], "{logs}");
     assert!(places[0].contains("fs/tests.rs"), "{logs}");
+}
+
+#[tokio::test]
+async fn a_listing_is_followed_by_the_free_space_of_that_folder() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a", b"", None).with_free_space(5_000);
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+
+    assert!(matches!(t.next_event().await, Event::Listed { .. }));
+    match t.next_event().await {
+        Event::FreeSpace { location, path, bytes } => {
+            assert_eq!(location, Location::Session(session));
+            assert_eq!(path, PathBuf::from("/data"));
+            assert_eq!(bytes, Some(5_000));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_server_that_cannot_tell_its_free_space_reports_none() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/data");
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+
+    assert!(matches!(t.next_event().await, Event::Listed { .. }));
+    assert!(matches!(t.next_event().await, Event::FreeSpace { bytes: None, .. }));
+}
+
+#[tokio::test]
+async fn a_failing_free_space_query_reports_none_and_stays_quiet() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/data");
+    remote.fail_free_space();
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+    t.settle().await;
+    let events = t.drain();
+
+    assert!(events.iter().any(|event| matches!(event, Event::FreeSpace { bytes: None, .. })));
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { .. })));
+}
+
+#[tokio::test]
+async fn a_failed_listing_reports_no_free_space() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.with_free_space(5_000);
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/gone")) });
+    t.settle().await;
+
+    assert!(!t.drain().iter().any(|event| matches!(event, Event::FreeSpace { .. })));
+}
+
+#[tokio::test]
+async fn listing_the_local_side_reports_the_free_space_of_the_disk() {
+    let mut t = test_engine();
+    let dir = t.dir.path().to_path_buf();
+
+    t.engine.handle_command(Command::List { location: Location::Local, path: Some(dir.clone()) });
+
+    assert!(matches!(t.next_event().await, Event::Listed { .. }));
+    match t.next_event().await {
+        Event::FreeSpace { location: Location::Local, path, bytes } => {
+            assert_eq!(path, dir);
+            assert!(bytes.unwrap() > 0);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn the_start_folder_listing_also_reports_free_space() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/home/user/work").with_free_space(9_000);
+    t.engine.sessions.get_mut(&session).unwrap().entry.options.insert("remote_path".to_string(), "work".to_string());
+
+    t.engine.open_start_directory(session);
+
+    assert!(matches!(t.next_event().await, Event::Listed { .. }));
+    assert!(matches!(t.next_event().await, Event::FreeSpace { bytes: Some(9_000), .. }));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_free_space_query_that_never_answers_gives_up() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/data").hanging_free_space();
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+
+    let listed = tokio::time::timeout(Duration::from_secs(60), t.events.recv()).await.unwrap().unwrap();
+    let free = tokio::time::timeout(Duration::from_secs(60), t.events.recv()).await.unwrap().unwrap();
+    assert!(matches!(listed, Event::Listed { .. }));
+    assert!(matches!(free, Event::FreeSpace { bytes: None, .. }));
 }

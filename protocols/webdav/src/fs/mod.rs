@@ -189,6 +189,7 @@ impl FileSystem for WebDavFs {
                 modified: item.metadata.modified,
                 name: item.name,
                 path: item.path,
+                ..Default::default()
             })
             .collect())
     }

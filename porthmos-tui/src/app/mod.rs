@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -362,6 +362,8 @@ impl App {
             }
             Event::ShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
+            Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
+            Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
             Event::LocationChanged { location } => self.relist(location),
             Event::Profiles(entries) => {
                 self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
@@ -458,6 +460,17 @@ impl App {
                     session.listed = true;
                 } else {
                     tracing::debug!("dropping a listing for session {id}, which is gone");
+                }
+            }
+        }
+    }
+
+    fn apply_free_space(&mut self, location: Location, path: &Path, bytes: Option<u64>) {
+        match location {
+            Location::Local => self.local.set_free_space(path, bytes),
+            Location::Session(id) => {
+                if let Some(session) = self.sessions.by_id_mut(id) {
+                    session.panel.set_free_space(path, bytes);
                 }
             }
         }

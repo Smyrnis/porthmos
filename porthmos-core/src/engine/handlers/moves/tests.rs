@@ -25,6 +25,7 @@ fn local_entry(t: &TestEngine, name: &str) -> Entry {
         is_dir: metadata.is_dir(),
         size: metadata.len(),
         permissions: None,
+        ..Default::default()
     }
 }
 
@@ -38,6 +39,7 @@ async fn remote_entry(remote: &FakeFs, path: &str) -> Entry {
         is_dir: metadata.is_dir(),
         size: metadata.size,
         permissions: None,
+        ..Default::default()
     }
 }
 
@@ -233,6 +235,7 @@ async fn a_source_that_cannot_be_removed_fails_the_job_and_keeps_the_copy() {
         is_dir: false,
         size: 5,
         permissions: None,
+        ..Default::default()
     };
 
     t.engine.move_entries(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/up"));
@@ -638,6 +641,7 @@ async fn a_symlink_selected_directly_is_never_followed_or_moved() {
         is_dir: true,
         size: 0,
         permissions: None,
+        ..Default::default()
     };
 
     t.engine.move_entries(Location::Session(session), vec![entry], Location::Local, t.dir.path().to_path_buf());
@@ -733,6 +737,7 @@ async fn retrying_after_the_original_could_not_be_removed_moves_it_once_it_can_b
         is_dir: false,
         size: 5,
         permissions: None,
+        ..Default::default()
     };
     t.engine.move_entries(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/up"));
     t.settle().await;

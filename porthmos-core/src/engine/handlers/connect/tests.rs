@@ -420,6 +420,7 @@ async fn disconnecting_during_a_copy_cancels_it_and_late_results_do_not_bring_it
                 is_dir: false,
                 size: 64,
                 permissions: None,
+                ..Default::default()
             }
         })
         .collect();

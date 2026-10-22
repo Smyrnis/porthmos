@@ -34,6 +34,7 @@ fn file(name: &str, size: u64) -> Entry {
         size,
         permissions: Some(0o100644),
         modified: None,
+        ..Default::default()
     }
 }
 
@@ -497,4 +498,32 @@ fn permissions_string_renders_mixed_triplets() {
         permissions_string(&Entry { permissions: Some(0o100640), ..file("a", 1) }).as_deref(),
         Some("-rw-r-----")
     );
+}
+
+#[test]
+fn name_cell_marks_a_symlink_with_an_at_sign() {
+    let link = Entry { link_target: Some("target".to_string()), ..file("current", 1) };
+
+    assert_eq!(name_cell(&link), "current@");
+}
+
+#[test]
+fn name_cell_marks_a_symlink_to_a_folder_with_an_at_sign_too() {
+    let link = Entry { link_target: Some("releases".to_string()), ..directory("current") };
+
+    assert_eq!(name_cell(&link), "current@");
+}
+
+#[test]
+fn name_cell_marks_an_executable_symlink_with_an_at_sign_only() {
+    let link = Entry { link_target: Some("run".to_string()), permissions: Some(0o100755), ..file("go", 1) };
+
+    assert_eq!(name_cell(&link), "go@");
+}
+
+#[test]
+fn permissions_string_marks_a_symlink_with_an_l() {
+    let link = Entry { link_target: Some("t".to_string()), permissions: Some(0o120777), ..file("l", 1) };
+
+    assert_eq!(permissions_string(&link).as_deref(), Some("lrwxrwxrwx"));
 }

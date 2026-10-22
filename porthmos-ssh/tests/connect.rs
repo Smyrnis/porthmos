@@ -122,3 +122,28 @@ async fn a_server_refusing_commands_fails_the_exec() {
 
     assert!(exec(&session, "true").await.is_err());
 }
+
+#[tokio::test]
+async fn a_live_session_is_not_closed() {
+    let server = SshServer::start(Options::default()).await;
+
+    let session = server.session().await;
+
+    assert!(!session.is_closed());
+}
+
+#[tokio::test]
+async fn a_session_that_was_disconnected_reports_itself_closed() {
+    let server = SshServer::start(Options::default()).await;
+    let session = server.session().await;
+
+    session.handle().disconnect(russh::Disconnect::ByApplication, "bye", "en").await.unwrap();
+
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !session.is_closed() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(closed.is_ok());
+}

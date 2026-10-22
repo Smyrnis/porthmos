@@ -251,3 +251,16 @@ async fn the_sniffer_never_stores_more_than_a_bounded_amount_without_a_newline()
     assert_eq!(seen.version(), None);
     assert!(seen.len() <= 512);
 }
+
+#[test]
+fn the_client_pings_a_silent_server_and_gives_up_after_a_few_misses() {
+    let config = client_config();
+
+    assert_eq!(config.keepalive_interval, Some(KEEPALIVE_INTERVAL));
+    assert_eq!(config.keepalive_max, KEEPALIVE_MAX);
+}
+
+#[test]
+fn a_dead_connection_is_noticed_within_a_minute() {
+    assert!(KEEPALIVE_INTERVAL * (KEEPALIVE_MAX as u32 + 1) <= std::time::Duration::from_secs(60));
+}

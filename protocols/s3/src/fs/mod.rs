@@ -561,6 +561,7 @@ impl FileSystem for S3Fs {
                 modified: item.metadata.modified,
                 name: item.name,
                 path: item.path,
+                ..Default::default()
             })
             .collect())
     }

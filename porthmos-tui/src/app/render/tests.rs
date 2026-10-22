@@ -604,6 +604,7 @@ fn deploy_script() -> Entry {
         size: 2457,
         permissions: Some(0o100755),
         modified: Some(chrono::Local.with_ymd_and_hms(2026, 10, 20, 14, 2, 0).unwrap().timestamp() as u64),
+        ..Default::default()
     }
 }
 

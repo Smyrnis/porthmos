@@ -25,6 +25,10 @@ pub(crate) fn stat(path: &Path) -> String {
     format!("{LISTING_ENVIRONMENT} ls -ldnL -- {}", quoted(path))
 }
 
+pub(crate) fn free_space(path: &Path) -> String {
+    format!("LC_ALL=C df -Pk -- {}", quoted(path))
+}
+
 pub(crate) fn mkdir(path: &Path) -> String {
     format!("mkdir -- {}", quoted(path))
 }

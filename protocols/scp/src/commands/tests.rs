@@ -68,3 +68,8 @@ fn touch_tests_for_the_file_then_stamps_it_without_creating_one() {
 
     assert_eq!(command, format!("test -e {quoted} && touch -c -d @1700000000 -- {quoted}"));
 }
+
+#[test]
+fn free_space_asks_df_for_posix_kilobytes_in_the_c_locale() {
+    assert_eq!(free_space(Path::new("/srv/a b")), "LC_ALL=C df -Pk -- '/srv/a b'");
+}

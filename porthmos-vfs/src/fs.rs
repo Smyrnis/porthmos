@@ -36,6 +36,9 @@ pub trait FileSystem: Send + Sync {
     async fn open_write_sized(&self, path: &Path, offset: u64, _size: u64) -> Result<Writer, ProtocolError> {
         self.open_write(path, offset).await
     }
+    async fn connection_alive(&self) -> Option<bool> {
+        None
+    }
     fn transfer_limit(&self) -> Option<usize> {
         None
     }
@@ -55,6 +58,9 @@ pub trait FileSystem: Send + Sync {
 
     fn time_resolution(&self) -> u64 {
         2
+    }
+    async fn free_space(&self, _dir: &Path) -> Result<Option<u64>, ProtocolError> {
+        Ok(None)
     }
     async fn search(&self, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>) {
         walk_search(self, query, tx, cancel).await

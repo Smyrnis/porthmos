@@ -83,6 +83,7 @@ async fn a_download_lands_on_the_local_side_and_reports_progress() {
             is_dir: false,
             size: 8,
             permissions: None,
+            ..Default::default()
         }],
         to: Location::Local,
         dest_dir: harness.local.path().to_path_buf(),
@@ -186,6 +187,7 @@ async fn a_big_copy_publishes_far_fewer_snapshots_than_files_and_ends_on_the_fin
             is_dir: false,
             size: 4,
             permissions: None,
+            ..Default::default()
         });
     }
     let session = harness.connect().await;

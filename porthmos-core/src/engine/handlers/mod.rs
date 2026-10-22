@@ -2,6 +2,7 @@ mod bookmarks;
 mod connect;
 mod edit;
 mod fs;
+mod health;
 mod history;
 mod last_used;
 mod moves;

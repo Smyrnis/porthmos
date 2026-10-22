@@ -201,6 +201,7 @@ impl App {
                     .find(|entry| entry.name == session.name)
                     .map_or("", |entry| entry.protocol.as_str()),
                 active: Some(session.id) == active_id,
+                healthy: session.healthy,
             })
             .collect()
     }

@@ -32,6 +32,10 @@ impl Session {
         &self.handle
     }
 
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed()
+    }
+
     pub fn server_version(&self) -> Option<String> {
         self.server.version()
     }

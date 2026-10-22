@@ -101,6 +101,27 @@ impl Pool {
         }
     }
 
+    pub(crate) async fn check(&self) -> bool {
+        let Ok(mut main) = self.main.try_lock() else {
+            return true;
+        };
+        if !self.main_out_of_step.load(Ordering::Relaxed) {
+            match within(self.context.timeout, main.noop()).await {
+                Ok(()) => return true,
+                Err(err) if !is_connection_lost(&err) => return true,
+                Err(_) => {}
+            }
+        }
+        match open_logged_in(&self.context, &self.password).await {
+            Ok(fresh) => {
+                *main = fresh;
+                self.main_out_of_step.store(false, Ordering::Relaxed);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     pub(crate) async fn ask_once<T>(
         &self, op: impl for<'c> Fn(&'c mut Connection) -> ConnectionFuture<'c, T>,
     ) -> Option<T> {

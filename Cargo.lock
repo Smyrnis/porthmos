@@ -3233,6 +3233,7 @@ name = "porthmos-lfs"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "libc",
  "porthmos-vfs",
  "tempfile",
  "tokio",

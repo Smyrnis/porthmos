@@ -82,6 +82,10 @@ pub(crate) enum Internal {
     KeyringProbed {
         available: bool,
     },
+    SessionHealth {
+        session: SessionId,
+        healthy: bool,
+    },
     KeyringDone(handlers::KeyringDone),
     PersistFailed {
         path: PathBuf,
@@ -394,6 +398,7 @@ impl Engine {
             Internal::Edit(event) => self.handle_edit_event(event),
             Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
+            Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),
             Internal::PersistFailed { path, message, tag } => self.persist_failed(path, message, tag),
             Internal::TaskPanicked { name, scope, message } => self.recover_from_panic(name, scope, &message),

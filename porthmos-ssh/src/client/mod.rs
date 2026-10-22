@@ -6,6 +6,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -228,8 +229,19 @@ impl<R: AsyncWrite + Unpin> AsyncWrite for Sniffing<R> {
     }
 }
 
+pub(crate) const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+pub(crate) const KEEPALIVE_MAX: usize = 2;
+
+pub(crate) fn client_config() -> client::Config {
+    client::Config {
+        keepalive_interval: Some(KEEPALIVE_INTERVAL),
+        keepalive_max: KEEPALIVE_MAX,
+        ..client::Config::default()
+    }
+}
+
 pub async fn connect(host_key: HostKeyCheck) -> Result<(Handle<PorthmosHandler>, ServerId)> {
-    let config = Arc::new(client::Config::default());
+    let config = Arc::new(client_config());
     let address = (host_key.host.clone(), host_key.port);
     let stream = tokio::net::TcpStream::connect(address).await.map_err(russh::Error::IO)?;
     if config.nodelay

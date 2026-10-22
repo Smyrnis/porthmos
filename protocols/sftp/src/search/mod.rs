@@ -13,7 +13,7 @@ use russh::ChannelMsg;
 use russh_sftp::client::SftpSession;
 use tokio::sync::mpsc;
 
-use crate::fs::metadata_from_sftp;
+use crate::fs::{metadata_from_sftp, ownership_of};
 
 pub async fn search_remote(
     session: &Session, sftp: &SftpSession, query: SearchQuery, tx: mpsc::UnboundedSender<SearchEvent>,
@@ -37,6 +37,7 @@ pub async fn search_remote(
 
                 if let Ok(metadata) = sftp.metadata(&path).await {
                     let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+                    let (owner, group) = ownership_of(&metadata);
                     let _ = tx.send(SearchEvent::Found(Entry {
                         name,
                         path: PathBuf::from(&path),
@@ -44,6 +45,9 @@ pub async fn search_remote(
                         size: metadata.len(),
                         permissions: metadata.permissions,
                         modified: metadata_from_sftp(&metadata).modified,
+                        owner,
+                        group,
+                        ..Default::default()
                     }));
                     found += 1;
                 }
@@ -129,6 +133,7 @@ async fn search_remote_walk(
             let path = join_remote(&dir, &name);
 
             if glob_match(&pattern, &name) {
+                let (owner, group) = ownership_of(&metadata);
                 let _ = tx.send(SearchEvent::Found(Entry {
                     name: name.clone(),
                     path: PathBuf::from(&path),
@@ -136,6 +141,9 @@ async fn search_remote_walk(
                     size: metadata.len(),
                     permissions: metadata.permissions,
                     modified: metadata_from_sftp(&metadata).modified,
+                    owner,
+                    group,
+                    ..Default::default()
                 }));
                 found += 1;
             }

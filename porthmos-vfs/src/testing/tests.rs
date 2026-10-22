@@ -591,3 +591,95 @@ async fn a_hanging_read_gives_the_first_bytes_then_never_answers() {
     assert_eq!(&first[..got], b"abc");
     assert!(stalled.is_err());
 }
+
+#[tokio::test]
+async fn free_space_is_unknown_until_configured() {
+    let fs = FakeFs::new();
+
+    assert_eq!(fs.free_space(Path::new("/home/user")).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn configured_free_space_is_reported() {
+    let fs = FakeFs::new();
+    fs.with_free_space(2_000);
+
+    assert_eq!(fs.free_space(Path::new("/home/user")).await.unwrap(), Some(2_000));
+}
+
+#[tokio::test]
+async fn free_space_can_fail() {
+    let fs = FakeFs::new();
+    fs.fail_free_space();
+
+    assert!(fs.free_space(Path::new("/home/user")).await.is_err());
+}
+
+#[tokio::test]
+async fn listing_names_what_a_symlink_points_to() {
+    let fs = FakeFs::new();
+    fs.file("/d/real.txt", b"x", None).symlink("/d/link", "/d/real.txt");
+
+    let entries = fs.list(Path::new("/d")).await.unwrap();
+    let link = entries.iter().find(|entry| entry.name == "link").unwrap();
+    let real = entries.iter().find(|entry| entry.name == "real.txt").unwrap();
+
+    assert_eq!(link.link_target.as_deref(), Some("/d/real.txt"));
+    assert_eq!(real.link_target, None);
+}
+
+#[tokio::test]
+async fn listing_carries_the_configured_owner_and_group() {
+    let fs = FakeFs::new();
+    fs.file("/d/a.txt", b"x", None).file("/d/b.txt", b"x", None).with_owner("/d/a.txt", "nikos", "staff");
+
+    let entries = fs.list(Path::new("/d")).await.unwrap();
+    let a = entries.iter().find(|entry| entry.name == "a.txt").unwrap();
+    let b = entries.iter().find(|entry| entry.name == "b.txt").unwrap();
+
+    assert_eq!((a.owner.as_deref(), a.group.as_deref()), (Some("nikos"), Some("staff")));
+    assert_eq!((b.owner.as_deref(), b.group.as_deref()), (None, None));
+}
+
+#[tokio::test]
+async fn a_hanging_free_space_query_never_answers() {
+    let fs = FakeFs::new();
+    fs.hanging_free_space();
+
+    let answer =
+        tokio::time::timeout(std::time::Duration::from_millis(100), fs.free_space(Path::new("/home/user"))).await;
+
+    assert!(answer.is_err());
+}
+
+#[tokio::test]
+async fn a_file_system_has_no_connection_to_watch_by_default() {
+    assert_eq!(FakeFs::new().connection_alive().await, None);
+}
+
+#[tokio::test]
+async fn a_fake_holding_a_connection_reports_it_alive() {
+    assert_eq!(FakeFs::new().holding_connection().connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn a_lost_connection_is_reported_until_it_is_restored() {
+    let fs = FakeFs::new().holding_connection();
+
+    fs.lose_connection();
+    let lost = fs.connection_alive().await;
+    fs.restore_connection();
+
+    assert_eq!(lost, Some(false));
+    assert_eq!(fs.connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn losing_the_connection_leaves_ordinary_operations_alone() {
+    let fs = FakeFs::new().holding_connection();
+    fs.dir("/d");
+
+    fs.lose_connection();
+
+    assert!(fs.stat(Path::new("/d")).await.is_ok());
+}

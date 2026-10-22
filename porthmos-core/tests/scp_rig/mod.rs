@@ -142,6 +142,7 @@ impl Rig {
             is_dir,
             size,
             permissions: None,
+            ..Default::default()
         }
     }
 

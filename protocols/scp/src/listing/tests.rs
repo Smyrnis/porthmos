@@ -148,3 +148,68 @@ fn an_absurd_year_in_a_listing_is_ignored_instead_of_overflowing() {
     assert_eq!(modified("Jan", "1", "1500", NOW), None);
     assert!(modified("Jan", "1", "2020", NOW).is_some());
 }
+
+#[test]
+fn a_gnu_line_gives_the_numeric_owner_and_group() {
+    let parsed = line("-rw-rw-r--  1 1000 1001    5 Sep 26 17:22 a.txt");
+
+    assert_eq!((parsed.owner.as_str(), parsed.group.as_str()), ("1000", "1001"));
+}
+
+#[test]
+fn a_busybox_line_gives_the_owner_and_group() {
+    let parsed = line("drwxr-xr-x    2 0        20             60 Sep 26 17:22 etc");
+
+    assert_eq!((parsed.owner.as_str(), parsed.group.as_str()), ("0", "20"));
+}
+
+#[test]
+fn a_device_line_still_gives_the_owner_and_group() {
+    let parsed = line("crw-rw-rw-  1 0 5 1, 3 Sep 26 17:22 null");
+
+    assert_eq!((parsed.owner.as_str(), parsed.group.as_str()), ("0", "5"));
+}
+
+const DF_HEADER: &str = "Filesystem     1024-blocks      Used Available Capacity Mounted on\n";
+
+#[test]
+fn free_space_is_the_available_column_in_kilobytes() {
+    let output = format!("{DF_HEADER}/dev/sda1           100000     40000     60000      41% /\n");
+
+    assert_eq!(parse_free_space(&output), Some(60_000 * 1024));
+}
+
+#[test]
+fn free_space_survives_spaces_in_the_filesystem_and_mount_names() {
+    let output = format!("{DF_HEADER}my disk 1              500       100       400      20% /mnt/my disk\n");
+
+    assert_eq!(parse_free_space(&output), Some(400 * 1024));
+}
+
+#[test]
+fn free_space_is_unknown_when_the_output_is_not_df_output() {
+    assert_eq!(parse_free_space(""), None);
+    assert_eq!(parse_free_space(DF_HEADER), None);
+    assert_eq!(parse_free_space("df: command not found\n"), None);
+}
+
+#[test]
+fn free_space_ignores_a_dash_for_unknown_columns() {
+    let output = format!("{DF_HEADER}server:/export         -         -         -       - /mnt\n");
+
+    assert_eq!(parse_free_space(&output), None);
+}
+
+#[test]
+fn free_space_is_found_when_the_filesystem_name_contains_a_percent_sign() {
+    let output = format!("{DF_HEADER}share 50%              500       100       400      20% /mnt/x\n");
+
+    assert_eq!(parse_free_space(&output), Some(400 * 1024));
+}
+
+#[test]
+fn free_space_is_found_when_the_mount_point_contains_a_percent_sign() {
+    let output = format!("{DF_HEADER}/dev/sda1              500       100       400      20% /mnt/100%\n");
+
+    assert_eq!(parse_free_space(&output), Some(400 * 1024));
+}

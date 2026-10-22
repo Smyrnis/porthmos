@@ -12,6 +12,7 @@ use porthmos_vfs::{
 };
 use russh_sftp::{
     client::{SftpSession, error::Error as SftpError, fs::Metadata as SftpMetadata},
+    extensions::Statvfs,
     protocol::{FileAttributes, OpenFlags, StatusCode},
 };
 use tokio::io::AsyncSeekExt;
@@ -53,6 +54,21 @@ pub fn metadata_from_sftp(metadata: &SftpMetadata) -> Metadata {
 
 pub(crate) fn sftp_time(seconds: u64) -> u32 {
     u32::try_from(seconds).unwrap_or(u32::MAX)
+}
+
+fn identity(name: Option<&String>, id: Option<u32>) -> Option<String> {
+    match name {
+        Some(name) if !name.is_empty() => Some(name.clone()),
+        _ => id.map(|id| id.to_string()),
+    }
+}
+
+pub(crate) fn ownership_of(attributes: &FileAttributes) -> (Option<String>, Option<String>) {
+    (identity(attributes.user.as_ref(), attributes.uid), identity(attributes.group.as_ref(), attributes.gid))
+}
+
+fn available_bytes(stats: &Statvfs) -> u64 {
+    stats.blocks_avail.saturating_mul(stats.fragment_size)
 }
 
 fn remote(path: &Path) -> String {
@@ -102,6 +118,15 @@ impl FileSystem for SftpFs {
         self.session.server_version()
     }
 
+    async fn connection_alive(&self) -> Option<bool> {
+        Some(!self.session.is_closed())
+    }
+
+    async fn free_space(&self, dir: &Path) -> Result<Option<u64>, ProtocolError> {
+        let stats = self.sftp.fs_info(remote(dir)).await.map_err(sftp_error)?;
+        Ok(stats.as_ref().map(available_bytes))
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         let path = remote(dir);
         let mut entries = Vec::new();
@@ -117,6 +142,13 @@ impl FileSystem for SftpFs {
                 metadata.is_dir()
             };
 
+            let link_target = if metadata.is_symlink() {
+                Some(self.sftp.read_link(&entry_path).await.unwrap_or_default())
+            } else {
+                None
+            };
+            let (owner, group) = ownership_of(&metadata);
+
             entries.push(Entry {
                 path: PathBuf::from(entry_path),
                 name,
@@ -124,6 +156,9 @@ impl FileSystem for SftpFs {
                 size: metadata.len(),
                 permissions: metadata.permissions,
                 modified: metadata_from_sftp(&metadata).modified,
+                owner,
+                group,
+                link_target,
             });
         }
 

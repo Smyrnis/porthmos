@@ -142,6 +142,7 @@ impl Engine {
             self.record_use(&name);
         }
         self.open_start_directory(session);
+        self.start_health_probe(session);
     }
 
     fn keep_typed_password(&mut self, entry: &ConnectionEntry, typed: TypedPassword) {
@@ -175,6 +176,7 @@ impl Engine {
         let Some(live) = self.sessions.remove(&session) else {
             return;
         };
+        self.stop_health_probe(session);
         self.history.remember_session(session, live.name.clone());
 
         let affected = self.transfers.fail_queued_for_session(session, "session disconnected")

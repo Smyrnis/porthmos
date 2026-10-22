@@ -168,3 +168,37 @@ async fn remove_dir_refuses_a_file_and_keeps_it() {
 
     assert!(server.root.path().join("a.txt").exists());
 }
+
+#[tokio::test]
+async fn a_fresh_ftp_session_reports_its_connection_alive() {
+    let server = support::start(Some("pw"), None).await;
+
+    let fs = connect_to(&server).await;
+
+    assert_eq!(fs.connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn a_connection_the_server_dropped_is_found_alive_again_after_reconnecting() {
+    let server = support::start_with(support::Options { password: Some("pw"), tls: None, idle_timeout: Some(1) }).await;
+    std::fs::write(server.root.path().join("a.txt"), b"x").unwrap();
+    let fs = connect_to(&server).await;
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+
+    let alive = fs.connection_alive().await;
+
+    assert_eq!(alive, Some(true));
+    assert_eq!(names(&fs, "/").await, vec!["a.txt".to_string()]);
+}
+
+#[tokio::test]
+async fn listing_gives_the_owner_and_group_the_server_reports() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::write(server.root.path().join("a.txt"), b"x").unwrap();
+    let fs = connect_to(&server).await;
+
+    let entries = fs.list(Path::new("/")).await.unwrap();
+
+    assert!(entries[0].owner.as_deref().is_some_and(|owner| !owner.is_empty()));
+    assert!(entries[0].group.as_deref().is_some_and(|group| !group.is_empty()));
+}

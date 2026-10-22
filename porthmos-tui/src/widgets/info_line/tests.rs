@@ -27,6 +27,7 @@ fn script() -> Entry {
         size: 2457,
         permissions: Some(0o100755),
         modified: Some(Local.with_ymd_and_hms(2026, 10, 20, 14, 2, 0).unwrap().timestamp() as u64),
+        ..Default::default()
     }
 }
 
@@ -125,4 +126,95 @@ fn control_and_bidi_characters_in_the_name_are_replaced() {
     let terminal = draw(Some(&hostile), 80);
 
     assert!(row(&terminal).starts_with("a?b?c"));
+}
+
+#[test]
+fn owner_and_group_follow_the_permissions() {
+    let entry = Entry { owner: Some("nikos".to_string()), group: Some("staff".to_string()), ..script() };
+
+    let terminal = draw(Some(&entry), 80);
+
+    assert_eq!(row(&terminal).trim_end(), "deploy.sh   2.4 KB   -rwxr-xr-x   nikos:staff   today 14:02");
+}
+
+#[test]
+fn an_owner_without_a_group_is_shown_alone() {
+    let entry = Entry { owner: Some("nikos".to_string()), ..script() };
+
+    let terminal = draw(Some(&entry), 80);
+
+    assert!(row(&terminal).contains("-rwxr-xr-x   nikos   today"), "{:?}", row(&terminal));
+}
+
+#[test]
+fn a_group_without_an_owner_is_shown_with_a_leading_colon() {
+    let entry = Entry { group: Some("staff".to_string()), ..script() };
+
+    let terminal = draw(Some(&entry), 80);
+
+    assert!(row(&terminal).contains(":staff"), "{:?}", row(&terminal));
+}
+
+#[test]
+fn a_symlink_shows_where_it_points() {
+    let entry = Entry { link_target: Some("releases/42".to_string()), ..script() };
+
+    let terminal = draw(Some(&entry), 80);
+
+    assert!(row(&terminal).starts_with("deploy.sh@ \u{2192} releases/42   "), "{:?}", row(&terminal));
+}
+
+#[test]
+fn a_long_symlink_target_is_cut_before_the_details_are() {
+    let entry = Entry { link_target: Some("a/very/long/target/path/that/goes/on".to_string()), ..script() };
+
+    let terminal = draw(Some(&entry), 48);
+
+    let shown = row(&terminal);
+    assert!(shown.contains('\u{2026}'), "{shown:?}");
+    assert!(shown.trim_end().ends_with("today 14:02"), "{shown:?}");
+    assert!(shown.width() <= 48);
+}
+
+#[test]
+fn a_hostile_owner_or_target_cannot_inject_escape_codes() {
+    let entry = Entry {
+        owner: Some("ni\u{1b}[31mkos".to_string()),
+        link_target: Some("t\u{1b}[2Jarget".to_string()),
+        ..script()
+    };
+
+    let terminal = draw(Some(&entry), 100);
+
+    assert!(!row(&terminal).contains('\u{1b}'));
+}
+
+#[test]
+fn on_a_narrow_line_the_owner_goes_before_the_modified_time() {
+    let entry = Entry { owner: Some("nikos".to_string()), group: Some("staff".to_string()), ..script() };
+
+    let terminal = draw(Some(&entry), 52);
+
+    let shown = row(&terminal);
+    assert!(shown.trim_end().ends_with("today 14:02"), "{shown:?}");
+    assert!(!shown.contains("nikos"), "{shown:?}");
+}
+
+#[test]
+fn a_symlink_with_an_unreadable_target_shows_only_the_marker() {
+    let entry = Entry { link_target: Some(String::new()), ..script() };
+
+    let terminal = draw(Some(&entry), 80);
+
+    assert!(row(&terminal).starts_with("deploy.sh@   "), "{:?}", row(&terminal));
+    assert!(!row(&terminal).contains('\u{2192}'));
+}
+
+#[test]
+fn a_symlink_is_shown_with_an_l_in_its_permissions() {
+    let entry = Entry { link_target: Some("t".to_string()), permissions: Some(0o120777), ..script() };
+
+    let terminal = draw(Some(&entry), 80);
+
+    assert!(row(&terminal).contains("lrwxrwxrwx"), "{:?}", row(&terminal));
 }

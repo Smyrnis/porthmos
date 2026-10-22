@@ -9,7 +9,7 @@ fn indexed_theme() -> Theme {
 }
 
 fn tab<'a>(number: usize, name: &'a str, protocol: &'a str, active: bool) -> TabView<'a> {
-    TabView { number, name, protocol, active }
+    TabView { number, name, protocol, active, healthy: true }
 }
 
 fn three_tabs() -> Vec<TabView<'static>> {
@@ -193,4 +193,60 @@ fn the_active_tab_stays_visible_when_it_is_the_last_of_many() {
     let result = tabs_line(&tabs, 80, &indexed_theme());
 
     assert!(text(&result.line).contains("20 server-20"));
+}
+
+fn lost_tab<'a>(number: usize, name: &'a str, protocol: &'a str, active: bool) -> TabView<'a> {
+    TabView { healthy: false, ..tab(number, name, protocol, active) }
+}
+
+#[test]
+fn a_lost_session_has_a_red_cross_instead_of_a_dot() {
+    let theme = indexed_theme();
+
+    let result = tabs_line(&[lost_tab(1, "prod-web", "sftp", true)], 80, &theme);
+
+    assert_eq!(text(&result.line), "1 prod-web sftp \u{d7}");
+    assert_eq!(style_at(&result.line, 16).fg, Some(theme.err));
+}
+
+#[test]
+fn only_the_lost_sessions_marker_changes() {
+    let theme = indexed_theme();
+
+    let result = tabs_line(&[tab(1, "prod", "sftp", false), lost_tab(2, "backup", "s3", true)], 80, &theme);
+
+    assert_eq!(text(&result.line), "1 prod sftp \u{2022}   2 backup s3 \u{d7}");
+    assert_eq!(style_at(&result.line, 12).fg, Some(theme.ok));
+    assert_eq!(style_at(&result.line, 28).fg, Some(theme.err));
+}
+
+#[test]
+fn a_lost_active_tab_squeezed_to_its_name_is_still_marked() {
+    let theme = indexed_theme();
+    let tabs = [tab(1, "prod", "sftp", false), lost_tab(2, "backup", "s3", true), tab(3, "nas", "ftp", false)];
+
+    let result = tabs_line(&tabs, 21, &theme);
+
+    assert_eq!(text(&result.line), "2 backup \u{d7}");
+    assert_eq!(style_at(&result.line, 9).fg, Some(theme.err));
+}
+
+#[test]
+fn a_lost_active_tab_with_a_cut_name_is_still_marked() {
+    let theme = indexed_theme();
+
+    let result = tabs_line(&[lost_tab(2, "backup", "s3", true)], 9, &theme);
+
+    assert_eq!(text(&result.line), "2 back\u{2026} \u{d7}");
+    assert_eq!(style_at(&result.line, 8).fg, Some(theme.err));
+}
+
+#[test]
+fn a_lost_marker_has_the_same_width_as_the_healthy_dot() {
+    let theme = indexed_theme();
+
+    let healthy = tabs_line(&[tab(1, "prod", "sftp", true)], 80, &theme);
+    let lost = tabs_line(&[lost_tab(1, "prod", "sftp", true)], 80, &theme);
+
+    assert_eq!(text(&healthy.line).width(), text(&lost.line).width());
 }

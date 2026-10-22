@@ -268,3 +268,42 @@ async fn remove_dir_refuses_a_file_and_keeps_it() {
 
     assert!(at(&server, "f").exists());
 }
+
+#[tokio::test]
+async fn list_reports_the_numeric_owner_and_group_of_a_new_file() {
+    use std::os::unix::fs::MetadataExt;
+
+    let (server, fs) = open().await;
+    std::fs::write(at(&server, "a.txt"), b"hello").unwrap();
+    let metadata = std::fs::metadata(at(&server, "a.txt")).unwrap();
+
+    let entries = fs.list(server.root.path()).await.unwrap();
+
+    assert_eq!(entries[0].owner, Some(metadata.uid().to_string()));
+    assert_eq!(entries[0].group, Some(metadata.gid().to_string()));
+}
+
+#[tokio::test]
+async fn free_space_of_a_folder_is_reported() {
+    let (server, fs) = open().await;
+
+    let free = fs.free_space(server.root.path()).await.unwrap();
+
+    assert!(free.is_some_and(|bytes| bytes > 0), "{free:?}");
+}
+
+#[tokio::test]
+async fn free_space_of_a_missing_folder_is_not_found() {
+    let (server, fs) = open().await;
+
+    let error = fs.free_space(&at(&server, "missing")).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn a_fresh_scp_session_reports_its_connection_alive() {
+    let (_server, fs) = open().await;
+
+    assert_eq!(fs.connection_alive().await, Some(true));
+}

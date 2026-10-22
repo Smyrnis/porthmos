@@ -183,6 +183,7 @@ async fn a_running_transfer_obeys_the_limit() {
         is_dir: false,
         size: 3000,
         permissions: None,
+        ..Default::default()
     };
     let started = std::time::Instant::now();
 

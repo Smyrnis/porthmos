@@ -44,3 +44,63 @@ fn sftp_status_codes_map_to_shared_error_kinds() {
     assert_eq!(sftp_error(status(StatusCode::PermissionDenied)).kind(), ErrorKind::PermissionDenied);
     assert_eq!(sftp_error(status(StatusCode::Failure)).kind(), ErrorKind::Other);
 }
+
+#[test]
+fn the_server_supplied_names_are_used_for_owner_and_group() {
+    let mut attributes = FileAttributes::empty();
+    attributes.user = Some("nikos".to_string());
+    attributes.group = Some("staff".to_string());
+    attributes.uid = Some(501);
+    attributes.gid = Some(20);
+
+    assert_eq!(ownership_of(&attributes), (Some("nikos".to_string()), Some("staff".to_string())));
+}
+
+#[test]
+fn numeric_ids_stand_in_when_the_server_gives_no_names() {
+    let mut attributes = FileAttributes::empty();
+    attributes.uid = Some(501);
+    attributes.gid = Some(20);
+
+    assert_eq!(ownership_of(&attributes), (Some("501".to_string()), Some("20".to_string())));
+}
+
+#[test]
+fn an_empty_name_falls_back_to_the_numeric_id() {
+    let mut attributes = FileAttributes::empty();
+    attributes.user = Some(String::new());
+    attributes.uid = Some(7);
+
+    assert_eq!(ownership_of(&attributes).0, Some("7".to_string()));
+}
+
+#[test]
+fn owner_and_group_are_unknown_without_names_or_ids() {
+    assert_eq!(ownership_of(&FileAttributes::empty()), (None, None));
+}
+
+fn statvfs(fragment_size: u64, blocks_avail: u64, blocks_free: u64) -> russh_sftp::extensions::Statvfs {
+    russh_sftp::extensions::Statvfs {
+        block_size: 4096,
+        fragment_size,
+        blocks: 1_000_000,
+        blocks_free,
+        blocks_avail,
+        inodes: 0,
+        inodes_free: 0,
+        inodes_avail: 0,
+        fs_id: 0,
+        flags: 0,
+        name_max: 255,
+    }
+}
+
+#[test]
+fn free_space_counts_the_blocks_an_ordinary_user_may_use() {
+    assert_eq!(available_bytes(&statvfs(512, 100, 900)), 51_200);
+}
+
+#[test]
+fn free_space_does_not_overflow() {
+    assert_eq!(available_bytes(&statvfs(u64::MAX, 2, 2)), u64::MAX);
+}

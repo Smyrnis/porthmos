@@ -6,6 +6,7 @@ pub mod connections_tree;
 pub mod edit;
 mod engine;
 pub mod error;
+mod health;
 pub mod history;
 pub mod last_used;
 pub mod listing;
