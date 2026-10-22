@@ -144,6 +144,7 @@ async fn shutting_down_a_detached_handle_returns_at_once() {
     tokio::time::timeout(std::time::Duration::from_millis(500), core.shutdown()).await.unwrap();
 }
 
+#[cfg(any(feature = "sftp", feature = "ftp", feature = "webdav", feature = "s3", feature = "scp"))]
 #[test]
 fn every_builtin_protocol_has_a_description_and_only_s3_notes_limits() {
     let dir = tempfile::tempdir().unwrap();
@@ -158,6 +159,9 @@ fn every_builtin_protocol_has_a_description_and_only_s3_notes_limits() {
         let expects_note = info.id == "s3";
         assert_eq!(info.limits_note.is_some(), expects_note, "{}", info.id);
     }
-    let s3 = protocols.iter().find(|protocol| protocol.id() == "s3").map(|protocol| protocol.limits_note());
-    assert_eq!(s3, Some(Some("no permissions or symlinks \u{b7} rename is copy + delete")));
+    #[cfg(feature = "s3")]
+    {
+        let s3 = protocols.iter().find(|protocol| protocol.id() == "s3").map(|protocol| protocol.limits_note());
+        assert_eq!(s3, Some(Some("no permissions or symlinks \u{b7} rename is copy + delete")));
+    }
 }
