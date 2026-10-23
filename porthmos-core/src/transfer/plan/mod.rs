@@ -5,7 +5,7 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
-use porthmos_vfs::{Entry, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError};
+use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExistingFile {
@@ -60,6 +60,7 @@ pub(crate) struct DiscoveredTree {
     pub(crate) files: Vec<(PathBuf, u64, Option<u64>)>,
     pub(crate) skipped_symlinks: usize,
     pub(crate) symlinks: Vec<PathBuf>,
+    pub(crate) unreadable: Vec<PathBuf>,
 }
 
 async fn discover_tree(
@@ -71,20 +72,55 @@ async fn discover_tree(
 pub(crate) async fn discover(
     fs: &dyn FileSystem, root: &Path, recursive: bool, cancel: &AtomicBool,
 ) -> Result<Option<DiscoveredTree>, ProtocolError> {
-    let mut tree =
-        DiscoveredTree { directories: Vec::new(), files: Vec::new(), skipped_symlinks: 0, symlinks: Vec::new() };
-    match discover_tree_into(fs, root, Path::new(""), recursive, &mut tree, cancel).await? {
+    discover_with(fs, root, recursive, Strictness::Strict, cancel).await
+}
+
+pub(crate) async fn discover_skipping_unreadable(
+    fs: &dyn FileSystem, root: &Path, recursive: bool, cancel: &AtomicBool,
+) -> Result<Option<DiscoveredTree>, ProtocolError> {
+    discover_with(fs, root, recursive, Strictness::SkipUnreadableFolders, cancel).await
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Strictness {
+    Strict,
+    SkipUnreadableFolders,
+}
+
+async fn discover_with(
+    fs: &dyn FileSystem, root: &Path, recursive: bool, strictness: Strictness, cancel: &AtomicBool,
+) -> Result<Option<DiscoveredTree>, ProtocolError> {
+    let mut tree = DiscoveredTree {
+        directories: Vec::new(),
+        files: Vec::new(),
+        skipped_symlinks: 0,
+        symlinks: Vec::new(),
+        unreadable: Vec::new(),
+    };
+    match discover_tree_into(fs, root, Path::new(""), recursive, strictness, &mut tree, cancel).await? {
         Walk::Completed => Ok(Some(tree)),
         Walk::Cancelled => Ok(None),
     }
 }
 
 fn discover_tree_into<'a>(
-    fs: &'a dyn FileSystem, root: &'a Path, relative: &'a Path, recursive: bool, tree: &'a mut DiscoveredTree,
-    cancel: &'a AtomicBool,
+    fs: &'a dyn FileSystem, root: &'a Path, relative: &'a Path, recursive: bool, strictness: Strictness,
+    tree: &'a mut DiscoveredTree, cancel: &'a AtomicBool,
 ) -> BoxFuture<'a, Result<Walk, ProtocolError>> {
     Box::pin(async move {
-        for item in fs.read_dir(&root.join(relative)).await? {
+        let items = match fs.read_dir(&root.join(relative)).await {
+            Ok(items) => items,
+            Err(err)
+                if strictness == Strictness::SkipUnreadableFolders
+                    && err.kind() == ErrorKind::PermissionDenied
+                    && !relative.as_os_str().is_empty() =>
+            {
+                tree.unreadable.push(relative.to_path_buf());
+                return Ok(Walk::Completed);
+            }
+            Err(err) => return Err(err),
+        };
+        for item in items {
             if cancel.load(Ordering::Relaxed) {
                 return Ok(Walk::Cancelled);
             }
@@ -99,7 +135,7 @@ fn discover_tree_into<'a>(
                     tree.directories.push(entry_relative.clone());
                     if recursive
                         && let Walk::Cancelled =
-                            discover_tree_into(fs, root, &entry_relative, recursive, tree, cancel).await?
+                            discover_tree_into(fs, root, &entry_relative, recursive, strictness, tree, cancel).await?
                     {
                         return Ok(Walk::Cancelled);
                     }
@@ -126,7 +162,7 @@ fn planned_file_for_loose_entry(entry: &Entry, dest_dir: &Path) -> PlannedFile {
         display_name: entry.name.clone(),
         size: entry.size,
         existing: None,
-        source_modified: None,
+        source_modified: entry.modified,
         partial: None,
         resume: false,
     }

@@ -25,7 +25,7 @@ pub enum Command {
     TestConnection { test_id: u64, original: Option<String>, draft: Box<ProfileDraft> },
     CancelTest,
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
-    PrepareShell { session: SessionId },
+    PrepareShell { session: SessionId, directory: Option<PathBuf> },
     List { location: Location, path: Option<PathBuf> },
     CreateDir { location: Location, path: PathBuf },
     Rename { location: Location, from: PathBuf, to: PathBuf },

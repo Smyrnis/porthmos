@@ -97,6 +97,34 @@ async fn a_failed_mkdir_shows_an_error_and_does_not_report_a_change() {
 }
 
 #[tokio::test]
+async fn making_a_folder_that_exists_names_it() {
+    let mut t = test_engine();
+    let target = t.dir.path().join("dup");
+    std::fs::create_dir(&target).unwrap();
+
+    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: target });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => assert_eq!(message, "\"dup\" already exists"),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn making_a_remote_folder_that_exists_names_it() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/dup");
+
+    t.engine.handle_command(Command::CreateDir { location: Location::Session(session), path: PathBuf::from("/dup") });
+
+    match t.next_event().await {
+        Event::Notice { message, .. } => assert_eq!(message, "Unable to create directory:\n\"dup\" already exists"),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn a_failed_remote_mkdir_says_what_failed() {
     let mut t = test_engine();
     let (session, _) = t.add_session("srv");
@@ -126,6 +154,81 @@ async fn rename_moves_the_entry() {
     assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
     assert!(t.dir.path().join("new.txt").exists());
     assert!(!t.dir.path().join("old.txt").exists());
+}
+
+#[tokio::test]
+async fn renaming_onto_an_existing_local_file_is_refused_and_keeps_both() {
+    let mut t = test_engine();
+    std::fs::write(t.dir.path().join("small.dat"), b"x").unwrap();
+    std::fs::write(t.dir.path().join("big.dat"), b"0123456789").unwrap();
+
+    t.engine.handle_command(Command::Rename {
+        location: Location::Local,
+        from: t.dir.path().join("small.dat"),
+        to: t.dir.path().join("big.dat"),
+    });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => assert_eq!(message, "\"big.dat\" already exists"),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(std::fs::read(t.dir.path().join("big.dat")).unwrap(), b"0123456789");
+    assert!(t.dir.path().join("small.dat").exists());
+}
+
+#[tokio::test]
+async fn renaming_onto_an_existing_remote_file_is_refused_and_keeps_both() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/small.dat", b"x", None).file("/big.dat", b"0123456789", None);
+
+    t.engine.handle_command(Command::Rename {
+        location: Location::Session(session),
+        from: PathBuf::from("/small.dat"),
+        to: PathBuf::from("/big.dat"),
+    });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => {
+            assert_eq!(message, "Unable to rename:\n\"big.dat\" already exists");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(remote.contents("/big.dat").unwrap(), b"0123456789");
+    assert!(remote.exists("/small.dat"));
+}
+
+#[tokio::test]
+async fn renaming_onto_an_existing_remote_folder_leaves_the_folder_in_place() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/a.txt", b"x", None).dir("/empty_dir").file("/empty_dir/inside.txt", b"y", None);
+
+    t.engine.handle_command(Command::Rename {
+        location: Location::Session(session),
+        from: PathBuf::from("/a.txt"),
+        to: PathBuf::from("/empty_dir"),
+    });
+
+    assert!(matches!(t.next_event().await, Event::Notice { severity: Severity::Error, .. }));
+    assert!(remote.exists("/empty_dir/inside.txt"));
+    assert!(!remote.exists("/empty_dir.bak"));
+    assert!(remote.exists("/a.txt"));
+}
+
+#[tokio::test]
+async fn renaming_to_the_same_name_changes_nothing_and_reports_nothing() {
+    let mut t = test_engine();
+    std::fs::write(t.dir.path().join("same.txt"), b"x").unwrap();
+
+    t.engine.handle_command(Command::Rename {
+        location: Location::Local,
+        from: t.dir.path().join("same.txt"),
+        to: t.dir.path().join("same.txt"),
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
+    assert_eq!(std::fs::read(t.dir.path().join("same.txt")).unwrap(), b"x");
 }
 
 #[tokio::test]
@@ -302,4 +405,10 @@ async fn a_free_space_query_that_never_answers_gives_up() {
     let free = tokio::time::timeout(Duration::from_secs(60), t.events.recv()).await.unwrap().unwrap();
     assert!(matches!(listed, Event::Listed { .. }));
     assert!(matches!(free, Event::FreeSpace { bytes: None, .. }));
+}
+
+#[test]
+fn a_rename_that_only_changes_the_case_is_not_a_collision() {
+    assert!(differs_only_in_case(Path::new("/d/readme.md"), Path::new("/d/README.md")));
+    assert!(!differs_only_in_case(Path::new("/d/readme.md"), Path::new("/d/other.md")));
 }

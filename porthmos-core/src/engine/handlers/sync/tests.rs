@@ -331,6 +331,32 @@ async fn symlinks_are_skipped_with_a_warning() {
     assert_eq!(plan_of(events).unwrap().skipped_symlinks, 1);
 }
 
+#[tokio::test]
+async fn an_unreadable_remote_folder_is_skipped_on_both_sides_with_a_warning() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/locked/secret.txt", b"x", Some(10)).fail_read_dir("/srv/locked");
+    write_local(&t, "locked/mine.txt", b"hello", 1_000);
+    write_local(&t, "open.txt", b"hello", 1_000);
+
+    start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
+    t.run_internal().await;
+
+    let events = t.drain();
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Warning, message } if message == "Skipped 1 unreadable folder: locked")));
+    let plan = plan_of(events).unwrap();
+    let paths: Vec<_> = plan.items.iter().map(|item| item.path.display().to_string()).collect();
+    assert_eq!(paths, ["open.txt"]);
+    assert_eq!(plan.unreadable_folders, vec![PathBuf::from("locked")]);
+}
+
+#[test]
+fn the_notice_for_many_unreadable_folders_names_only_the_first_few() {
+    let folders: Vec<PathBuf> = ["a", "b", "c", "d", "e"].iter().map(PathBuf::from).collect();
+
+    assert_eq!(unreadable_folders_notice(&folders), "Skipped 5 unreadable folders: a, b, c and 2 more");
+}
+
 fn cancelled_notice(events: &[Event]) -> bool {
     events.iter().any(|event| matches!(event, Event::Notice { message, .. } if message == "Sync cancelled"))
 }

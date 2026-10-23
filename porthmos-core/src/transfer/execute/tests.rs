@@ -86,6 +86,42 @@ async fn a_failed_read_keeps_the_part_file_and_reports_the_error() {
 }
 
 #[tokio::test]
+async fn a_source_that_cannot_be_opened_leaves_no_part_file_behind() {
+    let source = source_with(b"data");
+    source.deny_open("/src/f");
+    let destination = empty_destination();
+
+    let result = execute(
+        &source,
+        Path::new("/src/f"),
+        &destination,
+        Path::new("/dst/f"),
+        &AtomicBool::new(false),
+        false,
+        |_| {},
+    )
+    .await;
+
+    assert!(result.is_err());
+    assert!(!destination.exists("/dst/f.part"));
+}
+
+#[tokio::test]
+async fn a_source_that_cannot_be_opened_keeps_an_earlier_partial_to_resume_from() {
+    let source = source_with(b"0123456789");
+    source.deny_open("/src/f");
+    let destination = empty_destination();
+    destination.file("/dst/f.part", b"0123", Some(950));
+
+    let result =
+        execute(&source, Path::new("/src/f"), &destination, Path::new("/dst/f"), &AtomicBool::new(false), true, |_| {})
+            .await;
+
+    assert!(result.is_err());
+    assert!(destination.exists("/dst/f.part"));
+}
+
+#[tokio::test]
 async fn a_missing_source_fails_before_any_part_file_is_created() {
     let source = FakeFs::new();
     let destination = empty_destination();

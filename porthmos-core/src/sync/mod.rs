@@ -115,6 +115,7 @@ pub struct SyncPlan {
     pub options: SyncOptions,
     pub items: Vec<SyncItem>,
     pub skipped_symlinks: usize,
+    pub unreadable_folders: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

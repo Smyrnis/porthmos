@@ -372,11 +372,19 @@ impl Engine {
         dropped.len()
     }
 
+    fn destination_can_set_modified(&self, session_id: u64, direction: Direction) -> bool {
+        match direction {
+            Direction::Upload => self.sessions.get(&session_id).is_some_and(|session| session.fs.can_set_modified()),
+            Direction::Download => self.local_fs.can_set_modified(),
+        }
+    }
+
     pub(crate) fn apply_plan_ready(
         &mut self, batch_id: u64, session_id: u64, direction: Direction, plan: DirectoryPlan, answers: &[Resolution],
         preserve_times: bool,
     ) {
         let skipped_symlinks = plan.skipped_symlinks;
+        let keeps_times = preserve_times || self.destination_can_set_modified(session_id, direction);
         let moving = self.moves.contains_key(&batch_id);
         let resolved = transfer::conflicts::resolve(plan, answers);
         let (files, kept_originals) = if moving {
@@ -394,7 +402,7 @@ impl Engine {
         for file in files {
             let resume = file.resume;
             let removes_source = moving && !kept_originals.contains(&file.destination);
-            let keep_modified = if preserve_times { file.source_modified } else { None };
+            let keep_modified = if keeps_times { file.source_modified } else { None };
             let (local_path, remote_path) = match direction {
                 Direction::Upload => (file.source, file.destination),
                 Direction::Download => (file.destination, file.source),

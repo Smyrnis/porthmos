@@ -23,6 +23,17 @@ use crate::{
     user_message,
 };
 
+const NAMED_UNREADABLE_FOLDERS: usize = 3;
+
+fn unreadable_folders_notice(folders: &[PathBuf]) -> String {
+    let plural = if folders.len() == 1 { "" } else { "s" };
+    let named: Vec<String> =
+        folders.iter().take(NAMED_UNREADABLE_FOLDERS).map(|folder| folder.display().to_string()).collect();
+    let more = folders.len().saturating_sub(NAMED_UNREADABLE_FOLDERS);
+    let tail = if more > 0 { format!(" and {more} more") } else { String::new() };
+    format!("Skipped {} unreadable folder{plural}: {}{tail}", folders.len(), named.join(", "))
+}
+
 #[derive(Default)]
 pub(crate) struct SyncState {
     plans: HashMap<u64, Arc<SyncPlan>>,
@@ -130,6 +141,7 @@ impl Engine {
                             target_keeps_times,
                         ),
                         skipped_symlinks: local_scan.skipped_symlinks + remote_scan.skipped_symlinks,
+                        unreadable_folders: local_scan.unreadable,
                     },
                 },
                 Ok(None) => TransferEvent::SyncCancelled { batch_id },
@@ -157,6 +169,9 @@ impl Engine {
         if plan.skipped_symlinks > 0 {
             let plural = if plan.skipped_symlinks == 1 { "" } else { "s" };
             self.report(Severity::Warning, format!("Skipped {} symlink{plural}", plan.skipped_symlinks));
+        }
+        if !plan.unreadable_folders.is_empty() {
+            self.report(Severity::Warning, unreadable_folders_notice(&plan.unreadable_folders));
         }
         if plan.items.is_empty() {
             self.info("Folders are in sync");

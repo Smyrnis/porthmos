@@ -30,6 +30,40 @@ fn a_local_bookmark_is_saved_and_published() {
 }
 
 #[test]
+fn adding_the_same_bookmark_twice_keeps_one_and_says_so() {
+    let mut t = test_engine();
+    let add = || Command::AddBookmark {
+        label: "src".to_string(),
+        location: Location::Local,
+        path: PathBuf::from("/data/src"),
+    };
+    t.engine.handle_command(add());
+    t.drain();
+
+    t.engine.handle_command(add());
+
+    assert!(bookmark_events(t.drain()).is_empty());
+    assert_eq!(t.engine.bookmarks.len(), 1);
+}
+
+#[test]
+fn the_same_path_under_another_label_or_connection_is_a_new_bookmark() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("production");
+    let add = |label: &str, location| Command::AddBookmark {
+        label: label.to_string(),
+        location,
+        path: PathBuf::from("/data"),
+    };
+
+    t.engine.handle_command(add("one", Location::Local));
+    t.engine.handle_command(add("two", Location::Local));
+    t.engine.handle_command(add("one", Location::Session(session)));
+
+    assert_eq!(t.engine.bookmarks.len(), 3);
+}
+
+#[test]
 fn a_remote_bookmark_remembers_the_connection_name() {
     let mut t = test_engine();
     let (session, _) = t.add_session("production");

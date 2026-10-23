@@ -18,6 +18,14 @@ fn send_failure(reporter: &Reporter, message: String, cause: &dyn std::fmt::Debu
     reporter.report_cause(Severity::Error, message, cause);
 }
 
+fn quoted_name(path: &Path) -> String {
+    format!("\"{}\"", path.file_name().unwrap_or_default().to_string_lossy())
+}
+
+fn differs_only_in_case(from: &Path, to: &Path) -> bool {
+    from.to_string_lossy().to_lowercase() == to.to_string_lossy().to_lowercase()
+}
+
 const FREE_SPACE_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: PathBuf, events: &UnboundedSender<Event>) {
@@ -159,6 +167,10 @@ impl Engine {
                 Ok(()) => {
                     let _ = events.send(Event::LocationChanged { location });
                 }
+                Err(err) if fs.stat(&path).await.is_ok() => {
+                    let shown = anyhow::anyhow!("{} already exists", quoted_name(&path));
+                    send_failure(&reporter, failure_message(location, "Unable to create directory", &shown), &err);
+                }
                 Err(err) => {
                     send_failure(&reporter, failure_message(location, "Unable to create directory", &err), &err);
                 }
@@ -173,6 +185,11 @@ impl Engine {
         let events = self.events.clone();
         let reporter = self.reporter.clone();
         self.tasks.spawn("rename", scope_for(location), move |_| async move {
+            if from != to && !differs_only_in_case(&from, &to) && fs.stat(&to).await.is_ok() {
+                let err = anyhow::anyhow!("{} already exists", quoted_name(&to));
+                send_failure(&reporter, failure_message(location, "Unable to rename", &err), &err);
+                return;
+            }
             match fs.rename(&from, &to).await {
                 Ok(()) => {
                     let _ = events.send(Event::LocationChanged { location });

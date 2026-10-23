@@ -450,9 +450,24 @@ fn preparing_a_shell_hands_back_the_protocols_invocation() {
     t.engine.sessions.get_mut(&session).unwrap().protocol =
         Arc::new(FakeProtocol::new(FakeFs::new()).with_shell(invocation.clone()));
 
-    t.engine.handle_command(Command::PrepareShell { session });
+    t.engine.handle_command(Command::PrepareShell { session, directory: None });
 
     assert!(matches!(t.drain().as_slice(), [Event::ShellReady { invocation: ready, .. }] if *ready == invocation));
+}
+
+#[test]
+fn preparing_a_shell_in_a_directory_starts_the_shell_there() {
+    let mut t = test_engine();
+    let invocation = ShellInvocation { program: "ssh".into(), args: vec!["h".into()], env: Vec::new() };
+    let session = t.add_session_with("srv", Arc::new(FakeFs::new()));
+    t.engine.sessions.get_mut(&session).unwrap().protocol =
+        Arc::new(FakeProtocol::new(FakeFs::new()).with_shell(invocation.clone()));
+
+    t.engine.handle_command(Command::PrepareShell { session, directory: Some(PathBuf::from("/srv/www")) });
+
+    assert!(
+        matches!(t.drain().as_slice(), [Event::ShellReady { invocation: ready, .. }] if *ready == invocation.clone().starting_in(std::path::Path::new("/srv/www")))
+    );
 }
 
 #[test]
@@ -460,7 +475,7 @@ fn preparing_a_shell_for_a_protocol_without_one_warns() {
     let mut t = test_engine();
     let (session, _) = t.add_session("srv");
 
-    t.engine.handle_command(Command::PrepareShell { session });
+    t.engine.handle_command(Command::PrepareShell { session, directory: None });
 
     assert_eq!(
         t.notices(),

@@ -123,6 +123,16 @@ fn planned_file_for_loose_entry_maps_paths_for_an_upload() {
 }
 
 #[test]
+fn planned_file_for_loose_entry_carries_the_modification_time_of_the_entry() {
+    let mut entry = sample_entry("a.txt", "/local/a.txt", false, 10);
+    entry.modified = Some(1_234);
+
+    let planned = planned_file_for_loose_entry(&entry, Path::new("/remote/dest"));
+
+    assert_eq!(planned.source_modified, Some(1_234));
+}
+
+#[test]
 fn planned_file_for_loose_entry_maps_paths_for_a_download() {
     let entry = sample_entry("a.txt", "/remote/a.txt", false, 10);
     let dest_dir = PathBuf::from("/local/dest");
@@ -143,6 +153,7 @@ fn planned_files_for_tree_maps_paths_for_an_upload_including_a_nested_file() {
         directories: vec![PathBuf::from("sub")],
         files: vec![(PathBuf::from("top.txt"), 5, Some(50)), (PathBuf::from("sub/nested.txt"), 7, None)],
         skipped_symlinks: 0,
+        unreadable: Vec::new(),
         symlinks: Vec::new(),
     };
 
@@ -170,6 +181,7 @@ fn planned_files_for_tree_maps_paths_for_a_download_including_a_nested_file() {
         directories: vec![PathBuf::from("sub")],
         files: vec![(PathBuf::from("top.txt"), 5, Some(50)), (PathBuf::from("sub/nested.txt"), 7, None)],
         skipped_symlinks: 0,
+        unreadable: Vec::new(),
         symlinks: Vec::new(),
     };
 
@@ -319,6 +331,7 @@ fn planned_files_for_tree_carries_the_source_modification_time() {
         directories: Vec::new(),
         files: vec![(PathBuf::from("top.txt"), 5, Some(50))],
         skipped_symlinks: 0,
+        unreadable: Vec::new(),
         symlinks: Vec::new(),
     };
 

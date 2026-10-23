@@ -325,7 +325,7 @@ impl Engine {
             Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
             Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
-            Command::PrepareShell { session } => self.prepare_shell(session),
+            Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
             Command::List { location, path } => self.list(location, path),
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),

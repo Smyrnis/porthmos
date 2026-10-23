@@ -43,7 +43,12 @@ impl Engine {
         if self.refuse_protected_bookmarks() {
             return;
         }
-        self.bookmarks.add(Bookmark { label, path, host });
+        let bookmark = Bookmark { label, path, host };
+        if self.bookmarks.iter().any(|existing| *existing == bookmark) {
+            self.info(format!("Already bookmarked as \"{}\"", bookmark.label));
+            return;
+        }
+        self.bookmarks.add(bookmark);
         self.save_bookmarks();
         self.publish_bookmarks();
     }

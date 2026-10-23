@@ -108,13 +108,70 @@ async fn a_cancelled_scan_returns_nothing() {
 }
 
 #[tokio::test]
-async fn an_unreadable_subfolder_fails_the_whole_scan() {
+async fn an_unreadable_subfolder_is_skipped_and_named() {
     let fs = fs_with_tree();
     fs.fail_read_dir("/root/sub/deep");
+
+    let scanned = scan_tree(&fs, Path::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+
+    assert_eq!(scanned.unreadable, vec![PathBuf::from("sub/deep")]);
+    assert!(scanned.tree.contains_key(Path::new("sub/b.txt")));
+}
+
+#[tokio::test]
+async fn leftover_partial_files_of_the_app_are_not_part_of_the_scan() {
+    let fs = fs_with_tree();
+    fs.file("/root/sub/movie.mp4.part", b"", None).file("/root/c.part", b"1", None);
+
+    let scanned = scan_tree(&fs, Path::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+
+    assert!(!scanned.tree.keys().any(|path| path.to_string_lossy().ends_with(".part")), "{:?}", keys(&scanned));
+    assert!(scanned.tree.contains_key(Path::new("sub/b.txt")));
+}
+
+#[tokio::test]
+async fn an_unreadable_root_fails_the_scan_and_names_the_folder() {
+    let fs = fs_with_tree();
+    fs.fail_read_dir("/root");
 
     let error = scan_tree(&fs, Path::new("/root"), true, &AtomicBool::new(false)).await.err().unwrap();
 
     assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+    assert!(error.to_string().starts_with("/root: "), "{error}");
+}
+
+#[tokio::test]
+async fn a_folder_unreadable_on_one_side_is_left_out_on_both() {
+    let local = fs_with_tree();
+    let remote = fs_with_tree();
+    remote.fail_read_dir("/root/sub/deep");
+
+    let (left, right) =
+        scan_both(&local, Path::new("/root"), &remote, Path::new("/root"), true, &AtomicBool::new(false))
+            .await
+            .unwrap()
+            .unwrap();
+
+    for scanned in [&left, &right] {
+        assert!(!scanned.tree.keys().any(|path| path.starts_with("sub/deep")), "{:?}", keys(scanned));
+        assert!(scanned.tree.contains_key(Path::new("sub/b.txt")));
+        assert_eq!(scanned.unreadable, vec![PathBuf::from("sub/deep")]);
+    }
+}
+
+#[tokio::test]
+async fn a_folder_whose_name_only_starts_like_an_unreadable_one_is_kept() {
+    let local = fs_with_tree();
+    local.file("/root/sub/deeper/d.txt", b"1", None);
+    let remote = fs_with_tree();
+    remote.fail_read_dir("/root/sub/deep");
+
+    let (left, _) = scan_both(&local, Path::new("/root"), &remote, Path::new("/root"), true, &AtomicBool::new(false))
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(left.tree.contains_key(Path::new("sub/deeper/d.txt")));
 }
 
 #[tokio::test]
@@ -225,6 +282,7 @@ fn found_with(directories: &[&str], files: &[&str], symlinks: &[&str]) -> crate:
         directories: directories.iter().map(PathBuf::from).collect(),
         files: files.iter().map(|path| (PathBuf::from(path), 1, Some(1))).collect(),
         skipped_symlinks: symlinks.len(),
+        unreadable: Vec::new(),
         symlinks: symlinks.iter().map(PathBuf::from).collect(),
     }
 }

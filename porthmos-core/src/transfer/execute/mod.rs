@@ -70,7 +70,14 @@ pub async fn execute_preserving(
         0
     };
     let mut writer = destination.open_write_sized(&part, offset, source_metadata.size).await?;
-    let mut reader = source.open_read(source_path, writer.offset).await?;
+    let mut reader = match source.open_read(source_path, writer.offset).await {
+        Ok(reader) => reader,
+        Err(err) => {
+            let _ = writer.stream.shutdown().await;
+            discard_empty_part(destination, &part).await;
+            return Err(err);
+        }
+    };
     let result = copy_with_progress(&mut reader, &mut writer.stream, writer.offset, cancel, limit, on_progress).await;
     let shutdown = writer.stream.shutdown().await;
     let result = match (result, shutdown) {
@@ -85,6 +92,12 @@ pub async fn execute_preserving(
         }
     }
     result.map(|outcome| Executed { outcome, times_kept })
+}
+
+async fn discard_empty_part(destination: &dyn FileSystem, part: &Path) {
+    if destination.stat(part).await.is_ok_and(|metadata| metadata.size == 0) {
+        let _ = destination.remove_file(part).await;
+    }
 }
 
 pub(crate) fn resume_offset(

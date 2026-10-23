@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use porthmos_vfs::testing::FakeFs;
 
@@ -945,18 +945,47 @@ fn preserving_times_marks_every_job_with_its_source_time() {
     assert_eq!(jobs, vec![Some(77)]);
 }
 
-#[test]
-fn ordinary_copies_never_ask_for_times_to_be_kept() {
+fn kept_times(t: &TestEngine, batch_id: u64) -> Vec<Option<u64>> {
+    t.engine.transfers.jobs_of(RowKind::Batch(batch_id)).into_iter().map(|job| job.modified).collect()
+}
+
+#[tokio::test]
+async fn an_ordinary_upload_keeps_the_source_time_when_the_server_can_set_it() {
     let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
     let batch_id = t.engine.transfers.start_batch("copy".to_string());
     let mut file = planned("/local/a.txt", "/remote/a.txt", 5);
     file.source_modified = Some(77);
 
-    t.engine.apply_plan_ready(batch_id, 1, Direction::Upload, plan(vec![file]), &[], false);
+    t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan(vec![file]), &[], false);
 
-    let jobs: Vec<_> =
-        t.engine.transfers.jobs_of(RowKind::Batch(batch_id)).into_iter().map(|job| job.modified).collect();
-    assert_eq!(jobs, vec![None]);
+    assert_eq!(kept_times(&t, batch_id), vec![Some(77)]);
+}
+
+#[tokio::test]
+async fn an_ordinary_upload_leaves_times_alone_when_the_server_cannot_set_them() {
+    let mut t = test_engine();
+    let session = t.add_session_with("flat", Arc::new(FakeFs::new().with_time_support(false)));
+    let batch_id = t.engine.transfers.start_batch("copy".to_string());
+    let mut file = planned("/local/a.txt", "/remote/a.txt", 5);
+    file.source_modified = Some(77);
+
+    t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan(vec![file]), &[], false);
+
+    assert_eq!(kept_times(&t, batch_id), vec![None]);
+}
+
+#[tokio::test]
+async fn an_ordinary_download_keeps_the_source_time_on_this_computer() {
+    let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
+    let batch_id = t.engine.transfers.start_batch("copy".to_string());
+    let mut file = planned("/remote/a.txt", "/local/a.txt", 5);
+    file.source_modified = Some(77);
+
+    t.engine.apply_plan_ready(batch_id, session, Direction::Download, plan(vec![file]), &[], false);
+
+    assert_eq!(kept_times(&t, batch_id), vec![Some(77)]);
 }
 
 #[test]
