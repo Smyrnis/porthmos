@@ -15,6 +15,21 @@ const BINARY_NAME: &str = "porthmos";
 const ARCHIVE_SLACK: u64 = 16 * 1024 * 1024;
 const OUTPUT_LIMIT: u64 = 4096;
 const POLL: Duration = Duration::from_millis(10);
+const BUSY_RETRY: Duration = Duration::from_millis(20);
+const BUSY_RETRIES: usize = 100;
+
+fn spawn_when_not_busy(command: &mut Command) -> io::Result<std::process::Child> {
+    let mut attempts = 0;
+    loop {
+        match command.spawn() {
+            Err(error) if error.kind() == io::ErrorKind::ExecutableFileBusy && attempts < BUSY_RETRIES => {
+                attempts += 1;
+                thread::sleep(BUSY_RETRY);
+            }
+            other => return other,
+        }
+    }
+}
 
 fn copy_member(entry: &mut impl Read, destination: &Path, max_bytes: u64) -> Result<()> {
     let mut file = File::create(destination).with_context(|| format!("couldn't create {}", destination.display()))?;
@@ -54,13 +69,13 @@ pub(crate) fn extract_binary(archive: &Path, destination: &Path, max_bytes: u64)
     result
 }
 
-pub(crate) fn health_check(binary: &Path, expected: &Version, timeout: Duration) -> Result<()> {
+pub(crate) fn version_output(binary: &Path, timeout: Duration) -> Result<String> {
     let mut command = Command::new(binary);
     command.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).env_clear();
     if let Some(path) = std::env::var_os("PATH") {
         command.env("PATH", path);
     }
-    let mut child = command.spawn().with_context(|| format!("couldn't run {}", binary.display()))?;
+    let mut child = spawn_when_not_busy(&mut command).with_context(|| format!("couldn't run {}", binary.display()))?;
     let stdout = child.stdout.take().context("no output pipe")?;
     let reader = thread::spawn(move || {
         let mut text = String::new();
@@ -84,11 +99,14 @@ pub(crate) fn health_check(binary: &Path, expected: &Version, timeout: Duration)
     if !status.success() {
         bail!("the program exited with {status}");
     }
-    if output.trim() != format!("{BINARY_NAME} {expected}") {
-        bail!(
-            "the program reported \"{}\" instead of {BINARY_NAME} {expected}",
-            output.trim().chars().take(80).collect::<String>()
-        );
+    Ok(output.trim().to_string())
+}
+
+pub(crate) fn health_check(binary: &Path, expected: &Version, timeout: Duration) -> Result<()> {
+    let output = version_output(binary, timeout)?;
+    if output != format!("{BINARY_NAME} {expected}") {
+        let shown: String = output.chars().take(80).collect();
+        bail!("the program reported \"{shown}\" instead of {BINARY_NAME} {expected}");
     }
     Ok(())
 }

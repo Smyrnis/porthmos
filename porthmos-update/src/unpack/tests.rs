@@ -225,3 +225,23 @@ fn an_archive_with_only_look_alike_members_has_no_program() {
     assert!(extract_binary(&archive, &folder.destination(), CAP).is_err());
     assert!(folder.stage_listing().is_empty());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_binary_that_is_still_being_closed_by_its_writer_is_retried() {
+    use std::{io::Write, os::unix::fs::PermissionsExt, thread, time::Duration};
+    let folder = Folder::new();
+    let path = folder.root.path().join("fresh");
+    let mut writer = fs::File::create(&path).unwrap();
+    writer.write_all(b"#!/bin/sh\necho \"porthmos 0.5.0\"\n").unwrap();
+    writer.set_permissions(fs::Permissions::from_mode(0o755)).unwrap();
+    let closer = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(150));
+        drop(writer);
+    });
+
+    let result = health_check(&path, &version("0.5.0"), Duration::from_secs(5));
+
+    closer.join().unwrap();
+    assert!(result.is_ok(), "{result:?}");
+}
