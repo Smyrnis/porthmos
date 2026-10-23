@@ -70,6 +70,7 @@ jobs:
 
   publish:
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -112,11 +113,23 @@ jobs:
           --artifacts dist
           --out latest.json
       - name: Sign
+        if: github.event_name == 'push'
         env:
           PORTHMOS_SIGNING_KEY: ${{ secrets.PORTHMOS_SIGNING_KEY }}
         run: ./target/release/porthmos-release sign --key-env PORTHMOS_SIGNING_KEY --in latest.json --out latest.json.sig
       - name: Verify against the key built into the app
+        if: github.event_name == 'push'
         run: ./target/release/porthmos-release verify --in latest.json --sig latest.json.sig
+      - name: Sign and verify with a throwaway key (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          tool=./target/release/porthmos-release
+          pair=$($tool keygen)
+          PORTHMOS_THROWAWAY_KEY=$(printf '%s\n' "$pair" | sed -n 's/^private: //p')
+          export PORTHMOS_THROWAWAY_KEY
+          public=$(printf '%s\n' "$pair" | sed -n 's/^public: //p')
+          $tool sign --key-env PORTHMOS_THROWAWAY_KEY --in latest.json --out latest.json.sig
+          $tool verify --in latest.json --sig latest.json.sig --public-key "$public"
       - name: Publish the release
         if: github.event_name == 'push'
         env:
