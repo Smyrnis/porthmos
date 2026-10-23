@@ -100,7 +100,8 @@ fn the_sidecar_checksum_matches_the_archive_and_has_the_exact_line_format() {
     let fixture = Fixture::new();
     fixture.run().unwrap();
 
-    let sidecar = std::fs::read_to_string(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz.sha256")).unwrap();
+    let sidecar =
+        std::fs::read_to_string(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz.sha256")).unwrap();
 
     let archive = std::fs::read(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
     assert_eq!(sidecar, format!("{}  porthmos-x86_64-unknown-linux-gnu.tar.gz\n", sha256_hex(&archive)));

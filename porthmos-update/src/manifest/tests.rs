@@ -2,7 +2,8 @@ use chrono::TimeZone;
 
 use super::*;
 
-const URL: &str = "https://github.com/Smyrnis/porthmos/releases/download/v0.4.0/porthmos-0.4.0-x86_64-unknown-linux-gnu.tar.gz";
+const URL: &str =
+    "https://github.com/Smyrnis/porthmos/releases/download/v0.4.0/porthmos-0.4.0-x86_64-unknown-linux-gnu.tar.gz";
 const HASH: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
 fn artifact() -> Artifact {

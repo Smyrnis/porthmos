@@ -101,7 +101,10 @@ fn the_base_url_may_end_with_a_slash() {
 
     let manifest = build(&Version::new(0, 4, 0), &format!("{BASE}/"), &directory).unwrap();
 
-    assert_eq!(manifest.targets["aarch64-apple-darwin"].url, format!("{BASE}/porthmos-0.4.0-aarch64-apple-darwin.tar.gz"));
+    assert_eq!(
+        manifest.targets["aarch64-apple-darwin"].url,
+        format!("{BASE}/porthmos-0.4.0-aarch64-apple-darwin.tar.gz")
+    );
 }
 
 #[test]
