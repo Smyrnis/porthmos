@@ -123,3 +123,71 @@ fn mlst_of_the_current_or_parent_directory_is_a_directory() {
     assert_eq!(parse_mlst_facts(" type=cdir;modify=20240301000000; /home/u").unwrap().kind, FileKind::Dir);
     assert_eq!(parse_mlst_facts(" type=pdir; /home").unwrap().kind, FileKind::Dir);
 }
+
+#[test]
+fn unix_list_lines_carry_the_owner_and_group() {
+    let item = parse_list_line("-rw-r--r--    1 nikos    staff        4096 Mar  1 12:34 notes.txt", NOW).unwrap();
+
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("nikos"), Some("staff")));
+}
+
+#[test]
+fn a_unix_list_line_without_a_group_column_has_only_an_owner() {
+    let item = parse_list_line("-rw-r--r--    1 nikos        4096 Mar  1 12:34 notes.txt", NOW).unwrap();
+
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("nikos"), None));
+}
+
+#[test]
+fn a_unix_list_line_for_a_link_keeps_the_owner_and_the_target() {
+    let item =
+        parse_list_line("lrwxrwxrwx    1 root     root           11 Mar  1 12:34 current -> releases/42", NOW).unwrap();
+
+    assert_eq!(item.name, "current");
+    assert_eq!(item.link_target.as_deref(), Some("releases/42"));
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("root"), Some("root")));
+}
+
+#[test]
+fn windows_list_lines_have_no_owner_or_group() {
+    let item = parse_list_line("03-01-24  12:34PM       <DIR>          photos", NOW).unwrap();
+
+    assert_eq!((item.owner, item.group), (None, None));
+}
+
+#[test]
+fn mlsd_prefers_the_unix_owner_and_group_names() {
+    let item =
+        parse_mlsd_line("type=file;size=1;unix.owner=nikos;unix.uid=501;unix.group=staff;unix.gid=20; a").unwrap();
+
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("nikos"), Some("staff")));
+}
+
+#[test]
+fn mlsd_falls_back_to_the_numeric_ids() {
+    let item = parse_mlsd_line("type=file;size=1;unix.uid=501;unix.gid=20; a").unwrap();
+
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("501"), Some("20")));
+}
+
+#[test]
+fn mlsd_without_ownership_facts_has_no_owner() {
+    let item = parse_mlsd_line("type=file;size=1; a").unwrap();
+
+    assert_eq!((item.owner, item.group), (None, None));
+}
+
+#[test]
+fn a_four_column_line_without_a_link_count_reads_owner_then_group() {
+    let item = parse_list_line("-rw-r--r-- ftp staff 12 Mar  1 12:34 a.txt", NOW).unwrap();
+
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("ftp"), Some("staff")));
+    assert_eq!(item.metadata.size, 12);
+}
+
+#[test]
+fn a_four_column_line_with_a_link_count_reads_only_the_owner() {
+    let item = parse_list_line("-rw-r--r-- 1 ftp 12 Mar  1 12:34 a.txt", NOW).unwrap();
+
+    assert_eq!((item.owner.as_deref(), item.group.as_deref()), (Some("ftp"), None));
+}

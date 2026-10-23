@@ -12,13 +12,13 @@ use porthmos_core::{
     sync::{SyncAction, SyncBy, SyncDirection, SyncOptions, SyncReason},
     transfer::{
         Direction,
-        conflicts::{ConflictPolicy, Resolution},
+        conflicts::{ConflictInfo, ConflictPolicy, Resolution},
         rows::RowState,
     },
 };
 use scp_rig::{Rig, data, rig};
 
-fn no_conflicts(_: &[porthmos_core::transfer::conflicts::ConflictInfo]) -> Option<Vec<Resolution>> {
+fn no_conflicts(_: &[ConflictInfo]) -> Option<Vec<Resolution>> {
     panic!("no conflict was expected")
 }
 
@@ -65,12 +65,16 @@ async fn upload_conflict(answer: Option<Resolution>) -> Rig {
     std::fs::write(rig.local("b.txt"), b"bee").unwrap();
     std::fs::write(rig.remote("a.txt"), b"old").unwrap();
     rig.upload(&[("a.txt", false), ("b.txt", false)]);
-    rig.settle(move |files| {
+    let answers = move |files: &[ConflictInfo]| {
         assert_eq!(files.iter().map(|file| file.display_name.as_str()).collect::<Vec<_>>(), vec!["a.txt"]);
         assert_eq!(files[0].existing.map(|existing| existing.size), Some(3));
         answer.map(|answer| vec![answer])
-    })
-    .await;
+    };
+    if answer.is_none() {
+        rig.settle_with_no_rows(answers, "Copy cancelled").await;
+    } else {
+        rig.settle(answers).await;
+    }
     rig
 }
 
@@ -98,11 +102,15 @@ async fn download_conflict(answer: Resolution) -> Rig {
     std::fs::write(rig.remote("a.txt"), b"new").unwrap();
     std::fs::write(rig.local("a.txt"), b"old").unwrap();
     rig.download(&[("a.txt", false)]);
-    rig.settle(move |files| {
+    let answers = move |files: &[ConflictInfo]| {
         assert_eq!(files.len(), 1);
         Some(vec![answer])
-    })
-    .await;
+    };
+    if answer == Resolution::Skip {
+        rig.settle_with_no_rows(answers, "Skipped 1 existing file").await;
+    } else {
+        rig.settle(answers).await;
+    }
     rig
 }
 
@@ -478,4 +486,64 @@ async fn a_sync_shows_up_in_the_history_like_any_other_transfer() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].files_total, 3);
     assert_eq!(listed[0].result, HistoryResult::Done);
+}
+
+async fn gone(path: std::path::PathBuf) -> bool {
+    for _ in 0..100 {
+        if !path.exists() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn moving_a_folder_up_over_ssh_leaves_nothing_here_and_everything_there() {
+    let mut rig = rig(4, ConflictPolicy::Ask).await;
+    std::fs::create_dir_all(rig.local("tree/inner/deep")).unwrap();
+    std::fs::write(rig.local("tree/a.bin"), data(300_000, 1)).unwrap();
+    std::fs::write(rig.local("tree/inner/b.bin"), data(200_000, 2)).unwrap();
+    rig.move_up(&[("tree", true)]);
+
+    assert_eq!(rig.settle(no_conflicts).await, vec![RowState::Done]);
+
+    assert_eq!(std::fs::read(rig.remote("tree/a.bin")).unwrap(), data(300_000, 1));
+    assert_eq!(std::fs::read(rig.remote("tree/inner/b.bin")).unwrap(), data(200_000, 2));
+    assert!(rig.remote("tree/inner/deep").is_dir());
+    assert!(gone(rig.local("tree")).await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn moving_a_folder_down_over_ssh_leaves_nothing_on_the_server_and_everything_here() {
+    let mut rig = rig(4, ConflictPolicy::Ask).await;
+    std::fs::create_dir_all(rig.remote("tree/inner/deep")).unwrap();
+    std::fs::write(rig.remote("tree/a.bin"), data(300_000, 3)).unwrap();
+    std::fs::write(rig.remote("tree/inner/b.bin"), data(200_000, 4)).unwrap();
+    rig.move_down(&[("tree", true)]);
+
+    assert_eq!(rig.settle(no_conflicts).await, vec![RowState::Done]);
+
+    assert_eq!(std::fs::read(rig.local("tree/a.bin")).unwrap(), data(300_000, 3));
+    assert_eq!(std::fs::read(rig.local("tree/inner/b.bin")).unwrap(), data(200_000, 4));
+    assert!(rig.local("tree/inner/deep").is_dir());
+    assert!(gone(rig.remote("tree")).await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skipped_file_keeps_its_folder_when_moving_over_ssh() {
+    let mut rig = rig(4, ConflictPolicy::Skip).await;
+    std::fs::create_dir(rig.local("tree")).unwrap();
+    std::fs::write(rig.local("tree/old.txt"), b"mine").unwrap();
+    std::fs::write(rig.local("tree/new.txt"), b"new").unwrap();
+    std::fs::create_dir(rig.remote("tree")).unwrap();
+    std::fs::write(rig.remote("tree/old.txt"), b"theirs").unwrap();
+    rig.move_up(&[("tree", true)]);
+
+    rig.settle(no_conflicts).await;
+
+    assert_eq!(std::fs::read(rig.remote("tree/old.txt")).unwrap(), b"theirs");
+    assert_eq!(std::fs::read(rig.remote("tree/new.txt")).unwrap(), b"new");
+    assert!(gone(rig.local("tree/new.txt")).await);
+    assert_eq!(std::fs::read(rig.local("tree/old.txt")).unwrap(), b"mine");
 }

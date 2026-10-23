@@ -194,20 +194,38 @@ impl ScpFs {
 
 #[async_trait]
 impl FileSystem for ScpFs {
+    fn server_info(&self) -> Option<String> {
+        self.session.server_version()
+    }
+
+    async fn connection_alive(&self) -> Option<bool> {
+        Some(!self.session.is_closed())
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
-        Ok(self
-            .read_dir(dir)
-            .await?
+        let lines = self.lines(&commands::list(dir), dir).await?;
+        Ok(lines
             .into_iter()
-            .map(|item| Entry {
-                is_dir: item.metadata.is_dir(),
-                size: item.metadata.size,
-                permissions: item.metadata.permissions,
-                modified: item.metadata.modified,
-                name: item.name,
-                path: item.path,
+            .map(|line| Entry {
+                is_dir: line.metadata.is_dir(),
+                size: line.metadata.size,
+                permissions: line.metadata.permissions,
+                modified: line.metadata.modified,
+                path: dir.join(&line.name),
+                name: line.name,
+                owner: Some(line.owner),
+                group: Some(line.group),
+                link_target: None,
             })
             .collect())
+    }
+
+    async fn free_space(&self, dir: &Path) -> Result<Option<u64>, ProtocolError> {
+        let output = self.run(&commands::free_space(dir)).await?;
+        if output.status != Some(0) && output.stdout.is_empty() {
+            return Err(failure(&output.stderr, output.status, dir, "df"));
+        }
+        Ok(listing::parse_free_space(&String::from_utf8_lossy(&output.stdout)))
     }
 
     async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
@@ -269,6 +287,10 @@ impl FileSystem for ScpFs {
 
     async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
         self.run_ok(&commands::remove(path), path).await.map(|_| ())
+    }
+
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        self.run_ok(&commands::remove_dir(path), path).await.map(|_| ())
     }
 
     async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {

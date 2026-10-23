@@ -66,7 +66,7 @@ fn history_result(state: RowState) -> HistoryResult {
         RowState::PartlyFailed(failed) => HistoryResult::PartlyFailed { failed },
         RowState::Failed => HistoryResult::Failed,
         RowState::Cancelled => HistoryResult::Cancelled,
-        RowState::Scanning | RowState::AwaitingAnswer | RowState::Running | RowState::Queued => {
+        RowState::Scanning | RowState::AwaitingAnswer | RowState::Running | RowState::Queued | RowState::Paused => {
             HistoryResult::Interrupted
         }
     }
@@ -144,7 +144,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn persist_failed(&mut self, _path: PathBuf, message: String, tag: u64) {
+    pub(crate) fn history_write_failed(&mut self, message: String, tag: u64) {
         let clearing = self.history.clear_tag == Some(tag);
         self.report_history_failure(message, clearing);
     }

@@ -24,17 +24,29 @@ pub trait FileSystem: Send + Sync {
     async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError>;
     async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError>;
     async fn delete(&self, path: &Path) -> Result<(), ProtocolError>;
+    async fn remove_dir(&self, _path: &Path) -> Result<(), ProtocolError> {
+        Err(ProtocolError::new(
+            ErrorKind::Unsupported,
+            anyhow::anyhow!("this connection can't remove a folder without deleting what is inside it"),
+        ))
+    }
     async fn home(&self) -> Result<PathBuf, ProtocolError>;
     async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError>;
     async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError>;
     async fn open_write_sized(&self, path: &Path, offset: u64, _size: u64) -> Result<Writer, ProtocolError> {
         self.open_write(path, offset).await
     }
+    async fn connection_alive(&self) -> Option<bool> {
+        None
+    }
     fn transfer_limit(&self) -> Option<usize> {
         None
     }
     fn resume_backoff(&self) -> u64 {
         0
+    }
+    fn server_info(&self) -> Option<String> {
+        None
     }
     async fn set_modified(&self, _path: &Path, _seconds: u64) -> Result<(), ProtocolError> {
         Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("this connection can't set modification times")))
@@ -46,6 +58,9 @@ pub trait FileSystem: Send + Sync {
 
     fn time_resolution(&self) -> u64 {
         2
+    }
+    async fn free_space(&self, _dir: &Path) -> Result<Option<u64>, ProtocolError> {
+        Ok(None)
     }
     async fn search(&self, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>) {
         walk_search(self, query, tx, cancel).await

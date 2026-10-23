@@ -10,6 +10,7 @@ fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
         is_dir,
         size,
         permissions: None,
+        ..Default::default()
     }
 }
 

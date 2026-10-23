@@ -13,6 +13,7 @@ pub enum RowState {
     AwaitingAnswer,
     Running,
     Queued,
+    Paused,
     Done,
     PartlyFailed(usize),
     Failed,
@@ -29,6 +30,7 @@ pub struct QueueRow {
     pub bytes_done: u64,
     pub bytes_total: u64,
     pub state: RowState,
+    pub paused: bool,
     pub session_id: Option<u64>,
     pub failure: Option<RowFailure>,
 }
@@ -77,6 +79,7 @@ fn scan_row(scan: &ScanInfo) -> QueueRow {
         bytes_done: 0,
         bytes_total: 0,
         state: scan.state,
+        paused: false,
         session_id: None,
         failure: None,
     }

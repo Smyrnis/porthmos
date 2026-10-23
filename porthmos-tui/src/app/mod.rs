@@ -1,11 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    path::PathBuf,
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
@@ -57,6 +57,7 @@ mod filter;
 mod hints;
 mod history;
 mod palette;
+mod preview;
 mod render;
 mod search;
 mod sync;
@@ -71,6 +72,7 @@ enum PendingAction {
     Delete,
     AddBookmark,
     SubmitPassword { request_id: RequestId },
+    SubmitTestPassword { request_id: RequestId },
     TrustHostKey { request_id: RequestId },
     TrustCertificate { request_id: RequestId },
     AddConnection,
@@ -85,6 +87,7 @@ enum PendingAction {
     EditConflict { edit_id: u64 },
     QuitWhileSaving,
     StartSync { session: SessionId },
+    SpeedLimit,
 }
 
 enum Reveal {
@@ -141,10 +144,15 @@ pub struct App {
     sessions: Sessions,
     dialog: Option<Dialog>,
     palette: Option<Palette>,
+    connection_test: Option<u64>,
+    next_test_id: u64,
     help_visible: bool,
+    preview: Option<crate::widgets::preview_view::PreviewView>,
+    next_preview_id: RequestId,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
+    stashed_form: Option<(Dialog, PendingAction)>,
     notifications: Notifications,
     connections: ConnectionsView,
     reveal: Option<Reveal>,
@@ -172,6 +180,7 @@ pub struct App {
     details_popup: bool,
     body_width: std::cell::Cell<u16>,
     last_failure: HashMap<String, String>,
+    last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     core: CoreHandle,
@@ -187,10 +196,15 @@ impl App {
             sessions: Sessions::new(),
             dialog: None,
             palette: None,
+            connection_test: None,
+            next_test_id: 0,
             help_visible: false,
+            preview: None,
+            next_preview_id: 0,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
+            stashed_form: None,
             notifications: Notifications::default(),
             connections: ConnectionsView::new(),
             reveal: None,
@@ -218,6 +232,7 @@ impl App {
             details_popup: false,
             body_width: std::cell::Cell::new(0),
             last_failure: HashMap::new(),
+            last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             core,
@@ -294,7 +309,9 @@ impl App {
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
-        if self.help_visible {
+        if self.preview.is_some() && self.dialog.is_none() {
+            self.apply_preview_key(key);
+        } else if self.help_visible {
             self.apply_help_key(key);
         } else if self.details_popup {
             self.details_popup = false;
@@ -338,11 +355,15 @@ impl App {
                 self.notifications.push(Severity::Error, message);
             }
             Event::Question { request_id, question } => self.ask(request_id, question),
+            Event::TestQuestion { test_id, request_id, question } => self.ask_test(test_id, request_id, question),
+            Event::TestFinished { test_id, outcome } => self.apply_test_finished(test_id, outcome),
             Event::Disconnected { session, .. } => {
                 self.sessions.remove(session);
             }
             Event::ShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
+            Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
+            Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
             Event::LocationChanged { location } => self.relist(location),
             Event::Profiles(entries) => {
                 self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
@@ -353,9 +374,11 @@ impl App {
                 }
                 self.announce_missing_hosts();
             }
+            Event::LastUsed(times) => self.last_used = times,
             Event::ProfileSaved => {
                 self.dialog = None;
                 self.pending_action = None;
+                self.stashed_form = None;
                 if let Some(Reveal::AwaitingSave(name)) = self.reveal.take() {
                     self.reveal = Some(Reveal::Ready(name));
                 }
@@ -387,6 +410,7 @@ impl App {
             Event::History(entries) => self.history.replace(entries),
             Event::EditReady { .. } => {}
             Event::EditsBusy(busy) => self.edits_busy = busy,
+            Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)
@@ -397,7 +421,7 @@ impl App {
     }
 
     fn ask(&mut self, request_id: RequestId, question: Question) {
-        self.requeue_open_edit_question();
+        self.make_room_for_question();
         match question {
             Question::Password { username, name } => self.open_password_prompt(request_id, username, name),
             Question::TrustHostKey { name, host, port, key_type, fingerprint } => {
@@ -436,6 +460,17 @@ impl App {
                     session.listed = true;
                 } else {
                     tracing::debug!("dropping a listing for session {id}, which is gone");
+                }
+            }
+        }
+    }
+
+    fn apply_free_space(&mut self, location: Location, path: &Path, bytes: Option<u64>) {
+        match location {
+            Location::Local => self.local.set_free_space(path, bytes),
+            Location::Session(id) => {
+                if let Some(session) = self.sessions.by_id_mut(id) {
+                    session.panel.set_free_space(path, bytes);
                 }
             }
         }

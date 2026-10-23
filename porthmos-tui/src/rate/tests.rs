@@ -17,6 +17,7 @@ fn row(id: u64, bytes_done: u64, bytes_total: u64, state: RowState) -> QueueRow 
         bytes_done,
         bytes_total,
         state,
+        paused: false,
         session_id: Some(1),
         failure: None,
     }

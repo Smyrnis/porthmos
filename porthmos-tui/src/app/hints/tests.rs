@@ -30,11 +30,13 @@ fn files_hints_use_the_default_keys_in_order() {
         keys_and_labels(&hints),
         vec![
             pair("c", "copy"),
+            pair("m", "move"),
             pair("n", "mkdir"),
             pair("d", "delete"),
             pair("F9", "connections"),
             pair("q", "quit"),
             pair("e", "edit"),
+            pair("p", "preview"),
             pair("r", "rename"),
             pair("/", "filter"),
             pair("Space", "select"),
@@ -63,7 +65,7 @@ fn an_unbound_action_is_omitted_without_leaving_a_gap() {
 
     let labels: Vec<&str> = hints.entries.iter().map(|hint| hint.label).collect();
     assert!(!labels.contains(&"copy"));
-    assert_eq!(hints.entries.len(), 9);
+    assert_eq!(hints.entries.len(), 11);
 }
 
 #[test]
@@ -123,7 +125,14 @@ fn search_has_only_the_pinned_help_and_back() {
 fn transfers_list_retry_cancel_and_clear_done() {
     assert_eq!(
         keys_and_labels(&hints_for(Screen::Transfers, &KeyBindings::defaults())),
-        vec![pair("r", "retry"), pair("x", "cancel"), pair("c", "clear done")]
+        vec![
+            pair("p", "pause"),
+            pair("K J", "reorder"),
+            pair("r", "retry"),
+            pair("x", "cancel"),
+            pair("c", "clear done"),
+            pair("Ctrl+L", "limit")
+        ]
     );
 }
 
@@ -162,6 +171,8 @@ fn screen_sections_use_the_hint_labels_and_the_live_keys() {
 
     let files = rows_of(section(&sections, "files"));
     assert!(files.contains(&(Some("c / F5"), "copy")));
+    assert!(files.contains(&(Some("m / F6"), "move")));
+    assert!(files.contains(&(Some("p"), "preview")));
     assert!(files.contains(&(Some("q / F10"), "quit")));
     let connections = rows_of(section(&sections, "connections"));
     assert_eq!(
@@ -201,7 +212,7 @@ fn global_lists_the_remaining_actions_by_their_config_names_and_one_movement_row
     assert!(global.contains(&(Some("Ctrl+U"), "open_sync")));
     assert!(global.contains(&(Some("Ctrl+P"), "open_palette")));
     assert!(global.contains(&(Some("? / F1"), "help")));
-    assert!(global.contains(&(Some("Up/Down"), "move")));
+    assert!(global.contains(&(Some("Up/Down"), "move cursor")));
     assert!(!global.iter().any(|(_, action)| *action == "up" || *action == "down"));
     assert!(!global.iter().any(|(_, action)| *action == "copy"));
 }
@@ -338,4 +349,49 @@ fn hints_never_show_a_key_that_belongs_to_another_screens_scope() {
     let transfers = keys_and_labels(&hints_for(Screen::Transfers, &bindings));
     assert!(!transfers.contains(&pair("c", "copy")));
     assert!(!transfers.contains(&pair("n", "mkdir")));
+}
+
+#[test]
+fn the_form_hint_bar_lists_ctrl_t_test() {
+    let hints = form_hints();
+
+    assert!(keys_and_labels(&hints).contains(&pair("ctrl+t", "test")));
+    assert!(keys_and_labels(&hints).contains(&pair("ctrl+s", "save")));
+}
+
+#[test]
+fn the_transfers_hints_offer_the_speed_limit_with_its_key() {
+    let hints = hints_for(Screen::Transfers, &KeyBindings::defaults());
+
+    assert!(keys_and_labels(&hints).contains(&pair("Ctrl+L", "limit")));
+}
+
+#[test]
+fn the_help_lists_the_speed_limit_on_the_transfers_section() {
+    let sections = help_sections(&KeyBindings::defaults());
+
+    assert!(rows_of(section(&sections, "transfers")).contains(&(Some("Ctrl+L"), "limit")));
+}
+
+#[test]
+fn the_help_lists_both_reorder_keys_on_the_transfers_section() {
+    let sections = help_sections(&KeyBindings::defaults());
+    let rows = rows_of(section(&sections, "transfers"));
+
+    assert!(rows.contains(&(Some("K"), "move earlier")));
+    assert!(rows.contains(&(Some("J"), "move later")));
+}
+
+#[test]
+fn an_unbound_reorder_key_leaves_the_other_one_alone_in_the_hint() {
+    let hints = hints_for(Screen::Transfers, &configured("[keys.transfers]\nrow_down = []\n"));
+
+    assert!(keys_and_labels(&hints).contains(&pair("K", "reorder")));
+}
+
+#[test]
+fn both_reorder_keys_unbound_leave_no_reorder_hint() {
+    let hints = hints_for(Screen::Transfers, &configured("[keys.transfers]\nrow_up = []\nrow_down = []\n"));
+
+    assert!(keys_and_labels(&hints).iter().all(|(_, label)| *label != "reorder"));
 }

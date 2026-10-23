@@ -118,6 +118,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
                     size: item.metadata.size,
                     permissions: None,
                     modified: item.metadata.modified,
+                    ..Default::default()
                 }));
                 found += 1;
             }

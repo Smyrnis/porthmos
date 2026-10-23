@@ -142,7 +142,9 @@ fn entry_style(is_dir: bool, active: bool, theme: &Theme) -> Style {
 
 pub(crate) fn name_cell(entry: &porthmos_core::Entry) -> String {
     let name = printable(&entry.name);
-    if entry.is_dir {
+    if entry.link_target.is_some() {
+        format!("{name}@")
+    } else if entry.is_dir {
         format!("{name}/")
     } else if entry.permissions.is_some_and(|mode| mode & 0o111 != 0) {
         format!("{name}*")
@@ -153,7 +155,13 @@ pub(crate) fn name_cell(entry: &porthmos_core::Entry) -> String {
 
 pub(crate) fn permissions_string(entry: &porthmos_core::Entry) -> Option<String> {
     let mode = entry.permissions?;
-    let kind = if entry.is_dir { 'd' } else { '-' };
+    let kind = if entry.link_target.is_some() {
+        'l'
+    } else if entry.is_dir {
+        'd'
+    } else {
+        '-'
+    };
     Some(format!("{kind}{}", permission_triplets(mode)))
 }
 

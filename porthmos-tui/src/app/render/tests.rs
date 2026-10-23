@@ -341,7 +341,7 @@ fn the_hint_bar_lists_the_actions_of_the_screen_with_their_keys() {
 
     let terminal = render_app(&app, 120, 12);
 
-    assert!(bottom_row(&terminal).contains("c copy   n mkdir"), "{:?}", bottom_row(&terminal));
+    assert!(bottom_row(&terminal).contains("c copy   m move   n mkdir"), "{:?}", bottom_row(&terminal));
     let (x, y) = find_text(&terminal, "c copy").expect("hint is drawn");
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
     assert_eq!(cell_fg(&terminal, x + 3, y), theme.fg_dim);
@@ -604,6 +604,7 @@ fn deploy_script() -> Entry {
         size: 2457,
         permissions: Some(0o100755),
         modified: Some(chrono::Local.with_ymd_and_hms(2026, 10, 20, 14, 2, 0).unwrap().timestamp() as u64),
+        ..Default::default()
     }
 }
 
@@ -1020,7 +1021,11 @@ fn the_hint_bar_lists_retry_cancel_and_clear_done_on_the_transfers_screen() {
 
     let terminal = render_app(&app, 120, 24);
 
-    assert!(bottom_row(&terminal).contains("r retry   x cancel   c clear done"), "{:?}", bottom_row(&terminal));
+    assert!(
+        bottom_row(&terminal).contains("p pause   K J reorder   r retry   x cancel   c clear done"),
+        "{:?}",
+        bottom_row(&terminal)
+    );
 }
 
 #[test]
@@ -1050,6 +1055,56 @@ fn the_connections_screen_shows_the_filter_line_and_a_row_at_120x24() {
     assert!(row_symbols(&terminal, 2).contains("/ filter"), "{:?}", row_symbols(&terminal, 2));
     assert!(row_symbols(&terminal, 4).contains("prod"), "{:?}", row_symbols(&terminal, 4));
     assert!(row_symbols(&terminal, 5).contains("deploy@backup.example.com"), "{:?}", row_symbols(&terminal, 5));
+}
+
+fn noon() -> chrono::DateTime<chrono::Local> {
+    chrono::Local.with_ymd_and_hms(2026, 10, 22, 12, 0, 0).unwrap()
+}
+
+fn connections_app_at_noon() -> App {
+    let (app, _) = connections_app();
+    app.with_clock(crate::clock::Clock::fixed(noon()))
+}
+
+fn used_three_hours_ago(name: &str) -> Event {
+    let at = noon().with_timezone(&chrono::Utc) - chrono::Duration::hours(3);
+    Event::LastUsed(std::collections::BTreeMap::from([(name.to_string(), at)]))
+}
+
+#[test]
+fn a_last_used_event_replaces_the_remembered_times() {
+    let mut app = connections_app_at_noon();
+    app.apply_core_event(used_three_hours_ago("prod"));
+
+    app.apply_core_event(used_three_hours_ago("backup"));
+
+    assert_eq!(app.last_used.keys().collect::<Vec<_>>(), ["backup"]);
+}
+
+#[test]
+fn the_connections_list_shows_how_long_ago_each_connection_was_used() {
+    let mut app = connections_app_at_noon();
+    app.apply_core_event(used_three_hours_ago("prod"));
+
+    let terminal = render_app(&app, 120, 24);
+
+    let screen: Vec<String> = (0..24).map(|y| row_symbols(&terminal, y)).collect();
+    let prod = screen.iter().find(|line| line.contains("deploy@prod")).expect("the prod row");
+    let backup = screen.iter().find(|line| line.contains("deploy@backup")).expect("the backup row");
+    assert!(prod.contains("3 h ago"), "{prod:?}");
+    assert!(backup.contains("never"), "{backup:?}");
+}
+
+#[test]
+fn the_details_pane_shows_the_last_used_time_of_the_focused_connection() {
+    let mut app = connections_app_at_noon();
+    app.apply_core_event(used_three_hours_ago("prod"));
+    app.connections.cursor = 0;
+
+    let terminal = render_app(&app, 120, 24);
+
+    let screen = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(screen.contains("last used") && screen.contains("\u{b7} 3 h ago"), "{screen}");
 }
 
 #[test]
@@ -1298,7 +1353,7 @@ fn the_add_form_replaces_the_connections_screen_with_a_breadcrumb_and_hints() {
 
     assert!(row_symbols(&terminal, 0).contains("porthmos / connections / new"), "{:?}", row_symbols(&terminal, 0));
     let hints = bottom_row(&terminal);
-    assert!(hints.contains("tab next field   \u{2191}\u{2193} field   ctrl+s save"), "{hints:?}");
+    assert!(hints.contains("tab next field   \u{2191}\u{2193} field   ctrl+t test   ctrl+s save"), "{hints:?}");
     assert!(hints.trim_end().ends_with("esc cancel"), "{hints:?}");
     assert!(find_text(&terminal, "ssh file transfer").is_some());
     assert!(find_text(&terminal, "/ filter").is_none());
@@ -1522,4 +1577,26 @@ fn the_search_screen_shows_its_hints_in_the_hint_bar_at_120x24() {
     assert!(hint_row.trim_end().ends_with("esc close"), "{hint_row:?}");
     assert!(find_text(&terminal, "/ type").is_none());
     assert!(find_text(&terminal, "type to search").is_some());
+}
+
+#[test]
+fn the_files_screen_reminds_you_of_paused_transfers_when_nothing_else_is_running() {
+    let mut app = themed_app().0;
+    let mut queue = porthmos_core::transfer::TransferQueue::new();
+    let id = queue.enqueue(
+        1,
+        porthmos_core::transfer::Direction::Upload,
+        std::path::PathBuf::from("/l/a"),
+        "/r/a".to_string(),
+        "a".to_string(),
+        10,
+        None,
+    );
+    queue.get_mut(id).unwrap().paused = true;
+    app.apply_core_event(Event::TransfersChanged(porthmos_core::transfer::TransferSnapshot::of(&queue, &[])));
+
+    let terminal = render_app(&app, 120, 24);
+
+    let bottom = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
+    assert!(bottom.contains("1 paused"), "{bottom}");
 }

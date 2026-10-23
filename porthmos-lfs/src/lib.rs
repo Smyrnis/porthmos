@@ -1,10 +1,13 @@
 #[cfg(not(unix))]
 compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
 
+mod ownership;
+mod space;
+
 use std::{
     fs, io,
     io::SeekFrom,
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
@@ -73,6 +76,11 @@ impl FileSystem for LocalFs {
         blocking(move || list(&dir)).await
     }
 
+    async fn free_space(&self, dir: &Path) -> Result<Option<u64>, ProtocolError> {
+        let dir = dir.to_path_buf();
+        blocking(move || space::free_space(&dir).map(Some)).await
+    }
+
     async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
         let dir = dir.to_path_buf();
         blocking(move || {
@@ -112,6 +120,11 @@ impl FileSystem for LocalFs {
         blocking(move || delete(&path)).await
     }
 
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        let path = path.to_path_buf();
+        blocking(move || fs::remove_dir(&path)).await
+    }
+
     async fn home(&self) -> Result<PathBuf, ProtocolError> {
         Ok(self.home.clone())
     }
@@ -132,11 +145,16 @@ impl FileSystem for LocalFs {
 
 pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
+    let mut users = ownership::NameCache::new(ownership::user_name);
+    let mut groups = ownership::NameCache::new(ownership::group_name);
 
     for dir_entry in fs::read_dir(path)? {
         let dir_entry = dir_entry?;
         let metadata = dir_entry.metadata()?;
         let name = dir_entry.file_name().to_string_lossy().into_owned();
+        let link_target = metadata.file_type().is_symlink().then(|| {
+            fs::read_link(dir_entry.path()).map(|target| target.to_string_lossy().into_owned()).unwrap_or_default()
+        });
 
         entries.push(Entry {
             name,
@@ -149,6 +167,9 @@ pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
                 .ok()
                 .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|elapsed| elapsed.as_secs()),
+            owner: Some(users.name(metadata.uid())),
+            group: Some(groups.name(metadata.gid())),
+            link_target,
         });
     }
 

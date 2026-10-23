@@ -98,7 +98,15 @@ async fn ensure_local_directory_is_a_no_op_when_it_already_exists() {
 }
 
 fn sample_entry(name: &str, path: &str, is_dir: bool, size: u64) -> Entry {
-    Entry { modified: None, name: name.to_string(), path: PathBuf::from(path), is_dir, size, permissions: None }
+    Entry {
+        modified: None,
+        name: name.to_string(),
+        path: PathBuf::from(path),
+        is_dir,
+        size,
+        permissions: None,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -379,6 +387,7 @@ fn dir_entry(path: &str) -> Entry {
         is_dir: true,
         size: 0,
         permissions: None,
+        ..Default::default()
     }
 }
 
@@ -391,6 +400,7 @@ fn file_entry(path: &str, size: u64) -> Entry {
         is_dir: false,
         size,
         permissions: None,
+        ..Default::default()
     }
 }
 

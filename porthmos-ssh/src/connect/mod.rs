@@ -6,7 +6,7 @@ use russh::client::Handle;
 use tokio::sync::mpsc;
 
 use crate::{
-    client::{self, HostKeyCheck, HostKeyDeclined, HostKeyQuestion, PorthmosHandler},
+    client::{self, HostKeyCheck, HostKeyDeclined, HostKeyQuestion, PorthmosHandler, ServerId},
     discovery::identity_path,
 };
 
@@ -24,11 +24,20 @@ impl Default for ConnectOptions {
 
 pub struct Session {
     handle: Handle<PorthmosHandler>,
+    server: ServerId,
 }
 
 impl Session {
     pub fn handle(&self) -> &Handle<PorthmosHandler> {
         &self.handle
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed()
+    }
+
+    pub fn server_version(&self) -> Option<String> {
+        self.server.version()
     }
 }
 
@@ -69,7 +78,7 @@ pub async fn connect(
     let (questions, mut asked) = mpsc::channel(1);
     let known_hosts = options.known_hosts.clone().or_else(client::default_known_hosts);
     let host_key = HostKeyCheck::new(&target.host, target.port, known_hosts, questions);
-    let mut handle = answer_host_key_questions(client::connect(host_key), &mut asked, prompter, target)
+    let (mut handle, server) = answer_host_key_questions(client::connect(host_key), &mut asked, prompter, target)
         .await
         .map_err(connect_error)?;
 
@@ -84,7 +93,7 @@ pub async fn connect(
     )
     .await
     {
-        Ok(true) => return Ok(Session { handle }),
+        Ok(true) => return Ok(Session { handle, server }),
         Ok(false) => {}
         Err(err) => return Err(ProtocolError::new(ErrorKind::Auth, err)),
     }
@@ -95,7 +104,7 @@ pub async fn connect(
     };
 
     match client::authenticate_password(&mut handle, &target.username, &password).await {
-        Ok(true) => Ok(Session { handle }),
+        Ok(true) => Ok(Session { handle, server }),
         Ok(false) => {
             Err(ProtocolError::new(ErrorKind::AuthRejected, anyhow!("Authentication failed for {}", target.name)))
         }

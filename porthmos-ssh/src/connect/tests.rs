@@ -76,3 +76,13 @@ fn a_declined_host_key_is_reported_as_a_cancelled_connection() {
 fn any_other_handshake_failure_is_a_connect_error() {
     assert_eq!(connect_error(anyhow!("connection refused")).kind(), ErrorKind::Connect);
 }
+
+#[tokio::test]
+async fn a_session_reports_the_servers_version() {
+    let server = crate::testing::SshServer::start(crate::testing::Options::default()).await;
+
+    let session = server.session().await;
+
+    let version = session.server_version().expect("the test server announces itself");
+    assert!(version.starts_with("russh_"), "{version}");
+}

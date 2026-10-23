@@ -785,3 +785,153 @@ fn tiny_screens_do_not_panic() {
 fn the_source_no_longer_uses_the_reversed_modifier() {
     assert!(!include_str!("mod.rs").contains("REVERSED"));
 }
+
+fn requested(outcome: FormOutcome) -> Vec<(&'static str, String)> {
+    match outcome {
+        FormOutcome::TestRequested(values) => values,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn ctrl_t_requests_a_test_from_a_screen_form_with_the_current_values() {
+    let mut form = screen_form();
+    form.focused = 1;
+    typed(&mut form, "nas");
+    let expected = match form.handle_key(ctrl('s')) {
+        FormOutcome::Submitted(values) => values,
+        other => panic!("{other:?}"),
+    };
+
+    let values = requested(form.handle_key(ctrl('t')));
+
+    assert_eq!(values, expected);
+    assert_eq!(form.test, Some(TestState::Running));
+}
+
+#[test]
+fn ctrl_t_does_nothing_in_a_popup_form_and_is_not_typed() {
+    let mut form = sample_form();
+    typed(&mut form, "ab");
+
+    let outcome = form.handle_key(ctrl('t'));
+
+    assert_eq!(outcome, FormOutcome::Pending);
+    assert_eq!(form.fields[0].value, "ab");
+    assert_eq!(form.test, None);
+}
+
+#[test]
+fn ctrl_t_is_not_typed_into_a_screen_form_field() {
+    let mut form = screen_form();
+    form.focused = 1;
+    typed(&mut form, "x");
+
+    form.handle_key(ctrl('t'));
+
+    assert_eq!(form.fields[1].value, "x");
+}
+
+#[test]
+fn ctrl_t_keeps_the_kept_secret_marker() {
+    let mut form = FormDialog::new(
+        "Edit connection",
+        vec![
+            FormField::choice("protocol", "Protocol", vec![("sftp".into(), "SFTP".into())], "sftp"),
+            FormField::saved_secret("password", "Password"),
+        ],
+    );
+    form.layout = FormLayout::Screen;
+    form.focused = 1;
+
+    let values = requested(form.handle_key(ctrl('t')));
+
+    assert!(values.contains(&("password", KEPT_SECRET.to_string())));
+}
+
+#[test]
+fn debug_of_the_test_request_hides_the_values() {
+    let mut form = screen_form();
+    form.focused = 4;
+    typed(&mut form, "hunter2");
+
+    let printed = format!("{:?}", form.handle_key(ctrl('t')));
+
+    assert!(!printed.contains("hunter2"), "{printed}");
+    assert!(printed.contains("password"), "{printed}");
+}
+
+#[test]
+fn pressing_ctrl_t_while_a_test_runs_does_nothing() {
+    let mut form = screen_form();
+    form.handle_key(ctrl('t'));
+
+    let outcome = form.handle_key(ctrl('t'));
+
+    assert_eq!(outcome, FormOutcome::Pending);
+    assert_eq!(form.test, Some(TestState::Running));
+}
+
+#[test]
+fn pressing_ctrl_t_after_a_result_starts_a_new_test() {
+    let mut form = screen_form();
+    form.test = Some(TestState::Finished(porthmos_core::TestOutcome::Cancelled));
+
+    let outcome = form.handle_key(ctrl('t'));
+
+    assert!(matches!(outcome, FormOutcome::TestRequested(_)));
+    assert_eq!(form.test, Some(TestState::Running));
+}
+
+#[test]
+fn an_edit_clears_the_result_but_moving_around_does_not() {
+    let finished = || Some(TestState::Finished(porthmos_core::TestOutcome::Cancelled));
+    let mut form = screen_form();
+    form.focused = 1;
+    form.test = finished();
+
+    for code in [
+        KeyCode::Down,
+        KeyCode::Up,
+        KeyCode::Tab,
+        KeyCode::BackTab,
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::Home,
+        KeyCode::End,
+    ] {
+        form.handle_key(key(code));
+        assert_eq!(form.test, finished(), "{code:?}");
+    }
+    form.focused = 1;
+    form.handle_key(key(KeyCode::Char('x')));
+    assert_eq!(form.test, None);
+
+    form.test = finished();
+    form.handle_key(key(KeyCode::Backspace));
+    assert_eq!(form.test, None);
+}
+
+#[test]
+fn a_protocol_or_toggle_change_clears_the_result() {
+    let mut form = screen_form();
+    form.test = Some(TestState::Finished(porthmos_core::TestOutcome::Cancelled));
+    form.handle_key(key(KeyCode::Down));
+    assert_eq!(form.test, None);
+
+    form.test = Some(TestState::Running);
+    form.focused = 3;
+    form.handle_key(key(KeyCode::Char(' ')));
+    assert_eq!(form.test, None);
+}
+
+#[test]
+fn a_running_test_is_cleared_by_an_edit_too() {
+    let mut form = screen_form();
+    form.focused = 1;
+    form.handle_key(ctrl('t'));
+
+    form.handle_key(key(KeyCode::Char('a')));
+
+    assert_eq!(form.test, None);
+}

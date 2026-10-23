@@ -27,6 +27,7 @@ fn from_listing_builds_rows_from_provided_entries() {
         is_dir: true,
         size: 0,
         permissions: None,
+        ..Default::default()
     }];
 
     let panel = PanelView::from_listing(PathBuf::from("/home/user"), entries);
@@ -52,6 +53,7 @@ fn target_path_for_open_resolves_parent_and_directory_targets() {
         is_dir: true,
         size: 0,
         permissions: None,
+        ..Default::default()
     }];
     let mut panel = PanelView::from_listing(PathBuf::from("/home/user"), entries);
 
@@ -69,6 +71,7 @@ fn file(dir: &str, name: &str, size: u64) -> Entry {
         is_dir: false,
         size,
         permissions: None,
+        ..Default::default()
     }
 }
 
@@ -80,6 +83,7 @@ fn folder(dir: &str, name: &str) -> Entry {
         is_dir: true,
         size: 0,
         permissions: None,
+        ..Default::default()
     }
 }
 
@@ -778,6 +782,7 @@ fn listing_of(names: &[&str]) -> PanelView {
             is_dir: false,
             size: 0,
             permissions: None,
+            ..Default::default()
         })
         .collect();
     PanelView::from_listing(PathBuf::from("/home/user"), entries)
@@ -820,4 +825,74 @@ fn focus_name_with_a_filter_only_finds_visible_rows() {
     assert!(!panel.focus_name("apple"));
     assert!(panel.focus_name("banana"));
     assert_eq!(panel.current_entry_name(), Some("banana"));
+}
+
+#[test]
+fn the_footer_shows_the_free_space_after_the_item_count() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    panel.set_free_space(Path::new("/d"), Some(2_254_857_830));
+
+    let footer = row_string(&drawn(&panel, 40, 8, true), 7);
+
+    assert!(footer.trim_end().ends_with("2 items \u{b7} 2.1 GB free"), "{footer:?}");
+}
+
+#[test]
+fn the_footer_has_no_free_space_until_it_is_known() {
+    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+
+    let footer = row_string(&drawn(&panel, 40, 8, true), 7);
+
+    assert!(footer.trim_end().ends_with("1 item"), "{footer:?}");
+    assert!(!footer.contains("free"));
+}
+
+#[test]
+fn free_space_for_another_folder_is_ignored() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+
+    panel.set_free_space(Path::new("/elsewhere"), Some(1_000_000));
+
+    assert!(!row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
+}
+
+#[test]
+fn unknown_free_space_clears_a_known_figure() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    panel.set_free_space(Path::new("/d"), Some(1_000_000));
+
+    panel.set_free_space(Path::new("/d"), None);
+
+    assert!(!row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
+}
+
+#[test]
+fn entering_another_folder_forgets_the_free_space() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    panel.set_free_space(Path::new("/d"), Some(1_000_000));
+
+    panel.replace_listing(PathBuf::from("/d/sub"), vec![file("/d/sub", "b", 1)]);
+
+    assert!(!row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
+}
+
+#[test]
+fn reloading_the_same_folder_keeps_the_free_space() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    panel.set_free_space(Path::new("/d"), Some(1_000_000));
+
+    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+
+    assert!(row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
+}
+
+#[test]
+fn a_narrow_footer_drops_the_free_space_before_the_item_count() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    panel.set_free_space(Path::new("/d"), Some(2_254_857_830));
+
+    let narrow = row_string(&drawn(&panel, 16, 8, true), 7);
+
+    assert!(narrow.trim_end().ends_with("2 items"), "{narrow:?}");
+    assert!(!narrow.contains("free"));
 }

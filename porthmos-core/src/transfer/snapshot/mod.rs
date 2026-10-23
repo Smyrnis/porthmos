@@ -25,6 +25,7 @@ pub struct TransferSnapshot {
     pub queued: usize,
     pub scanning: Vec<String>,
     pub awaiting_answers: usize,
+    pub speed_limit: Option<u64>,
 }
 
 impl TransferSnapshot {
@@ -57,6 +58,7 @@ impl TransferSnapshot {
                 .map(|scan| scan.label.to_string())
                 .collect(),
             awaiting_answers: scans.iter().filter(|scan| scan.state == RowState::AwaitingAnswer).count(),
+            speed_limit: None,
         }
     }
 }

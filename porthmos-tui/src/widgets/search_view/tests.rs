@@ -22,6 +22,7 @@ fn entry(name: &str) -> Entry {
         is_dir: false,
         size: 0,
         permissions: None,
+        ..Default::default()
     }
 }
 

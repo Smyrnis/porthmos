@@ -142,6 +142,7 @@ impl Rig {
             is_dir,
             size,
             permissions: None,
+            ..Default::default()
         }
     }
 
@@ -158,6 +159,26 @@ impl Rig {
     pub fn download(&self, names: &[(&str, bool)]) {
         let entries = names.iter().map(|(name, is_dir)| Self::entry(&self.remote(name), *is_dir)).collect();
         self.core.send(Command::Copy {
+            from: Location::Session(self.session),
+            entries,
+            to: Location::Local,
+            dest_dir: self.local.path().to_path_buf(),
+        });
+    }
+
+    pub fn move_up(&self, names: &[(&str, bool)]) {
+        let entries = names.iter().map(|(name, is_dir)| Self::entry(&self.local(name), *is_dir)).collect();
+        self.core.send(Command::Move {
+            from: Location::Local,
+            entries,
+            to: Location::Session(self.session),
+            dest_dir: self.server.root.path().to_path_buf(),
+        });
+    }
+
+    pub fn move_down(&self, names: &[(&str, bool)]) {
+        let entries = names.iter().map(|(name, is_dir)| Self::entry(&self.remote(name), *is_dir)).collect();
+        self.core.send(Command::Move {
             from: Location::Session(self.session),
             entries,
             to: Location::Local,
@@ -182,6 +203,20 @@ impl Rig {
                         return snapshot.rows.iter().map(|row| row.state).collect();
                     }
                 }
+                _ => {}
+            }
+        }
+    }
+
+    pub async fn settle_with_no_rows(
+        &mut self, answers: impl Fn(&[ConflictInfo]) -> Option<Vec<Resolution>>, notice: &str,
+    ) {
+        loop {
+            match self.event().await {
+                Event::ConflictsFound { batch_id, files } => {
+                    self.core.send(Command::ResolveConflicts { batch_id, answers: answers(&files) });
+                }
+                Event::Notice { message, .. } if message.contains(notice) => return,
                 _ => {}
             }
         }

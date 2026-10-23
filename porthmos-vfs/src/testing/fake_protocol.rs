@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 
@@ -15,7 +18,11 @@ pub struct FakeProtocol {
     form: Option<ConnectionForm>,
     fs: FakeFs,
     password: Option<String>,
-    connect_failure: Option<String>,
+    connect_failure: Option<(ErrorKind, String)>,
+    connect_delay: Option<Duration>,
+    host_key_question: Option<(String, String)>,
+    certificate_question: Option<(String, String)>,
+    login_delay: Option<Duration>,
     shell: Option<ShellInvocation>,
     discovered: Vec<Target>,
     seen: Arc<Mutex<Option<Target>>>,
@@ -31,6 +38,10 @@ impl FakeProtocol {
             fs,
             password: None,
             connect_failure: None,
+            connect_delay: None,
+            host_key_question: None,
+            certificate_question: None,
+            login_delay: None,
             shell: None,
             discovered: Vec::new(),
             seen: Arc::default(),
@@ -42,8 +53,32 @@ impl FakeProtocol {
         self
     }
 
-    pub fn failing_connect(mut self, message: &str) -> Self {
-        self.connect_failure = Some(message.to_string());
+    pub fn failing_connect(self, message: &str) -> Self {
+        self.failing_with(ErrorKind::Connect, message)
+    }
+
+    pub fn failing_with(mut self, kind: ErrorKind, message: &str) -> Self {
+        self.connect_failure = Some((kind, message.to_string()));
+        self
+    }
+
+    pub fn with_connect_delay(mut self, delay: Duration) -> Self {
+        self.connect_delay = Some(delay);
+        self
+    }
+
+    pub fn with_login_delay(mut self, delay: Duration) -> Self {
+        self.login_delay = Some(delay);
+        self
+    }
+
+    pub fn asking_to_trust_host_key(mut self, key_type: &str, fingerprint: &str) -> Self {
+        self.host_key_question = Some((key_type.to_string(), fingerprint.to_string()));
+        self
+    }
+
+    pub fn asking_to_trust_certificate(mut self, fingerprint: &str, subject: &str) -> Self {
+        self.certificate_question = Some((fingerprint.to_string(), subject.to_string()));
         self
     }
 
@@ -120,8 +155,36 @@ impl Protocol for FakeProtocol {
         &self, target: &Target, prompter: &mut dyn Prompter,
     ) -> Result<Arc<dyn FileSystem>, ProtocolError> {
         *self.seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(target.clone());
-        if let Some(message) = &self.connect_failure {
-            return Err(ProtocolError::new(ErrorKind::Connect, anyhow::anyhow!(message.clone())));
+        if let Some(delay) = self.connect_delay {
+            tokio::time::sleep(delay).await;
+        }
+        if let Some((kind, message)) = &self.connect_failure {
+            return Err(ProtocolError::new(*kind, anyhow::anyhow!(message.clone())));
+        }
+        if let Some((key_type, fingerprint)) = &self.host_key_question {
+            let question = Question::TrustHostKey {
+                name: target.name.clone(),
+                host: target.host.clone(),
+                port: target.port,
+                key_type: key_type.clone(),
+                fingerprint: fingerprint.clone(),
+            };
+            if !matches!(prompter.ask(question).await, Some(Answer::Confirmed)) {
+                return Err(ProtocolError::new(ErrorKind::Cancelled, anyhow::anyhow!("Connection cancelled")));
+            }
+        }
+        if let Some((fingerprint, subject)) = &self.certificate_question {
+            let question = Question::TrustCertificate {
+                name: target.name.clone(),
+                host: target.host.clone(),
+                port: target.port,
+                fingerprint: fingerprint.clone(),
+                subject: subject.clone(),
+                expires: "2030-01-01".to_string(),
+            };
+            if !matches!(prompter.ask(question).await, Some(Answer::Confirmed)) {
+                return Err(ProtocolError::new(ErrorKind::Cancelled, anyhow::anyhow!("Connection cancelled")));
+            }
         }
         if let Some(expected) = &self.password
             && target.password.as_ref() != Some(expected)
@@ -136,6 +199,9 @@ impl Protocol for FakeProtocol {
                     return Err(ProtocolError::new(ErrorKind::AuthRejected, anyhow::anyhow!("rejected")));
                 }
             }
+        }
+        if let Some(delay) = self.login_delay {
+            tokio::time::sleep(delay).await;
         }
         Ok(Arc::new(self.fs.clone()))
     }

@@ -227,3 +227,83 @@ async fn set_modified_on_a_dangling_link_is_not_found_and_creates_nothing() {
     assert_eq!(error.kind(), ErrorKind::NotFound);
     assert!(!at(&server, "target").exists());
 }
+
+#[tokio::test]
+async fn the_filesystem_reports_the_servers_version_as_its_identity() {
+    let (_server, fs) = open().await;
+
+    let info = fs.server_info().expect("the test server announces itself");
+
+    assert!(info.starts_with("russh_"), "{info}");
+    assert!(info.chars().count() <= 40);
+}
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let (server, fs) = open().await;
+    std::fs::create_dir(at(&server, "empty")).unwrap();
+
+    fs.remove_dir(&at(&server, "empty")).await.unwrap();
+
+    assert!(!at(&server, "empty").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
+    let (server, fs) = open().await;
+    std::fs::create_dir_all(at(&server, "full/inner")).unwrap();
+    std::fs::write(at(&server, "full/inner/keep.txt"), b"keep").unwrap();
+
+    assert!(fs.remove_dir(&at(&server, "full")).await.is_err());
+
+    assert!(at(&server, "full/inner/keep.txt").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_file_and_keeps_it() {
+    let (server, fs) = open().await;
+    std::fs::write(at(&server, "f"), b"f").unwrap();
+
+    assert!(fs.remove_dir(&at(&server, "f")).await.is_err());
+
+    assert!(at(&server, "f").exists());
+}
+
+#[tokio::test]
+async fn list_reports_the_numeric_owner_and_group_of_a_new_file() {
+    use std::os::unix::fs::MetadataExt;
+
+    let (server, fs) = open().await;
+    std::fs::write(at(&server, "a.txt"), b"hello").unwrap();
+    let metadata = std::fs::metadata(at(&server, "a.txt")).unwrap();
+
+    let entries = fs.list(server.root.path()).await.unwrap();
+
+    assert_eq!(entries[0].owner, Some(metadata.uid().to_string()));
+    assert_eq!(entries[0].group, Some(metadata.gid().to_string()));
+}
+
+#[tokio::test]
+async fn free_space_of_a_folder_is_reported() {
+    let (server, fs) = open().await;
+
+    let free = fs.free_space(server.root.path()).await.unwrap();
+
+    assert!(free.is_some_and(|bytes| bytes > 0), "{free:?}");
+}
+
+#[tokio::test]
+async fn free_space_of_a_missing_folder_is_not_found() {
+    let (server, fs) = open().await;
+
+    let error = fs.free_space(&at(&server, "missing")).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn a_fresh_scp_session_reports_its_connection_alive() {
+    let (_server, fs) = open().await;
+
+    assert_eq!(fs.connection_alive().await, Some(true));
+}

@@ -6,16 +6,20 @@ pub mod connections_tree;
 pub mod edit;
 mod engine;
 pub mod error;
+mod health;
 pub mod history;
+pub mod last_used;
 pub mod listing;
 pub mod paths;
 pub mod persist;
+pub mod preview;
 pub mod profiles;
 mod protocol_info;
 pub mod secrets;
 pub mod state;
 pub mod sync;
 pub mod tasks;
+mod test_connection;
 pub mod transfer;
 
 use std::{path::PathBuf, sync::Arc};
@@ -30,6 +34,7 @@ pub use porthmos_vfs::{
     ShellInvocation, Target, glob_match, path_to_remote_string,
 };
 pub use protocol_info::ProtocolInfo;
+pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::{
@@ -190,6 +195,7 @@ impl CoreBuilder {
     pub fn start(self) -> Result<(CoreHandle, UnboundedReceiver<Event>)> {
         let paths = self.paths.context("the core needs its configuration paths")?;
         let (history, history_warning) = history::History::load(&paths);
+        let (last_used, last_used_warning) = last_used::LastUsed::load(&paths);
         let (bookmarks, bookmark_warnings) = config::bookmarks::load(&paths)?;
         let local_home = self.local_home.or_else(|| self.env.home.clone()).unwrap_or_else(|| PathBuf::from("/"));
         let protocols = self.protocols.unwrap_or_else(|| builtin_protocols(&paths));
@@ -204,6 +210,7 @@ impl CoreBuilder {
             bookmarks,
             secrets: self.secrets.unwrap_or_else(secrets::Secrets::native),
             history,
+            last_used,
             edit: self.settings.edit,
             publish_interval: engine::PROGRESS_SNAPSHOT_INTERVAL,
             persist_interval: engine::PERSIST_INTERVAL,
@@ -218,11 +225,15 @@ impl CoreBuilder {
         if let Some(warning) = history_warning {
             engine.report(Severity::Warning, warning);
         }
+        if let Some(warning) = last_used_warning {
+            engine.report(Severity::Warning, warning);
+        }
         for warning in bookmark_warnings {
             engine.report(Severity::Warning, warning.0);
         }
         engine.publish_bookmarks();
-        engine.publish_save_choice();
+        engine.publish_last_used();
+        engine.load_ui_state();
         engine.start_keyring_probe();
         tokio::spawn(engine.run(command_receiver, internal_receiver));
         Ok((CoreHandle { commands, protocols: infos, finished }, event_receiver))

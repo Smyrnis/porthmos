@@ -40,6 +40,8 @@ pub struct TransferJob {
     pub batch_id: Option<u64>,
     pub resume: bool,
     pub modified: Option<u64>,
+    pub remove_source: bool,
+    pub paused: bool,
 }
 
 impl TransferJob {
@@ -60,6 +62,14 @@ impl TransferJob {
         match self.direction {
             Direction::Upload => Destination::Remote { session_id: self.session_id, path: self.remote_path.clone() },
             Direction::Download => Destination::Local(self.local_path.clone()),
+        }
+    }
+
+    pub fn source_and_destination(&self) -> (PathBuf, PathBuf) {
+        let remote = PathBuf::from(&self.remote_path);
+        match self.direction {
+            Direction::Upload => (self.local_path.clone(), remote),
+            Direction::Download => (remote, self.local_path.clone()),
         }
     }
 

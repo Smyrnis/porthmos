@@ -333,3 +333,353 @@ fn a_fake_supports_times_by_default_with_a_two_second_resolution() {
     assert_eq!(fs.time_resolution(), 2);
     assert_eq!(FakeFs::new().with_time_resolution(60).time_resolution(), 60);
 }
+
+#[tokio::test]
+async fn a_filesystem_has_no_server_info_by_default() {
+    struct Plain;
+    #[async_trait::async_trait]
+    impl FileSystem for Plain {
+        async fn list(&self, _: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+            Ok(Vec::new())
+        }
+
+        async fn read_dir(&self, _: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+            Ok(Vec::new())
+        }
+
+        async fn stat(&self, _: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+            Err(crate::ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("none")))
+        }
+
+        async fn create_dir(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn rename(&self, _: &Path, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn remove_file(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn delete(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+            Ok(())
+        }
+
+        async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
+            Ok("/".into())
+        }
+
+        async fn open_read(&self, _: &Path, _: u64) -> Result<crate::Reader, crate::ProtocolError> {
+            Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("none")))
+        }
+
+        async fn open_write(&self, _: &Path, _: u64) -> Result<crate::Writer, crate::ProtocolError> {
+            Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("none")))
+        }
+    }
+
+    assert_eq!(Plain.server_info(), None);
+}
+
+#[test]
+fn the_fake_filesystem_returns_the_configured_server_info() {
+    let fs = FakeFs::new();
+    assert_eq!(fs.server_info(), None);
+
+    fs.with_server_info("OpenSSH_9.6");
+
+    assert_eq!(fs.server_info().as_deref(), Some("OpenSSH_9.6"));
+    assert_eq!(fs.clone().server_info().as_deref(), Some("OpenSSH_9.6"));
+}
+
+#[test]
+fn the_hook_is_object_safe_through_arc_dyn_filesystem() {
+    let fs = FakeFs::new();
+    fs.with_server_info("vsFTPd 3.0");
+    let shared: std::sync::Arc<dyn FileSystem> = std::sync::Arc::new(fs);
+
+    assert_eq!(shared.server_info().as_deref(), Some("vsFTPd 3.0"));
+}
+
+#[tokio::test]
+async fn a_denied_stat_is_a_permission_error_and_a_hanging_one_never_returns() {
+    let fs = FakeFs::new();
+    fs.dir("/a").dir("/b").denying_stat("/a").hanging_stat("/b");
+
+    assert_eq!(fs.stat(Path::new("/a")).await.unwrap_err().kind(), ErrorKind::PermissionDenied);
+    let hung = tokio::time::timeout(std::time::Duration::from_millis(20), fs.stat(Path::new("/b"))).await;
+    assert!(hung.is_err());
+}
+
+#[test]
+fn handles_count_the_live_clones_of_the_filesystem() {
+    let fs = FakeFs::new();
+    let before = fs.handles();
+    let clone = fs.clone();
+    assert_eq!(fs.handles(), before + 1);
+    drop(clone);
+    assert_eq!(fs.handles(), before);
+}
+
+#[tokio::test]
+async fn a_declined_trust_question_cancels_the_fake_connect() {
+    struct Declining(Vec<Question>);
+    #[async_trait::async_trait]
+    impl Prompter for Declining {
+        async fn ask(&mut self, question: Question) -> Option<Answer> {
+            self.0.push(question);
+            None
+        }
+    }
+    let target = Target {
+        name: "t".into(),
+        host: "h".into(),
+        port: 22,
+        username: "u".into(),
+        password: None,
+        options: Default::default(),
+    };
+    let mut prompter = Declining(Vec::new());
+
+    let host_key = FakeProtocol::new(FakeFs::new()).asking_to_trust_host_key("ssh-ed25519", "SHA256:abc");
+    assert_eq!(host_key.connect(&target, &mut prompter).await.err().unwrap().kind(), ErrorKind::Cancelled);
+    let certificate = FakeProtocol::new(FakeFs::new()).asking_to_trust_certificate("AA:BB", "CN=x");
+    assert_eq!(certificate.connect(&target, &mut prompter).await.err().unwrap().kind(), ErrorKind::Cancelled);
+
+    assert!(matches!(prompter.0[0], Question::TrustHostKey { .. }));
+    assert!(matches!(prompter.0[1], Question::TrustCertificate { .. }));
+}
+
+#[tokio::test]
+async fn failing_with_uses_the_given_kind() {
+    let protocol = FakeProtocol::new(FakeFs::new()).failing_with(ErrorKind::AuthRejected, "no");
+    let target = Target {
+        name: "t".into(),
+        host: "h".into(),
+        port: 22,
+        username: "u".into(),
+        password: None,
+        options: Default::default(),
+    };
+    struct Never;
+    #[async_trait::async_trait]
+    impl Prompter for Never {
+        async fn ask(&mut self, _: Question) -> Option<Answer> {
+            None
+        }
+    }
+
+    assert_eq!(protocol.connect(&target, &mut Never).await.err().unwrap().kind(), ErrorKind::AuthRejected);
+}
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let fs = FakeFs::new();
+    fs.dir("/data/empty");
+
+    fs.remove_dir(Path::new("/data/empty")).await.unwrap();
+
+    assert!(!fs.exists("/data/empty"));
+    assert!(fs.exists("/data"));
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_a_file_and_keeps_it() {
+    let fs = FakeFs::new();
+    fs.file("/data/keep.txt", b"x", None);
+
+    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+
+    assert!(fs.exists("/data/keep.txt"));
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_that_holds_an_empty_folder() {
+    let fs = FakeFs::new();
+    fs.dir("/data/inner");
+
+    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+
+    assert!(fs.exists("/data/inner"));
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_that_holds_a_symlink() {
+    let fs = FakeFs::new();
+    fs.file("/elsewhere/a.txt", b"x", None).symlink("/data/link", "/elsewhere/a.txt");
+
+    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+
+    assert!(fs.exists("/data/link") && fs.exists("/elsewhere/a.txt"));
+}
+
+#[tokio::test]
+async fn remove_dir_of_a_missing_folder_is_not_found() {
+    let fs = FakeFs::new();
+
+    let err = fs.remove_dir(Path::new("/nope")).await.unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn remove_dir_never_removes_a_file() {
+    let fs = FakeFs::new();
+    fs.file("/data/a.txt", b"x", None);
+
+    assert!(fs.remove_dir(Path::new("/data/a.txt")).await.is_err());
+
+    assert!(fs.exists("/data/a.txt"));
+}
+
+struct Bare;
+
+#[async_trait::async_trait]
+impl FileSystem for Bare {
+    async fn list(&self, _dir: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+        Ok(Vec::new())
+    }
+    async fn read_dir(&self, _dir: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+        Ok(Vec::new())
+    }
+    async fn stat(&self, _path: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+        Ok(crate::Metadata { kind: FileKind::Dir, size: 0, modified: None, permissions: None })
+    }
+    async fn create_dir(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+        Ok(())
+    }
+    async fn rename(&self, _from: &Path, _to: &Path) -> Result<(), crate::ProtocolError> {
+        Ok(())
+    }
+    async fn remove_file(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+        Ok(())
+    }
+    async fn delete(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+        panic!("a default remove_dir must never fall back to the recursive delete");
+    }
+    async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
+        Ok(std::path::PathBuf::from("/"))
+    }
+    async fn open_read(&self, _path: &Path, _offset: u64) -> Result<crate::Reader, crate::ProtocolError> {
+        Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no reads")))
+    }
+    async fn open_write(&self, _path: &Path, _offset: u64) -> Result<crate::Writer, crate::ProtocolError> {
+        Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no writes")))
+    }
+}
+
+#[tokio::test]
+async fn a_filesystem_without_its_own_remove_dir_refuses_instead_of_deleting_recursively() {
+    let err = Bare.remove_dir(Path::new("/empty")).await.unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+}
+
+#[tokio::test]
+async fn a_hanging_read_gives_the_first_bytes_then_never_answers() {
+    use tokio::io::AsyncReadExt;
+    let fs = FakeFs::new();
+    fs.file("/d/a.txt", b"abcdef", None).hanging_reads("/d/a.txt", 3);
+    let mut reader = fs.open_read(Path::new("/d/a.txt"), 0).await.unwrap();
+    let mut first = [0u8; 8];
+
+    let got = reader.read(&mut first).await.unwrap();
+    let stalled = tokio::time::timeout(std::time::Duration::from_millis(100), reader.read(&mut first)).await;
+
+    assert_eq!(&first[..got], b"abc");
+    assert!(stalled.is_err());
+}
+
+#[tokio::test]
+async fn free_space_is_unknown_until_configured() {
+    let fs = FakeFs::new();
+
+    assert_eq!(fs.free_space(Path::new("/home/user")).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn configured_free_space_is_reported() {
+    let fs = FakeFs::new();
+    fs.with_free_space(2_000);
+
+    assert_eq!(fs.free_space(Path::new("/home/user")).await.unwrap(), Some(2_000));
+}
+
+#[tokio::test]
+async fn free_space_can_fail() {
+    let fs = FakeFs::new();
+    fs.fail_free_space();
+
+    assert!(fs.free_space(Path::new("/home/user")).await.is_err());
+}
+
+#[tokio::test]
+async fn listing_names_what_a_symlink_points_to() {
+    let fs = FakeFs::new();
+    fs.file("/d/real.txt", b"x", None).symlink("/d/link", "/d/real.txt");
+
+    let entries = fs.list(Path::new("/d")).await.unwrap();
+    let link = entries.iter().find(|entry| entry.name == "link").unwrap();
+    let real = entries.iter().find(|entry| entry.name == "real.txt").unwrap();
+
+    assert_eq!(link.link_target.as_deref(), Some("/d/real.txt"));
+    assert_eq!(real.link_target, None);
+}
+
+#[tokio::test]
+async fn listing_carries_the_configured_owner_and_group() {
+    let fs = FakeFs::new();
+    fs.file("/d/a.txt", b"x", None).file("/d/b.txt", b"x", None).with_owner("/d/a.txt", "nikos", "staff");
+
+    let entries = fs.list(Path::new("/d")).await.unwrap();
+    let a = entries.iter().find(|entry| entry.name == "a.txt").unwrap();
+    let b = entries.iter().find(|entry| entry.name == "b.txt").unwrap();
+
+    assert_eq!((a.owner.as_deref(), a.group.as_deref()), (Some("nikos"), Some("staff")));
+    assert_eq!((b.owner.as_deref(), b.group.as_deref()), (None, None));
+}
+
+#[tokio::test]
+async fn a_hanging_free_space_query_never_answers() {
+    let fs = FakeFs::new();
+    fs.hanging_free_space();
+
+    let answer =
+        tokio::time::timeout(std::time::Duration::from_millis(100), fs.free_space(Path::new("/home/user"))).await;
+
+    assert!(answer.is_err());
+}
+
+#[tokio::test]
+async fn a_file_system_has_no_connection_to_watch_by_default() {
+    assert_eq!(FakeFs::new().connection_alive().await, None);
+}
+
+#[tokio::test]
+async fn a_fake_holding_a_connection_reports_it_alive() {
+    assert_eq!(FakeFs::new().holding_connection().connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn a_lost_connection_is_reported_until_it_is_restored() {
+    let fs = FakeFs::new().holding_connection();
+
+    fs.lose_connection();
+    let lost = fs.connection_alive().await;
+    fs.restore_connection();
+
+    assert_eq!(lost, Some(false));
+    assert_eq!(fs.connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn losing_the_connection_leaves_ordinary_operations_alone() {
+    let fs = FakeFs::new().holding_connection();
+    fs.dir("/d");
+
+    fs.lose_connection();
+
+    assert!(fs.stat(Path::new("/d")).await.is_ok());
+}

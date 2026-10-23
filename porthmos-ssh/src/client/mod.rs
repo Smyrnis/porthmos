@@ -3,10 +3,14 @@ use std::{
     fs::DirBuilder,
     os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
-    sync::Arc,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll},
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
+use porthmos_vfs::{SERVER_INFO_CELLS, clean_server_text};
 use russh::{
     Signer,
     client::{self, AuthResult, Handle},
@@ -16,7 +20,12 @@ use russh::{
         agent::{AgentIdentity, client::AgentClient},
     },
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    sync::{mpsc, oneshot},
+};
+
+const SNIFF_LIMIT: usize = 512;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum HostKeyStatus {
@@ -149,11 +158,101 @@ impl client::Handler for PorthmosHandler {
     }
 }
 
-pub async fn connect(host_key: HostKeyCheck) -> Result<Handle<PorthmosHandler>> {
-    let config = Arc::new(client::Config::default());
-    let address = (host_key.host.clone(), host_key.port);
+pub fn software_version(seen: &[u8]) -> Option<String> {
+    let end = seen.iter().position(|byte| *byte == b'\n')?;
+    let line = String::from_utf8_lossy(&seen[..end]);
+    let rest = line.trim_end_matches('\r').strip_prefix("SSH-")?;
+    let (_protocol, software) = rest.split_once('-')?;
+    clean_server_text(software, SERVER_INFO_CELLS)
+}
 
-    client::connect(config, address, PorthmosHandler { host_key }).await
+#[derive(Clone, Default)]
+pub struct ServerId(Arc<Mutex<Vec<u8>>>);
+
+impl ServerId {
+    fn bytes(&self) -> std::sync::MutexGuard<'_, Vec<u8>> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn record(&self, bytes: &[u8]) {
+        let mut seen = self.bytes();
+        if seen.contains(&b'\n') || seen.len() >= SNIFF_LIMIT {
+            return;
+        }
+        let room = SNIFF_LIMIT - seen.len();
+        seen.extend_from_slice(&bytes[..bytes.len().min(room)]);
+    }
+
+    pub fn version(&self) -> Option<String> {
+        software_version(&self.bytes())
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.bytes().len()
+    }
+}
+
+pub(crate) struct Sniffing<R> {
+    inner: R,
+    seen: ServerId,
+}
+
+impl<R> Sniffing<R> {
+    pub(crate) fn new(inner: R, seen: ServerId) -> Self {
+        Self { inner, seen }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for Sniffing<R> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &polled {
+            self.seen.record(&buf.filled()[before..]);
+        }
+        polled
+    }
+}
+
+impl<R: AsyncWrite + Unpin> AsyncWrite for Sniffing<R> {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, data: &[u8]) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, data)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+pub(crate) const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+pub(crate) const KEEPALIVE_MAX: usize = 2;
+
+pub(crate) fn client_config() -> client::Config {
+    client::Config {
+        keepalive_interval: Some(KEEPALIVE_INTERVAL),
+        keepalive_max: KEEPALIVE_MAX,
+        ..client::Config::default()
+    }
+}
+
+pub async fn connect(host_key: HostKeyCheck) -> Result<(Handle<PorthmosHandler>, ServerId)> {
+    let config = Arc::new(client_config());
+    let address = (host_key.host.clone(), host_key.port);
+    let stream = tokio::net::TcpStream::connect(address).await.map_err(russh::Error::IO)?;
+    if config.nodelay
+        && let Err(err) = stream.set_nodelay(true)
+    {
+        tracing::warn!("set_nodelay() failed: {err:?}");
+    }
+    let seen = ServerId::default();
+    let handle =
+        client::connect_stream(config, Sniffing::new(stream, seen.clone()), PorthmosHandler { host_key }).await?;
+    Ok((handle, seen))
 }
 
 pub async fn authenticate_non_interactive(

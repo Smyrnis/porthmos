@@ -65,8 +65,14 @@ pub enum Action {
     Delete,
     Refresh,
     Copy,
+    Move,
+    Preview,
     Edit,
     CancelTransfer,
+    SpeedLimit,
+    Pause,
+    RowUp,
+    RowDown,
     OpenConnections,
     AddConnection,
     DeleteConnection,
@@ -103,8 +109,14 @@ impl Action {
             Action::Delete => "delete",
             Action::Refresh => "refresh",
             Action::Copy => "copy",
+            Action::Move => "move",
+            Action::Preview => "preview",
             Action::Edit => "edit",
             Action::CancelTransfer => "cancel_transfer",
+            Action::SpeedLimit => "speed_limit",
+            Action::Pause => "pause",
+            Action::RowUp => "row_up",
+            Action::RowDown => "row_down",
             Action::OpenConnections => "open_connections",
             Action::AddConnection => "add_connection",
             Action::DeleteConnection => "delete_connection",
@@ -141,8 +153,14 @@ impl Action {
             "delete" => Action::Delete,
             "refresh" => Action::Refresh,
             "copy" => Action::Copy,
+            "move" => Action::Move,
+            "preview" => Action::Preview,
             "edit" => Action::Edit,
             "cancel_transfer" => Action::CancelTransfer,
+            "speed_limit" => Action::SpeedLimit,
+            "pause" => Action::Pause,
+            "row_up" => Action::RowUp,
+            "row_down" => Action::RowDown,
             "open_connections" => Action::OpenConnections,
             "add_connection" => Action::AddConnection,
             "delete_connection" => Action::DeleteConnection,
@@ -183,30 +201,51 @@ impl std::fmt::Display for ParseKeyError {
 
 impl std::error::Error for ParseKeyError {}
 
+fn strip_modifier<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = text.get(..prefix.len())?;
+    head.eq_ignore_ascii_case(prefix).then(|| &text[prefix.len()..])
+}
+
 pub fn parse_key_spec(s: &str) -> Result<KeySpec, ParseKeyError> {
     let mut modifiers = KeyModifiers::NONE;
-    let mut remainder = s.to_lowercase();
+    let mut remainder = s;
 
     loop {
-        if let Some(rest) = remainder.strip_prefix("ctrl+") {
+        if let Some(rest) = strip_modifier(remainder, "ctrl+") {
             modifiers |= KeyModifiers::CONTROL;
-            remainder = rest.to_string();
-        } else if let Some(rest) = remainder.strip_prefix("alt+") {
+            remainder = rest;
+        } else if let Some(rest) = strip_modifier(remainder, "alt+") {
             modifiers |= KeyModifiers::ALT;
-            remainder = rest.to_string();
-        } else if let Some(rest) = remainder.strip_prefix("shift+") {
+            remainder = rest;
+        } else if let Some(rest) = strip_modifier(remainder, "shift+") {
             modifiers |= KeyModifiers::SHIFT;
-            remainder = rest.to_string();
+            remainder = rest;
         } else {
             break;
         }
     }
 
-    let code = parse_key_code(&remainder)?;
+    let code = parse_key_code(remainder, modifiers)?;
     Ok(normalized(KeySpec { code, modifiers }))
 }
 
-fn parse_key_code(s: &str) -> Result<KeyCode, ParseKeyError> {
+fn parse_key_code(text: &str, modifiers: KeyModifiers) -> Result<KeyCode, ParseKeyError> {
+    let mut characters = text.chars();
+    if let (Some(character), None) = (characters.next(), characters.next())
+        && character.is_ascii_alphabetic()
+    {
+        let combined = modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let letter = if combined {
+            character.to_ascii_lowercase()
+        } else if modifiers.contains(KeyModifiers::SHIFT) {
+            character.to_ascii_uppercase()
+        } else {
+            character
+        };
+        return Ok(KeyCode::Char(letter));
+    }
+    let lowered = text.to_lowercase();
+    let s = lowered.as_str();
     if let Some(digits) = s.strip_prefix('f')
         && let Ok(num) = digits.parse::<u8>()
         && (1..=12).contains(&num)
@@ -314,6 +353,8 @@ fn defaults_table() -> Vec<(Scope, Action, Vec<KeySpec>)> {
         (Scope::Files, Action::Rename, vec![letter('r'), function(2)]),
         (Scope::Files, Action::Edit, vec![letter('e'), function(3)]),
         (Scope::Files, Action::Copy, vec![letter('c'), function(5)]),
+        (Scope::Files, Action::Move, vec![letter('m'), function(6)]),
+        (Scope::Files, Action::Preview, vec![letter('p')]),
         (Scope::Files, Action::Mkdir, vec![letter('n'), function(7)]),
         (Scope::Files, Action::Delete, vec![letter('d'), function(8)]),
         (Scope::Files, Action::OpenTransfers, vec![letter('t')]),
@@ -324,6 +365,10 @@ fn defaults_table() -> Vec<(Scope, Action, Vec<KeySpec>)> {
         (Scope::Transfers, Action::Open, vec![letter('r')]),
         (Scope::Transfers, Action::Delete, vec![letter('x'), function(8)]),
         (Scope::Transfers, Action::Refresh, vec![letter('c')]),
+        (Scope::Transfers, Action::Pause, vec![letter('p')]),
+        (Scope::Transfers, Action::RowUp, vec![letter('K')]),
+        (Scope::Transfers, Action::RowDown, vec![letter('J')]),
+        (Scope::Transfers, Action::SpeedLimit, vec![ctrl('l')]),
         (Scope::History, Action::Delete, vec![letter('c'), function(8)]),
     ];
     for (number, action) in (1..=9u8).zip(SESSION_ACTIONS) {
@@ -360,11 +405,18 @@ impl KeyBindings {
         Action::Noop
     }
 
+    fn action_in(&self, domain: Scope, spec: &KeySpec) -> Option<Action> {
+        self.0
+            .get(&domain)
+            .and_then(|actions| actions.iter().find(|(_, keys)| keys.contains(spec)).map(|(action, _)| *action))
+    }
+
     pub fn keys_for(&self, scope: Scope, action: Action) -> Vec<KeySpec> {
         let mut keys: Vec<KeySpec> = Vec::new();
         for domain in lookup_order(scope) {
             for spec in self.0.get(&domain).and_then(|actions| actions.get(&action)).into_iter().flatten() {
-                if !keys.contains(spec) {
+                let taken = domain != scope && self.action_in(scope, spec).is_some_and(|other| other != action);
+                if !taken && !keys.contains(spec) {
                     keys.push(*spec);
                 }
             }
@@ -389,8 +441,14 @@ pub const ALL_ACTIONS: &[Action] = &[
     Action::Delete,
     Action::Refresh,
     Action::Copy,
+    Action::Move,
+    Action::Preview,
     Action::Edit,
     Action::CancelTransfer,
+    Action::SpeedLimit,
+    Action::Pause,
+    Action::RowUp,
+    Action::RowDown,
     Action::OpenConnections,
     Action::AddConnection,
     Action::DeleteConnection,

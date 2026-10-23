@@ -7,6 +7,8 @@ const SECONDS_PER_DAY: i64 = 86_400;
 pub(crate) struct Line {
     pub(crate) name: String,
     pub(crate) metadata: Metadata,
+    pub(crate) owner: String,
+    pub(crate) group: String,
 }
 
 fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
@@ -120,7 +122,22 @@ pub(crate) fn parse_line(line: &str, now: u64) -> Option<Line> {
     let name = line.get(name_start..).filter(|name| !name.is_empty())?.to_string();
     let kind = if kind_letter == 'd' { FileKind::Dir } else { FileKind::File };
     let metadata = Metadata { size, modified: Some(mtime), kind, permissions: permissions(mode) };
-    Some(Line { name, metadata })
+    Some(Line { name, metadata, owner: words.get(2)?.1.to_string(), group: words.get(3)?.1.to_string() })
+}
+
+pub(crate) fn parse_free_space(output: &str) -> Option<u64> {
+    output.lines().find_map(|line| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        (3..words.len()).find_map(|capacity| {
+            if !words[capacity].ends_with('%') {
+                return None;
+            }
+            words[capacity - 3].parse::<u64>().ok()?;
+            words[capacity - 2].parse::<u64>().ok()?;
+            let available: u64 = words[capacity - 1].parse().ok()?;
+            available.checked_mul(1024)
+        })
+    })
 }
 
 pub(crate) fn parse(output: &str, now: u64) -> Vec<Line> {

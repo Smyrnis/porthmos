@@ -88,3 +88,97 @@ fn copying_is_only_available_on_the_files_screen() {
 
     assert!(test.sent().is_empty());
 }
+
+#[test]
+fn moving_without_a_session_warns() {
+    let mut test = test_app(Path::new("/d"));
+    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.app.local.cursor = 1;
+
+    test.app.apply_action(Action::Move);
+
+    assert_eq!(test.notification().as_deref(), Some("Connect to a remote server first"));
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn moving_from_the_local_panel_uploads_into_the_remote_folder() {
+    let mut test = test_app(Path::new("/d"));
+    let session = test.connect(3, "srv");
+    test.list_remote(session, "/srv/in", Vec::new());
+    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.app.local.cursor = 1;
+
+    test.app.apply_action(Action::Move);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Move {
+            from: Location::Local,
+            entries: vec![entry(Path::new("/d"), "a.txt", false)],
+            to: Location::Session(session),
+            dest_dir: PathBuf::from("/srv/in"),
+        }]
+    );
+}
+
+#[test]
+fn moving_from_the_remote_panel_downloads_into_the_local_folder() {
+    let mut test = test_app(Path::new("/d"));
+    let session = test.connect(3, "srv");
+    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "b.bin", false)]);
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.sessions.active_mut().unwrap().panel.cursor = 1;
+
+    test.app.apply_action(Action::Move);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Move {
+            from: Location::Session(session),
+            entries: vec![entry(Path::new("/srv"), "b.bin", false)],
+            to: Location::Local,
+            dest_dir: PathBuf::from("/d"),
+        }]
+    );
+}
+
+#[test]
+fn moving_with_nothing_under_the_cursor_sends_nothing() {
+    let mut test = test_app(Path::new("/d"));
+    test.connect(3, "srv");
+
+    test.app.apply_action(Action::Move);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn moving_is_only_available_on_the_files_screen() {
+    let mut test = test_app(Path::new("/d"));
+    test.connect(3, "srv");
+    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.app.local.cursor = 1;
+    test.app.screen = Screen::Connections;
+
+    test.app.apply_action(Action::Move);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn the_move_key_sends_a_move_and_not_a_new_connection_form() {
+    let mut test = test_app(Path::new("/d"));
+    let session = test.connect(3, "srv");
+    test.list_remote(session, "/srv/in", Vec::new());
+    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.app.local.cursor = 1;
+
+    test.app.apply_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::F(6),
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    assert!(matches!(test.sent().as_slice(), [Command::Move { .. }]));
+    assert!(test.app.dialog.is_none() && test.app.pending_action.is_none());
+}

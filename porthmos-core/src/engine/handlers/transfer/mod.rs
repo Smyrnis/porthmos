@@ -4,9 +4,12 @@ use std::{
     sync::Arc,
 };
 
-use porthmos_vfs::{Entry, FileSystem, PART_SUFFIX, path_to_remote_string};
+use porthmos_vfs::{Entry, FileSystem, PART_SUFFIX, ProtocolError, path_to_remote_string};
 
-use super::super::{ConflictReview, Engine, Event, Internal, Location, PlanningScan, TransferEvent};
+use super::{
+    super::{ConflictReview, Engine, Event, Internal, Location, PlanningScan, TransferEvent},
+    MoveBatch, without_symlinks,
+};
 use crate::{
     Severity,
     tasks::Scope,
@@ -21,7 +24,7 @@ use crate::{
 };
 
 impl Engine {
-    fn filesystems_for(
+    pub(super) fn filesystems_for(
         &self, session_id: u64, direction: Direction,
     ) -> Option<(Arc<dyn FileSystem>, Arc<dyn FileSystem>)> {
         let remote = self.sessions.get(&session_id)?.fs.clone();
@@ -32,11 +35,18 @@ impl Engine {
     }
 
     pub(crate) fn copy(&mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf) {
+        self.copy_or_move(from, entries, to, dest_dir, false);
+    }
+
+    pub(crate) fn copy_or_move(
+        &mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf, moving: bool,
+    ) {
         let (session_id, direction) = match (from, to) {
             (Location::Local, Location::Session(session_id)) => (session_id, Direction::Upload),
             (Location::Session(session_id), Location::Local) => (session_id, Direction::Download),
             _ => {
-                self.report(Severity::Warning, "Copying between two remote sessions isn't supported yet");
+                let gerund = if moving { "Moving" } else { "Copying" };
+                self.report(Severity::Warning, format!("{gerund} between two remote sessions isn't supported yet"));
                 return;
             }
         };
@@ -44,33 +54,53 @@ impl Engine {
             return;
         }
 
-        self.start_copy_plan(session_id, direction, entries, dest_dir);
+        self.start_copy_plan(session_id, direction, entries, dest_dir, moving);
         self.fill_transfer_slots();
     }
 
-    fn start_copy_plan(&mut self, session_id: u64, direction: Direction, entries: Vec<Entry>, dest_dir: PathBuf) {
+    fn start_copy_plan(
+        &mut self, session_id: u64, direction: Direction, entries: Vec<Entry>, dest_dir: PathBuf, moving: bool,
+    ) {
+        let verb = if moving { "Move" } else { "Copy" };
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
-            self.report(Severity::Error, "Copy failed: session disconnected");
+            self.report(Severity::Error, format!("{verb} failed: session disconnected"));
             return;
         };
 
-        let display_name = match entries.as_slice() {
+        let mut display_name = match entries.as_slice() {
             [entry] => entry.name.clone(),
             _ => format!("{} items", entries.len()),
         };
+        if moving {
+            display_name.push_str(" (move)");
+        }
         let batch_id = self.transfers.start_batch(display_name.clone());
+        if moving {
+            let roots = entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
+            self.moves.insert(batch_id, MoveBatch { session_id, direction, roots });
+        }
         self.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
 
         let internal = self.internal.clone();
         self.tasks.spawn("plan-copy", Scope::Planning(batch_id), move |cancel| async move {
-            let result =
-                transfer::plan::plan_copy(source.as_ref(), destination.as_ref(), entries, &dest_dir, &cancel).await;
-            let event = match result {
-                Ok(PlanOutcome::Ready(plan)) => TransferEvent::PlanReady { batch_id, session_id, direction, plan },
-                Ok(PlanOutcome::Cancelled) => TransferEvent::PlanCancelled { batch_id, session_id, direction },
+            let planned = async {
+                let (entries, skipped_selected) =
+                    if moving { without_symlinks(source.as_ref(), entries).await? } else { (entries, 0) };
+                let outcome =
+                    transfer::plan::plan_copy(source.as_ref(), destination.as_ref(), entries, &dest_dir, &cancel)
+                        .await?;
+                Ok::<_, ProtocolError>((outcome, skipped_selected))
+            }
+            .await;
+            let event = match planned {
+                Ok((PlanOutcome::Ready(mut plan), skipped_selected)) => {
+                    plan.skipped_symlinks += skipped_selected;
+                    TransferEvent::PlanReady { batch_id, session_id, direction, plan }
+                }
+                Ok((PlanOutcome::Cancelled, _)) => TransferEvent::PlanCancelled { batch_id, session_id, direction },
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    TransferEvent::PlanFailed { batch_id, message: user_message("Copy failed", &err) }
+                    TransferEvent::PlanFailed { batch_id, message: user_message(format!("{verb} failed"), &err) }
                 }
             };
             let _ = internal.send(Internal::Transfer(event));
@@ -113,17 +143,13 @@ impl Engine {
         };
         job.status = JobStatus::InProgress;
         job.attempts += 1;
-        let local_path = job.local_path.clone();
-        let remote_path = PathBuf::from(&job.remote_path);
-        let (source_path, destination_path) = match job.direction {
-            Direction::Upload => (local_path, remote_path),
-            Direction::Download => (remote_path, local_path),
-        };
-        let resume = job.resume;
+        let (source_path, destination_path) = job.source_and_destination();
+        let resume = job.resume && !job.remove_source;
         let keep_modified = job.modified;
         drop(job);
 
         let internal = self.internal.clone();
+        let limit = self.speed_limit.clone();
         self.tasks.spawn("transfer", Scope::Transfer(id), move |cancel| async move {
             let progress = internal.clone();
             let result = transfer::execute_preserving(
@@ -134,6 +160,7 @@ impl Engine {
                 &cancel,
                 resume,
                 keep_modified,
+                &limit,
                 move |transferred| {
                     let _ = progress.send(Internal::Transfer(TransferEvent::Progress { id, transferred }));
                 },
@@ -168,20 +195,44 @@ impl Engine {
             }
             TransferEvent::Finished { id, outcome } => {
                 self.tasks.forget(Scope::Transfer(id));
+                if outcome == TransferOutcome::Cancelled && self.requeue_stopped(id) {
+                    return;
+                }
+                if outcome == TransferOutcome::Completed && self.removes_source(id) {
+                    self.pause_stops.remove(&id);
+                    return self.remove_moved_source(id);
+                }
+                self.pause_stops.remove(&id);
                 if let Some(mut job) = self.transfers.get_mut(id) {
                     job.status = match outcome {
                         TransferOutcome::Completed => JobStatus::Completed,
                         TransferOutcome::Cancelled => JobStatus::Cancelled,
                     };
+                    job.paused = false;
                 }
                 self.refresh_transfer_destination(id);
                 self.fill_transfer_slots();
+                self.finish_move_batch_of(id);
+            }
+            TransferEvent::SourceRemoved { id } => self.source_removed(id),
+            TransferEvent::SourceRemovalFailed { id, message } => self.source_removal_failed(id, message),
+            TransferEvent::SourceRemovalCancelled { id } => self.source_removal_cancelled(id),
+            TransferEvent::MovedFoldersRemoved { session_id, direction, removed } => {
+                if removed > 0 {
+                    self.refresh_source(session_id, direction);
+                }
             }
             TransferEvent::Failed { id, message } => {
                 let cancelled = self.tasks.take_cancelled(Scope::Transfer(id));
+                if cancelled && self.requeue_stopped(id) {
+                    tracing::debug!("{message}");
+                    return;
+                }
+                self.pause_stops.remove(&id);
                 let known = self.transfers.get(id).is_some();
                 if cancelled && let Some(mut job) = self.transfers.get_mut(id) {
                     job.status = JobStatus::Cancelled;
+                    job.paused = false;
                 }
                 let retried = !cancelled && self.transfers.fail_or_retry(id, message.clone());
                 if !retried {
@@ -193,13 +244,16 @@ impl Engine {
                     self.refresh_transfer_destination(id);
                 }
                 self.fill_transfer_slots();
+                if !retried {
+                    self.finish_move_batch_of(id);
+                }
             }
             TransferEvent::PlanReady { batch_id, session_id, direction, plan } => {
                 self.clear_planning(batch_id);
 
                 if !self.sessions.contains_key(&session_id) {
-                    self.report(Severity::Error, "Copy failed: session disconnected");
-                    self.transfers.forget_batch_if_empty(batch_id);
+                    self.report(Severity::Error, format!("{} failed: session disconnected", self.verb_of(batch_id)));
+                    self.forget_batch(batch_id);
                     return;
                 }
 
@@ -212,7 +266,7 @@ impl Engine {
                     .find(|scan| scan.batch_id == batch_id)
                     .map(|scan| (scan.session_id, scan.direction, scan.display_name.clone()));
                 self.clear_planning(batch_id);
-                self.transfers.forget_batch_if_empty(batch_id);
+                self.forget_batch(batch_id);
                 match scan {
                     Some((session_id, direction, label)) => {
                         self.record_failed_scan(session_id, direction, label, &message);
@@ -251,9 +305,10 @@ impl Engine {
             TransferEvent::PartialsRemoved { session_id } => self.refresh_destination(session_id, Direction::Upload),
             TransferEvent::PlanCancelled { batch_id, session_id, direction } => {
                 self.clear_planning(batch_id);
-                self.transfers.forget_batch_if_empty(batch_id);
+                let verb = self.verb_of(batch_id);
+                self.forget_batch(batch_id);
                 if self.sessions.contains_key(&session_id) {
-                    self.info("Copy cancelled");
+                    self.info(format!("{verb} cancelled"));
                 }
                 self.refresh_destination(session_id, direction);
             }
@@ -296,8 +351,9 @@ impl Engine {
                 false,
             ),
             None => {
-                self.transfers.forget_batch_if_empty(review.batch_id);
-                self.info("Copy cancelled");
+                let verb = self.verb_of(review.batch_id);
+                self.forget_batch(review.batch_id);
+                self.info(format!("{verb} cancelled"));
                 self.refresh_destination(review.session_id, review.direction);
             }
         }
@@ -308,7 +364,7 @@ impl Engine {
             self.reviews.iter().filter(|review| should_drop(review)).map(|review| review.batch_id).collect();
         self.reviews.retain(|review| !should_drop(review));
         for batch_id in &dropped {
-            self.transfers.forget_batch_if_empty(*batch_id);
+            self.forget_batch(*batch_id);
         }
         if !dropped.is_empty() {
             self.emit(Event::ConflictsWithdrawn { batch_ids: dropped.clone() });
@@ -321,14 +377,23 @@ impl Engine {
         preserve_times: bool,
     ) {
         let skipped_symlinks = plan.skipped_symlinks;
+        let moving = self.moves.contains_key(&batch_id);
         let resolved = transfer::conflicts::resolve(plan, answers);
-        let files = resolved.files;
+        let (files, kept_originals) = if moving {
+            self.vet_move(session_id, resolved.files)
+        } else {
+            (resolved.files, std::collections::HashSet::new())
+        };
         if files.is_empty() {
             self.refresh_destination(session_id, direction);
+            if moving {
+                self.finish_move_batch(batch_id);
+            }
         }
 
         for file in files {
             let resume = file.resume;
+            let removes_source = moving && !kept_originals.contains(&file.destination);
             let keep_modified = if preserve_times { file.source_modified } else { None };
             let (local_path, remote_path) = match direction {
                 Direction::Upload => (file.source, file.destination),
@@ -345,6 +410,9 @@ impl Engine {
             );
             if resume && let Some(mut job) = self.transfers.get_mut(id) {
                 job.resume = true;
+            }
+            if removes_source && let Some(mut job) = self.transfers.get_mut(id) {
+                job.remove_source = true;
             }
             if keep_modified.is_some()
                 && let Some(mut job) = self.transfers.get_mut(id)
@@ -372,7 +440,7 @@ impl Engine {
             };
             self.report(Severity::Warning, format!("Skipped {} {reason}", resolved.blocked_by_folder));
         }
-        self.transfers.forget_batch_if_empty(batch_id);
+        self.forget_batch(batch_id);
         self.fill_transfer_slots();
     }
 
@@ -381,7 +449,7 @@ impl Engine {
         self.tasks.forget(Scope::Planning(batch_id));
     }
 
-    fn refresh_transfer_destination(&mut self, id: u64) {
+    pub(super) fn refresh_transfer_destination(&mut self, id: u64) {
         let Some(job) = self.transfers.get(id) else {
             return;
         };
@@ -419,6 +487,7 @@ impl Engine {
         }
         self.transfers.cancel_all_queued();
         self.refresh_destinations_without_pending(&cancelled_destinations);
+        self.finish_all_move_batches();
     }
 
     pub(crate) fn cancel_all_work(&mut self) {
@@ -427,6 +496,7 @@ impl Engine {
             self.tasks.cancel(Scope::Planning(batch_id));
         }
         let running: Vec<u64> = self.transfers.active_jobs().map(|job| job.id).collect();
+        self.pause_stops.clear();
         for id in running {
             self.tasks.cancel(Scope::Transfer(id));
         }
@@ -449,6 +519,7 @@ impl Engine {
         }
         let active_ids = self.transfers.active_ids_for_session(session_id);
         for id in &active_ids {
+            self.pause_stops.remove(id);
             self.tasks.cancel(Scope::Transfer(*id));
         }
         scans.len() + active_ids.len()
@@ -471,18 +542,23 @@ impl Engine {
             match job.status {
                 JobStatus::Queued => {
                     job.status = JobStatus::Cancelled;
+                    job.paused = false;
                     let destination = (job.session_id, job.direction);
                     if !cancelled_destinations.contains(&destination) {
                         cancelled_destinations.push(destination);
                     }
                 }
                 JobStatus::InProgress => {
+                    self.pause_stops.remove(id);
                     self.tasks.cancel(Scope::Transfer(*id));
                 }
                 _ => {}
             }
         }
         self.refresh_destinations_without_pending(&cancelled_destinations);
+        if let RowKind::Batch(batch_id) = kind {
+            self.finish_move_batch(batch_id);
+        }
     }
 
     pub(crate) fn retry_row(&mut self, kind: RowKind) {
@@ -523,6 +599,7 @@ impl Engine {
             .collect();
         let protected = self.destinations_still_in_use();
         self.transfers.remove_jobs(&finished_ids);
+        self.forget_cleared_moves();
         let unused: Vec<TransferJob> =
             interrupted.into_iter().filter(|job| !protected.contains(&job.part_destination())).collect();
         self.remove_partials(unused);

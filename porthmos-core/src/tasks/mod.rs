@@ -21,7 +21,9 @@ pub enum Scope {
     Planning(u64),
     Edit(u64),
     Search,
+    Preview,
     Background,
+    Test,
 }
 
 struct Live {

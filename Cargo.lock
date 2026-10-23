@@ -3180,7 +3180,7 @@ checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
 
 [[package]]
 name = "porthmos-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
@@ -3208,7 +3208,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-ftp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3230,9 +3230,10 @@ dependencies = [
 
 [[package]]
 name = "porthmos-lfs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
+ "libc",
  "porthmos-vfs",
  "tempfile",
  "tokio",
@@ -3240,7 +3241,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-s3"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3272,7 +3273,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-scp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "porthmos-ssh",
@@ -3283,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-sftp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3299,7 +3300,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-ssh"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3313,7 +3314,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-tls"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3331,7 +3332,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-tui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3349,18 +3350,19 @@ dependencies = [
 
 [[package]]
 name = "porthmos-vfs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "porthmos-vfs",
  "tempfile",
  "tokio",
+ "unicode-width",
 ]
 
 [[package]]
 name = "porthmos-webdav"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

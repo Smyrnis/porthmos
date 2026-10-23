@@ -254,3 +254,79 @@ fn from_overrides_still_takes_a_string_map() {
     assert!(warnings.is_empty());
     assert_eq!(keys(&bindings, Scope::Global, Action::Quit), ["Ctrl+Q"]);
 }
+
+#[test]
+fn a_flat_global_key_wins_over_a_default_screen_key_and_says_so() {
+    let (bindings, warnings) = load("[keys]\nquit = \"m\"\n");
+
+    assert_eq!(warnings, [r#"key "m" is already bound to "move"; "quit" now overrides it"#]);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Char('m'))), Action::Quit);
+    assert_eq!(keys(&bindings, Scope::Files, Action::Move), ["F6"]);
+}
+
+#[test]
+fn restating_a_default_key_in_a_flat_entry_does_not_take_it_from_a_screen() {
+    let (bindings, warnings) = load("[keys]\nadd_connection = \"f6\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(6))), Action::Move);
+    assert_eq!(bindings.map_key(Scope::Connections, key(KeyCode::F(6))), Action::AddConnection);
+}
+
+#[test]
+fn a_flat_global_key_that_nothing_else_uses_displaces_nothing() {
+    let (bindings, warnings) = load("[keys]\nquit = \"f11\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(11))), Action::Quit);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Char('m'))), Action::Move);
+}
+
+#[test]
+fn a_capital_letter_in_the_config_is_a_capital_letter_not_the_lowercase_one() {
+    let (bindings, warnings) = load("[keys.transfers]\nrow_up = \"K\"\nrow_down = \"J\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        bindings.map_key(Scope::Transfers, KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT)),
+        Action::RowUp
+    );
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('k'))), Action::Up);
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('j'))), Action::Down);
+}
+
+#[test]
+fn shift_plus_a_letter_means_the_capital_letter() {
+    let (bindings, warnings) = load("[keys.transfers]\nrow_up = \"shift+k\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        bindings.map_key(Scope::Transfers, KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT)),
+        Action::RowUp
+    );
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('k'))), Action::Up);
+}
+
+#[test]
+fn control_and_alt_combinations_ignore_the_case_of_the_letter() {
+    for text in ["ctrl+R", "ctrl+r", "CTRL+r", "alt+X", "alt+x"] {
+        let spec = parse_key_spec(text).unwrap();
+        assert!(matches!(spec.code, KeyCode::Char(c) if c.is_ascii_lowercase()), "{text}: {spec:?}");
+    }
+}
+
+#[test]
+fn a_plain_capital_keeps_its_case_and_a_plain_lowercase_stays_lowercase() {
+    assert_eq!(parse_key_spec("K").unwrap().code, KeyCode::Char('K'));
+    assert_eq!(parse_key_spec("k").unwrap().code, KeyCode::Char('k'));
+    assert_eq!(parse_key_spec("?").unwrap().code, KeyCode::Char('?'));
+}
+
+#[test]
+fn named_keys_and_function_keys_are_still_case_insensitive() {
+    assert_eq!(parse_key_spec("ENTER").unwrap().code, KeyCode::Enter);
+    assert_eq!(parse_key_spec("Tab").unwrap().code, KeyCode::Tab);
+    assert_eq!(parse_key_spec("F5").unwrap().code, KeyCode::F(5));
+    assert_eq!(parse_key_spec("f5").unwrap().code, KeyCode::F(5));
+    assert_eq!(parse_key_spec("Space").unwrap().code, KeyCode::Char(' '));
+}

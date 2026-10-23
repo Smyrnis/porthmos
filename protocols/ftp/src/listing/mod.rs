@@ -5,6 +5,8 @@ pub(crate) struct ListedItem {
     pub(crate) name: String,
     pub(crate) metadata: Metadata,
     pub(crate) link_target: Option<String>,
+    pub(crate) owner: Option<String>,
+    pub(crate) group: Option<String>,
 }
 
 const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -97,13 +99,33 @@ fn metadata_from_facts(facts: &str, skip_directory_markers: bool) -> Option<Meta
     Some(metadata)
 }
 
+fn ownership_from_facts(facts: &str) -> (Option<String>, Option<String>) {
+    let mut found: [Option<String>; 4] = [None, None, None, None];
+    for fact in facts.split(';') {
+        let Some((key, value)) = fact.split_once('=') else { continue };
+        let slot = match key.trim().to_ascii_lowercase().as_str() {
+            "unix.owner" => 0,
+            "unix.uid" => 1,
+            "unix.group" => 2,
+            "unix.gid" => 3,
+            _ => continue,
+        };
+        if !value.is_empty() {
+            found[slot] = Some(value.to_string());
+        }
+    }
+    let [owner, uid, group, gid] = found;
+    (owner.or(uid), group.or(gid))
+}
+
 pub(crate) fn parse_mlsd_line(line: &str) -> Option<ListedItem> {
     let (facts, name) = line.split_once(' ')?;
     if name.is_empty() || name == "." || name == ".." {
         return None;
     }
     let metadata = metadata_from_facts(facts, true)?;
-    Some(ListedItem { name: name.to_string(), metadata, link_target: None })
+    let (owner, group) = ownership_from_facts(facts);
+    Some(ListedItem { name: name.to_string(), metadata, link_target: None, owner, group })
 }
 
 pub(crate) fn parse_mlst_facts(line: &str) -> Option<Metadata> {
@@ -176,6 +198,12 @@ fn parse_unix(line: &str, now: u64) -> Option<ListedItem> {
         }
         None => unix_seconds(time_or_year.parse().ok()?, month, day, 0, 0, 0),
     };
+    let (owner, group) = match month_at {
+        4 if fields[1].parse::<u64>().is_err() => (Some(fields[1].to_string()), Some(fields[2].to_string())),
+        4 => (Some(fields[2].to_string()), None),
+        5.. => (Some(fields[2].to_string()), Some(fields[3].to_string())),
+        _ => (None, None),
+    };
     Some(ListedItem {
         name: name.to_string(),
         metadata: Metadata {
@@ -185,6 +213,8 @@ fn parse_unix(line: &str, now: u64) -> Option<ListedItem> {
             permissions: permissions_from_mode(mode),
         },
         link_target,
+        owner,
+        group,
     })
 }
 
@@ -221,6 +251,8 @@ fn parse_windows(line: &str) -> Option<ListedItem> {
         name: name.to_string(),
         metadata: Metadata { size, modified, kind, permissions: None },
         link_target: None,
+        owner: None,
+        group: None,
     })
 }
 

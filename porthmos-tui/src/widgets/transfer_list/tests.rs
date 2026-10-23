@@ -25,6 +25,7 @@ fn row(id: u64, label: &str, direction: Direction, bytes: (u64, u64), state: Row
         bytes_done: bytes.0,
         bytes_total: bytes.1,
         state,
+        paused: false,
         session_id: Some(1),
         failure: None,
     }
@@ -409,7 +410,7 @@ fn summary_rows() -> Vec<QueueRow> {
 #[test]
 fn the_summary_lists_active_queued_failed_and_speed() {
     assert_eq!(
-        transfer_summary(&summary_rows(), Some(13_002_342)),
+        transfer_summary(&summary_rows(), Some(13_002_342), None),
         "1 active \u{b7} 2 queued \u{b7} 2 failed \u{b7} 12.4 MB/s"
     );
 }
@@ -418,14 +419,14 @@ fn the_summary_lists_active_queued_failed_and_speed() {
 fn zero_parts_and_an_unknown_speed_are_omitted() {
     let rows = vec![row(1, "a", Direction::Upload, (1, 2), RowState::Queued)];
 
-    assert_eq!(transfer_summary(&rows, None), "1 queued");
-    assert_eq!(transfer_summary(&rows, Some(0)), "1 queued \u{b7} 0 B/s");
+    assert_eq!(transfer_summary(&rows, None, None), "1 queued");
+    assert_eq!(transfer_summary(&rows, Some(0), None), "1 queued \u{b7} 0 B/s");
 }
 
 #[test]
 fn no_rows_give_an_empty_summary() {
-    assert_eq!(transfer_summary(&[], None), "");
-    assert_eq!(transfer_summary(&[row(1, "a", Direction::Upload, (1, 1), RowState::Done)], None), "");
+    assert_eq!(transfer_summary(&[], None, None), "");
+    assert_eq!(transfer_summary(&[row(1, "a", Direction::Upload, (1, 1), RowState::Done)], None, None), "");
 }
 
 fn failed_fixture(failure: Option<RowFailure>, width: u16) -> Terminal<TestBackend> {
@@ -516,4 +517,52 @@ fn a_long_batch_name_is_cut_before_its_counts_and_columns_stay_aligned() {
     let second = row_string(&terminal, 3);
     assert!(first.contains("1 of 2") && first.contains('\u{2026}'), "{first:?}");
     assert_eq!(first.find("active").map(|b| first[..b].width()), second.find("active").map(|b| second[..b].width()));
+}
+
+#[test]
+fn the_summary_ends_with_the_limit_when_one_is_set() {
+    assert_eq!(
+        transfer_summary(&summary_rows(), Some(13_002_342), Some(2_097_152)),
+        "1 active \u{b7} 2 queued \u{b7} 2 failed \u{b7} 12.4 MB/s \u{b7} limit 2.0 MB/s"
+    );
+}
+
+#[test]
+fn a_limit_alone_is_still_shown_when_nothing_is_running() {
+    assert_eq!(transfer_summary(&[], None, Some(512 * 1024)), "limit 512.0 KB/s");
+    let rows = vec![row(1, "a", Direction::Upload, (1, 2), RowState::Queued)];
+    assert_eq!(transfer_summary(&rows, None, Some(1024)), "1 queued \u{b7} limit 1.0 KB/s");
+}
+
+#[test]
+fn a_paused_row_says_paused_in_the_muted_colour_and_fills_its_bar_in_the_paused_colour() {
+    let theme = indexed();
+    let terminal = Fixture::of(vec![row(1, "paused.bin", Direction::Upload, (50, 100), RowState::Paused)]).draw(120, 6);
+
+    let line = row_string(&terminal, 2);
+    let column = line.rfind("paused").unwrap_or_else(|| panic!("paused in {line:?}"));
+    let x = line[..column].width() as u16;
+    assert_eq!(cell_fg(&terminal, x, 2), theme.fg_muted);
+    let count = |colour| bar_cells(&terminal, 2).into_iter().filter(|c| *c == colour).count();
+    assert_eq!((count(theme.paused), count(theme.line_strong)), (8, 8));
+    assert!(line.contains("50%"), "{line:?}");
+}
+
+#[test]
+fn the_summary_counts_paused_rows_between_queued_and_failed() {
+    let rows = vec![
+        row(1, "a", Direction::Upload, (1, 2), RowState::Running),
+        row(2, "b", Direction::Upload, (0, 2), RowState::Queued),
+        row(3, "c", Direction::Upload, (0, 2), RowState::Paused),
+        row(4, "d", Direction::Upload, (0, 2), RowState::Failed),
+    ];
+
+    assert_eq!(transfer_summary(&rows, None, None), "1 active \u{b7} 1 queued \u{b7} 1 paused \u{b7} 1 failed");
+}
+
+#[test]
+fn a_paused_row_alone_is_still_summarised() {
+    let rows = vec![row(1, "c", Direction::Upload, (0, 2), RowState::Paused)];
+
+    assert_eq!(transfer_summary(&rows, None, None), "1 paused");
 }

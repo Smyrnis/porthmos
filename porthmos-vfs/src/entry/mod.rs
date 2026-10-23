@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 pub const PART_SUFFIX: &str = ".part";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
     pub path: PathBuf,
@@ -10,6 +10,9 @@ pub struct Entry {
     pub size: u64,
     pub permissions: Option<u32>,
     pub modified: Option<u64>,
+    pub owner: Option<String>,
+    pub group: Option<String>,
+    pub link_target: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

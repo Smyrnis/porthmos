@@ -29,6 +29,7 @@ const SABRE_PARTIAL_UPDATE: &str = "application/x-sabredav-partialupdate";
 pub(crate) struct WebDavFs {
     client: Arc<DavClient>,
     partial_update: bool,
+    info: Option<String>,
 }
 
 fn other(failure: Failure) -> ProtocolError {
@@ -85,8 +86,8 @@ async fn finish_put(client: Arc<DavClient>, request: RequestBuilder, path: PathB
 }
 
 impl WebDavFs {
-    pub(crate) fn new(client: Arc<DavClient>, partial_update: bool) -> Self {
-        Self { client, partial_update }
+    pub(crate) fn new(client: Arc<DavClient>, partial_update: bool, info: Option<String>) -> Self {
+        Self { client, partial_update, info }
     }
 
     async fn move_to(
@@ -172,6 +173,10 @@ impl WebDavFs {
 
 #[async_trait]
 impl FileSystem for WebDavFs {
+    fn server_info(&self) -> Option<String> {
+        self.info.clone()
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         Ok(self
             .read_dir(dir)
@@ -184,6 +189,7 @@ impl FileSystem for WebDavFs {
                 modified: item.metadata.modified,
                 name: item.name,
                 path: item.path,
+                ..Default::default()
             })
             .collect())
     }

@@ -1,6 +1,7 @@
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use porthmos_vfs::{FileSystem, ProtocolError};
@@ -15,6 +16,23 @@ use crate::{Severity, tasks::Scope, user_message};
 #[track_caller]
 fn send_failure(reporter: &Reporter, message: String, cause: &dyn std::fmt::Debug) {
     reporter.report_cause(Severity::Error, message, cause);
+}
+
+const FREE_SPACE_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: PathBuf, events: &UnboundedSender<Event>) {
+    let bytes = match tokio::time::timeout(FREE_SPACE_TIMEOUT, fs.free_space(&path)).await {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(err)) => {
+            tracing::debug!("free space of {} unavailable: {err:?}", path.display());
+            None
+        }
+        Err(_) => {
+            tracing::debug!("free space of {} timed out", path.display());
+            None
+        }
+    };
+    let _ = events.send(Event::FreeSpace { location, path, bytes });
 }
 
 async fn list_into(
@@ -33,7 +51,8 @@ async fn list_into(
     };
     match fs.list(&path).await {
         Ok(entries) => {
-            let _ = events.send(Event::Listed { location, path, entries });
+            let _ = events.send(Event::Listed { location, path: path.clone(), entries });
+            announce_free_space(fs.as_ref(), location, path, &events).await;
         }
         Err(err) => {
             send_failure(
@@ -74,7 +93,8 @@ async fn list_start_into(
     };
     match fs.list(&path).await {
         Ok(entries) => {
-            let _ = events.send(Event::Listed { location, path, entries });
+            let _ = events.send(Event::Listed { location, path: path.clone(), entries });
+            announce_free_space(fs.as_ref(), location, path, &events).await;
         }
         Err(err) => {
             let context = format!("Unable to open {} on {name}, showing the home directory instead", path.display());

@@ -34,7 +34,10 @@ struct RowCounters {
     label: String,
     direction: Direction,
     order: Vec<u64>,
+    position: u64,
     queued: usize,
+    paused: usize,
+    pausing: usize,
     running: usize,
     completed: usize,
     failed: usize,
@@ -54,7 +57,10 @@ impl RowCounters {
             session_id,
             failure: None,
             order: Vec::new(),
+            position: 0,
             queued: 0,
+            paused: 0,
+            pausing: 0,
             running: 0,
             completed: 0,
             failed: 0,
@@ -75,6 +81,8 @@ impl RowCounters {
     fn state(&self) -> RowState {
         if self.running > 0 {
             RowState::Running
+        } else if self.queued > 0 && self.paused == self.queued {
+            RowState::Paused
         } else if self.queued > 0 {
             RowState::Queued
         } else if self.completed == self.total() {
@@ -98,6 +106,7 @@ impl RowCounters {
             bytes_done: self.bytes_done,
             bytes_total: self.bytes_total,
             state: self.state(),
+            paused: self.pausing > 0,
             session_id: self.session_id,
             failure: self.failure.clone(),
         }
@@ -120,6 +129,8 @@ struct Shape {
     transferred: u64,
     session_id: u64,
     direction: Direction,
+    paused: bool,
+    held: Option<Destination>,
 }
 
 impl Shape {
@@ -129,6 +140,8 @@ impl Shape {
             transferred: job.transferred_bytes,
             session_id: job.session_id,
             direction: job.direction,
+            paused: job.paused,
+            held: (job.paused && job.resume && job.status == JobStatus::Queued).then(|| job.destination()),
         }
     }
 }
@@ -153,8 +166,9 @@ pub struct TransferQueue {
     row_of: HashMap<u64, u64>,
     batch_row: HashMap<u64, u64>,
     running: BTreeSet<u64>,
-    queued: BTreeSet<u64>,
-    queued_by_session: HashMap<u64, BTreeSet<u64>>,
+    queued: BTreeSet<(u64, u64)>,
+    held: HashMap<Destination, usize>,
+    ready_by_session: HashMap<u64, BTreeSet<(u64, u64)>>,
     pending: HashMap<(u64, Direction), usize>,
     changes: Vec<RowChange>,
 }
@@ -215,6 +229,8 @@ impl TransferQueue {
             batch_id,
             resume: false,
             modified: None,
+            remove_source: false,
+            paused: false,
         };
         let shape = Shape::of(&job);
         let key = match batch_id {
@@ -226,8 +242,11 @@ impl TransferQueue {
             None => RowKind::Single(id),
         };
         let was_finished = self.rows.get(&key).is_some_and(RowCounters::finished);
-        let counters =
-            self.rows.entry(key).or_insert_with(|| RowCounters::new(kind, label, direction, Some(session_id)));
+        let counters = self.rows.entry(key).or_insert_with(|| {
+            let mut counters = RowCounters::new(kind, label, direction, Some(session_id));
+            counters.position = key;
+            counters
+        });
         counters.order.push(id);
         counters.bytes_total += total_bytes;
         self.row_of.insert(id, key);
@@ -270,7 +289,9 @@ impl TransferQueue {
     }
 
     pub fn rows(&self) -> Vec<QueueRow> {
-        self.rows.values().map(RowCounters::to_row).collect()
+        let mut ordered: Vec<(&u64, &RowCounters)> = self.rows.iter().collect();
+        ordered.sort_by_key(|(key, counters)| (counters.position, **key));
+        ordered.into_iter().map(|(_, counters)| counters.to_row()).collect()
     }
 
     fn row_key(&self, kind: RowKind) -> Option<u64> {
@@ -280,6 +301,53 @@ impl TransferQueue {
             RowKind::Scan(_) => None,
         }?;
         (self.rows.get(&key)?.kind == kind).then_some(key)
+    }
+
+    pub fn move_row(&mut self, kind: RowKind, earlier: bool) -> bool {
+        let Some(key) = self.row_key(kind) else {
+            return false;
+        };
+        let mut unfinished: Vec<(u64, u64)> =
+            self.rows.iter().filter(|(_, counters)| !counters.finished()).map(|(k, c)| (c.position, *k)).collect();
+        unfinished.sort_unstable();
+        let Some(index) = unfinished.iter().position(|(_, candidate)| *candidate == key) else {
+            return false;
+        };
+        let neighbour =
+            if earlier { index.checked_sub(1) } else { Some(index + 1).filter(|next| *next < unfinished.len()) };
+        let Some(neighbour) = neighbour else {
+            return false;
+        };
+        let (mine, theirs) = (unfinished[index], unfinished[neighbour]);
+        self.set_position(mine.1, theirs.0);
+        self.set_position(theirs.1, mine.0);
+        true
+    }
+
+    fn set_position(&mut self, key: u64, position: u64) {
+        let Some(counters) = self.rows.get_mut(&key) else {
+            return;
+        };
+        let old = counters.position;
+        counters.position = position;
+        let waiting: Vec<(u64, u64, bool)> = counters
+            .order
+            .iter()
+            .filter_map(|id| {
+                self.jobs
+                    .get(id)
+                    .filter(|job| job.status == JobStatus::Queued)
+                    .map(|job| (*id, job.session_id, job.paused))
+            })
+            .collect();
+        for (id, session, paused) in waiting {
+            self.queued.remove(&(old, id));
+            self.queued.insert((position, id));
+            if !paused && let Some(ids) = self.ready_by_session.get_mut(&session) {
+                ids.remove(&(old, id));
+                ids.insert((position, id));
+            }
+        }
     }
 
     pub fn row(&self, kind: RowKind) -> Option<QueueRow> {
@@ -310,9 +378,18 @@ impl TransferQueue {
         let Some(&key) = self.row_of.get(&id) else {
             return;
         };
+        let position = self.rows.get(&key).map_or(id, |counters| counters.position);
+        let paused_queued = shape.paused && shape.status == JobStatus::Queued;
+        let pausing = shape.paused && matches!(shape.status, JobStatus::Queued | JobStatus::InProgress);
         if let Some(counters) = self.rows.get_mut(&key) {
             let slot = counters.slot(&shape.status);
             *slot = if add { *slot + 1 } else { slot.saturating_sub(1) };
+            if paused_queued {
+                counters.paused = if add { counters.paused + 1 } else { counters.paused.saturating_sub(1) };
+            }
+            if pausing {
+                counters.pausing = if add { counters.pausing + 1 } else { counters.pausing.saturating_sub(1) };
+            }
             if let JobStatus::Failed(message) = &shape.status {
                 if add {
                     if let Some(job) = self.jobs.get(&id) {
@@ -342,21 +419,29 @@ impl TransferQueue {
             }
             JobStatus::Queued => {
                 if add {
-                    self.queued.insert(id);
-                    self.queued_by_session.entry(shape.session_id).or_default().insert(id);
+                    self.queued.insert((position, id));
+                    if !shape.paused {
+                        self.ready_by_session.entry(shape.session_id).or_default().insert((position, id));
+                    }
+                    if let Some(destination) = &shape.held {
+                        *self.held.entry(destination.clone()).or_default() += 1;
+                    }
                 } else {
-                    self.queued.remove(&id);
-                    if let Some(ids) = self.queued_by_session.get_mut(&shape.session_id) {
-                        ids.remove(&id);
+                    self.queued.remove(&(position, id));
+                    if let Some(ids) = self.ready_by_session.get_mut(&shape.session_id) {
+                        ids.remove(&(position, id));
                         if ids.is_empty() {
-                            self.queued_by_session.remove(&shape.session_id);
+                            self.ready_by_session.remove(&shape.session_id);
                         }
+                    }
+                    if let Some(destination) = &shape.held {
+                        decrement(&mut self.held, destination.clone());
                     }
                 }
             }
             _ => {}
         }
-        if matches!(shape.status, JobStatus::Queued | JobStatus::InProgress) {
+        if matches!(shape.status, JobStatus::Queued | JobStatus::InProgress) && !paused_queued {
             let key = (shape.session_id, shape.direction);
             if add {
                 *self.pending.entry(key).or_default() += 1;
@@ -403,9 +488,10 @@ impl TransferQueue {
         for id in ids {
             if self.jobs.get(id).is_some_and(|job| matches!(job.status, JobStatus::Failed(_) | JobStatus::Cancelled)) {
                 self.update(*id, |job| {
-                    job.resume = job.attempts > 0;
+                    job.resume = job.attempts > 0 || job.transferred_bytes > 0;
                     job.status = JobStatus::Queued;
                     job.attempts = 0;
+                    job.paused = false;
                 });
                 count += 1;
             }
@@ -500,7 +586,7 @@ impl TransferQueue {
     }
 
     pub fn queued_jobs(&self) -> impl Iterator<Item = &TransferJob> {
-        self.queued.iter().filter_map(|id| self.jobs.get(id))
+        self.queued.iter().filter_map(|(_, id)| self.jobs.get(id))
     }
 
     pub fn active_count(&self) -> usize {
@@ -513,7 +599,7 @@ impl TransferQueue {
 
     pub fn startable_limited(&self, limit: usize, session_limit: impl Fn(u64) -> Option<usize>) -> Vec<u64> {
         let free_slots = limit.saturating_sub(self.running.len());
-        if free_slots == 0 || self.queued.is_empty() {
+        if free_slots == 0 || self.ready_by_session.is_empty() {
             return Vec::new();
         }
         let mut per_session: HashMap<u64, usize> = HashMap::new();
@@ -521,29 +607,30 @@ impl TransferQueue {
             *per_session.entry(job.session_id).or_default() += 1;
         }
         let capped = |session: u64, running: usize| session_limit(session).is_some_and(|cap| running >= cap);
-        let mut iterators: HashMap<u64, std::collections::btree_set::Iter<'_, u64>> = HashMap::new();
-        let mut heads: BinaryHeap<Reverse<(u64, u64)>> = BinaryHeap::new();
-        for (session, ids) in &self.queued_by_session {
+        let mut iterators: HashMap<u64, std::collections::btree_set::Iter<'_, (u64, u64)>> = HashMap::new();
+        let mut heads: BinaryHeap<Reverse<(u64, u64, u64)>> = BinaryHeap::new();
+        for (session, ids) in &self.ready_by_session {
             if capped(*session, per_session.get(session).copied().unwrap_or(0)) {
                 continue;
             }
             let mut iterator = ids.iter();
-            if let Some(&first) = iterator.next() {
-                heads.push(Reverse((first, *session)));
+            if let Some(&(position, first)) = iterator.next() {
+                heads.push(Reverse((position, first, *session)));
                 iterators.insert(*session, iterator);
             }
         }
         let mut busy_destinations: HashSet<Destination> = self.active_jobs().map(TransferJob::destination).collect();
+        busy_destinations.extend(self.held.keys().cloned());
         let mut startable = Vec::new();
         while startable.len() < free_slots {
-            let Some(Reverse((id, session))) = heads.pop() else {
+            let Some(Reverse((_, id, session))) = heads.pop() else {
                 break;
             };
             if capped(session, per_session.get(&session).copied().unwrap_or(0)) {
                 continue;
             }
-            if let Some(&next) = iterators.get_mut(&session).and_then(Iterator::next) {
-                heads.push(Reverse((next, session)));
+            if let Some(&(position, next)) = iterators.get_mut(&session).and_then(Iterator::next) {
+                heads.push(Reverse((position, next, session)));
             }
             let Some(job) = self.jobs.get(&id) else {
                 continue;
@@ -565,7 +652,7 @@ impl TransferQueue {
     }
 
     pub fn cancel_all_queued(&mut self) -> usize {
-        let ids: Vec<u64> = self.queued.iter().copied().collect();
+        let ids: Vec<u64> = self.queued.iter().map(|(_, id)| *id).collect();
         for id in &ids {
             self.update(*id, |job| job.status = JobStatus::Cancelled);
         }
@@ -577,8 +664,12 @@ impl TransferQueue {
     }
 
     pub fn fail_queued_for_session(&mut self, session_id: u64, reason: &str) -> usize {
-        let ids: Vec<u64> =
-            self.queued_by_session.get(&session_id).map(|ids| ids.iter().copied().collect()).unwrap_or_default();
+        let ids: Vec<u64> = self
+            .queued
+            .iter()
+            .filter(|(_, id)| self.jobs.get(id).is_some_and(|job| job.session_id == session_id))
+            .map(|(_, id)| *id)
+            .collect();
         for id in &ids {
             self.update(*id, |job| job.status = JobStatus::Failed(reason.to_string()));
         }
@@ -640,7 +731,11 @@ impl TransferQueue {
     pub(crate) fn assert_consistent(&self) {
         let mut running = BTreeSet::new();
         let mut queued = BTreeSet::new();
-        let mut queued_by_session: HashMap<u64, BTreeSet<u64>> = HashMap::new();
+        let mut ready_by_session: HashMap<u64, BTreeSet<(u64, u64)>> = HashMap::new();
+        let mut held: HashMap<Destination, usize> = HashMap::new();
+        let position_of = |id: u64| {
+            self.row_of.get(&id).and_then(|key| self.rows.get(key)).map(|counters| counters.position).expect("a row")
+        };
         let mut pending: HashMap<(u64, Direction), usize> = HashMap::new();
         for job in self.jobs.values() {
             match job.status {
@@ -648,19 +743,28 @@ impl TransferQueue {
                     running.insert(job.id);
                 }
                 JobStatus::Queued => {
-                    queued.insert(job.id);
-                    queued_by_session.entry(job.session_id).or_default().insert(job.id);
+                    queued.insert((position_of(job.id), job.id));
+                    if !job.paused {
+                        ready_by_session.entry(job.session_id).or_default().insert((position_of(job.id), job.id));
+                    }
+                    if job.paused && job.resume {
+                        *held.entry(job.destination()).or_default() += 1;
+                    }
                 }
                 _ => {}
             }
-            if matches!(job.status, JobStatus::Queued | JobStatus::InProgress) {
+            let waiting_paused = job.paused && job.status == JobStatus::Queued;
+            if matches!(job.status, JobStatus::Queued | JobStatus::InProgress) && !waiting_paused {
                 *pending.entry((job.session_id, job.direction)).or_default() += 1;
             }
         }
         assert_eq!(self.running, running, "running set");
         assert_eq!(self.queued, queued, "queued set");
-        assert_eq!(self.queued_by_session, queued_by_session, "queued per session");
+        assert_eq!(self.ready_by_session, ready_by_session, "ready per session");
+        assert_eq!(self.held, held, "held destinations");
         assert_eq!(self.pending, pending, "pending counts");
+        let positions: HashSet<u64> = self.rows.values().map(|counters| counters.position).collect();
+        assert_eq!(positions.len(), self.rows.len(), "row positions are unique");
         assert_eq!(self.row_of.len(), self.jobs.len(), "row_of covers every job");
         let mut in_rows = 0;
         for (key, counters) in &self.rows {
@@ -674,13 +778,35 @@ impl TransferQueue {
                 let job = self.jobs.get(id).expect("every listed job exists");
                 assert_eq!(self.row_of.get(id), Some(key), "row_of for job {id}");
                 *expected.slot(&job.status) += 1;
+                if job.paused && job.status == JobStatus::Queued {
+                    expected.paused += 1;
+                }
+                if job.paused && matches!(job.status, JobStatus::Queued | JobStatus::InProgress) {
+                    expected.pausing += 1;
+                }
                 expected.bytes_done += job.transferred_bytes;
                 expected.bytes_total += job.total_bytes;
                 in_rows += 1;
             }
             assert_eq!(
-                (counters.queued, counters.running, counters.completed, counters.failed, counters.cancelled),
-                (expected.queued, expected.running, expected.completed, expected.failed, expected.cancelled),
+                (
+                    counters.queued,
+                    counters.paused,
+                    counters.pausing,
+                    counters.running,
+                    counters.completed,
+                    counters.failed,
+                    counters.cancelled
+                ),
+                (
+                    expected.queued,
+                    expected.paused,
+                    expected.pausing,
+                    expected.running,
+                    expected.completed,
+                    expected.failed,
+                    expected.cancelled
+                ),
                 "row counters differ for row {key}"
             );
             assert_eq!(

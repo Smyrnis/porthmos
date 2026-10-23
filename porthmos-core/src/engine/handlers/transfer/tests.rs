@@ -77,7 +77,15 @@ fn local_changed(events: &[Event]) -> bool {
 }
 
 fn local_entry(t: &TestEngine, name: &str, is_dir: bool) -> Entry {
-    Entry { modified: None, name: name.to_string(), path: t.dir.path().join(name), is_dir, size: 1, permissions: None }
+    Entry {
+        modified: None,
+        name: name.to_string(),
+        path: t.dir.path().join(name),
+        is_dir,
+        size: 1,
+        permissions: None,
+        ..Default::default()
+    }
 }
 
 #[test]

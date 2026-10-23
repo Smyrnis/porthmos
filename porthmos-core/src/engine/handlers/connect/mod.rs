@@ -137,8 +137,12 @@ impl Engine {
         let shell_available = self
             .shell_target(session)
             .is_some_and(|target| self.sessions[&session].protocol.shell_command(&target, &self.env).is_some());
-        self.emit_connected(session, name, shell_available);
+        self.emit_connected(session, name.clone(), shell_available);
+        if self.names_a_live_connection(&name) {
+            self.record_use(&name);
+        }
         self.open_start_directory(session);
+        self.start_health_probe(session);
     }
 
     fn keep_typed_password(&mut self, entry: &ConnectionEntry, typed: TypedPassword) {
@@ -172,12 +176,14 @@ impl Engine {
         let Some(live) = self.sessions.remove(&session) else {
             return;
         };
+        self.stop_health_probe(session);
         self.history.remember_session(session, live.name.clone());
 
         let affected = self.transfers.fail_queued_for_session(session, "session disconnected")
             + self.cancel_session_transfers(session)
             + self.drop_conflict_reviews(|review| review.session_id == session);
         self.drop_sync_plans(|plan| plan.session == session);
+        self.finish_move_batches_of(session);
         if affected > 0 {
             let plural = if affected == 1 { "" } else { "s" };
             self.info(format!("{affected} transfer{plural} cancelled \u{2014} session disconnected"));

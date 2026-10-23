@@ -17,6 +17,7 @@ fn operations_quote_every_path_after_a_double_dash() {
     assert_eq!(mkdir(Path::new("/-x")), "mkdir -- '/-x'");
     assert_eq!(remove(Path::new("/$HOME")), "rm -- '/$HOME'");
     assert_eq!(remove_tree(Path::new("/`id`")), "rm -rf -- '/`id`'");
+    assert_eq!(remove_dir(Path::new("/-d e")), "rmdir -- '/-d e'");
     assert_eq!(rename(Path::new("/a"), Path::new("/b c")), "mv -f -- '/a' '/b c'");
 }
 
@@ -66,4 +67,9 @@ fn touch_tests_for_the_file_then_stamps_it_without_creating_one() {
     let command = touch(Path::new("/srv/it's a $dir/file name"), 1_700_000_000);
 
     assert_eq!(command, format!("test -e {quoted} && touch -c -d @1700000000 -- {quoted}"));
+}
+
+#[test]
+fn free_space_asks_df_for_posix_kilobytes_in_the_c_locale() {
+    assert_eq!(free_space(Path::new("/srv/a b")), "LC_ALL=C df -Pk -- '/srv/a b'");
 }

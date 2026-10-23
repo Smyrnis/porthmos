@@ -1,7 +1,8 @@
-use porthmos_vfs::Target;
+use porthmos_vfs::{SERVER_INFO_CELLS, Target, clean_server_text};
 
 const DEFAULT_REGION: &str = "us-east-1";
 const AWS_SUFFIX: &str = ".amazonaws.com";
+const SEPARATOR: &str = " \u{b7} ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Addressing {
@@ -64,6 +65,15 @@ fn ip_address(host: &str) -> bool {
 }
 
 impl S3Settings {
+    pub(crate) fn identity(&self, region: &str) -> Option<String> {
+        let default_port = if self.secure { 443 } else { 80 };
+        let host =
+            if self.port == default_port { self.endpoint.clone() } else { format!("{}:{}", self.endpoint, self.port) };
+        let shows_region = self.endpoint.ends_with(AWS_SUFFIX) || region != DEFAULT_REGION;
+        let text = if shows_region { format!("{host}{SEPARATOR}{region}") } else { host };
+        clean_server_text(&text, SERVER_INFO_CELLS)
+    }
+
     pub(crate) fn from_target(target: &Target) -> Self {
         let pasted = pasted(&target.host);
         Self {

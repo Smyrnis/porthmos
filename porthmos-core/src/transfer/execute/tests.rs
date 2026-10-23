@@ -1,4 +1,7 @@
+use std::{sync::Arc, time::Duration};
+
 use porthmos_vfs::testing::FakeFs;
+use tokio::time::Instant;
 
 use super::*;
 
@@ -185,9 +188,14 @@ async fn copy_with_progress_reports_from_the_start_offset() {
     let mut destination: Vec<u8> = Vec::new();
     let mut reported = Vec::new();
 
-    copy_with_progress(&mut &source[..], &mut destination, 100, &AtomicBool::new(false), |transferred| {
-        reported.push(transferred)
-    })
+    copy_with_progress(
+        &mut &source[..],
+        &mut destination,
+        100,
+        &AtomicBool::new(false),
+        &SpeedLimit::new(),
+        |transferred| reported.push(transferred),
+    )
     .await
     .unwrap();
 
@@ -272,6 +280,7 @@ async fn the_source_time_is_set_on_the_destination_after_the_rename() {
         &AtomicBool::new(false),
         false,
         Some(100),
+        &SpeedLimit::new(),
         |_| {},
     )
     .await
@@ -298,6 +307,7 @@ async fn a_destination_that_cannot_keep_times_still_completes_and_says_so() {
         &AtomicBool::new(false),
         false,
         Some(100),
+        &SpeedLimit::new(),
         |_| {},
     )
     .await
@@ -323,6 +333,7 @@ async fn no_time_is_touched_when_none_was_requested() {
         &AtomicBool::new(false),
         false,
         None,
+        &SpeedLimit::new(),
         |_| {},
     )
     .await
@@ -347,6 +358,7 @@ async fn a_cancelled_transfer_sets_no_time_and_leaves_no_destination() {
         &AtomicBool::new(true),
         false,
         Some(100),
+        &SpeedLimit::new(),
         |_| {},
     )
     .await
@@ -355,4 +367,177 @@ async fn a_cancelled_transfer_sets_no_time_and_leaves_no_destination() {
     assert_eq!(executed.outcome, TransferOutcome::Cancelled);
     assert!(!destination.exists("/dst/f"));
     assert_eq!(destination.modified_of("/dst/f.part"), None);
+}
+
+fn big_source(size: usize) -> FakeFs {
+    let source = FakeFs::new();
+    source.file("/src/f", &vec![7u8; size], Some(900));
+    source
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_limited_copy_takes_as_long_as_the_limit_allows_and_keeps_every_byte() {
+    let source = big_source(20_000);
+    let destination = empty_destination();
+    let limit = SpeedLimit::with(Some(10_000));
+    let started = Instant::now();
+
+    let executed = execute_preserving(
+        &source,
+        Path::new("/src/f"),
+        &destination,
+        Path::new("/dst/f"),
+        &AtomicBool::new(false),
+        false,
+        None,
+        &limit,
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(executed.outcome, TransferOutcome::Completed);
+    assert_eq!(destination.contents("/dst/f").unwrap().len(), 20_000);
+    let elapsed = started.elapsed();
+    assert!(elapsed >= Duration::from_millis(1800) && elapsed <= Duration::from_millis(2200), "{elapsed:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_copy_without_a_limit_does_not_wait() {
+    let source = big_source(20_000);
+    let destination = empty_destination();
+    let started = Instant::now();
+
+    execute_preserving(
+        &source,
+        Path::new("/src/f"),
+        &destination,
+        Path::new("/dst/f"),
+        &AtomicBool::new(false),
+        false,
+        None,
+        &SpeedLimit::new(),
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(started.elapsed(), Duration::ZERO);
+}
+
+#[tokio::test(start_paused = true)]
+async fn lifting_the_limit_during_a_copy_lets_the_rest_go_at_full_speed() {
+    let source = big_source(20_000);
+    let destination = empty_destination();
+    let limit = SpeedLimit::with(Some(10_000));
+    let lifter = limit.clone();
+    let started = Instant::now();
+    let never = AtomicBool::new(false);
+
+    let copy = execute_preserving(
+        &source,
+        Path::new("/src/f"),
+        &destination,
+        Path::new("/dst/f"),
+        &never,
+        false,
+        None,
+        &limit,
+        |_| {},
+    );
+    let lift = async {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        lifter.set(None);
+    };
+    let (executed, ()) = tokio::join!(copy, lift);
+
+    assert_eq!(executed.unwrap().outcome, TransferOutcome::Completed);
+    assert!(started.elapsed() < Duration::from_millis(1000), "{:?}", started.elapsed());
+    assert_eq!(destination.contents("/dst/f").unwrap().len(), 20_000);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancelling_a_slow_copy_stops_it_promptly_and_keeps_the_partial_file() {
+    let source = big_source(20_000);
+    let destination = empty_destination();
+    let limit = SpeedLimit::with(Some(1_000));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let flag = cancel.clone();
+    let (task_source, task_destination) = (source.clone(), destination.clone());
+    let started = Instant::now();
+    let task = tokio::spawn(async move {
+        execute_preserving(
+            &task_source,
+            Path::new("/src/f"),
+            &task_destination,
+            Path::new("/dst/f"),
+            &flag,
+            false,
+            None,
+            &limit,
+            |_| {},
+        )
+        .await
+    });
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    cancel.store(true, Ordering::Relaxed);
+    let executed = task.await.unwrap().unwrap();
+
+    assert_eq!(executed.outcome, TransferOutcome::Cancelled);
+    assert!(started.elapsed() < Duration::from_millis(1200), "{:?}", started.elapsed());
+    assert!(destination.exists("/dst/f.part"));
+    assert!(!destination.exists("/dst/f"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn progress_keeps_flowing_under_a_low_limit() {
+    let source = big_source(3_000);
+    let destination = empty_destination();
+    let limit = SpeedLimit::with(Some(1_000));
+    let never = AtomicBool::new(false);
+    let started = Instant::now();
+    let mut reports: Vec<Duration> = Vec::new();
+
+    execute_preserving(
+        &source,
+        Path::new("/src/f"),
+        &destination,
+        Path::new("/dst/f"),
+        &never,
+        false,
+        None,
+        &limit,
+        |_| reports.push(started.elapsed()),
+    )
+    .await
+    .unwrap();
+
+    assert!(reports.len() >= 8, "{reports:?}");
+    let longest_gap = reports.windows(2).map(|pair| pair[1] - pair[0]).max().unwrap();
+    assert!(longest_gap <= Duration::from_millis(600), "{reports:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unlimited_copy_still_reports_only_when_a_step_is_done() {
+    let source = big_source(100_000);
+    let destination = empty_destination();
+    let never = AtomicBool::new(false);
+    let mut reports = 0;
+
+    execute_preserving(
+        &source,
+        Path::new("/src/f"),
+        &destination,
+        Path::new("/dst/f"),
+        &never,
+        false,
+        None,
+        &SpeedLimit::new(),
+        |_| reports += 1,
+    )
+    .await
+    .unwrap();
+
+    assert!(reports <= 4, "{reports}");
 }

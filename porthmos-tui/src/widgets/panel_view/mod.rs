@@ -55,6 +55,7 @@ pub struct PanelView {
     pub selected: HashSet<PathBuf>,
     editing_filter: bool,
     anchor: Option<(Anchor, usize)>,
+    free_bytes: Option<u64>,
 }
 
 impl PanelView {
@@ -65,6 +66,7 @@ impl PanelView {
             selected: HashSet::new(),
             editing_filter: false,
             anchor: None,
+            free_bytes: None,
         }
     }
 
@@ -85,11 +87,18 @@ impl PanelView {
     pub fn replace_listing(&mut self, path: PathBuf, entries: Vec<Entry>) {
         if path != self.path() {
             self.editing_filter = false;
+            self.free_bytes = None;
         }
         self.listing.replace(path, entries);
         self.anchor = None;
         self.selected.clear();
         self.clamp_cursor();
+    }
+
+    pub fn set_free_space(&mut self, path: &Path, bytes: Option<u64>) {
+        if path == self.path() {
+            self.free_bytes = bytes;
+        }
     }
 
     pub fn toggle_hidden(&mut self) {
@@ -346,13 +355,20 @@ fn items_label(panel: &PanelView) -> String {
     }
 }
 
+fn right_labels(panel: &PanelView) -> Vec<String> {
+    let items = items_label(panel);
+    match panel.free_bytes {
+        Some(bytes) => vec![format!("{items} \u{b7} {} free", file_list::size_label(bytes)), items],
+        None => vec![items],
+    }
+}
+
 fn render_footer(frame: &mut Frame, area: Rect, panel: &PanelView, theme: &Theme) {
     let width = usize::from(area.width);
     let left = truncate_with_ellipsis(&footer_left(panel, width), width);
-    let right = items_label(panel);
-    let right_fits = left.width() + FOOTER_GAP + right.width() <= width;
+    let right = right_labels(panel).into_iter().find(|label| left.width() + FOOTER_GAP + label.width() <= width);
     frame.render_widget(Paragraph::new(Span::styled(left, theme.accent_text())), area);
-    if right_fits {
+    if let Some(right) = right {
         let right_width = right.width() as u16;
         let x = area.x + area.width - right_width;
         frame.render_widget(Paragraph::new(Span::styled(right, theme.dim())), Rect::new(x, area.y, right_width, 1));

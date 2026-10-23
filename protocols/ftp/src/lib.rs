@@ -3,6 +3,7 @@ compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
 
 mod errors;
 mod fs;
+mod greeting;
 mod listing;
 mod pool;
 mod session;
@@ -94,8 +95,9 @@ impl Protocol for Ftp {
         let (context, mut connection) = open_trusted(target, &settings, &store, self.timeout, prompter).await?;
         let password = authenticate(&mut connection, target, &settings, self.timeout, prompter).await?;
         bounded(self.timeout, prepare(&mut connection, &settings)).await?;
+        let greeting = greeting::greeting_info(connection.get_welcome_msg());
         let pool = Pool::new(context, password, connection);
-        Ok(Arc::new(FtpFs::new(pool).await?))
+        Ok(Arc::new(FtpFs::new(pool, greeting).await?))
     }
 }
 

@@ -75,16 +75,30 @@ fn actions_follow_the_current_screen() {
     let files = on(Screen::Files).app.palette_entries();
     let files = labels(&files, Group::Actions);
     assert!(files.contains(&"Copy to the other panel") && files.contains(&"New folder"));
+    assert!(files.contains(&"Move to the other panel"));
+    assert!(files.contains(&"Preview the file"));
     assert!(!files.contains(&"Delete connection") && !files.contains(&"Retry the selected transfer"));
 
     let connections = on(Screen::Connections).app.palette_entries();
     let connections = labels(&connections, Group::Actions);
     assert!(connections.contains(&"Delete connection") && connections.contains(&"Edit connection"));
-    assert!(!connections.contains(&"Copy to the other panel"));
+    assert!(
+        !connections.contains(&"Copy to the other panel")
+            && !connections.contains(&"Move to the other panel")
+            && !connections.contains(&"Preview the file")
+    );
 
     let transfers = on(Screen::Transfers).app.palette_entries();
     let transfers = labels(&transfers, Group::Actions);
-    for label in ["Retry the selected transfer", "Cancel the selected transfer", "Clear finished transfers"] {
+    for label in [
+        "Retry the selected transfer",
+        "Cancel the selected transfer",
+        "Clear finished transfers",
+        "Set the speed limit",
+        "Pause or resume the selected transfer",
+        "Move the selected transfer earlier",
+        "Move the selected transfer later",
+    ] {
         assert!(transfers.contains(&label), "{label}");
     }
 
@@ -151,7 +165,10 @@ fn every_label_is_non_empty_and_unique_within_a_screen() {
 fn an_action_hint_is_its_first_live_key_in_the_current_scope() {
     let files = on(Screen::Files).app.palette_entries();
     assert_eq!(find(&files, "Copy to the other panel").hint.as_deref(), Some("c"));
+    assert_eq!(find(&files, "Move to the other panel").hint.as_deref(), Some("m"));
+    assert_eq!(find(&files, "Preview the file").hint.as_deref(), Some("p"));
     assert_eq!(find(&files, "Quit").hint.as_deref(), Some("q"));
+    assert_eq!(find(&files, "New connection").hint, None);
     let connections = on(Screen::Connections).app.palette_entries();
     assert_eq!(find(&connections, "New connection").hint.as_deref(), Some("n"));
     assert_eq!(find(&connections, "Edit connection").hint.as_deref(), Some("e"));
@@ -779,4 +796,16 @@ fn the_help_overlay_lists_open_palette_with_ctrl_p() {
 
     let (_, y) = find_text(&terminal, "open_palette").expect("listed");
     assert!(screen_rows(&terminal)[usize::from(y)].contains("Ctrl+P"));
+}
+
+#[test]
+fn the_speed_limit_is_offered_on_every_screen_with_its_key_on_the_transfers_screen() {
+    for screen in [Screen::Files, Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync] {
+        let entries = on(screen).app.palette_entries();
+        assert!(labels(&entries, Group::Actions).contains(&"Set the speed limit"), "{screen:?}");
+    }
+    let transfers = on(Screen::Transfers).app.palette_entries();
+    assert_eq!(find(&transfers, "Set the speed limit").hint.as_deref(), Some("Ctrl+L"));
+    let files = on(Screen::Files).app.palette_entries();
+    assert_eq!(find(&files, "Set the speed limit").hint, None);
 }

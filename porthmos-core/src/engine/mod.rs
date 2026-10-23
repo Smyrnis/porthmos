@@ -51,6 +51,10 @@ pub(crate) enum TransferEvent {
     PlanCancelled { batch_id: u64, session_id: u64, direction: Direction },
     PartialsRemoved { session_id: u64 },
     TimesNotKept { id: u64 },
+    SourceRemoved { id: u64 },
+    SourceRemovalFailed { id: u64, message: String },
+    SourceRemovalCancelled { id: u64 },
+    MovedFoldersRemoved { session_id: u64, direction: Direction, removed: usize },
     SyncPlanReady { batch_id: u64, plan: crate::sync::SyncPlan },
     SyncCancelled { batch_id: u64 },
     SyncFailed { batch_id: u64, message: String },
@@ -70,8 +74,17 @@ pub(crate) enum Internal {
     },
     Transfer(TransferEvent),
     Edit(handlers::EditEvent),
+    Preview {
+        request_id: RequestId,
+        name: String,
+        result: Result<crate::preview::Preview, String>,
+    },
     KeyringProbed {
         available: bool,
+    },
+    SessionHealth {
+        session: SessionId,
+        healthy: bool,
     },
     KeyringDone(handlers::KeyringDone),
     PersistFailed {
@@ -125,7 +138,8 @@ pub(crate) struct Engine {
     pub(crate) shutdown_grace: Duration,
     pub(crate) upload_grace: Duration,
     pub(crate) flush_grace: Duration,
-    state_protected: bool,
+    pub(crate) state_protected: bool,
+    pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
     sessions: BTreeMap<SessionId, LiveSession>,
     next_session_id: SessionId,
@@ -134,6 +148,7 @@ pub(crate) struct Engine {
     max_parallel: usize,
     on_conflict: ConflictPolicy,
     planning: Vec<PlanningScan>,
+    moves: HashMap<u64, handlers::MoveBatch>,
     reviews: VecDeque<ConflictReview>,
     search: SearchState,
     bookmarks: Bookmarks,
@@ -142,6 +157,13 @@ pub(crate) struct Engine {
     publish_interval: Duration,
     transfers_dirty: bool,
     secrets: Secrets,
+    last_used: handlers::LastUsedLog,
+    pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
+    preview_request: Option<u64>,
+    preview_busy: bool,
+    preview_next: Option<(u64, Location, PathBuf)>,
+    pub(crate) pause_stops: std::collections::HashSet<u64>,
+    pub(crate) source_removals: std::collections::HashSet<u64>,
     history: handlers::HistoryLog,
     edit: handlers::EditState,
     keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
@@ -160,6 +182,7 @@ pub(crate) struct EngineParts {
     pub(crate) bookmarks: Bookmarks,
     pub(crate) secrets: Secrets,
     pub(crate) history: History,
+    pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
     pub(crate) publish_interval: Duration,
     pub(crate) persist_interval: Duration,
@@ -199,6 +222,7 @@ impl Engine {
             upload_grace: EDIT_UPLOAD_GRACE,
             flush_grace: PERSIST_FLUSH_GRACE,
             state_protected: false,
+            ui_state: crate::state::UiState::default(),
             writer,
             sessions: BTreeMap::new(),
             next_session_id: 0,
@@ -207,6 +231,7 @@ impl Engine {
             max_parallel: parts.transfers.max_parallel,
             on_conflict: parts.transfers.on_conflict,
             planning: Vec::new(),
+            moves: HashMap::new(),
             reviews: VecDeque::new(),
             search: SearchState { generation: Arc::new(AtomicU64::new(0)) },
             bookmarks: parts.bookmarks,
@@ -215,6 +240,13 @@ impl Engine {
             publish_interval: parts.publish_interval,
             transfers_dirty: false,
             secrets: parts.secrets,
+            last_used: handlers::LastUsedLog::new(parts.last_used),
+            speed_limit: crate::transfer::limit::SpeedLimit::new(),
+            preview_request: None,
+            preview_busy: false,
+            preview_next: None,
+            pause_stops: std::collections::HashSet::new(),
+            source_removals: std::collections::HashSet::new(),
             history: handlers::HistoryLog::new(parts.history),
             edit: handlers::EditState::new(parts.edit),
             keyring_jobs: None,
@@ -290,6 +322,8 @@ impl Engine {
         match command {
             Command::Connect { profile } => self.connect(&profile),
             Command::Disconnect { session } => self.disconnect(session),
+            Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
+            Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session } => self.prepare_shell(session),
             Command::List { location, path } => self.list(location, path),
@@ -297,9 +331,16 @@ impl Engine {
             Command::Rename { location, from, to } => self.rename(location, from, to),
             Command::Delete { location, paths } => self.delete(location, paths),
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
+            Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
+            Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),
+            Command::Preview { request_id, location, path } => self.start_preview(request_id, location, path),
+            Command::CancelPreview => self.cancel_preview(),
             Command::ResolveConflicts { batch_id, answers } => self.resolve_conflicts(batch_id, answers),
             Command::CancelAllTransfers => self.cancel_all_copies(),
             Command::CancelRow { kind } => self.cancel_row(kind),
+            Command::PauseRow { kind } => self.pause_row(kind),
+            Command::ResumeRow { kind } => self.resume_row(kind),
+            Command::ReorderRow { kind, earlier } => self.reorder_row(kind, earlier),
             Command::RetryRow { kind } => self.retry_row(kind),
             Command::ClearFinished => self.clear_finished_rows(),
             Command::Search { location, root, pattern } => self.search(location, root, pattern),
@@ -355,7 +396,9 @@ impl Engine {
                 self.connect_failed(name, message)
             }
             Internal::Edit(event) => self.handle_edit_event(event),
+            Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
+            Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),
             Internal::PersistFailed { path, message, tag } => self.persist_failed(path, message, tag),
             Internal::TaskPanicked { name, scope, message } => self.recover_from_panic(name, scope, &message),
@@ -396,6 +439,14 @@ impl Engine {
         self.reporter.report(severity, message);
     }
 
+    pub(crate) fn persist_failed(&mut self, path: PathBuf, message: String, tag: u64) {
+        if path == self.last_used.store.path() {
+            self.last_used_write_failed(message);
+        } else {
+            self.history_write_failed(message, tag);
+        }
+    }
+
     pub(crate) fn announce(&self, severity: Severity, message: impl Into<String>) {
         self.reporter.show(severity, message);
     }
@@ -430,7 +481,7 @@ impl Engine {
     }
 
     fn snapshot(&self) -> TransferSnapshot {
-        TransferSnapshot::of(&self.transfers, &self.scans())
+        TransferSnapshot { speed_limit: self.speed_limit.get(), ..TransferSnapshot::of(&self.transfers, &self.scans()) }
     }
 
     fn publish_transfers(&mut self) {

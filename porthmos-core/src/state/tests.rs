@@ -14,10 +14,10 @@ fn the_choice_round_trips_and_defaults_to_off() {
     let (_dir, paths) = paths();
     assert!(!load(&paths).state.save_passwords_in_keyring);
 
-    save(&paths, &UiState { save_passwords_in_keyring: true }).unwrap();
+    save(&paths, &UiState { save_passwords_in_keyring: true, ..UiState::default() }).unwrap();
     assert!(load(&paths).state.save_passwords_in_keyring);
 
-    save(&paths, &UiState { save_passwords_in_keyring: false }).unwrap();
+    save(&paths, &UiState { save_passwords_in_keyring: false, ..UiState::default() }).unwrap();
     assert!(!load(&paths).state.save_passwords_in_keyring);
 }
 
@@ -47,7 +47,7 @@ fn unknown_keys_are_ignored() {
 fn the_state_file_is_private_and_holds_only_the_choice() {
     let (_dir, paths) = paths();
 
-    save(&paths, &UiState { save_passwords_in_keyring: true }).unwrap();
+    save(&paths, &UiState { save_passwords_in_keyring: true, ..UiState::default() }).unwrap();
 
     let mode = std::fs::metadata(paths.state_file()).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
@@ -60,7 +60,7 @@ fn saving_where_the_state_folder_cannot_exist_is_an_error() {
     std::fs::write(dir.path().join("state"), b"a file, not a folder").unwrap();
     let paths = Paths::in_dir(dir.path());
 
-    assert!(save(&paths, &UiState { save_passwords_in_keyring: true }).is_err());
+    assert!(save(&paths, &UiState { save_passwords_in_keyring: true, ..UiState::default() }).is_err());
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn a_broken_state_file_is_moved_aside_with_a_warning_and_never_overwritten_by_th
     assert!(loaded.warning.unwrap().contains("state.toml.broken"));
     assert!(!loaded.protected);
     assert_eq!(std::fs::read_to_string(paths.state_file().with_extension("toml.broken")).unwrap(), "not toml at all [");
-    save(&paths, &UiState { save_passwords_in_keyring: true }).unwrap();
+    save(&paths, &UiState { save_passwords_in_keyring: true, ..UiState::default() }).unwrap();
     assert_eq!(std::fs::read_to_string(paths.state_file().with_extension("toml.broken")).unwrap(), "not toml at all [");
 }
 
@@ -106,4 +106,48 @@ fn a_state_file_that_cannot_be_moved_aside_is_protected() {
 
     assert!(loaded.protected);
     assert_eq!(std::fs::read_to_string(paths.state_file()).unwrap(), "not toml at all [");
+}
+
+#[test]
+fn the_speed_limit_round_trips_beside_the_choice() {
+    let (_dir, paths) = paths();
+
+    save(&paths, &UiState { save_passwords_in_keyring: true, speed_limit: Some(2_097_152) }).unwrap();
+
+    let loaded = load(&paths).state;
+    assert!(loaded.save_passwords_in_keyring);
+    assert_eq!(loaded.speed_limit, Some(2_097_152));
+}
+
+#[test]
+fn a_state_file_written_before_the_limit_existed_loads_without_one() {
+    let (_dir, paths) = paths();
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), "save_passwords_in_keyring = true\n").unwrap();
+
+    let loaded = load(&paths);
+
+    assert!(loaded.warning.is_none());
+    assert_eq!(loaded.state.speed_limit, None);
+}
+
+#[test]
+fn no_limit_writes_no_limit_key() {
+    let (_dir, paths) = paths();
+
+    save(&paths, &UiState { save_passwords_in_keyring: false, speed_limit: None }).unwrap();
+
+    assert!(!std::fs::read_to_string(paths.state_file()).unwrap().contains("speed_limit"));
+}
+
+#[test]
+fn a_limit_of_the_wrong_type_breaks_the_file_and_is_set_aside() {
+    let (_dir, paths) = paths();
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), "speed_limit = \"fast\"\n").unwrap();
+
+    let loaded = load(&paths);
+
+    assert_eq!(loaded.state.speed_limit, None);
+    assert!(loaded.warning.unwrap().contains("state.toml.broken"));
 }

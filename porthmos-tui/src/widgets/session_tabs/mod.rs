@@ -13,12 +13,14 @@ use crate::{
 
 const TAB_GAP: &str = "   ";
 const DOT: &str = "\u{2022}";
+const LOST: &str = "\u{d7}";
 
 pub struct TabView<'a> {
     pub number: usize,
     pub name: &'a str,
     pub protocol: &'a str,
     pub active: bool,
+    pub healthy: bool,
 }
 
 pub struct TabsLine {
@@ -48,6 +50,10 @@ pub fn tabs_line(tabs: &[TabView<'_>], available_width: u16, theme: &Theme) -> T
         }
     }
     truncated_active_tab(tabs, width, theme)
+}
+
+fn marker(healthy: bool, theme: &Theme) -> Span<'static> {
+    if healthy { Span::styled(DOT, theme.ok_text()) } else { Span::styled(LOST, theme.err_text()) }
 }
 
 fn push(spans: &mut Vec<Span<'static>>, column: &mut usize, span: Span<'static>) {
@@ -81,7 +87,7 @@ fn build(tabs: &[TabView<'_>], detail: Detail, theme: &Theme) -> TabsLine {
             push(&mut spans, &mut column, Span::styled(printable(tab.protocol), theme.dim()));
         }
         push(&mut spans, &mut column, Span::raw(" "));
-        push(&mut spans, &mut column, Span::styled(DOT, theme.ok_text()));
+        push(&mut spans, &mut column, marker(tab.healthy, theme));
     }
     TabsLine { line: Line::from(spans), active_columns }
 }
@@ -105,7 +111,7 @@ fn truncated_active_tab(tabs: &[TabView<'_>], width: usize, theme: &Theme) -> Ta
         Span::raw(" "),
         Span::styled(name, theme.bright()),
         Span::raw(" "),
-        Span::styled(DOT, theme.ok_text()),
+        marker(tab.healthy, theme),
     ];
     TabsLine { line: Line::from(spans), active_columns: Some(0..(prefix_width - 1 + 1 + name_width) as u16) }
 }

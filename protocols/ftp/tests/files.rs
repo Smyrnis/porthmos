@@ -134,3 +134,71 @@ async fn a_dropped_idle_connection_is_reopened_transparently() {
 
     assert_eq!(names(&fs, "/").await, ["a.txt"]);
 }
+
+#[tokio::test]
+async fn remove_dir_removes_an_empty_folder() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::create_dir(server.root.path().join("empty")).unwrap();
+    let fs = connect_to(&server).await;
+
+    fs.remove_dir(Path::new("/empty")).await.unwrap();
+
+    assert!(!server.root.path().join("empty").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::create_dir_all(server.root.path().join("full/inner")).unwrap();
+    std::fs::write(server.root.path().join("full/inner/keep.txt"), b"keep").unwrap();
+    let fs = connect_to(&server).await;
+
+    assert!(fs.remove_dir(Path::new("/full")).await.is_err());
+
+    assert!(server.root.path().join("full/inner/keep.txt").exists());
+}
+
+#[tokio::test]
+async fn remove_dir_refuses_a_file_and_keeps_it() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::write(server.root.path().join("a.txt"), b"a").unwrap();
+    let fs = connect_to(&server).await;
+
+    assert!(fs.remove_dir(Path::new("/a.txt")).await.is_err());
+
+    assert!(server.root.path().join("a.txt").exists());
+}
+
+#[tokio::test]
+async fn a_fresh_ftp_session_reports_its_connection_alive() {
+    let server = support::start(Some("pw"), None).await;
+
+    let fs = connect_to(&server).await;
+
+    assert_eq!(fs.connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn a_connection_the_server_dropped_is_found_alive_again_after_reconnecting() {
+    let server = support::start_with(support::Options { password: Some("pw"), tls: None, idle_timeout: Some(1) }).await;
+    std::fs::write(server.root.path().join("a.txt"), b"x").unwrap();
+    let fs = connect_to(&server).await;
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+
+    let alive = fs.connection_alive().await;
+
+    assert_eq!(alive, Some(true));
+    assert_eq!(names(&fs, "/").await, vec!["a.txt".to_string()]);
+}
+
+#[tokio::test]
+async fn listing_gives_the_owner_and_group_the_server_reports() {
+    let server = support::start(Some("pw"), None).await;
+    std::fs::write(server.root.path().join("a.txt"), b"x").unwrap();
+    let fs = connect_to(&server).await;
+
+    let entries = fs.list(Path::new("/")).await.unwrap();
+
+    assert!(entries[0].owner.as_deref().is_some_and(|owner| !owner.is_empty()));
+    assert!(entries[0].group.as_deref().is_some_and(|group| !group.is_empty()));
+}

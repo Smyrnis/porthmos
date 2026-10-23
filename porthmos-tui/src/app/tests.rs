@@ -141,3 +141,102 @@ fn q_quits_from_every_screen_when_nothing_owns_the_keyboard() {
         assert!(test.app.should_quit, "{screen:?}");
     }
 }
+
+const THREE_GB: u64 = 3 * 1024 * 1024 * 1024;
+
+#[test]
+fn free_space_of_the_local_folder_reaches_the_local_panel() {
+    let mut test = test_app(Path::new("/d"));
+    test.list_local(vec![entry(Path::new("/d"), "a", false)]);
+
+    test.app.apply_core_event(Event::FreeSpace {
+        location: Location::Local,
+        path: PathBuf::from("/d"),
+        bytes: Some(THREE_GB),
+    });
+
+    assert!(testing::find_text(&testing::render_app(&test.app, 120, 30), "3.0 GB free").is_some());
+}
+
+#[test]
+fn free_space_of_a_session_folder_reaches_that_sessions_panel() {
+    let mut test = test_app(Path::new("/d"));
+    let session = test.connect(1, "srv");
+    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "a", false)]);
+
+    test.app.apply_core_event(Event::FreeSpace {
+        location: Location::Session(session),
+        path: PathBuf::from("/srv"),
+        bytes: Some(THREE_GB),
+    });
+
+    assert!(testing::find_text(&testing::render_app(&test.app, 120, 30), "3.0 GB free").is_some());
+}
+
+#[test]
+fn free_space_for_a_session_that_is_gone_is_ignored() {
+    let mut test = test_app(Path::new("/d"));
+
+    test.app.apply_core_event(Event::FreeSpace {
+        location: Location::Session(99),
+        path: PathBuf::from("/srv"),
+        bytes: Some(THREE_GB),
+    });
+
+    assert!(testing::find_text(&testing::render_app(&test.app, 120, 30), "free").is_none());
+}
+
+#[test]
+fn free_space_for_a_folder_the_panel_has_left_is_ignored() {
+    let mut test = test_app(Path::new("/d"));
+    test.list_local(vec![entry(Path::new("/d"), "a", false)]);
+
+    test.app.apply_core_event(Event::FreeSpace {
+        location: Location::Local,
+        path: PathBuf::from("/old"),
+        bytes: Some(THREE_GB),
+    });
+
+    assert!(testing::find_text(&testing::render_app(&test.app, 120, 30), "free").is_none());
+}
+
+fn dot_colour(test: &testing::TestApp, name: &str) -> ratatui::style::Color {
+    let terminal = testing::render_app(&test.app, 120, 30);
+    let (x, y) = testing::find_text(&terminal, name).expect("the tab name is drawn");
+    let row = testing::screen_rows(&terminal)[usize::from(y)].clone();
+    let after = row[row.find(name).unwrap()..].find(['\u{2022}', '\u{d7}']).expect("a marker follows the tab name");
+    let dot_x = x + unicode_width::UnicodeWidthStr::width(&row[row.find(name).unwrap()..][..after]) as u16;
+    testing::cell_fg(&terminal, dot_x, y)
+}
+
+#[test]
+fn a_session_starts_with_a_green_dot() {
+    let mut test = test_app(Path::new("/d"));
+    test.connect(1, "srv");
+
+    assert_eq!(dot_colour(&test, "srv"), test.app.theme.ok);
+}
+
+#[test]
+fn a_lost_session_turns_its_tab_dot_red_and_restoring_it_turns_it_green_again() {
+    let mut test = test_app(Path::new("/d"));
+    let session = test.connect(1, "srv");
+
+    test.app.apply_core_event(Event::SessionHealth { session, healthy: false });
+    let lost = dot_colour(&test, "srv");
+    test.app.apply_core_event(Event::SessionHealth { session, healthy: true });
+    let restored = dot_colour(&test, "srv");
+
+    assert_eq!(lost, test.app.theme.err);
+    assert_eq!(restored, test.app.theme.ok);
+}
+
+#[test]
+fn health_news_for_a_session_that_is_gone_changes_nothing() {
+    let mut test = test_app(Path::new("/d"));
+    test.connect(1, "srv");
+
+    test.app.apply_core_event(Event::SessionHealth { session: 99, healthy: false });
+
+    assert_eq!(dot_colour(&test, "srv"), test.app.theme.ok);
+}

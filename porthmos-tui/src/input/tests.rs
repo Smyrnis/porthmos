@@ -86,6 +86,9 @@ fn every_default_key_still_maps_to_its_action_on_the_screens_it_worked_on() {
         assert_eq!(bindings.map_key(scope, event), action, "{scope:?} {action:?}");
         if scope == Scope::Global {
             for other in SCOPES {
+                if *other == Scope::Files && event == key(KeyCode::F(6)) {
+                    continue;
+                }
                 assert_eq!(bindings.map_key(*other, event), action, "{other:?} {action:?}");
             }
         }
@@ -506,6 +509,9 @@ fn uppercase_letters_trigger_nothing() {
     let bindings = KeyBindings::defaults();
     for scope in SCOPES {
         for character in ['C', 'D', 'Q', 'N', 'R', 'E', 'T', 'X', 'J', 'K'] {
+            if *scope == Scope::Transfers && matches!(character, 'J' | 'K') {
+                continue;
+            }
             assert_eq!(bindings.map_key(*scope, letter(character)), Action::Noop, "{scope:?} {character}");
             let shifted = key_with_modifiers(KeyCode::Char(character), KeyModifiers::SHIFT);
             assert_eq!(bindings.map_key(*scope, shifted), Action::Noop, "{scope:?} shift {character}");
@@ -606,4 +612,156 @@ fn open_palette_round_trips_by_name_and_is_listed() {
     assert_eq!(Action::OpenPalette.name(), "open_palette");
     assert_eq!(Action::from_name("open_palette"), Some(Action::OpenPalette));
     assert!(ALL_ACTIONS.contains(&Action::OpenPalette));
+}
+
+#[test]
+fn move_is_m_and_f6_on_the_files_screen() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Files, letter('m')), Action::Move);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::F(6))), Action::Move);
+}
+
+#[test]
+fn f6_still_adds_a_connection_on_every_other_screen() {
+    let bindings = KeyBindings::defaults();
+
+    for scope in [Scope::Global, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, key(KeyCode::F(6))), Action::AddConnection, "{scope:?}");
+    }
+}
+
+#[test]
+fn m_does_nothing_outside_the_files_screen() {
+    let bindings = KeyBindings::defaults();
+
+    for scope in [Scope::Global, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, letter('m')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn move_lists_the_letter_before_the_function_key() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert_eq!(shown(Scope::Files, Action::Move), ["m", "F6"]);
+}
+
+#[test]
+fn a_global_key_taken_by_a_screen_is_not_listed_for_the_global_action_there() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert!(shown(Scope::Files, Action::AddConnection).is_empty());
+    assert_eq!(shown(Scope::Connections, Action::AddConnection), ["n", "F6"]);
+    assert_eq!(shown(Scope::Global, Action::AddConnection), ["F6"]);
+    assert_eq!(shown(Scope::Files, Action::Quit), ["q", "F10"]);
+}
+
+#[test]
+fn move_has_a_name_that_round_trips_and_is_in_the_action_list() {
+    assert_eq!(Action::Move.name(), "move");
+    assert_eq!(Action::from_name("move"), Some(Action::Move));
+    assert!(ALL_ACTIONS.contains(&Action::Move));
+}
+
+#[test]
+fn the_speed_limit_is_ctrl_l_on_the_transfers_screen_only() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Transfers, ctrl('l')), Action::SpeedLimit);
+    for scope in [Scope::Global, Scope::Files, Scope::Connections, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, ctrl('l')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn the_speed_limit_has_a_name_that_round_trips_and_is_in_the_action_list() {
+    assert_eq!(Action::SpeedLimit.name(), "speed_limit");
+    assert_eq!(Action::from_name("speed_limit"), Some(Action::SpeedLimit));
+    assert!(ALL_ACTIONS.contains(&Action::SpeedLimit));
+}
+
+#[test]
+fn the_speed_limit_key_is_listed_as_ctrl_l() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert_eq!(shown(Scope::Transfers, Action::SpeedLimit), ["Ctrl+L"]);
+}
+
+#[test]
+fn pause_is_p_on_the_transfers_screen_only() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Transfers, letter('p')), Action::Pause);
+    for scope in [Scope::Global, Scope::Connections, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, letter('p')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn pause_has_a_name_that_round_trips_and_is_in_the_action_list() {
+    assert_eq!(Action::Pause.name(), "pause");
+    assert_eq!(Action::from_name("pause"), Some(Action::Pause));
+    assert!(ALL_ACTIONS.contains(&Action::Pause));
+}
+
+fn shifted(character: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(character), KeyModifiers::SHIFT)
+}
+
+#[test]
+fn capital_k_and_j_reorder_on_the_transfers_screen_only() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Transfers, shifted('K')), Action::RowUp);
+    assert_eq!(bindings.map_key(Scope::Transfers, shifted('J')), Action::RowDown);
+    assert_eq!(bindings.map_key(Scope::Transfers, letter('k')), Action::Up);
+    assert_eq!(bindings.map_key(Scope::Transfers, letter('j')), Action::Down);
+    for scope in [Scope::Global, Scope::Files, Scope::Connections, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, shifted('K')), Action::Noop, "{scope:?}");
+        assert_eq!(bindings.map_key(scope, shifted('J')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn the_reorder_actions_have_names_that_round_trip_and_are_listed() {
+    assert_eq!(Action::RowUp.name(), "row_up");
+    assert_eq!(Action::RowDown.name(), "row_down");
+    assert_eq!(Action::from_name("row_up"), Some(Action::RowUp));
+    assert_eq!(Action::from_name("row_down"), Some(Action::RowDown));
+    assert!(ALL_ACTIONS.contains(&Action::RowUp) && ALL_ACTIONS.contains(&Action::RowDown));
+}
+
+#[test]
+fn the_reorder_keys_are_listed_as_capital_letters() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert_eq!(shown(Scope::Transfers, Action::RowUp), ["K"]);
+    assert_eq!(shown(Scope::Transfers, Action::RowDown), ["J"]);
+}
+
+#[test]
+fn p_previews_on_the_files_screen_and_pauses_on_the_transfers_screen() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Files, letter('p')), Action::Preview);
+    assert_eq!(bindings.map_key(Scope::Transfers, letter('p')), Action::Pause);
+    for scope in [Scope::Global, Scope::Connections, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, letter('p')), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn preview_has_a_name_that_round_trips_and_is_listed_with_its_key() {
+    let bindings = KeyBindings::defaults();
+    let shown = |scope, action| bindings.keys_for(scope, action).into_iter().map(format_key_spec).collect::<Vec<_>>();
+
+    assert_eq!(Action::Preview.name(), "preview");
+    assert_eq!(Action::from_name("preview"), Some(Action::Preview));
+    assert!(ALL_ACTIONS.contains(&Action::Preview));
+    assert_eq!(shown(Scope::Files, Action::Preview), ["p"]);
 }

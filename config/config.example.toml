@@ -68,10 +68,12 @@ cycle_session = "ctrl+n"
 [keys.files]
 switch_panel = "tab"
 copy = ["c", "f5"]
+move = ["m", "f6"]
 mkdir = ["n", "f7"]
 delete = ["d", "f8"]
 rename = ["r", "f2"]
 edit = ["e", "f3"]
+preview = "p"
 open_transfers = "t"
 session_1 = "1"
 session_2 = "2"
@@ -90,9 +92,13 @@ disconnect = ["x", "f8"]
 delete_connection = "delete"
 
 [keys.transfers]
+pause = "p"
 open = "r"
 delete = ["x", "f8"]
 refresh = "c"
+speed_limit = "ctrl+l"
+row_up = "K"
+row_down = "J"
 
 [keys.history]
 delete = ["c", "f8"]

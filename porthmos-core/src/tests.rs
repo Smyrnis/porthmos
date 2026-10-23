@@ -70,6 +70,45 @@ async fn saved_history_is_loaded_at_start_and_listed_on_request() {
 }
 
 #[tokio::test]
+async fn saved_last_used_times_are_published_at_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(dir.path());
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.last_used_file(), "[last_used]\nweb = \"2026-10-22T09:00:00Z\"\n").unwrap();
+
+    let (_core, mut events) = Core::builder().without_keyring().paths(paths).start().unwrap();
+
+    let published = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv()).await;
+        if let Event::LastUsed(times) = event.unwrap().unwrap() {
+            break times;
+        }
+    };
+    assert_eq!(published.len(), 1);
+    assert_eq!(published["web"], chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 10, 22, 9, 0, 0).unwrap());
+}
+
+#[tokio::test]
+async fn a_broken_last_used_file_is_set_aside_with_a_warning_at_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(dir.path());
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.last_used_file(), "not toml [").unwrap();
+
+    let (_core, mut events) = Core::builder().without_keyring().paths(paths.clone()).start().unwrap();
+
+    let warning = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv()).await;
+        match event.unwrap().unwrap() {
+            Event::Notice { severity: Severity::Warning, message } if message.contains("last-used") => break message,
+            _ => {}
+        }
+    };
+    assert!(warning.contains("last_used.toml.broken"), "{warning}");
+    assert!(paths.last_used_file().with_extension("toml.broken").exists());
+}
+
+#[tokio::test]
 async fn the_history_warning_comes_before_the_bookmark_warnings() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::in_dir(dir.path());
@@ -105,6 +144,7 @@ async fn shutting_down_a_detached_handle_returns_at_once() {
     tokio::time::timeout(std::time::Duration::from_millis(500), core.shutdown()).await.unwrap();
 }
 
+#[cfg(any(feature = "sftp", feature = "ftp", feature = "webdav", feature = "s3", feature = "scp"))]
 #[test]
 fn every_builtin_protocol_has_a_description_and_only_s3_notes_limits() {
     let dir = tempfile::tempdir().unwrap();
@@ -119,6 +159,9 @@ fn every_builtin_protocol_has_a_description_and_only_s3_notes_limits() {
         let expects_note = info.id == "s3";
         assert_eq!(info.limits_note.is_some(), expects_note, "{}", info.id);
     }
-    let s3 = protocols.iter().find(|protocol| protocol.id() == "s3").map(|protocol| protocol.limits_note());
-    assert_eq!(s3, Some(Some("no permissions or symlinks \u{b7} rename is copy + delete")));
+    #[cfg(feature = "s3")]
+    {
+        let s3 = protocols.iter().find(|protocol| protocol.id() == "s3").map(|protocol| protocol.limits_note());
+        assert_eq!(s3, Some(Some("no permissions or symlinks \u{b7} rename is copy + delete")));
+    }
 }

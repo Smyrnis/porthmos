@@ -90,3 +90,18 @@ async fn an_unreachable_server_is_a_connect_error() {
 
     assert_eq!(error.kind(), ErrorKind::Connect);
 }
+
+#[tokio::test]
+async fn the_filesystem_reports_the_servers_greeting() {
+    let server = support::start(Some("pw"), None).await;
+    let dir = tempfile::tempdir().unwrap();
+
+    let fs = Ftp::new(support::store_path(dir.path()))
+        .connect(&support::target(server.port, support::USER, Some("pw"), "plain"), &mut support::answers(vec![]))
+        .await
+        .unwrap();
+
+    let info = fs.server_info().expect("the test server greets");
+    assert!(!info.starts_with("220"), "{info}");
+    assert!(info.chars().count() <= 40);
+}

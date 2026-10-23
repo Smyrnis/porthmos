@@ -120,3 +120,35 @@ fn a_new_session_does_not_claim_to_keep_times_until_told() {
     assert!(sessions.by_id(7).unwrap().preserves_times);
     assert_eq!(sessions.iter().count(), 1);
 }
+
+#[test]
+fn a_new_session_is_healthy() {
+    let mut sessions = Sessions::new();
+    let id = add(&mut sessions, "a");
+
+    assert!(sessions.by_id(id).unwrap().healthy);
+}
+
+#[test]
+fn health_is_tracked_per_session() {
+    let mut sessions = Sessions::new();
+    let first = add(&mut sessions, "a");
+    let second = add(&mut sessions, "b");
+
+    sessions.set_healthy(first, false);
+
+    assert!(!sessions.by_id(first).unwrap().healthy);
+    assert!(sessions.by_id(second).unwrap().healthy);
+    sessions.set_healthy(first, true);
+    assert!(sessions.by_id(first).unwrap().healthy);
+}
+
+#[test]
+fn health_for_an_unknown_session_is_ignored() {
+    let mut sessions = Sessions::new();
+    let id = add(&mut sessions, "a");
+
+    sessions.set_healthy(9_999, false);
+
+    assert!(sessions.by_id(id).unwrap().healthy);
+}

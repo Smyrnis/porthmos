@@ -35,6 +35,7 @@ pub struct LineData {
     pub speed: Option<u64>,
     pub eta: Option<u64>,
     pub queued: usize,
+    pub paused: usize,
     pub incoming: bool,
     pub waiting: bool,
 }
@@ -54,9 +55,15 @@ fn percent(done: u64, total: u64) -> u8 {
     percent_of(done, total).min(100)
 }
 
+pub fn paused_summary(rows: &[QueueRow]) -> Option<String> {
+    let paused = rows.iter().filter(|row| row.state == RowState::Paused).count();
+    (paused > 0).then(|| format!("{paused} paused"))
+}
+
 pub fn line_data(rows: &[QueueRow], names: &HashMap<u64, String>, rates: &RateTracker) -> Option<LineData> {
     let running: Vec<&QueueRow> = rows.iter().filter(|row| row.state == RowState::Running).collect();
     let queued_rows = rows.iter().filter(|row| row.state == RowState::Queued).count();
+    let paused = rows.iter().filter(|row| row.state == RowState::Paused).count();
     let waiting = running.is_empty();
     let (shown, queued): (Vec<&QueueRow>, usize) = if running.is_empty() {
         (rows.iter().filter(|row| row.state == RowState::Queued).take(1).collect(), queued_rows.saturating_sub(1))
@@ -76,6 +83,7 @@ pub fn line_data(rows: &[QueueRow], names: &HashMap<u64, String>, rates: &RateTr
             speed: rates.speed(row.kind),
             eta: rates.eta_seconds(row),
             queued,
+            paused,
             incoming: row.direction == Direction::Download,
             waiting,
         }),
@@ -93,6 +101,7 @@ pub fn line_data(rows: &[QueueRow], names: &HashMap<u64, String>, rates: &RateTr
                 speed,
                 eta,
                 queued,
+                paused,
                 incoming: false,
                 waiting: false,
             })
@@ -176,7 +185,14 @@ pub fn render_transfer_line(frame: &mut Frame, area: Rect, data: &LineData, them
     }
     let width = usize::from(area.width);
     let label = printable(&data.label);
-    let queued_text = (data.queued > 0).then(|| format!("+{} queued", data.queued));
+    let counts: Vec<String> = [
+        (data.queued > 0).then(|| format!("+{} queued", data.queued)),
+        (data.paused > 0).then(|| format!("{} paused", data.paused)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let queued_text = (!counts.is_empty()).then(|| counts.join(STATS_SEPARATOR));
 
     let mut chosen = None;
     for dropped in 0..=DROP_ORDER {

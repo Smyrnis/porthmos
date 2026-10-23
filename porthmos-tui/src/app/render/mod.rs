@@ -18,10 +18,11 @@ use crate::widgets::{
     palette_view::render_palette,
     panel_view::PanelContext,
     popup::render_popup,
+    preview_view,
     session_tabs::{TabView, tabs_line},
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
-    transfer_line::{line_data, render_transfer_line},
+    transfer_line::{line_data, paused_summary, render_transfer_line},
 };
 
 const DETAILS_POPUP_WIDTH: u16 = 60;
@@ -34,6 +35,9 @@ impl App {
 
         let Some(areas) = layout::split_frame(area) else {
             self.render_too_small(frame, area);
+            if let Some(preview) = &self.preview {
+                preview_view::render_preview(frame, area, preview, &self.theme);
+            }
             return;
         };
         self.body_width.set(areas.body.width);
@@ -56,6 +60,10 @@ impl App {
         }
 
         self.render_hint_bar(frame, areas.hint_bar);
+
+        if let Some(preview) = &self.preview {
+            preview_view::render_preview(frame, area, preview, &self.theme);
+        }
 
         if let Some(notification) = self.notifications.current() {
             render_toast(frame, area, notification.severity, &notification.message, &self.theme);
@@ -193,6 +201,7 @@ impl App {
                     .find(|entry| entry.name == session.name)
                     .map_or("", |entry| entry.protocol.as_str()),
                 active: Some(session.id) == active_id,
+                healthy: session.healthy,
             })
             .collect()
     }
@@ -211,7 +220,11 @@ impl App {
             return Line::styled(truncate_with_ellipsis(&self.history.summary(), budget), self.theme.muted());
         }
         if self.screen == Screen::Transfers {
-            let summary = transfer_list::transfer_summary(self.transfer_rows(), self.rates.aggregate_speed());
+            let summary = transfer_list::transfer_summary(
+                self.transfer_rows(),
+                self.rates.aggregate_speed(),
+                self.transfers.speed_limit,
+            );
             return Line::styled(truncate_with_ellipsis(&summary, budget), self.theme.muted());
         }
         let (text, style) = match &self.connection_status {
@@ -230,7 +243,8 @@ impl App {
     fn render_files(&self, frame: &mut Frame, area: Rect) {
         let mode = layout::files_mode(area.width);
         let line = line_data(&self.transfers.rows, &self.session_names, &self.rates);
-        let layout = layout::files_layout(area, mode, line.is_some());
+        let paused_only = line.is_none().then(|| paused_summary(&self.transfers.rows)).flatten();
+        let layout = layout::files_layout(area, mode, line.is_some() || paused_only.is_some());
         let (single, show_modified) = match mode {
             layout::FilesMode::TwoPanels => (false, true),
             layout::FilesMode::SinglePanel { show_modified } => (true, show_modified),
@@ -296,6 +310,9 @@ impl App {
         render_info_line(frame, layout.info, focused, &now, theme);
         if let Some(data) = &line {
             render_transfer_line(frame, layout.transfer, data, theme);
+        } else if let Some(text) = &paused_only {
+            let text = truncate_with_ellipsis(text, usize::from(layout.transfer.width));
+            frame.render_widget(Paragraph::new(Span::styled(text, theme.muted())), layout.transfer);
         }
     }
 
@@ -327,6 +344,8 @@ impl App {
             connected: &connected_names,
             failures: &self.last_failure,
             protocols: self.core.protocols(),
+            last_used: &self.last_used,
+            now: self.clock.now().with_timezone(&chrono::Utc),
         };
         let layout = layout::connections_layout(area);
         connections_list::render_connections_list(frame, layout.list, &self.connections, &context, &self.theme);
@@ -350,7 +369,19 @@ impl App {
             }
             _ => (false, None),
         };
-        let context = connection_details::DetailsContext { protocols: self.core.protocols(), connected, failure };
+        let last_used = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
+                self.last_used.get(&entry.name).copied()
+            }
+            _ => None,
+        };
+        let context = connection_details::DetailsContext {
+            protocols: self.core.protocols(),
+            connected,
+            failure,
+            last_used,
+            now: self.clock.now().with_timezone(&chrono::Utc),
+        };
         connection_details::render_connection_details(frame, area, selection, group_count, &context, &self.theme);
     }
 

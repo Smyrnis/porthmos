@@ -28,7 +28,16 @@ impl PendingQuestions {
         }
     }
 
-    fn register(&self) -> (RequestId, oneshot::Receiver<Option<(Answer, bool)>>) {
+    #[cfg(test)]
+    pub(crate) fn pending(&self) -> usize {
+        self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).len()
+    }
+
+    pub(crate) fn forget(&self, request_id: RequestId) {
+        self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&request_id);
+    }
+
+    pub(crate) fn register(&self) -> (RequestId, oneshot::Receiver<Option<(Answer, bool)>>) {
         let request_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (reply, receiver) = oneshot::channel();
         self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(request_id, reply);

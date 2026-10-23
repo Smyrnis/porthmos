@@ -26,6 +26,7 @@ pub(crate) struct FtpFs {
     pool: Arc<Pool>,
     home: PathBuf,
     mfmt: bool,
+    greeting: Option<String>,
 }
 
 const LAST_MFMT_YEAR: i32 = 9999;
@@ -122,10 +123,10 @@ fn already_done(command: SimpleCommand, exists_now: bool) -> bool {
 }
 
 impl FtpFs {
-    pub(crate) async fn new(pool: Pool) -> Result<Self, ProtocolError> {
+    pub(crate) async fn new(pool: Pool, greeting: Option<String>) -> Result<Self, ProtocolError> {
         let home = PathBuf::from(pool.run(|connection| Box::pin(connection.pwd())).await?);
         let mfmt = advertises_mfmt(&pool).await;
-        Ok(Self { pool: Arc::new(pool), home, mfmt })
+        Ok(Self { pool: Arc::new(pool), home, mfmt, greeting })
     }
 
     async fn mlsd(&self, path: &str) -> Result<Option<Vec<ListedItem>>, ProtocolError> {
@@ -318,6 +319,14 @@ impl FtpFs {
 
 #[async_trait]
 impl FileSystem for FtpFs {
+    fn server_info(&self) -> Option<String> {
+        self.greeting.clone()
+    }
+
+    async fn connection_alive(&self) -> Option<bool> {
+        Some(self.pool.check().await)
+    }
+
     async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
         let parent = path_to_remote_string(dir);
         let mut entries = Vec::new();
@@ -335,6 +344,9 @@ impl FileSystem for FtpFs {
                 permissions: item.metadata.permissions,
                 modified: item.metadata.modified,
                 name: item.name,
+                owner: item.owner,
+                group: item.group,
+                link_target: item.link_target,
             });
         }
         Ok(entries)
@@ -391,6 +403,10 @@ impl FileSystem for FtpFs {
 
     async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
         self.remove_path(path_to_remote_string(path)).await
+    }
+
+    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+        self.simple(&path_to_remote_string(path), SimpleCommand::RemoveDir).await
     }
 
     async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
