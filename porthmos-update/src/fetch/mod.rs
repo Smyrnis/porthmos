@@ -67,6 +67,7 @@ impl Fetcher {
             .timeout(timeout)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(policy)
+            .referer(false)
             .build()?;
         Ok(Fetcher { client, https_only })
     }

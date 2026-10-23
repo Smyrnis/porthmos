@@ -221,3 +221,21 @@ async fn the_checker_asks_with_the_given_user_agent() {
 
     assert_eq!(server.user_agents(), ["porthmos/9.9.9", "porthmos/9.9.9"]);
 }
+
+#[tokio::test]
+async fn the_production_checker_refuses_plain_http_without_connecting() {
+    let release = release("0.5.0", TARGET);
+    let server = serve(&release).await;
+    let checker = Checker::new(
+        &server.url("/latest.json"),
+        vec![parse_public_key(&release.public).unwrap()],
+        TARGET,
+        "porthmos/9.9.9",
+    )
+    .unwrap();
+
+    let result = checker.check(&version("0.4.0")).await;
+
+    assert!(matches!(&result, Err(CheckError::Fetch(text)) if text.contains("https")), "{result:?}");
+    assert_eq!(server.request_count(), 0);
+}

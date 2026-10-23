@@ -72,6 +72,18 @@ async fn a_redirect_is_followed() {
 }
 
 #[tokio::test]
+async fn a_redirected_request_carries_no_referer() {
+    let server =
+        TestServer::start(vec![("/a", Route::Redirect("/b".to_string())), ("/b", Route::Body(b"arrived".to_vec()))])
+            .await;
+
+    patient().get(&server.url("/a?token=secret"), 1000).await.unwrap();
+
+    assert_eq!(server.request_count(), 2);
+    assert!(!server.header_names().iter().any(|name| name == "referer"), "{:?}", server.header_names());
+}
+
+#[tokio::test]
 async fn a_redirect_loop_ends_in_an_error() {
     let server = TestServer::start(vec![("/a", Route::Redirect("/a".to_string()))]).await;
     let started = Instant::now();
