@@ -5,6 +5,7 @@ use tracing_subscriber::prelude::*;
 compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
 
 mod app;
+mod cli;
 mod clock;
 mod input;
 mod logging;
@@ -78,6 +79,18 @@ fn start_app(
 const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn main() -> Result<()> {
+    match cli::interpret(std::env::args().skip(1)) {
+        cli::Invocation::Run => {}
+        cli::Invocation::Print(text) => {
+            println!("{text}");
+            return Ok(());
+        }
+        cli::Invocation::Reject(message) => {
+            eprintln!("porthmos: {message}");
+            eprintln!("try 'porthmos --help'");
+            std::process::exit(2);
+        }
+    }
     porthmos_core::disable_core_dumps();
     let runtime = tokio::runtime::Runtime::new()?;
     let result = runtime.block_on(run());
