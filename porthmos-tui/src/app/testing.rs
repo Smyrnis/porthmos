@@ -39,6 +39,10 @@ pub(crate) fn entry(dir: &Path, name: &str, is_dir: bool) -> Entry {
     }
 }
 
+pub(crate) fn cursor_name(panel: &crate::widgets::panel_view::PanelView) -> Option<&str> {
+    panel.current_entry().map(|entry| entry.name.as_str())
+}
+
 impl TestApp {
     pub(crate) fn sent(&mut self) -> Vec<Command> {
         std::iter::from_fn(|| self.commands.try_recv().ok()).collect()

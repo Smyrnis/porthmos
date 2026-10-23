@@ -34,10 +34,12 @@ const MAX_NAME_WIDTH: usize = 18;
 const MIN_PROTOCOL_WIDTH: usize = 3;
 const MAX_PROTOCOL_WIDTH: usize = 10;
 const MIN_DETAIL_WIDTH: usize = 14;
+const CONNECTION_LOST: &str = "connection lost";
 const DOT: &str = "\u{2022}";
 
 pub struct ConnectionsContext<'a> {
     pub connected: &'a HashSet<&'a str>,
+    pub lost: &'a HashSet<&'a str>,
     pub failures: &'a HashMap<String, String>,
     pub protocols: &'a [ProtocolInfo],
     pub last_used: &'a BTreeMap<String, DateTime<Utc>>,
@@ -185,10 +187,11 @@ fn connection_line(
     }
 
     let connected = context.connected.contains(entry.name.as_str());
+    let lost = context.lost.contains(entry.name.as_str());
     let failure = context.failures.get(&entry.name);
     let dot_style = if connected {
         theme.ok_text()
-    } else if failure.is_some() {
+    } else if failure.is_some() || lost {
         theme.err_text()
     } else {
         theme.idle_text()
@@ -208,6 +211,7 @@ fn connection_line(
     let fixed = MARKER_WIDTH + indent.width() + 2 + columns.name + COLUMN_GAP + columns.protocol + COLUMN_GAP;
     let (detail, detail_style) = match failure {
         Some(message) => (printable(message.lines().next().unwrap_or("")), theme.err_text()),
+        None if lost => (CONNECTION_LOST.to_string(), theme.err_text()),
         None => (host_text(entry, context.protocols), theme.dim()),
     };
     let age_width = if columns.show_age { COLUMN_GAP + columns.age } else { 0 };

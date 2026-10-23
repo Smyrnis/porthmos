@@ -84,7 +84,7 @@ fn cancelling_the_copy_queues_nothing_and_says_so() {
 fn the_prompt_waits_for_an_open_dialog_to_close() {
     let mut test = app();
     test.app.dialog = Some(Dialog::Confirm(ConfirmDialog::new("Delete \"x\"?")));
-    test.app.pending_action = Some(PendingAction::Delete);
+    test.app.pending_action = Some(PendingAction::Delete { location: Location::Local, paths: Vec::new() });
 
     review(&mut test, 1, vec![file("a.txt", true)]);
     assert!(matches!(test.app.dialog, Some(Dialog::Confirm(_))));

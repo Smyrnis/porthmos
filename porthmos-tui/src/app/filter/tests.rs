@@ -6,7 +6,7 @@ use porthmos_core::{Command, Location};
 use crate::{
     app::{
         Screen,
-        testing::{TYPED, entry, test_app},
+        testing::{TYPED, cursor_name, entry, test_app},
     },
     widgets::{filter_line::FilterLine, panel_view::Row},
 };
@@ -84,7 +84,7 @@ fn enter_on_a_folder_while_typing_does_not_open_it() {
     let mut test = filtered_app();
     press(&mut test, KeyCode::Char('/'));
     type_text(&mut test, "porth");
-    assert_eq!(test.app.local.current_entry_name(), Some("porthmos"));
+    assert_eq!(cursor_name(&test.app.local), Some("porthmos"));
 
     press(&mut test, KeyCode::Enter);
 
@@ -209,7 +209,7 @@ fn the_remote_panel_filters_too() {
     let panel = &test.app.sessions.active().unwrap().panel;
     assert!(panel.editing_filter());
     assert_eq!(panel.filter(), Some("ww"));
-    assert_eq!(panel.current_entry_name(), Some("www"));
+    assert_eq!(cursor_name(panel), Some("www"));
     assert_eq!(test.app.local.filter(), None);
 }
 

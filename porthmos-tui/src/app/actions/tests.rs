@@ -315,7 +315,21 @@ fn f4_on_a_connection_with_a_shell_asks_the_core_for_it() {
 
     test.app.apply_action(Action::OpenTerminal);
 
-    assert_eq!(test.sent(), vec![Command::PrepareShell { session }]);
+    assert_eq!(test.sent(), vec![Command::PrepareShell { session, directory: Some(PathBuf::from("/")) }]);
+}
+
+#[test]
+fn f4_opens_the_shell_in_the_folder_shown_on_the_remote_panel() {
+    let mut test = app_in("/d");
+    let session = test.connect(8, "srv");
+    test.list_remote(session, "/home/tester/docs", Vec::new());
+
+    test.app.apply_action(Action::OpenTerminal);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::PrepareShell { session, directory: Some(PathBuf::from("/home/tester/docs")) }]
+    );
 }
 
 #[test]

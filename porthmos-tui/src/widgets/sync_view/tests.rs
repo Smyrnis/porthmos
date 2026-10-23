@@ -34,6 +34,7 @@ fn plan(direction: SyncDirection, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         options: SyncOptions { direction, by: SyncBy::Time, subfolders: true },
         items,
         skipped_symlinks: 0,
+        unreadable_folders: Vec::new(),
     })
 }
 

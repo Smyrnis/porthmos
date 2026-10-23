@@ -85,13 +85,23 @@ impl PanelView {
     }
 
     pub fn replace_listing(&mut self, path: PathBuf, entries: Vec<Entry>) {
-        if path != self.path() {
+        let same_folder = path == self.path();
+        if !same_folder {
             self.editing_filter = false;
             self.free_bytes = None;
         }
+        let cursor_anchor = if same_folder { self.anchor_at_cursor() } else { None };
+        if same_folder {
+            let present: HashSet<&Path> = entries.iter().map(|entry| entry.path.as_path()).collect();
+            self.selected.retain(|path| present.contains(path.as_path()));
+        } else {
+            self.selected.clear();
+        }
         self.listing.replace(path, entries);
         self.anchor = None;
-        self.selected.clear();
+        if let Some(position) = cursor_anchor.and_then(|anchor| self.position_of(&anchor)) {
+            self.cursor = position;
+        }
         self.clamp_cursor();
     }
 
@@ -174,13 +184,6 @@ impl PanelView {
             if !self.selected.remove(&path) {
                 self.selected.insert(path);
             }
-        }
-    }
-
-    pub fn current_entry_name(&self) -> Option<&str> {
-        match self.rows().get(self.cursor) {
-            Some(Row::Entry(entry)) => Some(entry.name.as_str()),
-            _ => None,
         }
     }
 

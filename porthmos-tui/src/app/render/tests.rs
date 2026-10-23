@@ -1600,3 +1600,15 @@ fn the_files_screen_reminds_you_of_paused_transfers_when_nothing_else_is_running
     let bottom = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
     assert!(bottom.contains("1 paused"), "{bottom}");
 }
+
+#[test]
+fn the_connections_summary_counts_lost_sessions_apart_from_connected_ones() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    add_session(&mut app, 2, "backup");
+    app.apply_core_event(Event::SessionHealth { session: 2, healthy: false });
+
+    let top = row_symbols(&render_app(&app, 120, 24), 0);
+
+    assert!(top.trim_end().ends_with("1 connected \u{b7} 1 lost"), "{top:?}");
+}

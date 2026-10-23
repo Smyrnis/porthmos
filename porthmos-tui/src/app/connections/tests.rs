@@ -1674,3 +1674,39 @@ fn a_test_question_with_no_form_open_is_ignored() {
     assert!(test.app.dialog.is_none());
     assert!(test.app.stashed_form.is_none());
 }
+
+#[test]
+fn enter_on_a_connected_session_just_switches_to_it() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.sent();
+
+    test.app.apply_action(Action::Open);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn enter_on_a_lost_session_drops_it_and_connects_again() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.app.apply_core_event(Event::SessionHealth { session: 2, healthy: false });
+    test.sent();
+
+    test.app.apply_action(Action::Open);
+
+    assert_eq!(test.sent(), vec![Command::Disconnect { session: 2 }, Command::Connect { profile: "prod".to_string() }]);
+}
+
+#[test]
+fn a_restored_session_is_switched_to_again_not_reconnected() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.app.apply_core_event(Event::SessionHealth { session: 2, healthy: false });
+    test.app.apply_core_event(Event::SessionHealth { session: 2, healthy: true });
+    test.sent();
+
+    test.app.apply_action(Action::Open);
+
+    assert!(test.sent().is_empty());
+}

@@ -18,7 +18,8 @@ impl App {
             self.notifications.push(Severity::Warning, "This connection doesn't support a terminal session");
             return;
         }
-        self.core.send(Command::PrepareShell { session: session.id });
+        let directory = Some(session.panel.path().to_path_buf());
+        self.core.send(Command::PrepareShell { session: session.id, directory });
     }
 
     pub(super) async fn launch_shell(
@@ -333,9 +334,13 @@ impl App {
             self.notifications.push(Severity::Warning, "That connection no longer exists");
             return false;
         }
-        if let Some(session) = self.sessions.by_name(name).map(|session| session.id) {
-            self.sessions.activate(session);
-            return true;
+        if let Some(session) = self.sessions.by_name(name) {
+            let (id, healthy) = (session.id, session.healthy);
+            if healthy {
+                self.sessions.activate(id);
+                return true;
+            }
+            self.core.send(Command::Disconnect { session: id });
         }
         self.core.send(Command::Connect { profile: name.to_string() });
         true

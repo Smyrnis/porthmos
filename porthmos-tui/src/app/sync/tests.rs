@@ -300,6 +300,7 @@ fn plan_with_id(sync_id: u64, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         options: SyncOptions { direction: SyncDirection::LocalToRemote, by: SyncBy::Time, subfolders: true },
         items,
         skipped_symlinks: 0,
+        unreadable_folders: Vec::new(),
     })
 }
 

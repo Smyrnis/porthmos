@@ -158,3 +158,106 @@ fn a_confirm_dialog_ignores_keys_it_does_not_own() {
     assert!(matches!(test.app.dialog, Some(Dialog::Confirm(_))));
     test.assert_inert(Screen::Files);
 }
+
+#[test]
+fn a_refresh_while_the_delete_dialog_is_open_does_not_change_what_is_deleted() {
+    let mut test = test_app(Path::new("/d"));
+    test.list_local(vec![entry(Path::new("/d"), "big.txt", false)]);
+    test.app.local.cursor = 1;
+    test.app.apply_action(Action::Delete);
+
+    test.list_local(vec![entry(Path::new("/d"), "aaa.bin", false), entry(Path::new("/d"), "big.txt", false)]);
+    test.app.local.cursor = 1;
+    test.app.apply_dialog_key(key(KeyCode::Char('y')));
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Delete { location: Location::Local, paths: vec![PathBuf::from("/d/big.txt")] }]
+    );
+}
+
+#[test]
+fn a_delete_confirmed_after_switching_panels_still_targets_the_original_panel() {
+    let mut test = app_with_file("doomed.txt");
+    let session = test.connect(2, "srv");
+    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "keep.txt", false)]);
+    test.app.apply_action(Action::Delete);
+
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.apply_dialog_key(key(KeyCode::Char('y')));
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Delete { location: Location::Local, paths: vec![PathBuf::from("/d/doomed.txt")] }]
+    );
+}
+
+#[test]
+fn a_refresh_while_the_rename_dialog_is_open_does_not_change_what_is_renamed() {
+    let mut test = test_app(Path::new("/d"));
+    test.list_local(vec![entry(Path::new("/d"), "big.txt", false)]);
+    test.app.local.cursor = 1;
+    test.app.apply_action(Action::Rename);
+    if let Some(Dialog::TextInput(dialog)) = test.app.dialog.as_mut() {
+        dialog.value = "renamed.txt".to_string();
+    }
+
+    test.list_local(vec![entry(Path::new("/d"), "aaa.bin", false), entry(Path::new("/d"), "big.txt", false)]);
+    test.app.local.cursor = 1;
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Rename {
+            location: Location::Local,
+            from: PathBuf::from("/d/big.txt"),
+            to: PathBuf::from("/d/renamed.txt"),
+        }]
+    );
+}
+
+fn submit_name(test: &mut TestApp, action: Action, name: &str) {
+    test.app.apply_action(action);
+    if let Some(Dialog::TextInput(dialog)) = test.app.dialog.as_mut() {
+        dialog.value = name.to_string();
+    }
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+}
+
+#[test]
+fn a_rename_to_a_path_or_an_empty_name_is_refused() {
+    for name in ["/tmp/escaped.txt", "../x", "a/b", ".", "..", ""] {
+        let mut test = app_with_file("old.txt");
+
+        submit_name(&mut test, Action::Rename, name);
+
+        assert!(test.sent().is_empty(), "{name:?} was sent");
+        assert!(test.notification().is_some(), "{name:?} gave no warning");
+    }
+}
+
+#[test]
+fn a_new_folder_named_like_a_path_or_empty_is_refused() {
+    for name in ["/tmp/escaped", "../x", "a/b", ".", "..", ""] {
+        let mut test = app_with_file("old.txt");
+
+        submit_name(&mut test, Action::Mkdir, name);
+
+        assert!(test.sent().is_empty(), "{name:?} was sent");
+        assert!(test.notification().is_some(), "{name:?} gave no warning");
+    }
+}
+
+#[test]
+fn names_with_spaces_dots_and_unicode_are_accepted() {
+    for name in ["my file (1).txt", ".hidden", "..x", "ünï.txt"] {
+        let mut test = app_with_file("old.txt");
+
+        submit_name(&mut test, Action::Mkdir, name);
+
+        assert_eq!(
+            test.sent(),
+            vec![Command::CreateDir { location: Location::Local, path: PathBuf::from("/d").join(name) }]
+        );
+    }
+}

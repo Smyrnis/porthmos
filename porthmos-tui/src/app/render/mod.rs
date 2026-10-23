@@ -338,10 +338,17 @@ impl App {
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
-        let connected_names: std::collections::HashSet<&str> =
-            self.sessions.iter().map(|session| session.name.as_str()).collect();
+        let name_set = |healthy: bool| -> std::collections::HashSet<&str> {
+            self.sessions
+                .iter()
+                .filter(|session| session.healthy == healthy)
+                .map(|session| session.name.as_str())
+                .collect()
+        };
+        let (connected_names, lost_names) = (name_set(true), name_set(false));
         let context = connections_list::ConnectionsContext {
             connected: &connected_names,
+            lost: &lost_names,
             failures: &self.last_failure,
             protocols: self.core.protocols(),
             last_used: &self.last_used,
@@ -363,11 +370,12 @@ impl App {
             Some(porthmos_core::connections_tree::TreeRow::Group { count, .. }) => *count,
             _ => 0,
         };
-        let (connected, failure) = match &selection {
-            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
-                (self.sessions.by_name(&entry.name).is_some(), self.last_failure.get(&entry.name).map(String::as_str))
-            }
-            _ => (false, None),
+        let (session_health, failure) = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => (
+                self.sessions.by_name(&entry.name).map(|session| session.healthy),
+                self.last_failure.get(&entry.name).map(String::as_str),
+            ),
+            _ => (None, None),
         };
         let last_used = match &selection {
             Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
@@ -377,7 +385,8 @@ impl App {
         };
         let context = connection_details::DetailsContext {
             protocols: self.core.protocols(),
-            connected,
+            connected: session_health == Some(true),
+            lost: session_health == Some(false),
             failure,
             last_used,
             now: self.clock.now().with_timezone(&chrono::Utc),
@@ -392,7 +401,8 @@ impl App {
     }
 
     fn connections_summary(&self) -> String {
-        let connected = self.sessions.iter().count();
+        let connected = self.sessions.iter().filter(|session| session.healthy).count();
+        let lost = self.sessions.iter().count() - connected;
         let errors = self.last_failure.len();
         let mut parts = Vec::new();
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
@@ -400,6 +410,9 @@ impl App {
         }
         if connected > 0 {
             parts.push(format!("{connected} connected"));
+        }
+        if lost > 0 {
+            parts.push(format!("{lost} lost"));
         }
         if errors > 0 {
             parts.push(format!("{errors} {}", if errors == 1 { "error" } else { "errors" }));

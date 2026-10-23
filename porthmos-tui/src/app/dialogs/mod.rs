@@ -2,6 +2,18 @@ use porthmos_core::Answer;
 
 use super::*;
 
+fn name_problem(name: &str) -> Option<&'static str> {
+    if name.is_empty() {
+        Some("A name can't be empty")
+    } else if name == "." || name == ".." {
+        Some("A name can't be \".\" or \"..\"")
+    } else if name.contains('/') {
+        Some("A name can't contain \"/\"")
+    } else {
+        None
+    }
+}
+
 impl App {
     pub(super) fn open_mkdir_dialog(&mut self) {
         if self.screen != Screen::Files {
@@ -20,13 +32,16 @@ impl App {
             return;
         }
 
-        let current_name = self.active_location().and_then(|location| self.panel(location)?.current_entry_name());
-        let Some(current_name) = current_name else {
+        let Some(location) = self.active_location() else {
             return;
         };
+        let Some(entry) = self.panel(location).and_then(|panel| panel.current_entry()) else {
+            return;
+        };
+        let (from, current_name) = (entry.path.clone(), entry.name.clone());
 
         self.dialog = Some(Dialog::TextInput(TextInputDialog::new("Rename to", current_name)));
-        self.pending_action = Some(PendingAction::Rename);
+        self.pending_action = Some(PendingAction::Rename { location, from });
     }
 
     pub(super) fn open_delete_dialog(&mut self) {
@@ -34,7 +49,10 @@ impl App {
             return;
         }
 
-        let Some(targets) = self.active_location().and_then(|location| Some(self.panel(location)?.targets())) else {
+        let Some(location) = self.active_location() else {
+            return;
+        };
+        let Some(targets) = self.panel(location).map(PanelView::targets) else {
             return;
         };
         if targets.is_empty() {
@@ -49,10 +67,13 @@ impl App {
         };
 
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
-        self.pending_action = Some(PendingAction::Delete);
+        self.pending_action = Some(PendingAction::Delete { location, paths: targets });
     }
 
     fn create_directory(&mut self, name: &str) {
+        if self.refuse_bad_name(name) {
+            return;
+        }
         let Some(location) = self.active_location() else {
             return;
         };
@@ -63,30 +84,22 @@ impl App {
         self.core.send(Command::CreateDir { location, path });
     }
 
-    fn rename_current(&mut self, new_name: &str) {
-        let Some(location) = self.active_location() else {
+    fn rename_entry(&mut self, location: Location, from: PathBuf, new_name: &str) {
+        if self.refuse_bad_name(new_name) {
+            return;
+        }
+        let Some(to) = from.parent().map(|parent| parent.join(new_name)) else {
             return;
         };
-        let Some(panel) = self.panel(location) else {
-            return;
-        };
-        let Some(current_name) = panel.current_entry_name() else {
-            return;
-        };
-        let from = panel.path().join(current_name);
-        let to = panel.path().join(new_name);
         self.core.send(Command::Rename { location, from, to });
     }
 
-    fn delete_targets(&mut self) {
-        let Some(location) = self.active_location() else {
-            return;
+    fn refuse_bad_name(&mut self, name: &str) -> bool {
+        let Some(problem) = name_problem(name) else {
+            return false;
         };
-        let Some(panel) = self.panel(location) else {
-            return;
-        };
-        let paths = panel.targets();
-        self.core.send(Command::Delete { location, paths });
+        self.notifications.push(Severity::Warning, problem);
+        true
     }
 
     pub(super) fn apply_dialog_key(&mut self, key: KeyEvent) {
@@ -120,12 +133,14 @@ impl App {
             DialogOutcome::Confirmed => {
                 self.dialog = None;
                 match self.pending_action.take() {
-                    Some(PendingAction::Delete) => self.delete_targets(),
+                    Some(PendingAction::Delete { location, paths }) => {
+                        self.core.send(Command::Delete { location, paths })
+                    }
                     Some(PendingAction::DeleteConnection { name }) => {
                         self.core.send(Command::DeleteProfile { name });
                     }
                     Some(PendingAction::ClearHistory) => self.core.send(Command::ClearHistory),
-                    Some(PendingAction::QuitWhileSaving) => self.should_quit = true,
+                    Some(PendingAction::ConfirmQuit) => self.should_quit = true,
                     Some(PendingAction::EditUpload { edit_id }) => {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Upload })
                     }
@@ -141,12 +156,12 @@ impl App {
                 self.dialog = None;
                 match self.pending_action.take() {
                     Some(PendingAction::Mkdir) => self.create_directory(&value),
-                    Some(PendingAction::Rename) => self.rename_current(&value),
+                    Some(PendingAction::Rename { location, from }) => self.rename_entry(location, from, &value),
                     Some(PendingAction::AddBookmark) => self.add_bookmark(value),
                     Some(PendingAction::SpeedLimit) => self.apply_speed_limit(&value),
                     Some(PendingAction::SubmitPassword { .. })
                     | Some(PendingAction::SubmitTestPassword { .. })
-                    | Some(PendingAction::Delete)
+                    | Some(PendingAction::Delete { .. })
                     | Some(PendingAction::TrustHostKey { .. })
                     | Some(PendingAction::TrustCertificate { .. })
                     | Some(PendingAction::AddConnection)
@@ -159,7 +174,7 @@ impl App {
                     | Some(PendingAction::ClearHistory)
                     | Some(PendingAction::EditUpload { .. })
                     | Some(PendingAction::EditConflict { .. })
-                    | Some(PendingAction::QuitWhileSaving)
+                    | Some(PendingAction::ConfirmQuit)
                     | Some(PendingAction::StartSync { .. })
                     | None => {}
                 }

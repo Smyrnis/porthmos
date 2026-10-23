@@ -19,13 +19,14 @@ use crate::{
     },
 };
 
-const KEY_WIDTH: usize = 12;
+const KEY_WIDTH: usize = 14;
 const SAVED: &str = "saved";
 const LAST_USED_KEY: &str = "last used";
 
 pub struct DetailsContext<'a> {
     pub protocols: &'a [ProtocolInfo],
     pub connected: bool,
+    pub lost: bool,
     pub failure: Option<&'a str>,
     pub last_used: Option<DateTime<Utc>>,
     pub now: DateTime<Utc>,
@@ -125,6 +126,8 @@ fn connection_header(
     let right = if let Some(failure) = context.failure {
         let text = truncate_with_ellipsis(&printable(failure.lines().next().unwrap_or("")), width / 2);
         Some(Span::styled(format!("\u{2022} {text}"), theme.err_text()))
+    } else if context.lost {
+        Some(Span::styled("\u{2022} connection lost", theme.err_text()))
     } else if context.connected {
         Some(Span::styled("\u{2022} connected", theme.ok_text()))
     } else {

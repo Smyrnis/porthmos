@@ -366,3 +366,81 @@ fn quitting_when_no_edit_is_being_saved_quits_at_once() {
     assert!(test.app.should_quit);
     assert!(test.app.dialog.is_none());
 }
+
+fn quit_with(snapshot: porthmos_core::transfer::TransferSnapshot) -> TestApp {
+    let mut test = test_app(Path::new("/d"));
+    test.app.apply_core_event(Event::TransfersChanged(snapshot));
+    test.app.apply_action(Action::Quit);
+    test
+}
+
+fn running_job() -> porthmos_core::transfer::ActiveJob {
+    porthmos_core::transfer::ActiveJob {
+        id: 1,
+        display_name: "aaa.bin".to_string(),
+        direction: porthmos_core::transfer::Direction::Upload,
+        batch_id: None,
+        transferred_bytes: 10,
+        total_bytes: 100,
+        percent: 10,
+    }
+}
+
+#[test]
+fn quitting_during_a_transfer_asks_first() {
+    let mut test =
+        quit_with(porthmos_core::transfer::TransferSnapshot { active: vec![running_job()], ..Default::default() });
+
+    assert!(!test.app.should_quit);
+    match &test.app.dialog {
+        Some(Dialog::Confirm(dialog)) => assert!(dialog.message.contains("transfers"), "{}", dialog.message),
+        _ => panic!("expected a confirm dialog"),
+    }
+    press(&mut test, KeyCode::Char('n'));
+    assert!(!test.app.should_quit);
+
+    test.app.apply_action(Action::Quit);
+    press(&mut test, KeyCode::Char('y'));
+    assert!(test.app.should_quit);
+}
+
+#[test]
+fn quitting_with_queued_or_scanning_transfers_asks_first() {
+    let queued = quit_with(porthmos_core::transfer::TransferSnapshot { queued: 2, ..Default::default() });
+    let scanning = quit_with(porthmos_core::transfer::TransferSnapshot {
+        scanning: vec!["docs".to_string()],
+        ..Default::default()
+    });
+
+    for test in [queued, scanning] {
+        assert!(!test.app.should_quit);
+        assert!(matches!(test.app.dialog, Some(Dialog::Confirm(_))));
+    }
+}
+
+#[test]
+fn quitting_with_an_idle_queue_quits_at_once() {
+    let test = quit_with(porthmos_core::transfer::TransferSnapshot::default());
+
+    assert!(test.app.should_quit);
+}
+
+#[test]
+fn the_quit_question_names_both_reasons_when_both_apply() {
+    let mut test = test_app(Path::new("/d"));
+    test.app.apply_core_event(Event::EditsBusy(true));
+    test.app.apply_core_event(Event::TransfersChanged(porthmos_core::transfer::TransferSnapshot {
+        queued: 1,
+        ..Default::default()
+    }));
+
+    test.app.apply_action(Action::Quit);
+
+    match &test.app.dialog {
+        Some(Dialog::Confirm(dialog)) => {
+            assert!(dialog.message.contains("still being saved"), "{}", dialog.message);
+            assert!(dialog.message.contains("transfers"), "{}", dialog.message);
+        }
+        _ => panic!("expected a confirm dialog"),
+    }
+}

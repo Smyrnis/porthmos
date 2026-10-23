@@ -9,8 +9,8 @@ use porthmos_core::{
 use super::*;
 use crate::{
     app::testing::{
-        TYPED, TestApp, cell_fg, entry, find_text, has_unprintable_cell, render_app, screen_rows, test_app,
-        test_app_with_protocols,
+        TYPED, TestApp, cell_fg, cursor_name, entry, find_text, has_unprintable_cell, render_app, screen_rows,
+        test_app, test_app_with_protocols,
     },
     input::KeyBindings,
     palette::{Entry as PaletteEntry, Group, Target},
@@ -690,7 +690,7 @@ fn enter_on_a_file_focuses_its_panel_and_moves_the_cursor() {
     press(&mut local, KeyCode::Enter);
     assert_eq!(local.app.screen, Screen::Files);
     assert_eq!(local.app.active_panel, ActivePanel::Local);
-    assert_eq!(local.app.local.current_entry_name(), Some("c"));
+    assert_eq!(cursor_name(&local.app.local), Some("c"));
 
     let mut remote = on(Screen::Files);
     remote.connect(1, "prod");
@@ -699,7 +699,7 @@ fn enter_on_a_file_focuses_its_panel_and_moves_the_cursor() {
     open_with(&mut remote, "#y");
     press(&mut remote, KeyCode::Enter);
     assert_eq!(remote.app.active_panel, ActivePanel::Remote);
-    assert_eq!(remote.app.sessions.active().unwrap().panel.current_entry_name(), Some("y"));
+    assert_eq!(cursor_name(&remote.app.sessions.active().unwrap().panel), Some("y"));
 }
 
 #[test]

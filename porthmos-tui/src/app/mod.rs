@@ -68,8 +68,8 @@ const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
 
 enum PendingAction {
     Mkdir,
-    Rename,
-    Delete,
+    Rename { location: Location, from: PathBuf },
+    Delete { location: Location, paths: Vec<PathBuf> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
     SubmitTestPassword { request_id: RequestId },
@@ -85,7 +85,7 @@ enum PendingAction {
     ClearHistory,
     EditUpload { edit_id: u64 },
     EditConflict { edit_id: u64 },
-    QuitWhileSaving,
+    ConfirmQuit,
     StartSync { session: SessionId },
     SpeedLimit,
 }
@@ -283,11 +283,15 @@ impl App {
                 }
                 Some(core_event) = core_events.recv() => {
                     if let Event::ShellReady { invocation, .. } = core_event {
-                        self.launch_shell(terminal, invocation).await?;
+                        drop(events);
+                        let launched = self.launch_shell(terminal, invocation).await;
                         events = EventStream::new();
+                        launched?;
                     } else if let Event::EditReady { edit_id, file, editor } = core_event {
-                        self.launch_editor(terminal, edit_id, file, editor).await?;
+                        drop(events);
+                        let launched = self.launch_editor(terminal, edit_id, file, editor).await;
                         events = EventStream::new();
+                        launched?;
                     } else {
                         self.apply_core_event(core_event);
                     }

@@ -4,7 +4,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::*;
 use crate::{
-    app::testing::{cell_fg, find_text},
+    app::testing::{cell_fg, cursor_name, find_text},
     theme::{ColorDepth, ThemeSettings},
     widgets::filter_line::FilterLine,
 };
@@ -164,14 +164,60 @@ fn toggle_selection_adds_and_removes_the_current_entry() {
 }
 
 #[test]
-fn replacing_the_listing_clears_the_selection() {
+fn reloading_the_same_folder_keeps_the_selected_entries_that_still_exist() {
+    let mut panel = PanelView::from_listing(
+        PathBuf::from("/d"),
+        vec![file("/d", "a.txt", 1), file("/d", "b.txt", 1), file("/d", "c.txt", 1)],
+    );
+    panel.cursor = 2;
+    panel.toggle_selection();
+    panel.cursor = 3;
+    panel.toggle_selection();
+
+    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1), file("/d", "c.txt", 1)]);
+
+    assert_eq!(panel.selected, HashSet::from([PathBuf::from("/d/c.txt")]));
+}
+
+#[test]
+fn entering_another_folder_clears_the_selection() {
     let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "file.txt", 7)]);
     panel.cursor = 1;
     panel.toggle_selection();
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "file.txt", 7)]);
+    panel.replace_listing(PathBuf::from("/d/sub"), vec![file("/d/sub", "file.txt", 7)]);
 
     assert!(panel.selected.is_empty());
+}
+
+#[test]
+fn reloading_the_same_folder_keeps_the_cursor_on_the_same_entry() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "big.txt", 1)]);
+    panel.cursor = 1;
+
+    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "aaa.bin", 1), file("/d", "big.txt", 1)]);
+
+    assert_eq!(cursor_name(&panel), Some("big.txt"));
+}
+
+#[test]
+fn reloading_keeps_the_cursor_in_range_when_its_entry_disappears() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    panel.cursor = 2;
+
+    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+
+    assert_eq!(panel.cursor, 1);
+}
+
+#[test]
+fn reloading_keeps_the_cursor_on_the_parent_row() {
+    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    panel.cursor = 0;
+
+    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "0", 1), file("/d", "a", 1)]);
+
+    assert!(panel.on_parent_row());
 }
 
 #[test]
@@ -328,10 +374,10 @@ fn the_cursor_stays_on_its_file_while_it_matches_and_jumps_to_the_first_match_ot
 
     panel.start_filter();
     type_text(&mut panel, "r");
-    assert_eq!(panel.current_entry_name(), Some("Report.pdf"));
+    assert_eq!(cursor_name(&panel), Some("Report.pdf"));
 
     type_text(&mut panel, "th");
-    assert_eq!(panel.current_entry_name(), Some("porthmos"));
+    assert_eq!(cursor_name(&panel), Some("porthmos"));
 }
 
 #[test]
@@ -422,7 +468,7 @@ fn clearing_the_filter_returns_the_cursor_to_the_parent_row() {
 
     panel.start_filter();
     type_text(&mut panel, "o");
-    assert_eq!(panel.current_entry_name(), Some("porthmos"));
+    assert_eq!(cursor_name(&panel), Some("porthmos"));
     panel.clear_filter();
 
     assert_eq!(panel.cursor, 0);
@@ -438,7 +484,7 @@ fn the_cursor_returns_to_its_file_after_nothing_matched() {
     type_text(&mut panel, "tz");
     panel.erase_filter();
 
-    assert_eq!(panel.current_entry_name(), Some("notes.txt"));
+    assert_eq!(cursor_name(&panel), Some("notes.txt"));
 }
 
 fn rendered_at(panel: &PanelView, width: u16) -> String {
@@ -793,9 +839,9 @@ fn focus_name_moves_the_cursor_to_the_named_entry() {
     let mut panel = listing_of(&["a", "b", "c"]);
 
     assert!(panel.focus_name("c"));
-    assert_eq!(panel.current_entry_name(), Some("c"));
+    assert_eq!(cursor_name(&panel), Some("c"));
     assert!(panel.focus_name("a"));
-    assert_eq!(panel.current_entry_name(), Some("a"));
+    assert_eq!(cursor_name(&panel), Some("a"));
 }
 
 #[test]
@@ -824,7 +870,7 @@ fn focus_name_with_a_filter_only_finds_visible_rows() {
 
     assert!(!panel.focus_name("apple"));
     assert!(panel.focus_name("banana"));
-    assert_eq!(panel.current_entry_name(), Some("banana"));
+    assert_eq!(cursor_name(&panel), Some("banana"));
 }
 
 #[test]

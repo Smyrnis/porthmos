@@ -71,13 +71,14 @@ fn protocols() -> Vec<ProtocolInfo> {
 
 struct Setup<'a> {
     connected: HashSet<&'a str>,
+    lost: HashSet<&'a str>,
     failures: HashMap<String, String>,
     last_used: BTreeMap<String, DateTime<Utc>>,
 }
 
 impl<'a> Setup<'a> {
     fn new() -> Self {
-        Self { connected: HashSet::new(), failures: HashMap::new(), last_used: BTreeMap::new() }
+        Self { connected: HashSet::new(), lost: HashSet::new(), failures: HashMap::new(), last_used: BTreeMap::new() }
     }
 
     fn draw(&self, view: &ConnectionsView, width: u16, height: u16) -> Terminal<TestBackend> {
@@ -85,6 +86,7 @@ impl<'a> Setup<'a> {
         let protocols = protocols();
         let context = ConnectionsContext {
             connected: &self.connected,
+            lost: &self.lost,
             failures: &self.failures,
             protocols: &protocols,
             last_used: &self.last_used,
@@ -589,4 +591,19 @@ fn the_age_column_is_shown_on_every_row_or_on_none_whatever_the_nesting() {
         assert_eq!(rows.len(), 3, "{width}");
         assert!(with_age == 0 || with_age == rows.len(), "{width}: {rows:?}");
     }
+}
+
+#[test]
+fn a_lost_session_has_an_err_dot_and_says_so() {
+    let theme = indexed();
+    let mut setup = Setup::new();
+    setup.lost.insert("web");
+    let view = view_of(vec![entry("web")]);
+
+    let terminal = setup.draw(&view, 80, 6);
+
+    let (dot_x, dot_y) = find_text(&terminal, "\u{2022} web").unwrap();
+    assert_eq!(cell_fg(&terminal, dot_x, dot_y), theme.err);
+    let (x, y) = find_text(&terminal, "connection lost").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
 }
