@@ -6,6 +6,7 @@ use std::{
 };
 
 use bytes::Bytes;
+use flate2::{Compression, write::GzEncoder};
 use futures_util::StreamExt;
 use http_body_util::{BodyExt, Empty, Full, StreamBody, combinators::BoxBody};
 use hyper::{
@@ -132,4 +133,40 @@ impl Drop for TestServer {
     fn drop(&mut self) {
         self.task.abort();
     }
+}
+
+pub(crate) fn raw_archive(members: &[(&str, &[u8], tar::EntryType, u32)]) -> Vec<u8> {
+    let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
+    for (name, bytes, kind, mode) in members {
+        let mut header = tar::Header::new_gnu();
+        header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+        header.set_entry_type(*kind);
+        header.set_size(if *kind == tar::EntryType::Regular { bytes.len() as u64 } else { 0 });
+        header.set_mode(*mode);
+        if *kind == tar::EntryType::Symlink {
+            header.set_link_name(String::from_utf8_lossy(bytes).as_ref()).unwrap();
+        }
+        header.set_cksum();
+        let content: &[u8] = if *kind == tar::EntryType::Regular { bytes } else { &[] };
+        builder.append(&header, content).unwrap();
+    }
+    builder.into_inner().unwrap().finish().unwrap()
+}
+
+pub(crate) fn archive_with(members: &[(&str, &[u8])]) -> Vec<u8> {
+    let members: Vec<(&str, &[u8], tar::EntryType, u32)> =
+        members.iter().map(|(name, bytes)| (*name, *bytes, tar::EntryType::Regular, 0o644)).collect();
+    raw_archive(&members)
+}
+
+pub(crate) fn stub_script(version: &str) -> Vec<u8> {
+    format!("#!/bin/sh\necho \"porthmos {version}\"\n").into_bytes()
+}
+
+pub(crate) fn stub_archive(version: &str, extra_members: &[(&str, &[u8])]) -> Vec<u8> {
+    let script = stub_script(version);
+    let mut members: Vec<(&str, &[u8], tar::EntryType, u32)> =
+        vec![("porthmos", &script, tar::EntryType::Regular, 0o755)];
+    members.extend(extra_members.iter().map(|(name, bytes)| (*name, *bytes, tar::EntryType::Regular, 0o644)));
+    raw_archive(&members)
 }

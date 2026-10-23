@@ -8,6 +8,8 @@ mod staged;
 mod target;
 #[cfg(test)]
 mod testing;
+#[allow(dead_code)]
+mod unpack;
 
 pub mod keys;
 
