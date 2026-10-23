@@ -96,3 +96,51 @@ fn target_debug_shows_option_keys_but_never_their_values() {
     assert!(printed.contains("token"));
     assert!(!printed.contains("s3cr3t"));
 }
+
+fn ssh_invocation() -> ShellInvocation {
+    ShellInvocation {
+        program: "ssh".into(),
+        args: vec!["-p".into(), "22".into(), "deploy@example.com".into()],
+        env: vec![("SSHPASS".into(), "hunter2".into())],
+    }
+}
+
+fn args_of(invocation: &ShellInvocation) -> Vec<String> {
+    invocation.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect()
+}
+
+#[test]
+fn starting_in_a_directory_asks_for_a_terminal_and_changes_into_it_before_the_shell() {
+    let started = ssh_invocation().starting_in(Path::new("/home/tester/docs"));
+
+    assert_eq!(args_of(&started), ["-p", "22", "-t", "deploy@example.com", "cd '/home/tester/docs' && exec $SHELL -l"]);
+    assert_eq!(started.program, "ssh");
+    assert_eq!(started.env, ssh_invocation().env);
+}
+
+#[test]
+fn starting_in_a_directory_quotes_spaces_and_apostrophes() {
+    let started = ssh_invocation().starting_in(Path::new("/srv/it's mine; rm -rf"));
+
+    assert_eq!(args_of(&started).last().unwrap(), "cd '/srv/it'\\''s mine; rm -rf' && exec $SHELL -l");
+}
+
+#[test]
+fn starting_in_a_directory_keeps_a_sshpass_wrapper_in_front() {
+    let wrapped = ShellInvocation {
+        program: "/usr/bin/sshpass".into(),
+        args: vec!["-e".into(), "ssh".into(), "-p".into(), "22".into(), "deploy@example.com".into()],
+        env: Vec::new(),
+    };
+
+    let started = wrapped.starting_in(Path::new("/x"));
+
+    assert_eq!(args_of(&started), ["-e", "ssh", "-p", "22", "-t", "deploy@example.com", "cd '/x' && exec $SHELL -l"]);
+}
+
+#[test]
+fn an_invocation_without_arguments_is_left_as_it_was() {
+    let bare = ShellInvocation { program: "ssh".into(), args: Vec::new(), env: Vec::new() };
+
+    assert_eq!(bare.clone().starting_in(Path::new("/x")), bare);
+}

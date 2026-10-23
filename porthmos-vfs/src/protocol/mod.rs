@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, ffi::OsString, fmt, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    ffi::OsString,
+    fmt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 
@@ -64,6 +70,17 @@ pub struct ShellInvocation {
 }
 
 impl ShellInvocation {
+    pub fn starting_in(mut self, directory: &Path) -> Self {
+        let Some(destination) = self.args.pop() else {
+            return self;
+        };
+        let quoted = directory.to_string_lossy().replace('\'', "'\\''");
+        self.args.push("-t".into());
+        self.args.push(destination);
+        self.args.push(format!("cd '{quoted}' && exec $SHELL -l").into());
+        self
+    }
+
     pub fn to_command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);

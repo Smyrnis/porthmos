@@ -24,6 +24,7 @@ struct Tree {
     nodes: BTreeMap<PathBuf, Node>,
     failing_read_dirs: BTreeSet<PathBuf>,
     failing_reads: BTreeSet<PathBuf>,
+    unopenable: BTreeSet<PathBuf>,
     hanging_reads: BTreeMap<PathBuf, usize>,
     failing_home: bool,
     free_space: Option<u64>,
@@ -201,6 +202,11 @@ impl FakeFs {
 
     pub fn hanging_reads(&self, path: impl AsRef<Path>, after: usize) -> &Self {
         self.tree.lock().unwrap().hanging_reads.insert(path.as_ref().to_path_buf(), after);
+        self
+    }
+
+    pub fn deny_open(&self, path: impl AsRef<Path>) -> &Self {
+        self.tree.lock().unwrap().unopenable.insert(path.as_ref().to_path_buf());
         self
     }
 
@@ -493,6 +499,9 @@ impl FileSystem for FakeFs {
 
     async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
         let tree = self.tree.lock().unwrap();
+        if tree.unopenable.contains(path) {
+            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("Permission denied")));
+        }
         if tree.failing_reads.contains(path) {
             return Ok(Box::new(FailingReader));
         }
