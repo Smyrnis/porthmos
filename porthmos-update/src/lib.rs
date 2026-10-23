@@ -1,7 +1,11 @@
 mod digest;
+#[allow(dead_code)]
+mod fetch;
 mod manifest;
 mod signature;
 mod target;
+#[cfg(test)]
+mod testing;
 
 pub mod keys;
 
