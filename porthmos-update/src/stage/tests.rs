@@ -229,3 +229,48 @@ async fn a_leftover_staging_folder_from_a_crash_does_not_block_staging() {
 
     assert_eq!(setup.entries(), ["0.5.0", "staged.toml"]);
 }
+
+#[tokio::test]
+async fn staging_leaves_the_fresh_work_of_another_process_alone() {
+    let setup = Setup::new();
+    let other_staging = setup.dir().path().join("0.9.0.staging-4242");
+    let other_download = setup.dir().path().join("download.4242");
+    for folder in [&other_staging, &other_download] {
+        fs::create_dir_all(folder).unwrap();
+        fs::write(folder.join("partial"), b"in progress").unwrap();
+    }
+    let archive = stub_archive("0.5.0", &[]);
+    let server = TestServer::start(vec![("/p.tar.gz", Route::Body(archive.clone()))]).await;
+
+    stage(&setup, &update_for(&server, "/p.tar.gz", "0.5.0", &archive)).await.unwrap();
+
+    assert!(other_staging.join("partial").exists());
+    assert!(other_download.join("partial").exists());
+}
+
+#[tokio::test]
+async fn the_scratch_folder_is_named_after_this_process() {
+    let setup = Setup::new();
+    let server = TestServer::start(vec![("/p.tar.gz", Route::Endless)]).await;
+    let update = update_for(&server, "/p.tar.gz", "0.5.0", &vec![0u8; 1_000_000]);
+    let cancel = AtomicBool::new(false);
+    let mut scratch_names = Vec::new();
+    let root = setup.dir().path().to_path_buf();
+
+    let _ = setup
+        .stager()
+        .stage(&update, &cancel, &mut |done, _| {
+            if scratch_names.is_empty() {
+                scratch_names = fs::read_dir(&root)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                    .collect();
+            }
+            if done >= 2048 {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        })
+        .await;
+
+    assert!(scratch_names.contains(&format!("download.{}", std::process::id())), "{scratch_names:?}");
+}

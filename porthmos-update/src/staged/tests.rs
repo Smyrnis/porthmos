@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use super::*;
 
@@ -122,8 +122,51 @@ fn nothing_staged_is_none_without_creating_anything() {
 fn discard_removes_the_record_and_every_version_folder() {
     let fixture = Fixture::new();
     fixture.stage("0.5.0", b"one");
-    fs::create_dir_all(fixture.dir.path().join("0.6.0.staging-123")).unwrap();
+    fs::create_dir_all(fixture.dir.path().join("0.6.0")).unwrap();
     fs::create_dir_all(fixture.dir.path().join("download")).unwrap();
+
+    discard_staged(&fixture.dir);
+
+    assert!(fixture.names().is_empty(), "{:?}", fixture.names());
+}
+
+fn other_process_work(fixture: &Fixture) -> [PathBuf; 2] {
+    let staging = fixture.dir.path().join("0.9.0.staging-4242");
+    let download = fixture.dir.path().join("download.4242");
+    for folder in [&staging, &download] {
+        fs::create_dir_all(folder).unwrap();
+        fs::write(folder.join("partial"), b"in progress").unwrap();
+    }
+    [staging, download]
+}
+
+fn make_old(folder: &Path) {
+    let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60);
+    fs::File::open(folder).unwrap().set_modified(two_hours_ago).unwrap();
+}
+
+#[test]
+fn discarding_leaves_the_fresh_work_of_another_process_alone() {
+    let fixture = Fixture::new();
+    fixture.stage("0.5.0", b"one");
+    let work = other_process_work(&fixture);
+
+    discard_staged(&fixture.dir);
+
+    for folder in &work {
+        assert!(folder.join("partial").exists(), "{folder:?}");
+    }
+    assert!(!fixture.record_path().exists());
+}
+
+#[test]
+fn discarding_removes_work_of_another_process_that_has_gone_stale() {
+    let fixture = Fixture::new();
+    fixture.stage("0.5.0", b"one");
+    let work = other_process_work(&fixture);
+    for folder in &work {
+        make_old(folder);
+    }
 
     discard_staged(&fixture.dir);
 

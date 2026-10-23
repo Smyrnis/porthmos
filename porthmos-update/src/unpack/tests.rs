@@ -1,7 +1,7 @@
-use std::{fs, time::Instant};
+use std::fs;
 
 use super::*;
-use crate::testing::{archive_with, raw_archive, stub_archive, stub_script};
+use crate::testing::{archive_with, raw_archive, stub_archive};
 
 const CAP: u64 = 1024 * 1024;
 
@@ -39,6 +39,7 @@ impl Folder {
         names
     }
 
+    #[cfg(unix)]
     fn script(&self, name: &str, body: &str, mode: u32) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let path = self.root.path().join(name);
@@ -52,6 +53,8 @@ impl Folder {
 #[test]
 fn the_binary_is_extracted_executable_and_the_license_is_ignored() {
     use std::os::unix::fs::PermissionsExt;
+
+    use crate::testing::stub_script;
     let folder = Folder::new();
     let archive = folder.archive(&stub_archive("0.5.0", &[("LICENSE", b"MIT")]));
 
@@ -168,6 +171,8 @@ fn a_binary_that_exits_non_zero_fails() {
 #[cfg(unix)]
 #[test]
 fn a_binary_that_hangs_is_killed_at_the_timeout() {
+    use std::time::Instant;
+
     let folder = Folder::new();
     let binary = folder.script("hang", "#!/bin/sh\nexec sleep 30\n", 0o755);
     let started = Instant::now();

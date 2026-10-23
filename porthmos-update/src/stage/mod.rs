@@ -12,7 +12,7 @@ use crate::{
     Staged, UpdateDir, UpdateInfo,
     fetch::{FetchError, Fetcher},
     find_staged, sha256_hex_of_file,
-    staged::record_staged,
+    staged::{is_another_process_at_work, record_staged},
     unpack::{extract_binary, health_check},
 };
 
@@ -42,7 +42,6 @@ impl std::error::Error for StageError {}
 const ARCHIVE_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const MAX_BINARY_BYTES: u64 = 256 * 1024 * 1024;
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
-const SCRATCH: &str = "download";
 const ARCHIVE_FILE: &str = "archive.tar.gz";
 
 pub struct Stager {
@@ -82,7 +81,7 @@ impl Stager {
         {
             return Ok(staged);
         }
-        let scratch = self.dir.path().join(SCRATCH);
+        let scratch = self.dir.path().join(format!("download.{}", std::process::id()));
         let staging = self.dir.path().join(format!("{}.staging-{}", update.version, std::process::id()));
         let outcome = self.run(update, cancel, progress, &scratch, &staging).await;
         remove_folder(&scratch);
@@ -134,7 +133,10 @@ impl Stager {
     fn forget_other_versions(&self, keep: &Path) {
         let Ok(entries) = fs::read_dir(self.dir.path()) else { return };
         for entry in entries.flatten() {
-            if entry.path() != keep && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            if entry.path() != keep
+                && entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && !is_another_process_at_work(&entry.path())
+            {
                 remove_folder(&entry.path());
             }
         }

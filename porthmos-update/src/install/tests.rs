@@ -357,3 +357,31 @@ fn forgetting_the_previous_version_removes_dot_old_and_ignores_a_missing_one() {
 
     assert_eq!(world.bin_listing(), ["porthmos"]);
 }
+
+#[test]
+fn install_refuses_a_package_managed_location_even_when_the_folder_is_writable() {
+    let world = World::new();
+    let home = fs::canonicalize(world.root.path()).unwrap();
+    fs::create_dir_all(home.join(".cargo").join("bin")).unwrap();
+    let executable = home.join(".cargo").join("bin").join("porthmos");
+    write_executable(&executable, &script("0.4.0"), 0o755);
+    let staged = world.stage("0.5.0");
+
+    let result = install_for(&world.dir(), &staged, &executable, BUDGET, Some(&home));
+
+    assert!(matches!(&result, Err(InstallError::Managed(reason)) if reason.contains(".cargo/bin")), "{result:?}");
+    assert_eq!(world.run(&executable), "porthmos 0.4.0");
+    assert!(find_staged(&world.dir(), &version("0.4.0")).is_some());
+    assert_eq!(fs::read_dir(executable.parent().unwrap()).unwrap().count(), 1);
+}
+
+#[test]
+fn install_for_a_user_owned_location_still_installs() {
+    let world = World::new();
+    world.install_running("0.4.0", 0o755);
+    let staged = world.stage("0.5.0");
+
+    install_for(&world.dir(), &staged, &world.executable(), BUDGET, Some(world.root.path())).unwrap();
+
+    assert_eq!(world.run(&world.executable()), "porthmos 0.5.0");
+}

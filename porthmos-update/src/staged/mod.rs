@@ -1,6 +1,7 @@
 use std::{
     fs, io,
     path::{Component, Path, PathBuf},
+    time::Duration,
 };
 
 use semver::Version;
@@ -28,6 +29,7 @@ pub struct Staged {
 }
 
 const RECORD_FILE: &str = "staged.toml";
+const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Serialize, Deserialize)]
 struct Record {
@@ -70,11 +72,25 @@ pub fn find_staged(dir: &UpdateDir, running: &Version) -> Option<Staged> {
     usable
 }
 
+pub(crate) fn is_another_process_at_work(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
+    let process = name.rsplit_once(".staging-").map(|(_, process)| process).or_else(|| name.strip_prefix("download."));
+    let Some(process) = process.and_then(|text| text.parse::<u32>().ok()) else { return false };
+    if process == std::process::id() {
+        return false;
+    }
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age < STALE_AFTER)
+}
+
 pub fn discard_staged(dir: &UpdateDir) {
     let _ = fs::remove_file(dir.path().join(RECORD_FILE));
     let Ok(entries) = fs::read_dir(dir.path()) else { return };
     for entry in entries.flatten() {
-        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) && !is_another_process_at_work(&entry.path()) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
