@@ -208,6 +208,20 @@ impl Rig {
         }
     }
 
+    pub async fn settle_with_no_rows(
+        &mut self, answers: impl Fn(&[ConflictInfo]) -> Option<Vec<Resolution>>, notice: &str,
+    ) {
+        loop {
+            match self.event().await {
+                Event::ConflictsFound { batch_id, files } => {
+                    self.core.send(Command::ResolveConflicts { batch_id, answers: answers(&files) });
+                }
+                Event::Notice { message, .. } if message.contains(notice) => return,
+                _ => {}
+            }
+        }
+    }
+
     pub async fn scan_sync(&mut self, options: SyncOptions) -> Option<Arc<SyncPlan>> {
         self.core.send(Command::StartSync {
             session: self.session,

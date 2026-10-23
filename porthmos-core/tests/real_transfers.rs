@@ -12,13 +12,13 @@ use porthmos_core::{
     sync::{SyncAction, SyncBy, SyncDirection, SyncOptions, SyncReason},
     transfer::{
         Direction,
-        conflicts::{ConflictPolicy, Resolution},
+        conflicts::{ConflictInfo, ConflictPolicy, Resolution},
         rows::RowState,
     },
 };
 use scp_rig::{Rig, data, rig};
 
-fn no_conflicts(_: &[porthmos_core::transfer::conflicts::ConflictInfo]) -> Option<Vec<Resolution>> {
+fn no_conflicts(_: &[ConflictInfo]) -> Option<Vec<Resolution>> {
     panic!("no conflict was expected")
 }
 
@@ -65,12 +65,16 @@ async fn upload_conflict(answer: Option<Resolution>) -> Rig {
     std::fs::write(rig.local("b.txt"), b"bee").unwrap();
     std::fs::write(rig.remote("a.txt"), b"old").unwrap();
     rig.upload(&[("a.txt", false), ("b.txt", false)]);
-    rig.settle(move |files| {
+    let answers = move |files: &[ConflictInfo]| {
         assert_eq!(files.iter().map(|file| file.display_name.as_str()).collect::<Vec<_>>(), vec!["a.txt"]);
         assert_eq!(files[0].existing.map(|existing| existing.size), Some(3));
         answer.map(|answer| vec![answer])
-    })
-    .await;
+    };
+    if answer.is_none() {
+        rig.settle_with_no_rows(answers, "Copy cancelled").await;
+    } else {
+        rig.settle(answers).await;
+    }
     rig
 }
 
@@ -98,11 +102,15 @@ async fn download_conflict(answer: Resolution) -> Rig {
     std::fs::write(rig.remote("a.txt"), b"new").unwrap();
     std::fs::write(rig.local("a.txt"), b"old").unwrap();
     rig.download(&[("a.txt", false)]);
-    rig.settle(move |files| {
+    let answers = move |files: &[ConflictInfo]| {
         assert_eq!(files.len(), 1);
         Some(vec![answer])
-    })
-    .await;
+    };
+    if answer == Resolution::Skip {
+        rig.settle_with_no_rows(answers, "Skipped 1 existing file").await;
+    } else {
+        rig.settle(answers).await;
+    }
     rig
 }
 
