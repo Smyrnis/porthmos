@@ -45,6 +45,36 @@ fn sftp_status_codes_map_to_shared_error_kinds() {
     assert_eq!(sftp_error(status(StatusCode::Failure)).kind(), ErrorKind::Other);
 }
 
+fn status_with_message(code: StatusCode, message: &str) -> russh_sftp::client::error::Error {
+    russh_sftp::client::error::Error::Status(Status {
+        id: 0,
+        status_code: code,
+        error_message: message.to_string(),
+        language_tag: "en".to_string(),
+    })
+}
+
+#[test]
+fn a_server_message_that_repeats_the_status_is_shown_once() {
+    let error = sftp_error(status_with_message(StatusCode::PermissionDenied, "Permission denied"));
+
+    assert_eq!(error.to_string(), "Permission denied");
+}
+
+#[test]
+fn an_empty_server_message_shows_just_the_status() {
+    let error = sftp_error(status_with_message(StatusCode::NoSuchFile, ""));
+
+    assert_eq!(error.to_string(), "No such file");
+}
+
+#[test]
+fn a_server_message_that_adds_something_follows_the_status() {
+    let error = sftp_error(status_with_message(StatusCode::Failure, "quota exceeded"));
+
+    assert_eq!(error.to_string(), "Failure: quota exceeded");
+}
+
 #[test]
 fn the_server_supplied_names_are_used_for_owner_and_group() {
     let mut attributes = FileAttributes::empty();

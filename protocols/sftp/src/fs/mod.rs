@@ -13,7 +13,7 @@ use porthmos_vfs::{
 use russh_sftp::{
     client::{SftpSession, error::Error as SftpError, fs::Metadata as SftpMetadata},
     extensions::Statvfs,
-    protocol::{FileAttributes, OpenFlags, StatusCode},
+    protocol::{FileAttributes, OpenFlags, Status, StatusCode},
 };
 use tokio::io::AsyncSeekExt;
 
@@ -38,7 +38,16 @@ pub fn sftp_error(error: SftpError) -> ProtocolError {
         SftpError::Status(status) if status.status_code == StatusCode::PermissionDenied => ErrorKind::PermissionDenied,
         _ => ErrorKind::Other,
     };
-    ProtocolError::new(kind, error)
+    match &error {
+        SftpError::Status(status) => ProtocolError::new(kind, anyhow::anyhow!(status_text(status))),
+        _ => ProtocolError::new(kind, error),
+    }
+}
+
+fn status_text(status: &Status) -> String {
+    let code = status.status_code.to_string();
+    let message = status.error_message.trim();
+    if message.is_empty() || message.eq_ignore_ascii_case(&code) { code } else { format!("{code}: {message}") }
 }
 
 pub fn metadata_from_sftp(metadata: &SftpMetadata) -> Metadata {
