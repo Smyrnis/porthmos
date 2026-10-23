@@ -80,7 +80,6 @@ pub fn discard_staged(dir: &UpdateDir) {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn record_staged(dir: &UpdateDir, staged: &Staged) -> io::Result<()> {
     let relative =
         staged.binary.strip_prefix(dir.path()).ok().filter(|path| is_plain_relative(path)).ok_or_else(|| {
