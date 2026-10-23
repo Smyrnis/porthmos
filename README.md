@@ -4,24 +4,48 @@
 
 # Porthmos
 
-A dual-panel file manager: local files in one panel, an SSH/SFTP connection
-in the other, with saved connection profiles, bookmarks, search, and background
-file transfers between the two. It currently runs in the terminal.
+A dual-panel file manager for the terminal: local files in one panel, a
+remote connection in the other, with saved connection profiles, background
+transfers, search, folder sync and in-place editing. It talks SFTP, SCP, FTP
+and FTPS, WebDAV and S3-compatible storage.
 
 ## Features
 
-- Dual-panel file browser — local filesystem on one side, a remote SFTP
-  session on the other.
-- Saved connection profiles (host, port, username, identity file, remote
-  path, optional password), stored alongside connections read from
-  `~/.ssh/config`.
-- Background file transfers between local and remote, queued and
-  cancellable, with progress reporting.
-- Recursive filename search on both the local and remote side.
-- Bookmarks for quickly jumping back to a local path or a remote path on a
-  given host.
-- Drop to a full `ssh` terminal session for the active connection and back,
-  without losing your place in the file browser.
+- **Dual-panel browser** — the local filesystem on one side, the active
+  connection on the other. Several connections can stay open at once and you
+  switch between them with `Ctrl+N` or the number keys. Entries show size,
+  modification time, owner and link targets, and the remote panel shows free
+  space.
+- **Protocols** — SFTP and SCP (over SSH), FTP and FTPS, WebDAV, and S3 and
+  S3-compatible stores (AWS, R2, MinIO, B2). SCP is for SSH servers without
+  SFTP. SSH host keys go to `~/.ssh/known_hosts`. A new TLS certificate is
+  shown to you and remembered in `known_certificates.toml` once you accept
+  it; a certificate that has changed since is refused.
+- **Saved connections** — host, port, username, identity file, start folder
+  and optional password, alongside the hosts read from `~/.ssh/config`.
+  Connections can be grouped and tagged, and the list can be filtered. Saved
+  passwords and secrets go to the system keyring when there is one; without a
+  keyring they are kept only until Porthmos quits.
+- **Background transfers** — copy and move, files or whole folders, queued
+  and running in parallel. Transfers can be paused, reordered, cancelled and
+  speed-limited. They are written to a `.part` file first and resume after a
+  cancel, a dropped connection or a restart. A conflict dialog offers
+  overwrite, skip, rename or cancel, for one file or for all of them.
+- **Folder sync** — compare a local and a remote folder by time or size, one
+  way or both ways, review the differences, and run only the ones you tick.
+- **Edit remote files** — open a remote file in `$VISUAL`, `$EDITOR` or the
+  editor set in `config.toml`, and upload it again when you save. A file that
+  changed on the server in the meantime is never overwritten silently.
+- **Preview** — see the start of a file without downloading it.
+- **Search** — recursive filename search on either side, and a live filter
+  (`/`) for the folder you are in.
+- **History** — a log of past transfers.
+- **Bookmarks** — jump back to a local or remote folder on a given host.
+- **Command palette** — `Ctrl+P` finds actions, hosts to connect or
+  disconnect, and files in the open folders, by name.
+- **Terminal hand-off** — on SFTP and SCP connections, `F4` drops to a full
+  `ssh` session in the folder you are looking at, and returns to the browser
+  when you exit it.
 
 ## Installing
 
@@ -47,64 +71,98 @@ The repository is a Cargo workspace:
 - `porthmos-vfs` — the virtual filesystem contract every protocol
   implements (`FileSystem`, `Protocol`, `Prompter`) and the shared file types.
 - `porthmos-lfs` — the local file system as a `FileSystem`.
-- `protocols/` — one crate per remote protocol, each depending only on
-  `porthmos-vfs`:
-  - `protocols/sftp` (`porthmos-sftp`) — SSH/SFTP: connecting,
-    authentication, host keys, `~/.ssh/config` discovery and the `ssh`
-    terminal hand-off.
+- `porthmos-ssh` — SSH connections, host keys, `~/.ssh/config` discovery and
+  the `ssh` terminal hand-off, shared by the SFTP and SCP protocols.
+- `porthmos-tls` — certificate trust shared by the FTPS and WebDAV protocols.
+- `protocols/` — one crate per remote protocol:
+  - `protocols/sftp` (`porthmos-sftp`) — SFTP.
+  - `protocols/scp` (`porthmos-scp`) — SCP, for SSH servers without SFTP.
+  - `protocols/ftp` (`porthmos-ftp`) — FTP and FTPS.
+  - `protocols/webdav` (`porthmos-webdav`) — WebDAV.
+  - `protocols/s3` (`porthmos-s3`) — S3-compatible object storage.
 - `porthmos-core` — the UI-free engine: connections, listings, transfers,
-  search, profiles, bookmarks and settings. A frontend drives it by sending
-  commands and receiving events.
+  sync, editing, search, history, profiles, bookmarks and settings. A
+  frontend drives it by sending commands and receiving events. Each protocol
+  is a cargo feature, all on by default, as is `keyring`.
 - `porthmos-tui` — the terminal interface, built as the `porthmos`
   binary.
 
 ## Keybindings
 
+Keys belong to a screen. A key is looked up on the current screen first and
+then in the global table, so the same key can mean different things on
+different screens. The tables below are the defaults.
+
+**Everywhere**
+
 | Key | Action |
 | --- | --- |
-| `F1` | Help |
-| `F2` | Rename (Edit Connection on the Connections screen) |
-| `F4` | Open a terminal session on the active connection |
-| `F5` | Copy selected file(s) |
-| `F6` | Add Connection (Connections screen) |
-| `F7` | Create directory |
-| `F8` / `Delete` | Delete (Delete Connection on the Connections screen) |
-| `F9` | Open Connections screen |
-| `F10` | Quit |
-| `Tab` | Switch panel |
-| `↑` / `↓` | Move selection |
+| `?` / `F1` | Help |
+| `q` / `F10` | Quit (asks first if a transfer or an edit is still running) |
+| `Esc` | Back / dismiss |
+| `↑` `↓` / `k` `j` | Move |
 | `Enter` | Open |
 | `Space` | Toggle selection |
-| `Esc` | Back / dismiss |
+| `/` | Filter the list |
+| `F9` | Connections screen |
+| `F4` | Terminal on the active connection |
 | `Ctrl+R` | Refresh |
-| `Ctrl+C` | Cancel active transfer |
+| `Ctrl+C` | Cancel the active transfer |
 | `Ctrl+H` | Toggle hidden files |
 | `Ctrl+S` | Cycle sort order |
-| `Ctrl+D` | Bookmark current location |
-| `Ctrl+B` | Open bookmarks |
+| `Ctrl+D` / `Ctrl+B` | Bookmark here / open bookmarks |
 | `Ctrl+F` | Search |
-| `Ctrl+N` | Cycle remote session |
+| `Ctrl+T` / `Ctrl+Y` | Transfers / history |
+| `Ctrl+U` | Sync |
+| `Ctrl+P` | Command palette |
+| `Ctrl+N` | Next connection |
 
-Press `F1` in the app at any time for the full, live list — it reflects the
-actual configured bindings rather than this table.
+**Files**
+
+| Key | Action |
+| --- | --- |
+| `Tab` | Switch panel |
+| `c` / `F5` | Copy |
+| `m` / `F6` | Move |
+| `n` / `F7` | New folder |
+| `d` / `F8` | Delete |
+| `r` / `F2` | Rename |
+| `e` / `F3` | Edit |
+| `p` | Preview |
+| `t` | Transfers |
+| `1`–`9` | Switch to connection 1–9 |
+
+**Connections:** `n` / `F6` add, `e` / `F2` edit, `x` / `F8` disconnect,
+`Delete` delete the saved connection.
+
+**Transfers:** `p` pause, `r` retry, `x` / `F8` remove, `c` clear finished,
+`K` / `J` move a row up or down, `Ctrl+L` speed limit.
+
+**History:** `c` / `F8` clear.
+
+Every binding can be changed in `config.toml`. Press `F1` in the app for the
+live list — it reflects your configured bindings rather than this table.
 
 ## Configuration
 
 Settings, saved connections, and bookmarks live under
 `$XDG_CONFIG_HOME/porthmos` (or `~/.config/porthmos` if unset):
 
-- `config.toml` — panel, transfer and key-binding settings. See
+- `config.toml` — panel, transfer, edit, key-binding and theme settings. See
   [`config/config.example.toml`](config/config.example.toml) for every
   option with its default.
 - `connections.toml` — saved connection profiles.
 - `bookmarks.toml` — saved bookmarks.
+- `known_certificates.toml` — TLS certificates you chose to trust.
+
+Transfer history and other state live under `$XDG_STATE_HOME/porthmos`
+(or `~/.local/state/porthmos`).
 
 If you used this app under its old name, TermConnect, your old
 `termconnect` config folder is moved to the new location on first start,
 unless a `porthmos` folder already exists.
 
-Logs go to `$XDG_STATE_HOME/porthmos/porthmos.log` (or
-`~/.local/state/porthmos/porthmos.log`); set `RUST_LOG` to control
+Logs go to `porthmos.log` in that state folder; set `RUST_LOG` to control
 verbosity.
 
 ## Icon and brand colors
