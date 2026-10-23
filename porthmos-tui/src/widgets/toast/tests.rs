@@ -14,7 +14,14 @@ fn indexed_theme() -> Theme {
 fn draw(width: u16, height: u16, severity: Severity, message: &str) -> Terminal<TestBackend> {
     let theme = indexed_theme();
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render_toast(frame, frame.area(), severity, message, &theme)).unwrap();
+    terminal.draw(|frame| render_toast(frame, frame.area(), severity, message, None, &theme)).unwrap();
+    terminal
+}
+
+fn draw_with_hint(width: u16, height: u16, message: &str, key: &str) -> Terminal<TestBackend> {
+    let theme = indexed_theme();
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render_toast(frame, frame.area(), Severity::Error, message, Some(key), &theme)).unwrap();
     terminal
 }
 
@@ -146,7 +153,7 @@ fn the_toast_clears_what_is_underneath() {
             for y in 0..12 {
                 frame.render_widget(ratatui::widgets::Paragraph::new(filler.clone()), Rect::new(0, y, 80, 1));
             }
-            render_toast(frame, frame.area(), Severity::Info, "hi", &theme);
+            render_toast(frame, frame.area(), Severity::Info, "hi", None, &theme);
         })
         .unwrap();
 
@@ -182,4 +189,52 @@ fn the_toast_never_paints_with_a_default_background() {
     let (x, y) = find_text(&terminal, "message").expect("message is drawn");
 
     assert_ne!(cell_bg(&terminal, x, y), Color::Reset);
+}
+
+#[test]
+fn a_dismiss_hint_is_drawn_dim_on_its_own_row_below_the_message() {
+    let theme = indexed_theme();
+
+    let terminal = draw_with_hint(80, 12, "boom", "Esc");
+
+    let (_, message_row) = find_text(&terminal, "boom").expect("message is drawn");
+    let (x, y) = find_text(&terminal, "Esc to dismiss").expect("hint is drawn");
+    assert_eq!(y, message_row + 1);
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
+    assert_eq!(symbol(&terminal, 77, y + 1), "\u{2518}");
+}
+
+#[test]
+fn the_hint_names_the_key_it_is_given() {
+    let terminal = draw_with_hint(80, 12, "boom", "Backspace");
+
+    assert!(find_text(&terminal, "Backspace to dismiss").is_some());
+}
+
+#[test]
+fn without_a_key_there_is_no_hint() {
+    let terminal = draw(80, 12, Severity::Error, "boom");
+
+    assert!(find_text(&terminal, "dismiss").is_none());
+}
+
+#[test]
+fn a_full_message_and_its_hint_stay_inside_the_screen() {
+    let message = "a very long message that keeps going and going until it cannot possibly fit on the screen at all";
+
+    for width in [80, 40, 30, 20] {
+        let terminal = draw_with_hint(width, 12, message, "Esc");
+        let cells = drawn_cells(&terminal);
+        assert!(!cells.is_empty(), "width {width}");
+        assert!(cells.iter().all(|(x, _)| *x <= width - 3), "width {width}");
+        assert!(cells.iter().all(|(_, y)| (2..=7).contains(y)), "width {width}");
+    }
+}
+
+#[test]
+fn a_hint_that_does_not_fit_the_height_draws_nothing_and_does_not_panic() {
+    for (width, height) in [(0, 0), (1, 1), (20, 3), (20, 5), (80, 5)] {
+        let terminal = draw_with_hint(width, height, "boom", "Esc");
+        assert!(drawn_cells(&terminal).iter().all(|(x, y)| *x < width && *y < height));
+    }
 }

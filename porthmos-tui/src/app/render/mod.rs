@@ -66,7 +66,18 @@ impl App {
         }
 
         if let Some(notification) = self.notifications.current() {
-            render_toast(frame, area, notification.severity, &notification.message, &self.theme);
+            let dismiss_key = (notification.severity == Severity::Error)
+                .then(|| self.key_bindings.key_for(input::Scope::Global, Action::Back))
+                .flatten()
+                .map(input::format_key_spec);
+            render_toast(
+                frame,
+                area,
+                notification.severity,
+                &notification.message,
+                dismiss_key.as_deref(),
+                &self.theme,
+            );
         }
 
         if let Some(palette) = &self.palette {

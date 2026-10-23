@@ -1612,3 +1612,26 @@ fn the_connections_summary_counts_lost_sessions_apart_from_connected_ones() {
 
     assert!(top.trim_end().ends_with("1 connected \u{b7} 1 lost"), "{top:?}");
 }
+
+#[test]
+fn an_error_toast_says_how_to_dismiss_it() {
+    let (_dir, mut app) = app_in_temp_dir();
+    app.notifications.push(Severity::Error, "boom");
+
+    let terminal = render_app(&app, 100, 24);
+
+    assert!(find_text(&terminal, "Esc to dismiss").is_some());
+}
+
+#[test]
+fn warnings_and_info_toasts_have_no_dismiss_hint() {
+    for severity in [Severity::Warning, Severity::Info] {
+        let (_dir, mut app) = app_in_temp_dir();
+        app.notifications.push(severity, "careful");
+
+        let terminal = render_app(&app, 100, 24);
+
+        assert!(find_text(&terminal, "careful").is_some());
+        assert!(find_text(&terminal, "dismiss").is_none(), "{severity:?}");
+    }
+}
