@@ -1,0 +1,19 @@
+[package]
+name = "porthmos-release"
+description = "Packages, signs and verifies Porthmos release assets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+porthmos-update.workspace = true
+semver = "1"
+tar = "0.4"
+flate2 = "1"
+
+[dev-dependencies]
+tempfile.workspace = true
