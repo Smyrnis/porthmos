@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-tag:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the workspace version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match the workspace version $version"
+            exit 1
+          fi
+
+  build:
+    needs: check-tag
+    if: ${{ !cancelled() && (needs.check-tag.result == 'success' || needs.check-tag.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Workspace version
+        id: version
+        run: echo "value=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)" >> "$GITHUB_OUTPUT"
+      - run: cargo build --release --locked -p porthmos-tui --target ${{ matrix.target }}
+      - name: The binary reports its version
+        if: matrix.target != 'x86_64-apple-darwin'
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          [ "$(target/${{ matrix.target }}/release/porthmos --version)" = "porthmos $VERSION" ]
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: >
+          cargo run --release --locked -p porthmos-release -- package
+          --target ${{ matrix.target }}
+          --version "$VERSION"
+          --binary target/${{ matrix.target }}/release/porthmos
+          --license LICENSE
+          --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git fetch --tags --force
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+      - name: Version, tag and notes
+        id: release
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag=$GITHUB_REF_NAME
+            git tag -l --format='%(contents)' "$tag" > notes.txt
+          else
+            tag="v$version"
+            echo "dry run" > notes.txt
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - run: cargo build --release --locked -p porthmos-release
+      - name: Manifest
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: >
+          ./target/release/porthmos-release manifest
+          --version "$VERSION"
+          --released "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          --notes-file notes.txt
+          --base-url "https://github.com/Smyrnis/porthmos/releases/download/$TAG"
+          --artifacts dist
+          --out latest.json
+      - name: Sign
+        env:
+          PORTHMOS_SIGNING_KEY: ${{ secrets.PORTHMOS_SIGNING_KEY }}
+        run: ./target/release/porthmos-release sign --key-env PORTHMOS_SIGNING_KEY --in latest.json --out latest.json.sig
+      - name: Verify against the key built into the app
+        run: ./target/release/porthmos-release verify --in latest.json --sig latest.json.sig
+      - name: Publish the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          flags=()
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* latest.json latest.json.sig scripts/install/install.sh \
+            --title "$TAG" --notes-file notes.txt "${flags[@]}"
+      - name: Keep the dry run for inspection
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run
+          path: |
+            dist/*
+            latest.json
+            latest.json.sig
+            scripts/install/install.sh

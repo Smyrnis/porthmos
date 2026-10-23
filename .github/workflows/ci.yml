@@ -39,6 +39,8 @@ jobs:
           forbid_workspace_crates porthmos-lfs 'porthmos-(core|tls|ssh|sftp|ftp|webdav|s3|scp|tui)'
           forbid_workspace_crates porthmos-tls 'porthmos-(core|lfs|ssh|sftp|ftp|webdav|s3|scp|tui)'
           forbid_workspace_crates porthmos-ssh 'porthmos-(core|lfs|tls|sftp|ftp|webdav|s3|scp|tui)'
+          forbid_workspace_crates porthmos-update 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|tui|release)'
+          forbid_workspace_crates porthmos-release 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|tui)'
           for manifest in protocols/*/Cargo.toml; do
             crate=$(sed -n 's/^name = "\(.*\)"$/\1/p' "$manifest" | head -n 1)
             if [ "$(cargo tree -p "$crate" -e normal | grep -oE 'porthmos-[a-z0-9]+' | sort -u | grep -vxE "$crate|porthmos-vfs|porthmos-tls|porthmos-ssh")" != "" ]; then
@@ -50,3 +52,7 @@ jobs:
             echo "porthmos-tui must depend on porthmos-core only"
             exit 1
           fi
+      - name: Installer
+        run: |
+          shellcheck scripts/install/*.sh
+          bash scripts/install/test.sh
