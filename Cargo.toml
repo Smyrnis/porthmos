@@ -32,6 +32,7 @@ porthmos-vfs = { path = "porthmos-vfs" }
 porthmos-lfs = { path = "porthmos-lfs" }
 porthmos-ssh = { path = "porthmos-ssh" }
 porthmos-tls = { path = "porthmos-tls" }
+porthmos-update = { path = "porthmos-update" }
 porthmos-sftp = { path = "protocols/sftp" }
 porthmos-ftp = { path = "protocols/ftp" }
 porthmos-webdav = { path = "protocols/webdav" }
