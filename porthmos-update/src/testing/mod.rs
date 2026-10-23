@@ -26,6 +26,7 @@ pub(crate) enum Route {
     Redirect(String),
     Hang,
     Endless,
+    Chunked(Vec<u8>),
     LargeContentLength(u64),
 }
 
@@ -47,6 +48,11 @@ fn endless() -> Body {
     BodyExt::boxed(StreamBody::new(chunks.map(|chunk| Ok::<_, Infallible>(Frame::data(chunk)))))
 }
 
+fn chunked(bytes: Vec<u8>) -> Body {
+    let frames = futures_util::stream::iter([Ok::<_, Infallible>(Frame::data(Bytes::from(bytes)))]);
+    BodyExt::boxed(StreamBody::new(frames))
+}
+
 fn answer(route: Option<&Route>) -> Option<Response<Body>> {
     let builder = Response::builder();
     let response = match route {
@@ -55,6 +61,7 @@ fn answer(route: Option<&Route>) -> Option<Response<Body>> {
         Some(Route::Status(code)) => builder.status(*code).body(Empty::new().boxed()),
         Some(Route::Redirect(location)) => builder.status(302).header(LOCATION, location).body(Empty::new().boxed()),
         Some(Route::Endless) => builder.body(endless()),
+        Some(Route::Chunked(bytes)) => builder.body(chunked(bytes.clone())),
         Some(Route::LargeContentLength(length)) => builder.header(CONTENT_LENGTH, *length).body(endless()),
         Some(Route::Hang) => return None,
     };

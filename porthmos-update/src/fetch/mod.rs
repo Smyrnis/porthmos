@@ -1,7 +1,14 @@
-use std::{fmt, time::Duration};
+use std::{
+    fmt,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use anyhow::Result;
 use reqwest::{Url, redirect::Policy};
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_REDIRECTS: usize = 5;
@@ -11,6 +18,10 @@ pub(crate) enum FetchError {
     NotHttps,
     Status(u16),
     TooLarge { limit: usize },
+    SizeMismatch { expected: u64, actual: u64 },
+    HashMismatch,
+    Cancelled,
+    Disk(String),
     Network(String),
 }
 
@@ -20,6 +31,12 @@ impl fmt::Display for FetchError {
             FetchError::NotHttps => f.write_str("the address does not start with https://"),
             FetchError::Status(code) => write!(f, "the server answered {code}"),
             FetchError::TooLarge { limit } => write!(f, "the answer is larger than {limit} bytes"),
+            FetchError::SizeMismatch { expected, actual } => {
+                write!(f, "the download is {actual} bytes but {expected} were expected")
+            }
+            FetchError::HashMismatch => f.write_str("the download does not match its checksum"),
+            FetchError::Cancelled => f.write_str("the download was cancelled"),
+            FetchError::Disk(text) => write!(f, "couldn't write the download: {text}"),
             FetchError::Network(text) => f.write_str(text),
         }
     }
@@ -92,6 +109,66 @@ impl Fetcher {
         }
         Ok(body)
     }
+}
+
+fn disk_failure(error: std::io::Error) -> FetchError {
+    FetchError::Disk(error.kind().to_string())
+}
+
+impl Fetcher {
+    pub(crate) async fn get_to_file(
+        &self, url: &str, path: &Path, size: u64, sha256: &str, cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64),
+    ) -> Result<(), FetchError> {
+        if self.https_only && !starts_with_https(url) {
+            return Err(FetchError::NotHttps);
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return Err(FetchError::Cancelled);
+        }
+        let response = self.client.get(url).send().await.map_err(|error| classify(&error))?;
+        if !response.status().is_success() {
+            return Err(FetchError::Status(response.status().as_u16()));
+        }
+        if let Some(declared) = response.content_length().filter(|declared| *declared != size) {
+            return Err(FetchError::SizeMismatch { expected: size, actual: declared });
+        }
+        let mut file = tokio::fs::File::create(path).await.map_err(disk_failure)?;
+        let outcome = write_body(response, &mut file, size, sha256, cancel, progress).await;
+        drop(file);
+        if outcome.is_err() {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+        outcome
+    }
+}
+
+async fn write_body(
+    mut response: reqwest::Response, file: &mut tokio::fs::File, size: u64, sha256: &str, cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), FetchError> {
+    let mut hasher = Sha256::new();
+    let mut total: u64 = 0;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(FetchError::Cancelled);
+        }
+        let Some(chunk) = response.chunk().await.map_err(|error| classify(&error))? else { break };
+        total += chunk.len() as u64;
+        if total > size {
+            return Err(FetchError::SizeMismatch { expected: size, actual: total });
+        }
+        hasher.update(&chunk);
+        file.write_all(&chunk).await.map_err(disk_failure)?;
+        progress(total, size);
+    }
+    if total != size {
+        return Err(FetchError::SizeMismatch { expected: size, actual: total });
+    }
+    file.flush().await.map_err(disk_failure)?;
+    if crate::digest::hex(&hasher.finalize()) != sha256 {
+        return Err(FetchError::HashMismatch);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

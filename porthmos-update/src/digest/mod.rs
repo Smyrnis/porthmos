@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 
 const CHUNK: usize = 64 * 1024;
 
-fn hex(digest: &[u8]) -> String {
+pub(crate) fn hex(digest: &[u8]) -> String {
     digest.iter().fold(String::with_capacity(digest.len() * 2), |mut text, byte| {
         let _ = write!(text, "{byte:02x}");
         text

@@ -1,5 +1,6 @@
 mod check;
 mod digest;
+#[allow(dead_code)]
 mod fetch;
 mod manifest;
 mod signature;
