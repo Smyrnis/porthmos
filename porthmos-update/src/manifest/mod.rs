@@ -51,6 +51,14 @@ impl Manifest {
         Ok(manifest)
     }
 
+    pub fn artifact_for(&self, target: &str) -> Option<&Artifact> {
+        self.targets.get(target)
+    }
+
+    pub fn supersedes(&self, current: &Version) -> bool {
+        self.version > *current && (self.version.pre.is_empty() || !current.pre.is_empty())
+    }
+
     pub fn to_json(&self) -> Result<Vec<u8>> {
         let mut json = serde_json::to_vec_pretty(self)?;
         json.push(b'\n');

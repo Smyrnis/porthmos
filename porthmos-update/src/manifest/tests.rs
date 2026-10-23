@@ -112,3 +112,48 @@ fn a_version_that_is_not_semver_is_rejected() {
 fn malformed_json_is_rejected() {
     assert!(Manifest::parse(b"{ not json").is_err());
 }
+
+fn manifest_at(version: &str) -> Manifest {
+    Manifest { version: version.parse().unwrap(), ..sample() }
+}
+
+fn supersedes(manifest: &str, current: &str) -> bool {
+    manifest_at(manifest).supersedes(&current.parse().unwrap())
+}
+
+#[test]
+fn artifact_for_finds_a_listed_target_and_none_otherwise() {
+    let manifest = sample();
+
+    assert_eq!(manifest.artifact_for("x86_64-unknown-linux-gnu"), Some(&artifact()));
+    assert_eq!(manifest.artifact_for("aarch64-apple-darwin"), None);
+}
+
+#[test]
+fn a_higher_version_supersedes() {
+    for current in ["0.3.9", "0.3.0", "0.4.0-rc.1"] {
+        assert!(supersedes("0.4.0", current), "{current}");
+    }
+}
+
+#[test]
+fn the_same_or_a_lower_version_does_not() {
+    for manifest in ["0.4.0", "0.3.9", "0.1.0"] {
+        assert!(!supersedes(manifest, "0.4.0"), "{manifest}");
+    }
+}
+
+#[test]
+fn a_pre_release_manifest_does_not_supersede_a_stable_version() {
+    assert!(!supersedes("0.5.0-rc.1", "0.4.0"));
+}
+
+#[test]
+fn a_pre_release_manifest_supersedes_an_older_pre_release() {
+    assert!(supersedes("0.5.0-rc.2", "0.5.0-rc.1"));
+}
+
+#[test]
+fn a_stable_manifest_supersedes_its_own_release_candidate() {
+    assert!(supersedes("0.5.0", "0.5.0-rc.1"));
+}
