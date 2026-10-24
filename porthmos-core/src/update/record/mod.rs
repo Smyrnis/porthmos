@@ -50,12 +50,10 @@ impl UpdateRecord {
         self.file.last_checked = Some(at);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn last_failure(&self) -> Option<&str> {
         self.file.last_failure.as_deref()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn set_last_failure(&mut self, failure: Option<String>) {
         self.file.last_failure = failure;
     }
@@ -66,6 +64,13 @@ impl UpdateRecord {
 
     pub(crate) fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub(crate) fn save(&self) -> Result<()> {
+        if let Some(folder) = self.path.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
+        crate::persist::write_atomic(&self.path, self.render()?.as_bytes(), 0o600)
     }
 
     pub(crate) fn render(&self) -> Result<String> {

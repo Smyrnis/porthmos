@@ -69,6 +69,11 @@ impl Setup {
         self
     }
 
+    fn failed_install(mut self, text: &str) -> Self {
+        self.t.engine.update.record.set_last_failure(Some(text.to_string()));
+        self
+    }
+
     fn checked_at(mut self, at: DateTime<Utc>) -> Self {
         self.t.engine.update.record.set_last_checked(at);
         self.seeded_check = Some(at);
@@ -529,4 +534,34 @@ async fn the_second_check_does_not_stage_the_same_version_again() {
     let stage_calls = setup.calls().iter().filter(|call| call.starts_with("stage")).count();
     assert_eq!(stage_calls, 1);
     assert!(!setup.t.engine.update.busy);
+}
+
+#[tokio::test]
+async fn a_remembered_failure_is_reported_once_at_startup() {
+    let mut setup = Setup::new(UpdateMode::Auto).failed_install("0.9.0: boom");
+
+    setup.t.engine.start_updates();
+
+    assert_eq!(
+        notices(&setup.t.drain()),
+        [(Severity::Warning, "Couldn't install the update: 0.9.0: boom".to_string())]
+    );
+    setup.t.engine.writer.flush().await;
+    let saved = std::fs::read_to_string(setup.t.engine.paths.update_state_file()).unwrap_or_default();
+    assert!(!saved.contains("boom"), "{saved}");
+    setup.t.engine.start_updates();
+    assert!(notices(&setup.t.drain()).is_empty());
+}
+
+#[tokio::test]
+async fn a_remembered_failure_is_reported_in_notify_mode_too_but_not_in_off_mode() {
+    let mut notify = Setup::new(UpdateMode::Notify).failed_install("0.9.0: boom");
+    let mut off = Setup::new(UpdateMode::Off).failed_install("0.9.0: boom");
+
+    notify.t.engine.start_updates();
+    off.t.engine.start_updates();
+
+    assert_eq!(notices(&notify.t.drain()).len(), 1);
+    assert!(notices(&off.t.drain()).is_empty());
+    assert_eq!(off.t.engine.update.record.last_failure(), Some("0.9.0: boom"));
 }

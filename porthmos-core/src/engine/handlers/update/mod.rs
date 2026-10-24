@@ -76,6 +76,7 @@ impl Engine {
         if mode == UpdateMode::Off {
             return;
         }
+        self.report_earlier_install_failure();
         if mode == UpdateMode::Auto {
             self.announce_earlier_update();
         }
@@ -84,6 +85,13 @@ impl Engine {
         }
         let delay = self.first_check_delay();
         self.schedule_update_timer(delay);
+    }
+
+    fn report_earlier_install_failure(&mut self) {
+        let Some(failure) = self.update.record.last_failure().map(str::to_string) else { return };
+        self.report(Severity::Warning, format!("Couldn't install the update: {failure}"));
+        self.update.record.set_last_failure(None);
+        self.persist_update_record();
     }
 
     fn announce_earlier_update(&mut self) {

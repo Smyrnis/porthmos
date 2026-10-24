@@ -3,6 +3,10 @@ pub mod backend;
 #[cfg_attr(not(feature = "update"), allow(dead_code))]
 pub(crate) mod record;
 
+mod apply;
+
+pub use apply::{ApplyOutcome, apply_staged_update};
+
 #[cfg(feature = "update")]
 pub use backend::{ReleaseUpdater, Updater};
 #[cfg(feature = "update")]
