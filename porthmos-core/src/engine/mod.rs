@@ -100,6 +100,18 @@ pub(crate) enum Internal {
     #[cfg(feature = "update")]
     UpdateCheckDue,
     #[cfg(feature = "update")]
+    UpdateProgress {
+        version: String,
+        downloaded: u64,
+        total: u64,
+    },
+    #[cfg(feature = "update")]
+    UpdateStaged {
+        manual: bool,
+        version: String,
+        result: Result<crate::update::Staged, crate::update::StageError>,
+    },
+    #[cfg(feature = "update")]
     UpdateChecked {
         manual: bool,
         result: Result<crate::update::Outcome, crate::update::CheckError>,
@@ -428,6 +440,12 @@ impl Engine {
             Internal::UpdateCheckDue => self.update_check_due(),
             #[cfg(feature = "update")]
             Internal::UpdateChecked { manual, result } => self.update_checked(manual, result),
+            #[cfg(feature = "update")]
+            Internal::UpdateProgress { version, downloaded, total } => {
+                self.emit(Event::Update(crate::update::UpdateState::Downloading { version, downloaded, total }))
+            }
+            #[cfg(feature = "update")]
+            Internal::UpdateStaged { manual, version, result } => self.update_staged(manual, version, result),
             Internal::Transfer(TransferEvent::Progress { id, transferred }) => {
                 if let Some(mut job) = self.transfers.get_mut(id) {
                     job.transferred_bytes = transferred;

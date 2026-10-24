@@ -60,6 +60,15 @@ impl Setup {
         Setup { t, fake, seeded_check: None }
     }
 
+    fn updatable_executable(mut self) -> Self {
+        let folder = self.t.dir.path().join("install");
+        std::fs::create_dir_all(&folder).unwrap();
+        let executable = folder.join("porthmos");
+        std::fs::write(&executable, "current program").unwrap();
+        self.t.engine.update.executable = Some(executable);
+        self
+    }
+
     fn checked_at(mut self, at: DateTime<Utc>) -> Self {
         self.t.engine.update.record.set_last_checked(at);
         self.seeded_check = Some(at);
@@ -83,6 +92,18 @@ impl Setup {
                 self.t.engine.handle_internal(done);
             }
         }
+    }
+
+    async fn run_until(&mut self, done: impl Fn(&[Event]) -> bool) -> Vec<Event> {
+        let mut seen = Vec::new();
+        for _ in 0..400 {
+            seen.extend(self.t.drain());
+            if done(&seen) {
+                return seen;
+            }
+            self.t.run_internal().await;
+        }
+        panic!("the expected events never arrived: {seen:?}");
     }
 
     fn stored_check(&self) -> Option<DateTime<Utc>> {
@@ -311,4 +332,201 @@ async fn a_package_managed_install_announces_managed_and_stages_nothing() {
         "{found:?}"
     );
     assert!(!setup.calls().iter().any(|call| call.starts_with("stage")));
+}
+
+fn staged_for(version: &str, binary: PathBuf) -> porthmos_update::Staged {
+    porthmos_update::Staged { version: version.parse().unwrap(), binary, sha256: "00".to_string(), size: 1 }
+}
+
+fn seed_staged(setup: &Setup, version: &str) -> porthmos_update::Staged {
+    let folder = setup.t.engine.paths.update_dir().join(version);
+    std::fs::create_dir_all(&folder).unwrap();
+    let binary = folder.join("porthmos");
+    std::fs::write(&binary, b"x").unwrap();
+    let staged = staged_for(version, binary);
+    porthmos_update::record_staged(&porthmos_update::UpdateDir::new(setup.t.engine.paths.update_dir()), &staged)
+        .unwrap();
+    staged
+}
+
+fn ready(version: &str) -> UpdateState {
+    UpdateState::Ready { version: version.to_string() }
+}
+
+fn auto_setup_finding(version: &str, stage: Result<porthmos_update::Staged, crate::update::StageError>) -> Setup {
+    let fake = FakeUpdater::default();
+    fake.checks.lock().unwrap().push_back(Ok(Outcome::Available(info(version))));
+    fake.stages.lock().unwrap().push_back(stage);
+    Setup::with(UpdateMode::Auto, fake).updatable_executable()
+}
+
+fn is_ready(events: &[Event]) -> bool {
+    events.iter().any(|event| matches!(event, Event::Update(UpdateState::Ready { .. })))
+}
+
+#[tokio::test]
+async fn auto_mode_stages_a_newer_version_and_announces_it_ready() {
+    let mut setup = auto_setup_finding("0.9.0", Ok(staged_for("0.9.0", "/x".into())));
+    *setup.fake.progress.lock().unwrap() = vec![(10, 100), (50, 100), (100, 100)];
+
+    setup.t.engine.start_updates();
+    let events = setup.run_until(is_ready).await;
+
+    let states = updates(&events);
+    assert_eq!(states.first(), Some(&UpdateState::Available { version: "0.9.0".to_string() }));
+    assert_eq!(states.last(), Some(&ready("0.9.0")));
+    assert!(states.iter().any(|state| matches!(state, UpdateState::Downloading { .. })), "{states:?}");
+    assert_eq!(setup.calls().last().map(String::as_str), Some("stage 0.9.0"));
+    assert!(!setup.t.engine.update.busy);
+}
+
+#[tokio::test]
+async fn progress_is_reported_once_per_percent_at_most() {
+    let mut setup = auto_setup_finding("0.9.0", Ok(staged_for("0.9.0", "/x".into())));
+    *setup.fake.progress.lock().unwrap() = (1..=1000).map(|step| (step, 1000)).collect();
+
+    setup.t.engine.start_updates();
+    let events = setup.run_until(is_ready).await;
+
+    let downloads: Vec<u64> = updates(&events)
+        .into_iter()
+        .filter_map(|state| match state {
+            UpdateState::Downloading { downloaded, .. } => Some(downloaded),
+            _ => None,
+        })
+        .collect();
+    assert!(!downloads.is_empty() && downloads.len() <= 101, "{}", downloads.len());
+    assert!(downloads.windows(2).all(|pair| pair[0] <= pair[1]));
+}
+
+#[tokio::test]
+async fn an_automatic_staging_failure_is_silent_and_retried_later() {
+    let mut setup = auto_setup_finding("0.9.0", Err(crate::update::StageError::Download("boom".to_string())));
+
+    setup.t.engine.start_updates();
+    setup.pump(3).await;
+
+    let events = setup.t.drain();
+    assert!(notices(&events).is_empty(), "{events:?}");
+    assert!(!updates(&events).contains(&ready("0.9.0")));
+    assert!(!setup.t.engine.update.busy);
+}
+
+#[tokio::test]
+async fn a_manual_staging_failure_is_reported() {
+    let mut setup = auto_setup_finding("0.9.0", Err(crate::update::StageError::Download("boom".to_string())));
+
+    setup.t.engine.handle_command(Command::CheckForUpdate { manual: true });
+    let events = setup.run_until(|seen| notices(seen).iter().any(|(severity, _)| *severity == Severity::Error)).await;
+
+    let errors: Vec<_> = notices(&events).into_iter().filter(|(severity, _)| *severity == Severity::Error).collect();
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].1.contains("boom"), "{errors:?}");
+}
+
+#[tokio::test]
+async fn startup_announces_an_already_staged_update_at_once_without_asking_the_updater() {
+    let mut setup = Setup::new(UpdateMode::Auto);
+    seed_staged(&setup, "0.9.0");
+
+    setup.t.engine.start_updates();
+
+    assert_eq!(updates(&setup.t.drain()), [ready("0.9.0")]);
+    assert!(setup.calls().is_empty());
+    assert!(setup.t.engine.update.staged.is_some());
+}
+
+#[tokio::test]
+async fn startup_ignores_a_staged_update_in_notify_and_off_mode() {
+    for mode in [UpdateMode::Notify, UpdateMode::Off] {
+        let mut setup = Setup::new(mode);
+        seed_staged(&setup, "0.9.0");
+
+        setup.t.engine.start_updates();
+
+        assert!(updates(&setup.t.drain()).is_empty(), "{mode:?}");
+        assert!(setup.t.engine.paths.update_dir().join("0.9.0").join("porthmos").exists(), "{mode:?}");
+        assert!(setup.t.engine.update.staged.is_none());
+    }
+}
+
+#[tokio::test]
+async fn startup_clears_a_staged_update_that_is_not_newer() {
+    let mut setup = Setup::new(UpdateMode::Auto);
+    seed_staged(&setup, "0.1.0");
+
+    setup.t.engine.start_updates();
+
+    assert!(updates(&setup.t.drain()).is_empty());
+    assert!(!setup.t.engine.paths.update_dir().join("0.1.0").exists());
+}
+
+#[tokio::test]
+async fn startup_removes_the_previous_version_file_only_in_auto_mode_on_an_updatable_install() {
+    for (mode, removed) in [(UpdateMode::Auto, true), (UpdateMode::Notify, false), (UpdateMode::Off, false)] {
+        let setup = Setup::new(mode).updatable_executable();
+        let executable = setup.t.engine.update.executable.clone().unwrap();
+        let old = executable.with_file_name("porthmos.old");
+        std::fs::write(&old, "previous").unwrap();
+        let mut setup = setup;
+
+        setup.t.engine.start_updates();
+
+        assert_eq!(!old.exists(), removed, "{mode:?}");
+    }
+}
+
+#[tokio::test]
+async fn startup_leaves_the_previous_version_file_of_a_package_managed_install_alone() {
+    let home = tempfile::tempdir().unwrap();
+    let home_path = std::fs::canonicalize(home.path()).unwrap();
+    std::fs::create_dir_all(home_path.join(".cargo").join("bin")).unwrap();
+    let executable = home_path.join(".cargo").join("bin").join("porthmos");
+    std::fs::write(&executable, "x").unwrap();
+    let old = executable.with_file_name("porthmos.old");
+    std::fs::write(&old, "previous").unwrap();
+    let mut setup = Setup::new(UpdateMode::Auto);
+    setup.t.engine.env.home = Some(home_path);
+    setup.t.engine.update.executable = Some(executable);
+
+    setup.t.engine.start_updates();
+
+    assert!(old.exists());
+}
+
+#[tokio::test]
+async fn shutting_down_cancels_a_download_in_progress() {
+    let fake = FakeUpdater { stage_waits_for_cancel: true, ..FakeUpdater::default() };
+    fake.checks.lock().unwrap().push_back(Ok(Outcome::Available(info("0.9.0"))));
+    let mut setup = Setup::with(UpdateMode::Auto, fake).updatable_executable();
+    let saw_cancel = setup.fake.saw_cancel.clone();
+
+    setup.t.engine.start_updates();
+    setup.run_until(|events| !updates(events).is_empty()).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    setup.t.engine.tasks.cancel_all();
+    setup.pump(1).await;
+
+    assert!(saw_cancel.load(std::sync::atomic::Ordering::Relaxed));
+    let events = setup.t.drain();
+    assert!(notices(&events).is_empty() && !updates(&events).contains(&ready("0.9.0")), "{events:?}");
+}
+
+#[tokio::test]
+async fn the_second_check_does_not_stage_the_same_version_again() {
+    let fake = FakeUpdater::default();
+    for _ in 0..2 {
+        fake.checks.lock().unwrap().push_back(Ok(Outcome::Available(info("0.9.0"))));
+    }
+    fake.stages.lock().unwrap().push_back(Ok(staged_for("0.9.0", "/x".into())));
+    let mut setup = Setup::with(UpdateMode::Auto, fake).updatable_executable();
+
+    setup.t.engine.start_updates();
+    setup.run_until(is_ready).await;
+    setup.t.engine.handle_command(Command::CheckForUpdate { manual: true });
+    setup.pump(1).await;
+
+    let stage_calls = setup.calls().iter().filter(|call| call.starts_with("stage")).count();
+    assert_eq!(stage_calls, 1);
+    assert!(!setup.t.engine.update.busy);
 }

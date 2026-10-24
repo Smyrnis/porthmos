@@ -17,7 +17,7 @@ use crate::{
     config::UpdateMode,
     health::wait_unless_cancelled,
     tasks::Scope,
-    update::{CheckError, Outcome, UpdateInfo, UpdateState, current_version},
+    update::{CheckError, Outcome, StageError, Staged, UpdateInfo, UpdateState, current_version},
 };
 
 #[cfg_attr(not(feature = "update"), allow(dead_code))]
@@ -32,6 +32,8 @@ pub(crate) struct UpdateEngine {
     timer: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     #[cfg(feature = "update")]
     write_warned: bool,
+    #[cfg(feature = "update")]
+    pub(crate) staged: Option<Staged>,
 }
 
 impl UpdateEngine {
@@ -50,6 +52,8 @@ impl UpdateEngine {
             timer: None,
             #[cfg(feature = "update")]
             write_warned: false,
+            #[cfg(feature = "update")]
+            staged: None,
         }
     }
 }
@@ -68,11 +72,35 @@ impl Engine {
 #[cfg(feature = "update")]
 impl Engine {
     pub(crate) fn start_updates(&mut self) {
-        if self.update.settings.mode == UpdateMode::Off || self.update.updater.is_none() {
+        let mode = self.update.settings.mode;
+        if mode == UpdateMode::Off {
+            return;
+        }
+        if mode == UpdateMode::Auto {
+            self.announce_earlier_update();
+        }
+        if self.update.updater.is_none() {
             return;
         }
         let delay = self.first_check_delay();
         self.schedule_update_timer(delay);
+    }
+
+    fn announce_earlier_update(&mut self) {
+        if let Some(executable) = self.update.executable.as_deref()
+            && matches!(
+                porthmos_update::install_place(executable, self.env.home.as_deref()),
+                porthmos_update::InstallPlace::Updatable { .. }
+            )
+        {
+            porthmos_update::forget_previous_version(executable);
+        }
+        let dir = porthmos_update::UpdateDir::new(self.paths.update_dir());
+        if let Some(staged) = porthmos_update::find_staged(&dir, &current_version()) {
+            let version = staged.version.to_string();
+            self.update.staged = Some(staged);
+            self.emit(Event::Update(UpdateState::Ready { version }));
+        }
     }
 
     fn first_check_delay(&self) -> Duration {
@@ -195,6 +223,11 @@ impl Engine {
             .map(|executable| porthmos_update::install_place(executable, self.env.home.as_deref()));
         match place {
             Some(porthmos_update::InstallPlace::Updatable { .. }) => {
+                if self.update.staged.as_ref().is_some_and(|staged| staged.version == info.version) {
+                    self.update.busy = false;
+                    self.schedule_after_check(manual, true);
+                    return;
+                }
                 self.emit(Event::Update(UpdateState::Available { version }));
                 self.begin_staging(info, manual);
             }
@@ -209,9 +242,48 @@ impl Engine {
         self.schedule_after_check(manual, true);
     }
 
-    fn begin_staging(&mut self, _info: UpdateInfo, manual: bool) {
+    fn begin_staging(&mut self, info: UpdateInfo, manual: bool) {
+        let Some(updater) = self.update.updater.clone() else {
+            self.update.busy = false;
+            return;
+        };
+        let internal = self.internal.clone();
+        let version = info.version.to_string();
+        self.tasks.spawn("update-stage", Scope::Background, move |cancel| async move {
+            let mut last_percent = None;
+            let reporter = internal.clone();
+            let reported = version.clone();
+            let result = updater
+                .stage(&info, &cancel, &mut |downloaded, total| {
+                    let percent = (downloaded * 100).checked_div(total).unwrap_or(0);
+                    if last_percent != Some(percent) {
+                        last_percent = Some(percent);
+                        let _ =
+                            reporter.send(Internal::UpdateProgress { version: reported.clone(), downloaded, total });
+                    }
+                })
+                .await;
+            let _ = internal.send(Internal::UpdateStaged { manual, version, result });
+        });
+    }
+
+    pub(crate) fn update_staged(&mut self, manual: bool, version: String, result: Result<Staged, StageError>) {
         self.update.busy = false;
-        self.schedule_after_check(manual, true);
+        match result {
+            Ok(staged) => {
+                self.update.staged = Some(staged);
+                self.emit(Event::Update(UpdateState::Ready { version }));
+                self.schedule_after_check(manual, true);
+            }
+            Err(StageError::Cancelled) => {}
+            Err(error) => {
+                tracing::debug!("staging the update failed: {error}");
+                if manual {
+                    self.report(Severity::Error, error.to_string());
+                }
+                self.schedule_after_check(manual, false);
+            }
+        }
     }
 
     fn remember_update_check(&mut self) {
