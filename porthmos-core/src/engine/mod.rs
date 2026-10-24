@@ -418,6 +418,8 @@ impl Engine {
                 self.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: failed });
             }
             Scope::Edit(edit_id) if self.edit_in_progress(edit_id) => self.fail_edit(edit_id, &failed),
+            #[cfg(feature = "update")]
+            _ if matches!(name, "update-check" | "update-stage") => self.update_task_panicked(),
             _ => self.announce(Severity::Error, failed),
         }
     }

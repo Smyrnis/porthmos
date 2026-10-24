@@ -565,3 +565,73 @@ async fn a_remembered_failure_is_reported_in_notify_mode_too_but_not_in_off_mode
     assert!(notices(&off.t.drain()).is_empty());
     assert_eq!(off.t.engine.update.record.last_failure(), Some("0.9.0: boom"));
 }
+
+#[tokio::test]
+async fn a_panic_in_an_automatic_check_is_silent_and_the_chain_continues() {
+    let fake = FakeUpdater::default();
+    fake.panic_next_check.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut setup = Setup::with(UpdateMode::Notify, fake);
+
+    setup.t.engine.start_updates();
+    setup.pump(2).await;
+
+    assert!(setup.t.drain().is_empty());
+    assert!(!setup.t.engine.update.busy);
+    setup.pump(2).await;
+    assert_eq!(setup.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn a_panic_in_a_manual_check_is_reported_and_frees_the_next_check() {
+    let fake = FakeUpdater::default();
+    fake.panic_next_check.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut setup = Setup::with(UpdateMode::Notify, fake);
+
+    setup.t.engine.handle_command(Command::CheckForUpdate { manual: true });
+    setup.pump(1).await;
+
+    let found = notices(&setup.t.drain());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, Severity::Error);
+    assert!(!setup.t.engine.update.busy);
+    setup.t.engine.handle_command(Command::CheckForUpdate { manual: true });
+    setup.pump(1).await;
+    assert_eq!(setup.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn a_panic_while_staging_is_silent_frees_the_engine_and_stages_nothing() {
+    let fake = FakeUpdater::default();
+    fake.checks.lock().unwrap().push_back(Ok(Outcome::Available(info("0.9.0"))));
+    fake.panic_next_stage.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut setup = Setup::with(UpdateMode::Auto, fake).updatable_executable();
+
+    setup.t.engine.start_updates();
+    setup.pump(3).await;
+
+    let events = setup.t.drain();
+    assert!(notices(&events).is_empty(), "{events:?}");
+    assert!(!updates(&events).contains(&ready("0.9.0")));
+    assert!(!setup.t.engine.update.busy);
+    assert!(setup.t.engine.update.staged.is_none());
+}
+
+#[tokio::test]
+async fn a_last_check_in_the_future_does_not_block_checks() {
+    let mut setup = Setup::new(UpdateMode::Notify).checked_at(Utc::now() + Span::days(700));
+
+    setup.t.engine.start_updates();
+    setup.pump(2).await;
+
+    assert_eq!(setup.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn an_extreme_last_check_time_neither_panics_nor_blocks_checks() {
+    let mut setup = Setup::new(UpdateMode::Notify).checked_at(DateTime::<Utc>::MAX_UTC);
+
+    setup.t.engine.start_updates();
+    setup.pump(2).await;
+
+    assert_eq!(setup.calls().len(), 1);
+}

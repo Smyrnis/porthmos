@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     fmt, fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -63,8 +64,11 @@ fn managed_reason(real_path: &Path, home: Option<&Path>) -> Option<String> {
         .then(|| "it was installed with cargo into .cargo/bin; update it with cargo install".to_string())
 }
 
+static PROBES: AtomicU64 = AtomicU64::new(0);
+
 fn can_create_files_in(folder: &Path) -> bool {
-    let probe = folder.join(format!(".porthmos.write-test.{}", std::process::id()));
+    let probe =
+        folder.join(format!(".porthmos.write-test.{}.{}", std::process::id(), PROBES.fetch_add(1, Ordering::Relaxed)));
     let created = fs::OpenOptions::new().write(true).create_new(true).open(&probe).is_ok();
     let _ = fs::remove_file(&probe);
     created

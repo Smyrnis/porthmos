@@ -221,12 +221,17 @@ mod fake_updater {
         pub(crate) gate: Option<Arc<tokio::sync::Notify>>,
         pub(crate) stage_waits_for_cancel: bool,
         pub(crate) saw_cancel: Arc<AtomicBool>,
+        pub(crate) panic_next_check: AtomicBool,
+        pub(crate) panic_next_stage: AtomicBool,
     }
 
     #[async_trait]
     impl Updater for FakeUpdater {
         async fn check(&self, current: &Version) -> Result<Outcome, CheckError> {
             self.calls.lock().unwrap().push(format!("check {current}"));
+            if self.panic_next_check.swap(false, Ordering::Relaxed) {
+                panic!("scripted panic in check");
+            }
             if let Some(gate) = &self.gate {
                 gate.notified().await;
             }
@@ -237,6 +242,9 @@ mod fake_updater {
             &self, update: &UpdateInfo, cancel: &AtomicBool, progress: &mut (dyn FnMut(u64, u64) + Send),
         ) -> Result<Staged, StageError> {
             self.calls.lock().unwrap().push(format!("stage {}", update.version));
+            if self.panic_next_stage.swap(false, Ordering::Relaxed) {
+                panic!("scripted panic in stage");
+            }
             let replay = self.progress.lock().unwrap().clone();
             for (done, total) in replay {
                 progress(done, total);

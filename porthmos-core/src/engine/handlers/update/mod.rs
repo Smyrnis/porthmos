@@ -29,6 +29,8 @@ pub(crate) struct UpdateEngine {
     pub(crate) executable: Option<PathBuf>,
     pub(crate) busy: bool,
     #[cfg(feature = "update")]
+    running_manual: bool,
+    #[cfg(feature = "update")]
     timer: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     #[cfg(feature = "update")]
     write_warned: bool,
@@ -48,6 +50,8 @@ impl UpdateEngine {
             timing,
             executable,
             busy: false,
+            #[cfg(feature = "update")]
+            running_manual: false,
             #[cfg(feature = "update")]
             timer: None,
             #[cfg(feature = "update")]
@@ -113,11 +117,14 @@ impl Engine {
 
     fn first_check_delay(&self) -> Duration {
         let interval = chrono::Duration::from_std(self.update.timing.interval).unwrap_or(chrono::Duration::MAX);
+        let now = (self.clock)();
         let remaining = self
             .update
             .record
             .last_checked()
-            .and_then(|checked| (checked + interval).signed_duration_since((self.clock)()).to_std().ok())
+            .filter(|checked| *checked <= now)
+            .and_then(|checked| checked.checked_add_signed(interval))
+            .and_then(|due| due.signed_duration_since(now).to_std().ok())
             .unwrap_or(Duration::ZERO);
         remaining.max(self.update.timing.startup_delay)
     }
@@ -167,6 +174,7 @@ impl Engine {
             return;
         }
         self.update.busy = true;
+        self.update.running_manual = manual;
         let internal = self.internal.clone();
         let current = current_version();
         self.tasks.spawn("update-check", Scope::Background, move |_| async move {
@@ -206,6 +214,15 @@ impl Engine {
                 self.schedule_after_check(manual, false);
             }
         }
+    }
+
+    pub(crate) fn update_task_panicked(&mut self) {
+        let manual = self.update.running_manual;
+        self.update.busy = false;
+        if manual {
+            self.report(Severity::Error, "The update check failed unexpectedly");
+        }
+        self.schedule_after_check(manual, false);
     }
 
     fn schedule_after_check(&mut self, manual: bool, succeeded: bool) {

@@ -385,3 +385,25 @@ fn install_for_a_user_owned_location_still_installs() {
 
     assert_eq!(world.run(&world.executable()), "porthmos 0.5.0");
 }
+
+#[test]
+fn many_simultaneous_location_checks_all_see_a_writable_folder() {
+    let world = World::new();
+    world.install_running("0.4.0", 0o755);
+    let executable = world.executable();
+    let home = world.root.path().to_path_buf();
+
+    let results: Vec<InstallPlace> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..16)
+            .map(|_| scope.spawn(|| (0..40).map(|_| install_place(&executable, Some(&home))).collect::<Vec<_>>()))
+            .collect();
+        handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect()
+    });
+
+    assert!(
+        results.iter().all(|place| matches!(place, InstallPlace::Updatable { .. })),
+        "{:?}",
+        results.iter().find(|place| !matches!(place, InstallPlace::Updatable { .. }))
+    );
+    assert_eq!(world.bin_listing(), ["porthmos"]);
+}
