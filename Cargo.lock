@@ -3204,6 +3204,7 @@ dependencies = [
  "porthmos-scp",
  "porthmos-sftp",
  "porthmos-ssh",
+ "porthmos-update",
  "porthmos-vfs",
  "porthmos-webdav",
  "serde",

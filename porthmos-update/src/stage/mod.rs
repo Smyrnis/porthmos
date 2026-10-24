@@ -74,7 +74,7 @@ impl Stager {
     }
 
     pub async fn stage(
-        &self, update: &UpdateInfo, cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64),
+        &self, update: &UpdateInfo, cancel: &AtomicBool, progress: &mut (dyn FnMut(u64, u64) + Send),
     ) -> Result<Staged, StageError> {
         if let Some(staged) =
             find_staged(&self.dir, &Version::new(0, 0, 0)).filter(|staged| staged.version == update.version)
@@ -90,7 +90,7 @@ impl Stager {
     }
 
     async fn run(
-        &self, update: &UpdateInfo, cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64), scratch: &Path,
+        &self, update: &UpdateInfo, cancel: &AtomicBool, progress: &mut (dyn FnMut(u64, u64) + Send), scratch: &Path,
         staging: &Path,
     ) -> Result<Staged, StageError> {
         remove_folder(staging);

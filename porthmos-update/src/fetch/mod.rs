@@ -117,7 +117,8 @@ fn disk_failure(error: std::io::Error) -> FetchError {
 
 impl Fetcher {
     pub(crate) async fn get_to_file(
-        &self, url: &str, path: &Path, size: u64, sha256: &str, cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64),
+        &self, url: &str, path: &Path, size: u64, sha256: &str, cancel: &AtomicBool,
+        progress: &mut (dyn FnMut(u64, u64) + Send),
     ) -> Result<(), FetchError> {
         if self.https_only && !starts_with_https(url) {
             return Err(FetchError::NotHttps);
@@ -144,7 +145,7 @@ impl Fetcher {
 
 async fn write_body(
     mut response: reqwest::Response, file: &mut tokio::fs::File, size: u64, sha256: &str, cancel: &AtomicBool,
-    progress: &mut dyn FnMut(u64, u64),
+    progress: &mut (dyn FnMut(u64, u64) + Send),
 ) -> Result<(), FetchError> {
     let mut hasher = Sha256::new();
     let mut total: u64 = 0;

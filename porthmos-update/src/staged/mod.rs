@@ -96,7 +96,7 @@ pub fn discard_staged(dir: &UpdateDir) {
     }
 }
 
-pub(crate) fn record_staged(dir: &UpdateDir, staged: &Staged) -> io::Result<()> {
+pub fn record_staged(dir: &UpdateDir, staged: &Staged) -> io::Result<()> {
     let relative =
         staged.binary.strip_prefix(dir.path()).ok().filter(|path| is_plain_relative(path)).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "the staged binary is outside the update folder")
