@@ -23,6 +23,30 @@ impl Default for EditSettings {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UpdateMode {
+    #[default]
+    Auto,
+    Notify,
+    Off,
+}
+
+pub const MIN_UPDATE_INTERVAL_HOURS: u64 = 1;
+pub const MAX_UPDATE_INTERVAL_HOURS: u64 = 720;
+pub const DEFAULT_UPDATE_INTERVAL_HOURS: u64 = 24;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpdateSettings {
+    pub mode: UpdateMode,
+    pub interval_hours: u64,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self { mode: UpdateMode::Auto, interval_hours: DEFAULT_UPDATE_INTERVAL_HOURS }
+    }
+}
+
 pub const MAX_PARALLEL_CAP: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +66,7 @@ pub struct Settings {
     pub panel: PanelSettings,
     pub transfers: TransferSettings,
     pub edit: EditSettings,
+    pub update: UpdateSettings,
     pub frontend: toml::Table,
 }
 
@@ -53,6 +78,8 @@ pub(crate) struct SettingsFile {
     pub transfers: TransferSettingsFile,
     #[serde(default)]
     pub edit: EditSettingsFile,
+    #[serde(default)]
+    pub update: UpdateSettingsFile,
     #[serde(flatten)]
     pub frontend: toml::Table,
 }
@@ -61,6 +88,12 @@ pub(crate) struct SettingsFile {
 pub(crate) struct TransferSettingsFile {
     pub max_parallel: Option<i64>,
     pub on_conflict: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct UpdateSettingsFile {
+    pub mode: Option<String>,
+    pub interval_hours: Option<i64>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -122,6 +155,29 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let update_mode = match file.update.mode.as_deref() {
+        None | Some("auto") => UpdateMode::Auto,
+        Some("notify") => UpdateMode::Notify,
+        Some("off") => UpdateMode::Off,
+        Some(other) => {
+            warnings.push(format!("unknown update.mode \"{other}\", using \"auto\""));
+            UpdateMode::Auto
+        }
+    };
+
+    let update_interval = match file.update.interval_hours {
+        None => DEFAULT_UPDATE_INTERVAL_HOURS,
+        Some(hours) if (MIN_UPDATE_INTERVAL_HOURS as i64..=MAX_UPDATE_INTERVAL_HOURS as i64).contains(&hours) => {
+            hours as u64
+        }
+        Some(_) => {
+            warnings.push(format!(
+                "update.interval_hours must be between {MIN_UPDATE_INTERVAL_HOURS} and {MAX_UPDATE_INTERVAL_HOURS}, using {DEFAULT_UPDATE_INTERVAL_HOURS}"
+            ));
+            DEFAULT_UPDATE_INTERVAL_HOURS
+        }
+    };
+
     (
         Settings {
             panel: PanelSettings { show_hidden, sort: SortSpec { key, order } },
@@ -130,6 +186,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
                 auto_upload: file.edit.auto_upload.unwrap_or(true),
                 editor: file.edit.editor.map(|editor| editor.trim().to_string()).filter(|editor| !editor.is_empty()),
             },
+            update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
             frontend: file.frontend,
         },
         warnings,

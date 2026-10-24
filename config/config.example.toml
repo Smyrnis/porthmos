@@ -26,6 +26,16 @@ auto_upload = true
 # must wait until you close the file ("code --wait", not "code").
 editor = ""
 
+[update]
+# What Porthmos does about new versions:
+#   "auto"   download new versions in the background and install them when you quit.
+#   "notify" only show a badge when a new version exists; download and install nothing.
+#   "off"    never check.
+# Checking sends one request to GitHub that carries only "porthmos/<version>" as its user agent.
+mode = "auto"
+# Hours between automatic checks, from 1 to 720.
+interval_hours = 24
+
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with
