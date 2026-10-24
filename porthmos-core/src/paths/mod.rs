@@ -76,6 +76,14 @@ impl Paths {
         self.state_dir.join("last_used.toml")
     }
 
+    pub fn update_state_file(&self) -> PathBuf {
+        self.state_dir.join("update.toml")
+    }
+
+    pub fn update_dir(&self) -> PathBuf {
+        self.state_dir.join("update")
+    }
+
     pub fn edit_dir(&self) -> PathBuf {
         self.state_dir.join("edit")
     }

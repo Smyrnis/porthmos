@@ -151,3 +151,12 @@ fn the_state_file_lives_in_the_state_folder() {
     let root = Path::new("/r");
     assert_eq!(Paths::in_dir(root).state_file(), root.join("state").join("state.toml"));
 }
+
+#[test]
+fn the_update_paths_sit_in_the_state_folder() {
+    let root = Path::new("/r");
+    let paths = Paths::in_dir(root);
+
+    assert_eq!(paths.update_state_file(), root.join("state").join("update.toml"));
+    assert_eq!(paths.update_dir(), root.join("state").join("update"));
+}

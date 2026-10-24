@@ -21,6 +21,8 @@ pub mod sync;
 pub mod tasks;
 mod test_connection;
 pub mod transfer;
+#[allow(dead_code)]
+mod update;
 
 use std::{path::PathBuf, sync::Arc};
 
