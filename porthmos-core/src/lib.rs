@@ -26,6 +26,7 @@ pub mod update;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
+pub use config::{UpdateMode, UpdateSettings};
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, user_message};
 pub use paths::{ConfigMigration, Paths};
@@ -37,6 +38,7 @@ pub use porthmos_vfs::{
 pub use protocol_info::ProtocolInfo;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+pub use update::{ApplyOutcome, UpdateState, apply_staged_update};
 
 use crate::{
     config::Settings,
@@ -148,6 +150,23 @@ impl Core {
     }
 }
 
+#[cfg(feature = "update")]
+fn choose_updater(
+    injected: Option<Arc<dyn update::Updater>>, release_updates: bool, mode: config::UpdateMode, paths: &Paths,
+) -> (Option<update::SharedUpdater>, Option<String>) {
+    if let Some(updater) = injected {
+        return (Some(updater), None);
+    }
+    if !release_updates || mode == config::UpdateMode::Off {
+        return (None, None);
+    }
+    let user_agent = format!("porthmos/{}", env!("CARGO_PKG_VERSION"));
+    match update::ReleaseUpdater::new(paths.update_dir(), &user_agent) {
+        Ok(updater) => (Some(Arc::new(updater)), None),
+        Err(err) => (None, Some(format!("Couldn't prepare update checks: {err:#}"))),
+    }
+}
+
 #[derive(Default)]
 pub struct CoreBuilder {
     paths: Option<Paths>,
@@ -156,6 +175,10 @@ pub struct CoreBuilder {
     protocols: Option<Vec<Arc<dyn Protocol>>>,
     local_home: Option<PathBuf>,
     secrets: Option<secrets::Secrets>,
+    #[cfg(feature = "update")]
+    updater: Option<Arc<dyn update::Updater>>,
+    #[cfg(feature = "update")]
+    release_updates: bool,
 }
 
 impl CoreBuilder {
@@ -189,6 +212,18 @@ impl CoreBuilder {
         self
     }
 
+    #[cfg(feature = "update")]
+    pub fn release_updates(mut self) -> Self {
+        self.release_updates = true;
+        self
+    }
+
+    #[cfg(feature = "update")]
+    pub fn updater(mut self, updater: Arc<dyn update::Updater>) -> Self {
+        self.updater = Some(updater);
+        self
+    }
+
     pub fn without_keyring(self) -> Self {
         self.secrets(secrets::Secrets::new(None))
     }
@@ -199,6 +234,11 @@ impl CoreBuilder {
         let (last_used, last_used_warning) = last_used::LastUsed::load(&paths);
         let (update_record, update_warning) = update::record::UpdateRecord::load(&paths);
         let (bookmarks, bookmark_warnings) = config::bookmarks::load(&paths)?;
+        #[cfg(feature = "update")]
+        let (updater, updater_warning) =
+            choose_updater(self.updater, self.release_updates, self.settings.update.mode, &paths);
+        #[cfg(not(feature = "update"))]
+        let (updater, updater_warning): (Option<update::SharedUpdater>, Option<String>) = (None, None);
         let local_home = self.local_home.or_else(|| self.env.home.clone()).unwrap_or_else(|| PathBuf::from("/"));
         let protocols = self.protocols.unwrap_or_else(|| builtin_protocols(&paths));
         let infos: Arc<[ProtocolInfo]> =
@@ -217,7 +257,7 @@ impl CoreBuilder {
             update_timing: update::UpdateTiming::for_settings(&self.settings.update),
             update: self.settings.update,
             update_record,
-            updater: None,
+            updater,
             executable: std::env::current_exe().ok(),
             publish_interval: engine::PROGRESS_SNAPSHOT_INTERVAL,
             persist_interval: engine::PERSIST_INTERVAL,
@@ -235,7 +275,7 @@ impl CoreBuilder {
         if let Some(warning) = last_used_warning {
             engine.report(Severity::Warning, warning);
         }
-        if let Some(warning) = update_warning {
+        for warning in update_warning.into_iter().chain(updater_warning) {
             engine.report(Severity::Warning, warning);
         }
         for warning in bookmark_warnings {
