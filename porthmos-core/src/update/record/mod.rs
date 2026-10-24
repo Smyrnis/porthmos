@@ -50,10 +50,12 @@ impl UpdateRecord {
         self.file.last_checked = Some(at);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn last_failure(&self) -> Option<&str> {
         self.file.last_failure.as_deref()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_last_failure(&mut self, failure: Option<String>) {
         self.file.last_failure = failure;
     }

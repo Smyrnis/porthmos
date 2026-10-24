@@ -15,6 +15,7 @@ use crate::{
     sync::SyncPlan,
     test_connection::TestOutcome,
     transfer::{TransferSnapshot, conflicts::ConflictInfo},
+    update::UpdateState,
 };
 
 #[derive(Debug, Clone)]
@@ -54,4 +55,5 @@ pub enum Event {
     PreviewReady { request_id: RequestId, name: String, result: Result<Arc<Preview>, String> },
     SyncPlanReady(Arc<SyncPlan>),
     SyncWithdrawn { sync_ids: Vec<u64> },
+    Update(UpdateState),
 }

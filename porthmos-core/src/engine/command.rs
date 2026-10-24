@@ -63,5 +63,6 @@ pub enum Command {
     StartSync { session: SessionId, local_dir: PathBuf, remote_dir: PathBuf, options: SyncOptions },
     RunSync { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     CancelSync { sync_id: u64 },
+    CheckForUpdate { manual: bool },
     Shutdown,
 }

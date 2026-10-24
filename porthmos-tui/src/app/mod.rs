@@ -421,6 +421,7 @@ impl App {
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
+            Event::Update(_) => {}
         }
     }
 

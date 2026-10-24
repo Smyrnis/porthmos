@@ -97,6 +97,13 @@ pub(crate) enum Internal {
         scope: Scope,
         message: String,
     },
+    #[cfg(feature = "update")]
+    UpdateCheckDue,
+    #[cfg(feature = "update")]
+    UpdateChecked {
+        manual: bool,
+        result: Result<crate::update::Outcome, crate::update::CheckError>,
+    },
 }
 
 pub(crate) struct PlanningScan {
@@ -171,6 +178,8 @@ pub(crate) struct Engine {
     latest_keyring_job: HashMap<String, u64>,
     connecting: std::collections::HashSet<String>,
     sync: handlers::SyncState,
+    #[cfg_attr(not(feature = "update"), allow(dead_code))]
+    update: handlers::UpdateEngine,
 }
 
 pub(crate) struct EngineParts {
@@ -184,6 +193,11 @@ pub(crate) struct EngineParts {
     pub(crate) history: History,
     pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
+    pub(crate) update: crate::config::UpdateSettings,
+    pub(crate) update_record: crate::update::record::UpdateRecord,
+    pub(crate) updater: Option<crate::update::SharedUpdater>,
+    pub(crate) update_timing: crate::update::UpdateTiming,
+    pub(crate) executable: Option<PathBuf>,
     pub(crate) publish_interval: Duration,
     pub(crate) persist_interval: Duration,
 }
@@ -254,6 +268,13 @@ impl Engine {
             latest_keyring_job: HashMap::new(),
             connecting: std::collections::HashSet::new(),
             sync: handlers::SyncState::default(),
+            update: handlers::UpdateEngine::new(
+                parts.update,
+                parts.update_record,
+                parts.updater,
+                parts.update_timing,
+                parts.executable,
+            ),
         }
     }
 
@@ -343,6 +364,7 @@ impl Engine {
             Command::ReorderRow { kind, earlier } => self.reorder_row(kind, earlier),
             Command::RetryRow { kind } => self.retry_row(kind),
             Command::ClearFinished => self.clear_finished_rows(),
+            Command::CheckForUpdate { manual } => self.check_for_update(manual),
             Command::Search { location, root, pattern } => self.search(location, root, pattern),
             Command::CancelSearch => self.cancel_search(),
             Command::ListProfiles => self.list_profiles(),
@@ -402,6 +424,10 @@ impl Engine {
             Internal::KeyringDone(done) => self.finish_keyring_job(done),
             Internal::PersistFailed { path, message, tag } => self.persist_failed(path, message, tag),
             Internal::TaskPanicked { name, scope, message } => self.recover_from_panic(name, scope, &message),
+            #[cfg(feature = "update")]
+            Internal::UpdateCheckDue => self.update_check_due(),
+            #[cfg(feature = "update")]
+            Internal::UpdateChecked { manual, result } => self.update_checked(manual, result),
             Internal::Transfer(TransferEvent::Progress { id, transferred }) => {
                 if let Some(mut job) = self.transfers.get_mut(id) {
                     job.transferred_bytes = transferred;

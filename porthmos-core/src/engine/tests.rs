@@ -736,3 +736,13 @@ fn time_is_read_from_the_engine_clock_only() {
 
     assert!(offenders.is_empty(), "read the clock directly: {offenders:?}");
 }
+
+#[cfg(not(feature = "update"))]
+#[test]
+fn without_the_update_feature_a_manual_check_says_so() {
+    let mut t = testing::test_engine();
+
+    t.engine.handle_command(Command::CheckForUpdate { manual: true });
+
+    assert_eq!(t.notices(), [(Severity::Warning, "This build can't check for updates".to_string())]);
+}

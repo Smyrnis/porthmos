@@ -37,6 +37,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
     let paths = Paths::in_dir(dir.path());
     let history = crate::history::History::load(&paths).0;
     let last_used = crate::last_used::LastUsed::load(&paths).0;
+    let update_record = crate::update::record::UpdateRecord::load(&paths).0;
     let parts = EngineParts {
         paths,
         env: Environment::default(),
@@ -48,6 +49,11 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         history,
         last_used,
         edit: crate::config::settings::EditSettings::default(),
+        update: crate::config::UpdateSettings { mode: crate::config::UpdateMode::Off, ..Default::default() },
+        update_record,
+        updater: None,
+        update_timing: crate::update::UpdateTiming::for_settings(&crate::config::UpdateSettings::default()),
+        executable: None,
         publish_interval: std::time::Duration::ZERO,
         persist_interval: std::time::Duration::ZERO,
     };
