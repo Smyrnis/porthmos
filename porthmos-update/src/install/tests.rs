@@ -192,7 +192,8 @@ fn the_previous_version_is_kept_as_dot_old_and_still_runs() {
 
     let installed = install(&world.dir(), &staged, &world.executable(), BUDGET).unwrap();
 
-    assert_eq!(installed.previous, world.root.path().join("bin").join("porthmos.old"));
+    let bin = fs::canonicalize(world.root.path().join("bin")).unwrap();
+    assert_eq!(installed.previous, bin.join("porthmos.old"));
     assert_eq!(world.run(&installed.previous), "porthmos 0.4.0");
 }
 
