@@ -31,7 +31,7 @@ pub fn apply_staged_update(_paths: &Paths, _mode: UpdateMode) -> ApplyOutcome {
 }
 
 #[cfg(feature = "update")]
-fn apply_with(
+pub(super) fn apply_with(
     paths: &Paths, mode: UpdateMode, executable: &Path, home: Option<&Path>, current: &Version, budget: Duration,
 ) -> ApplyOutcome {
     if mode != UpdateMode::Auto {

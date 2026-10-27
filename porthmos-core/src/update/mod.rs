@@ -4,8 +4,13 @@ pub mod backend;
 pub(crate) mod record;
 
 mod apply;
+mod headless;
+
+#[cfg(all(test, feature = "update", unix))]
+pub(crate) mod testing;
 
 pub use apply::{ApplyOutcome, apply_staged_update};
+pub use headless::{HeadlessUpdate, run_update};
 
 #[cfg(feature = "update")]
 pub use backend::{ReleaseUpdater, Updater};

@@ -38,7 +38,7 @@ pub use porthmos_vfs::{
 pub use protocol_info::ProtocolInfo;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-pub use update::{ApplyOutcome, UpdateState, apply_staged_update};
+pub use update::{ApplyOutcome, HeadlessUpdate, UpdateState, apply_staged_update, run_update};
 
 use crate::{
     config::Settings,

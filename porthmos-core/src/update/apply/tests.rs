@@ -1,38 +1,13 @@
-use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{fs, path::PathBuf, time::Duration};
 
 use super::*;
-use crate::update::{Version, record::UpdateRecord};
+use crate::update::{
+    Version,
+    record::UpdateRecord,
+    testing::{run_version, stage_on_disk, write_program},
+};
 
 const BUDGET: Duration = Duration::from_secs(5);
-
-fn script(version: &str) -> String {
-    format!("#!/bin/sh\necho \"porthmos {version}\"\n")
-}
-
-fn write_program(path: &Path, version: &str) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, script(version)).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-fn run_version(path: &Path) -> String {
-    let mut attempts = 0;
-    let output = loop {
-        match std::process::Command::new(path).arg("--version").output() {
-            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 100 => {
-                attempts += 1;
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            other => break other.unwrap(),
-        }
-    };
-    String::from_utf8(output.stdout).unwrap().trim().to_string()
-}
 
 struct World {
     root: tempfile::TempDir,
@@ -51,15 +26,7 @@ impl World {
     }
 
     fn stage(&self, version: &str) {
-        let binary = self.paths.update_dir().join(version).join("porthmos");
-        write_program(&binary, version);
-        let staged = porthmos_update::Staged {
-            version: version.parse().unwrap(),
-            binary: binary.clone(),
-            sha256: porthmos_update::sha256_hex_of_file(&binary).unwrap(),
-            size: fs::metadata(&binary).unwrap().len(),
-        };
-        porthmos_update::record_staged(&porthmos_update::UpdateDir::new(self.paths.update_dir()), &staged).unwrap();
+        stage_on_disk(&self.paths, version);
     }
 
     fn apply(&self, mode: UpdateMode, budget: Duration) -> ApplyOutcome {
