@@ -31,7 +31,8 @@ async fn a_local_listing_failure_shows_the_bare_error() {
 
     match t.next_event().await {
         Event::Notice { severity: Severity::Error, message } => {
-            assert_eq!(message, "No such file or directory (os error 2)");
+            let expected = std::fs::read_dir("/definitely/missing").unwrap_err().to_string();
+            assert_eq!(message, expected);
         }
         other => panic!("unexpected {other:?}"),
     }

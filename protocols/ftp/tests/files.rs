@@ -4,6 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use porthmos_ftp::Ftp;
 use porthmos_vfs::{ErrorKind, FileKind, FileSystem, Protocol, VfsPath};
+#[cfg(unix)]
 use tokio::io::AsyncWriteExt;
 
 async fn connect_to(server: &support::Server) -> Arc<dyn FileSystem> {
@@ -193,6 +194,7 @@ async fn a_connection_the_server_dropped_is_found_alive_again_after_reconnecting
     assert_eq!(names(&fs, "/").await, vec!["a.txt".to_string()]);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn listing_gives_the_owner_and_group_the_server_reports() {
     let server = support::start(Some("pw"), None).await;
@@ -205,6 +207,7 @@ async fn listing_gives_the_owner_and_group_the_server_reports() {
     assert!(entries[0].group.as_deref().is_some_and(|group| !group.is_empty()));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn names_that_look_like_windows_paths_round_trip() {
     let server = support::start(Some("pw"), None).await;

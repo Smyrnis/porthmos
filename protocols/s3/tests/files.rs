@@ -103,6 +103,7 @@ async fn stat_finds_files_and_folders_and_reports_missing_ones() {
     assert_eq!(fs.stat(&VfsPath::new("/nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn names_that_look_like_windows_paths_round_trip() {
     let (server, fs, _dir) = open(Options::default()).await;

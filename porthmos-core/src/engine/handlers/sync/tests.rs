@@ -42,7 +42,12 @@ fn work_dir(t: &TestEngine) -> PathBuf {
 }
 
 fn set_local_time(path: &Path, seconds: u64) {
-    std::fs::File::open(path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(seconds)).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(UNIX_EPOCH + Duration::from_secs(seconds))
+        .unwrap();
 }
 
 fn write_local(t: &TestEngine, name: &str, data: &[u8], seconds: u64) -> PathBuf {

@@ -733,6 +733,7 @@ async fn an_upload_failure_is_one_line_that_ends_with_where_the_copy_is() {
     assert!(errors[0].ends_with(&format!("your changes are kept in {}", file.display())), "{:?}", errors[0]);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_name_with_a_newline_never_splits_a_notice() {
     let mut t = test_engine();

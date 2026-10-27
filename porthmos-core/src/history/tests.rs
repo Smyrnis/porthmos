@@ -252,6 +252,7 @@ fn optional_fields_may_be_missing_from_an_older_file() {
     assert!(history.entries()[0].failed_files.is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unreadable_location_warns_and_starts_empty() {
     let (_dir, paths) = paths();
@@ -431,6 +432,7 @@ fn clear_memory_empties_the_entries_without_writing() {
     assert!(read(&paths.history_file()).contains("label = \"a\""));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_protected_history_reports_it_cannot_be_written() {
     let (_dir, paths) = paths();

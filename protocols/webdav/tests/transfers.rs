@@ -185,6 +185,7 @@ async fn a_put_that_meets_a_stale_nonce_succeeds_when_retried() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn resumed_chunks_follow_a_rotating_digest_nonce() {
     let (server, fs, _dir) =

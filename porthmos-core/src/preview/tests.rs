@@ -262,6 +262,7 @@ async fn a_named_pipe_is_refused_at_once_instead_of_blocking() {
     assert!(error.to_string().contains("not a regular file"), "{error}");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_device_file_is_refused() {
     let fs = porthmos_lfs::LocalFs::new("/".into());

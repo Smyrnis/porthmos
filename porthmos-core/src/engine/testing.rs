@@ -195,7 +195,7 @@ pub(crate) fn capture_logs(run: impl FnOnce()) -> String {
         .finish();
     tracing::subscriber::with_default(subscriber, run);
     let bytes = buffer.0.lock().unwrap().clone();
-    String::from_utf8(bytes).unwrap()
+    String::from_utf8(bytes).unwrap().replace('\\', "/")
 }
 
 #[cfg(feature = "update")]

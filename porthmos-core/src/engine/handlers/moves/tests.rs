@@ -593,7 +593,7 @@ async fn a_file_is_never_moved_onto_itself_through_a_loopback_session() {
     t.engine.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
     std::fs::write(local(&t, "a.txt"), b"precious").unwrap();
 
-    let dest = t.dir.path().to_str().unwrap().to_string();
+    let dest = from_os_path(t.dir.path()).to_string_lossy().into_owned();
     upload(&mut t, session, &["a.txt"], &dest).await;
 
     assert_eq!(std::fs::read(local(&t, "a.txt")).unwrap(), b"precious");
@@ -614,7 +614,7 @@ async fn a_loopback_session_still_moves_files_to_a_different_place() {
     t.engine.sessions.get_mut(&session).unwrap().entry.host = "127.0.0.1".to_string();
     std::fs::write(local(&t, "a.txt"), b"hello").unwrap();
 
-    upload(&mut t, session, &["a.txt"], elsewhere.path().to_str().unwrap()).await;
+    upload(&mut t, session, &["a.txt"], &from_os_path(elsewhere.path()).to_string_lossy()).await;
 
     assert_eq!(std::fs::read(elsewhere.path().join("a.txt")).unwrap(), b"hello");
     assert!(!local(&t, "a.txt").exists());

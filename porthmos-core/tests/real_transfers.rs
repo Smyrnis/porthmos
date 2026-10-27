@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 mod scp_rig;
 
 use std::{

@@ -59,6 +59,7 @@ async fn stat_finds_files_and_directories_and_reports_missing_ones() {
     assert_eq!(fs.stat(&VfsPath::new("/nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn create_dir_makes_it_refuses_an_existing_one_and_a_missing_parent() {
     let (server, fs, _dir) = open(Options::default()).await;
@@ -103,6 +104,7 @@ async fn remove_file_and_recursive_delete() {
     assert!(!root.join("tree").exists());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn names_that_look_like_windows_paths_round_trip() {
     let (server, fs, _dir) = open(Options::default()).await;
