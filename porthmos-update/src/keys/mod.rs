@@ -1,6 +1,6 @@
 use crate::signature::{PublicKey, parse_public_key};
 
-pub const TRUSTED_PUBLIC_KEYS: &[&str] = &[];
+pub const TRUSTED_PUBLIC_KEYS: &[&str] = &["I54g04mttGujGUs6QBsxe+ZsVmEJ0TLK+sBLhMg99mo="];
 
 pub fn trusted_keys() -> Vec<PublicKey> {
     TRUSTED_PUBLIC_KEYS.iter().map(|key| parse_public_key(key).expect("an embedded public key is invalid")).collect()
