@@ -585,8 +585,9 @@ async fn a_late_secret_result_for_a_renamed_profile_lands_on_the_new_name() {
     t.settle().await;
 
     let names: Vec<String> = saved(&t).into_iter().map(|profile| profile.name).collect();
+    let errors = error_notices(&t.drain());
     assert_eq!(names, vec!["site"]);
-    assert_eq!(markers_of(&t, "site"), vec!["password"]);
+    assert_eq!(markers_of(&t, "site"), vec!["password"], "calls {:?}, errors {errors:?}", backend.calls());
     assert_eq!(backend.stored("profile:site").as_deref(), Some("pw"));
     assert!(backend.stored("profile:web").is_none(), "{:?}", backend.calls());
     assert_eq!(t.engine.secrets.cached("profile:site").as_deref().map(String::as_str), Some("pw"));

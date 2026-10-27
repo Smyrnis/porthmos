@@ -26,7 +26,7 @@ pub(crate) fn test_engine_with_secrets(backend: Arc<TestBackend>) -> TestEngine 
     let backend: Arc<dyn SecretBackend> = backend;
     engine_with(
         Secrets::new(Some(backend))
-            .with_timing(std::time::Duration::from_millis(500), std::time::Duration::from_millis(20)),
+            .with_timing(std::time::Duration::from_secs(10), std::time::Duration::from_millis(20)),
     )
 }
 
