@@ -395,7 +395,7 @@ fn list_resolves_each_distinct_owner_once() {
     assert_eq!(LOOKUPS.load(Ordering::SeqCst), 2);
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_file_with_a_non_utf8_name_can_be_listed_renamed_and_deleted() {
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
