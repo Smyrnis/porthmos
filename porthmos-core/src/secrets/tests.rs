@@ -387,8 +387,9 @@ async fn a_timed_out_write_lands_before_a_later_delete() {
     let secrets = store_with_limit(&backend, Duration::from_millis(300));
 
     assert_eq!(secrets.save("profile:web", "pw").await, Err(SecretError::TimedOut));
-    secrets.forget("profile:web", true).await.unwrap();
+    let forgotten = secrets.forget("profile:web", true).await;
 
+    assert_eq!(forgotten, Ok(()), "{:?}", backend.calls());
     assert!(backend.stored("profile:web").is_none());
     assert_eq!(backend.calls(), vec!["set profile:web", "delete profile:web"]);
 }

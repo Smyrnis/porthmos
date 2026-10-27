@@ -588,7 +588,7 @@ async fn a_late_secret_result_for_a_renamed_profile_lands_on_the_new_name() {
     assert_eq!(names, vec!["site"]);
     assert_eq!(markers_of(&t, "site"), vec!["password"]);
     assert_eq!(backend.stored("profile:site").as_deref(), Some("pw"));
-    assert!(backend.stored("profile:web").is_none());
+    assert!(backend.stored("profile:web").is_none(), "{:?}", backend.calls());
     assert_eq!(t.engine.secrets.cached("profile:site").as_deref().map(String::as_str), Some("pw"));
     assert!(t.engine.secrets.cached("profile:web").is_none());
 }
@@ -896,8 +896,8 @@ async fn reusing_a_name_after_a_rename_keeps_both_passwords_apart() {
     t.engine.handle_command(Command::SaveProfile { original: None, draft: Box::new(again) });
     t.settle().await;
 
-    assert_eq!(backend.stored("profile:site").as_deref(), Some("pw-web"));
-    assert_eq!(backend.stored("profile:web").as_deref(), Some("pw-new"));
+    assert_eq!(backend.stored("profile:site").as_deref(), Some("pw-web"), "{:?}", backend.calls());
+    assert_eq!(backend.stored("profile:web").as_deref(), Some("pw-new"), "{:?}", backend.calls());
     assert_eq!(markers_of(&t, "site"), vec!["password"]);
     assert_eq!(markers_of(&t, "web"), vec!["password"]);
 }
@@ -961,7 +961,7 @@ async fn renaming_there_and_back_quickly_keeps_the_password() {
         t.settle().await;
 
         assert_eq!(backend.stored("profile:a").as_deref(), Some("pw"));
-        assert!(backend.stored("profile:b").is_none());
+        assert!(backend.stored("profile:b").is_none(), "{:?}", backend.calls());
         assert_eq!(markers_of(&t, "a"), vec!["password"]);
     }
 }
