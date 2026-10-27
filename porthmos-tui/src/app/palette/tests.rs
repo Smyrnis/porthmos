@@ -809,3 +809,29 @@ fn the_speed_limit_is_offered_on_every_screen_with_its_key_on_the_transfers_scre
     let files = on(Screen::Files).app.palette_entries();
     assert_eq!(find(&files, "Set the speed limit").hint, None);
 }
+
+#[test]
+fn the_palette_lists_check_for_updates_on_every_screen() {
+    for screen in SCREENS {
+        let test = on(screen);
+
+        let entries = test.app.palette_entries();
+
+        assert!(
+            entries.iter().any(|entry| entry.label == "Check for updates" && entry.group == Group::Actions),
+            "{screen:?}"
+        );
+    }
+}
+
+#[test]
+fn choosing_check_for_updates_in_the_palette_sends_a_manual_check() {
+    let mut test = on(Screen::Files);
+    test.sent();
+    open_with(&mut test, "updates");
+
+    press(&mut test, KeyCode::Enter);
+
+    assert!(test.app.palette.is_none());
+    assert_eq!(test.sent(), [Command::CheckForUpdate { manual: true }]);
+}

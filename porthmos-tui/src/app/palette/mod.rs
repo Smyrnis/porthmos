@@ -56,6 +56,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::OpenHistory, "Transfer history", Availability::Everywhere),
     (Action::CancelTransfer, "Cancel all transfers", Availability::Everywhere),
     (Action::SpeedLimit, "Set the speed limit", Availability::Everywhere),
+    (Action::CheckForUpdates, "Check for updates", Availability::Everywhere),
 ];
 
 const PAGE: isize = 5;

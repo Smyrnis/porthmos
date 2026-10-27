@@ -23,6 +23,7 @@ use crate::widgets::{
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
     transfer_line::{line_data, paused_summary, render_transfer_line},
+    update_badge,
 };
 
 const DETAILS_POPUP_WIDTH: u16 = 60;
@@ -124,7 +125,8 @@ impl App {
                 Span::styled(" / ", theme.dim()),
                 Span::styled(label, theme.bright()),
             ]);
-            top_bar(frame, area, left, Line::default());
+            let room = usize::from(area.width.saturating_sub(left.width() as u16 + GAP));
+            top_bar(frame, area, left, self.top_bar_right(room, room));
             return;
         }
         let tabs = if self.screen == Screen::Files { self.tab_views() } else { Vec::new() };
@@ -136,7 +138,16 @@ impl App {
             Screen::Files => name_width + GAP + TABS_FLOOR.min(area.width.saturating_sub(name_width + GAP)),
             _ => name_width + " / ".len() as u16 + self.screen_title().len() as u16 + tail_width,
         };
-        let status = self.connection_status_line(usize::from(area.width.saturating_sub(left_minimum + GAP)));
+        let left_natural = match self.screen {
+            Screen::Files if !tabs.is_empty() => {
+                name_width + GAP + tabs_line(&tabs, u16::MAX, theme).line.width() as u16
+            }
+            _ => left_minimum,
+        };
+        let status = self.top_bar_right(
+            usize::from(area.width.saturating_sub(left_minimum + GAP)),
+            usize::from(area.width.saturating_sub(left_natural + GAP)),
+        );
         let status_width = status.width() as u16;
 
         let mut left = Line::from(name);
@@ -160,6 +171,26 @@ impl App {
             }
         }
         top_bar(frame, area, left, status);
+    }
+
+    fn top_bar_right(&self, status_room: usize, badge_room: usize) -> Line<'static> {
+        let status = self.connection_status_line(status_room);
+        let Some(badge) = self.update_badge() else { return status };
+        let fit = badge.fit(badge_room, status.width());
+        if fit.badge.is_none() {
+            return status;
+        }
+        let status =
+            if fit.status_budget < status.width() { self.connection_status_line(fit.status_budget) } else { status };
+        let separated = status.width() > 0;
+        let mut spans = status.spans;
+        if let Some(text) = fit.badge {
+            if separated {
+                spans.push(Span::raw(" ".repeat(update_badge::GAP)));
+            }
+            spans.push(Span::styled(text, self.theme.accent_text()));
+        }
+        Line::from(spans)
     }
 
     fn screen_tail(&self) -> Option<String> {

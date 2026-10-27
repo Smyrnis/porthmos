@@ -765,3 +765,17 @@ fn preview_has_a_name_that_round_trips_and_is_listed_with_its_key() {
     assert!(ALL_ACTIONS.contains(&Action::Preview));
     assert_eq!(shown(Scope::Files, Action::Preview), ["p"]);
 }
+
+#[test]
+fn check_for_updates_round_trips_through_its_config_name() {
+    assert_eq!(Action::CheckForUpdates.name(), "check_for_updates");
+    assert_eq!(Action::from_name("check_for_updates"), Some(Action::CheckForUpdates));
+    assert!(ALL_ACTIONS.contains(&Action::CheckForUpdates));
+}
+
+#[test]
+fn check_for_updates_has_no_default_key() {
+    for scope in [Scope::Global, Scope::Files, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(KeyBindings::defaults().key_for(scope, Action::CheckForUpdates), None, "{scope:?}");
+    }
+}

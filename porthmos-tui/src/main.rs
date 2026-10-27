@@ -17,7 +17,7 @@ mod theme;
 mod widgets;
 
 use app::App;
-use porthmos_core::{Core, Environment, Paths, config};
+use porthmos_core::{Core, Environment, Paths, UpdateMode, config};
 
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
@@ -52,18 +52,26 @@ fn init_tracing(log_file: Option<&std::path::Path>) {
     }
 }
 
+struct ExitUpdate {
+    paths: Paths,
+    mode: UpdateMode,
+}
+
 fn start_app(
     env: Environment, paths: Paths,
-) -> Result<(App, tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Event>)> {
+) -> Result<(App, tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Event>, ExitUpdate)> {
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
     let (theme_settings, theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
     let panel = settings.panel.clone();
-    let (core, events) = Core::builder().paths(paths).environment(env).settings(settings).start()?;
+    let update_mode = settings.update.mode;
+    let exit_update = ExitUpdate { paths: paths.clone(), mode: update_mode };
+    let (core, events) = Core::builder().paths(paths).environment(env).settings(settings).release_updates().start()?;
 
     let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
-    let mut app = App::new(core, std::env::current_dir()?, &panel, key_bindings).with_theme(theme);
+    let mut app =
+        App::new(core, std::env::current_dir()?, &panel, key_bindings).with_theme(theme).with_update_mode(update_mode);
     for warning in config_warnings {
         app.warn(warning.0);
     }
@@ -73,7 +81,7 @@ fn start_app(
     for warning in theme_warnings {
         app.warn(warning);
     }
-    Ok((app, events))
+    Ok((app, events, exit_update))
 }
 
 const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
@@ -85,6 +93,7 @@ fn main() -> Result<()> {
             println!("{text}");
             return Ok(());
         }
+        cli::Invocation::Update { check_only } => return run_update_command(check_only),
         cli::Invocation::Reject(message) => {
             eprintln!("porthmos: {message}");
             eprintln!("try 'porthmos --help'");
@@ -95,10 +104,42 @@ fn main() -> Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     let result = runtime.block_on(run());
     runtime.shutdown_timeout(SHUTDOWN_GRACE);
-    result
+    if let Some(exit) = result? {
+        install_update(exit);
+    }
+    Ok(())
 }
 
-async fn run() -> Result<()> {
+fn install_update(exit: ExitUpdate) {
+    match cli::install_message(&porthmos_core::apply_staged_update(&exit.paths, exit.mode)) {
+        Some(cli::ExitLine::Out(line)) => println!("{line}"),
+        Some(cli::ExitLine::Err(line)) => eprintln!("{line}"),
+        None => {}
+    }
+}
+
+fn run_update_command(check_only: bool) -> Result<()> {
+    let paths = match Paths::from_env(&Environment::from_process()) {
+        Ok(paths) => paths,
+        Err(err) => {
+            eprintln!("porthmos: {err:#}");
+            std::process::exit(1);
+        }
+    };
+    let runtime = tokio::runtime::Runtime::new()?;
+    match runtime.block_on(porthmos_core::run_update(&paths, check_only)) {
+        Ok(update) => {
+            println!("{}", cli::describe_update(&update));
+            Ok(())
+        }
+        Err(message) => {
+            eprintln!("porthmos: {message}");
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn run() -> Result<Option<ExitUpdate>> {
     let env = Environment::from_process();
     let paths = Paths::from_env(&env);
     init_tracing(paths.as_ref().ok().map(Paths::log_file).as_deref());
@@ -108,7 +149,7 @@ async fn run() -> Result<()> {
     let mut terminal = terminal::init()?;
 
     let result = match paths.and_then(|paths| start_app(env, paths)) {
-        Ok((mut app, events)) => app.run(&mut terminal, events).await,
+        Ok((mut app, events, exit)) => app.run(&mut terminal, events).await.map(|()| Some(exit)),
         Err(err) => Err(err),
     };
 

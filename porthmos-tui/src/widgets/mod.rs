@@ -25,3 +25,4 @@ pub mod text_fit;
 pub mod toast;
 pub mod transfer_line;
 pub mod transfer_list;
+pub mod update_badge;

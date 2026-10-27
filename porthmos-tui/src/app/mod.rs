@@ -9,7 +9,8 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation,
+    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation, UpdateMode,
+    UpdateState,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
@@ -44,6 +45,7 @@ use crate::{
         search_view::{self, SearchOutcome, SearchView},
         sync_view::{self, SyncView},
         transfer_list,
+        update_badge::BadgeKind,
     },
 };
 
@@ -63,6 +65,7 @@ mod search;
 mod sync;
 mod transfer_queue;
 mod transfers;
+mod update;
 
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
 
@@ -183,6 +186,10 @@ pub struct App {
     last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
+    update_mode: UpdateMode,
+    update_state: Option<UpdateState>,
+    ready_update: Option<String>,
+    announced_update: Option<(String, BadgeKind)>,
     core: CoreHandle,
 }
 
@@ -235,6 +242,10 @@ impl App {
             last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
+            update_mode: UpdateMode::default(),
+            update_state: None,
+            ready_update: None,
+            announced_update: None,
             core,
         };
         app.core.send(Command::List { location: Location::Local, path: Some(local_path) });
@@ -243,6 +254,11 @@ impl App {
 
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
+        self.update_mode = mode;
         self
     }
 
@@ -421,7 +437,7 @@ impl App {
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
-            Event::Update(_) => {}
+            Event::Update(state) => self.apply_update_event(state),
         }
     }
 

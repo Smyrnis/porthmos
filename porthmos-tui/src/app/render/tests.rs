@@ -1635,3 +1635,140 @@ fn warnings_and_info_toasts_have_no_dismiss_hint() {
         assert!(find_text(&terminal, "dismiss").is_none(), "{severity:?}");
     }
 }
+
+fn with_ready_update(app: &mut App, version: &str) {
+    app.apply_core_event(Event::Update(porthmos_core::UpdateState::Ready { version: version.to_string() }));
+    app.notifications.dismiss_current();
+}
+
+#[test]
+fn a_ready_update_shows_the_badge_at_the_far_right_of_the_top_bar() {
+    let (mut app, theme) = themed_app();
+    with_ready_update(&mut app, "0.4.0");
+
+    let terminal = render_app(&app, 80, 12);
+
+    let top = row_symbols(&terminal, 0);
+    assert!(top.trim_end().ends_with("\u{2191} 0.4.0 installs on quit"), "{top:?}");
+    let (x, y) = find_text(&terminal, "\u{2191}").expect("the arrow is drawn");
+    assert_eq!(cell_fg(&terminal, x, y), theme.accent);
+}
+
+#[test]
+fn the_badge_sits_to_the_right_of_the_connection_status() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    with_ready_update(&mut app, "0.4.0");
+
+    let terminal = render_app(&app, 120, 24);
+
+    let top = row_symbols(&terminal, 0);
+    let status = top.find("1 connected").expect("status is drawn");
+    let badge = top.find("\u{2191} 0.4.0").expect("badge is drawn");
+    assert!(status + "1 connected".len() < badge, "{top:?}");
+    assert!(top.trim_end().ends_with("installs on quit"), "{top:?}");
+}
+
+#[test]
+fn the_badge_steps_down_as_the_terminal_narrows() {
+    let (mut app, _) = themed_app();
+    add_session(&mut app, 1, "prod");
+    with_ready_update(&mut app, "0.4.0");
+
+    let tail = |width: u16| row_symbols(&render_app(&app, width, 12), 0).trim_end().to_string();
+
+    assert!(tail(52).ends_with("\u{2191} 0.4.0 installs on quit"), "{:?}", tail(52));
+    assert!(tail(36).ends_with("\u{2191} 0.4.0") && !tail(36).contains("installs"), "{:?}", tail(36));
+    assert!(tail(28).ends_with("\u{2191}") && !tail(28).contains("0.4.0"), "{:?}", tail(28));
+    assert!(!tail(22).contains('\u{2191}'), "{:?}", tail(22));
+}
+
+#[test]
+fn the_badge_never_overwrites_the_name_or_the_tab_floor() {
+    let (mut app, _) = themed_app();
+    add_session(&mut app, 1, "alpha");
+    add_session(&mut app, 2, "beta");
+    with_ready_update(&mut app, "0.4.0-rc.1");
+    let left_floor = "porthmos".len() + 3 + 16;
+
+    for width in 20..=200u16 {
+        let top = row_symbols(&render_app(&app, width, 12), 0);
+
+        assert!(top.trim_start().starts_with("porthmos"), "width {width}: {top:?}");
+        if let Some(position) = top.find('\u{2191}') {
+            let column = top[..position].chars().count();
+            assert!(column >= left_floor, "width {width}: {top:?}");
+        }
+    }
+}
+
+#[test]
+fn no_badge_without_an_update_and_in_auto_mode_while_downloading() {
+    let (mut app, _) = themed_app();
+    assert!(!row_symbols(&render_app(&app, 80, 12), 0).contains('\u{2191}'));
+
+    app.apply_core_event(Event::Update(porthmos_core::UpdateState::Available { version: "0.4.0".to_string() }));
+    app.apply_core_event(Event::Update(porthmos_core::UpdateState::Downloading {
+        version: "0.4.0".to_string(),
+        downloaded: 1,
+        total: 2,
+    }));
+
+    assert!(!row_symbols(&render_app(&app, 80, 12), 0).contains('\u{2191}'));
+}
+
+#[test]
+fn the_badge_shows_on_the_connections_screen_and_the_screen_form() {
+    let (mut app, _) = connections_app();
+    with_ready_update(&mut app, "0.4.0");
+    assert!(row_symbols(&render_app(&app, 120, 24), 0).contains("\u{2191} 0.4.0"));
+
+    let (mut app, _) = form_app();
+    with_ready_update(&mut app, "0.4.0");
+    app.apply_action(Action::AddConnection);
+    assert!(app.form_breadcrumb().is_some());
+
+    let top = row_symbols(&render_app(&app, 120, 24), 0);
+    assert!(top.contains("porthmos / connections / new") && top.trim_end().ends_with("installs on quit"), "{top:?}");
+}
+
+#[test]
+fn the_top_bar_never_panics_with_a_badge_at_any_size() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    with_ready_update(&mut app, "0.4.0-rc.1");
+
+    for screen in [Screen::Files, Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync] {
+        app.screen = screen;
+        for width in 0..=60 {
+            for height in 0..=6 {
+                render_app(&app, width, height);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_badge_never_squeezes_the_tabs() {
+    let names = ["alpha-server", "beta-server", "gamma-server", "delta-server"];
+    let (mut plain, _) = themed_app();
+    let (mut badged, _) = themed_app();
+    for (index, name) in names.iter().enumerate() {
+        add_session(&mut plain, index as u64 + 1, name);
+        add_session(&mut badged, index as u64 + 1, name);
+    }
+    with_ready_update(&mut badged, "0.4.0");
+
+    let mut seen = 0;
+    for width in 30..=200u16 {
+        let without = row_symbols(&render_app(&plain, width, 12), 0);
+        let with = row_symbols(&render_app(&badged, width, 12), 0);
+        let Some(position) = with.find('\u{2191}') else { continue };
+        seen += 1;
+        let column = with[..position].chars().count();
+        let left: String = without.chars().take(column).collect();
+        let kept: String = with.chars().take(column).collect();
+        assert_eq!(left.trim_end(), kept.trim_end(), "width {width}");
+    }
+    assert!(seen > 20, "the badge was almost never shown ({seen})");
+}

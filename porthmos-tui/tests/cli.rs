@@ -22,3 +22,13 @@ fn an_unknown_option_exits_with_code_two_and_a_hint_on_stderr() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("unknown option '--bogus'") && stderr.contains("porthmos --help"), "{stderr}");
 }
+
+#[test]
+fn update_with_a_bad_argument_exits_two_with_nothing_on_stdout() {
+    let output = porthmos(&["update", "--bogus"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("unknown option '--bogus'"), "{stderr}");
+}
