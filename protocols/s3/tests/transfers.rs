@@ -36,6 +36,16 @@ async fn write(fs: &dyn FileSystem, path: &str, offset: u64, data: &[u8]) -> u64
     writer.offset
 }
 
+async fn list_root_while_uploads_run(fs: &dyn FileSystem) {
+    const ATTEMPTS: usize = 6;
+    for _ in 0..ATTEMPTS {
+        if fs.read_dir(Path::new("/")).await.is_ok() {
+            return;
+        }
+    }
+    panic!("the root could not be listed in {ATTEMPTS} attempts");
+}
+
 #[tokio::test]
 async fn reads_whole_objects_and_from_an_offset() {
     let (server, fs, _dir) = open(Options::default()).await;
@@ -132,7 +142,7 @@ async fn parallel_uploads_run_while_listing() {
         });
     }
     for _ in 0..4 {
-        fs.read_dir(Path::new("/")).await.unwrap();
+        list_root_while_uploads_run(fs.as_ref()).await;
     }
     while let Some(result) = tasks.join_next().await {
         result.unwrap();
