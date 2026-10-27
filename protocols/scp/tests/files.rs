@@ -157,6 +157,7 @@ async fn a_rename_into_a_missing_folder_names_the_target() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn set_modified_changes_the_time_of_a_file_with_an_awkward_name() {
     let (server, fs) = open().await;
@@ -190,6 +191,7 @@ async fn set_modified_on_a_missing_file_does_not_create_it() {
     assert!(!path.exists());
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn an_old_file_keeps_its_exact_time_through_set_modified_and_a_listing() {
     let (server, fs) = open().await;
@@ -204,6 +206,7 @@ async fn an_old_file_keeps_its_exact_time_through_set_modified_and_a_listing() {
     assert_eq!(item.metadata.modified, Some(1_400_000_123));
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn set_modified_runs_a_single_command() {
     let (server, fs) = open().await;
