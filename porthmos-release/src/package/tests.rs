@@ -1,9 +1,11 @@
 use std::{
     fs::File,
     io::Read,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use flate2::read::GzDecoder;
 use porthmos_update::sha256_hex;
@@ -86,6 +88,7 @@ fn the_archive_holds_only_the_binary_and_the_license() {
 #[test]
 fn the_binary_keeps_its_bytes_and_is_executable() {
     let fixture = Fixture::new();
+    #[cfg(unix)]
     std::fs::set_permissions(fixture.binary(), std::fs::Permissions::from_mode(0o600)).unwrap();
     fixture.run().unwrap();
 
