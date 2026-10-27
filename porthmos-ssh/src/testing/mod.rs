@@ -177,6 +177,12 @@ impl server::Handler for Handler {
     }
 }
 
+#[cfg(windows)]
+fn search_path(_hide_scp: bool) -> OsString {
+    std::env::var_os("PATH").unwrap_or_default()
+}
+
+#[cfg(unix)]
 fn search_path(hide_scp: bool) -> OsString {
     let path = std::env::var_os("PATH").unwrap_or_default();
     if !hide_scp {

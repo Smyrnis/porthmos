@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ffi::OsString, fs, os::unix::fs::PermissionsExt, path::PathBuf};
+use std::{collections::BTreeMap, ffi::OsString, fs, path::PathBuf};
 
 use super::*;
 
@@ -108,8 +108,11 @@ fn command_for_an_ssh_config_alias_still_wraps_with_sshpass_when_a_password_is_s
     assert_eq!(invocation.env, vec![(OsString::from("SSHPASS"), OsString::from("hunter2"))]);
 }
 
+#[cfg(unix)]
 #[test]
 fn find_sshpass_in_locates_an_executable_on_the_path() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = tempfile::tempdir().unwrap();
     let sshpass_path = dir.path().join("sshpass");
     fs::write(&sshpass_path, b"").unwrap();
@@ -125,12 +128,25 @@ fn find_sshpass_in_returns_none_when_not_present() {
     assert_eq!(find_sshpass_in(dir.path().as_os_str()), None);
 }
 
+#[cfg(unix)]
 #[test]
 fn find_sshpass_in_ignores_a_non_executable_file() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = tempfile::tempdir().unwrap();
     let sshpass_path = dir.path().join("sshpass");
     fs::write(&sshpass_path, b"").unwrap();
     fs::set_permissions(&sshpass_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+    assert_eq!(find_sshpass_in(dir.path().as_os_str()), None);
+}
+
+#[cfg(windows)]
+#[test]
+fn sshpass_exe_on_the_path_is_never_used() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("sshpass.exe"), b"").unwrap();
+    fs::write(dir.path().join("sshpass"), b"").unwrap();
 
     assert_eq!(find_sshpass_in(dir.path().as_os_str()), None);
 }

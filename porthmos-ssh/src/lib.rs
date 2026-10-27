@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 pub mod client;
 mod connect;
 mod discovery;
