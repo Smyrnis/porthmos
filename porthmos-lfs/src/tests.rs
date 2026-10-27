@@ -1,6 +1,8 @@
 use std::fs::File;
 
-use porthmos_vfs::{ErrorKind, FileKind};
+use porthmos_vfs::ErrorKind;
+#[cfg(unix)]
+use porthmos_vfs::FileKind;
 
 use super::*;
 
@@ -18,6 +20,7 @@ fn list_returns_every_entry_in_the_directory() {
     assert_eq!(names, vec!["a_file.txt", "b_file.txt", "z_dir"]);
 }
 
+#[cfg(unix)]
 #[test]
 fn list_reports_unix_permissions() {
     use std::os::unix::fs::PermissionsExt;
@@ -88,6 +91,7 @@ fn delete_removes_a_directory_and_its_contents() {
     assert!(!target.exists());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn read_dir_reports_symlinks_without_following_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -98,6 +102,7 @@ async fn read_dir_reports_symlinks_without_following_them() {
     assert_eq!(alias.metadata.kind, FileKind::Symlink);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn stat_follows_symlinks() {
     let dir = tempfile::tempdir().unwrap();
@@ -181,12 +186,12 @@ async fn set_modified_changes_the_modification_time() {
 
 #[tokio::test]
 async fn set_modified_works_on_a_read_only_file_the_user_owns() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("f");
     std::fs::write(&file, b"x").unwrap();
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let mut permissions = std::fs::metadata(&file).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&file, permissions).unwrap();
 
     LocalFs::new(dir.path().into()).set_modified(&from_os_path(&file), 1_600_000_000).await.unwrap();
 
@@ -261,6 +266,7 @@ async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
     assert!(target.join("inner/keep.txt").exists());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn remove_dir_refuses_a_file_and_a_symlink_and_keeps_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -278,6 +284,7 @@ async fn remove_dir_refuses_a_file_and_a_symlink_and_keeps_them() {
     assert!(file.exists() && folder.exists() && alias.exists());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn remove_dir_removes_an_empty_folder_that_cannot_be_listed() {
     use std::os::unix::fs::PermissionsExt;
@@ -306,6 +313,7 @@ async fn remove_dir_of_a_missing_folder_is_not_found() {
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
 
+#[cfg(unix)]
 #[test]
 fn list_reports_the_owner_and_group_of_each_entry() {
     use std::os::unix::fs::MetadataExt;
@@ -321,6 +329,7 @@ fn list_reports_the_owner_and_group_of_each_entry() {
     assert_eq!(entries[0].group.as_deref(), Some(ownership::group_name(metadata.gid()).as_str()));
 }
 
+#[cfg(unix)]
 #[test]
 fn list_gives_a_symlink_its_target_as_written() {
     let dir = tempfile::tempdir().unwrap();
@@ -335,6 +344,7 @@ fn list_gives_a_symlink_its_target_as_written() {
     assert_eq!(real.link_target, None);
 }
 
+#[cfg(unix)]
 #[test]
 fn list_keeps_a_symlink_to_a_folder_a_non_folder_so_nothing_walks_into_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -348,6 +358,7 @@ fn list_keeps_a_symlink_to_a_folder_a_non_folder_so_nothing_walks_into_it() {
     assert_eq!(alias.link_target.as_deref(), Some("real"));
 }
 
+#[cfg(unix)]
 #[test]
 fn list_keeps_a_broken_symlink_as_a_file_with_its_target() {
     let dir = tempfile::tempdir().unwrap();
@@ -378,6 +389,7 @@ async fn free_space_of_a_missing_local_folder_is_not_found() {
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
 
+#[cfg(unix)]
 #[test]
 fn list_resolves_each_distinct_owner_once() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -416,4 +428,29 @@ async fn a_file_with_a_non_utf8_name_can_be_listed_renamed_and_deleted() {
     let again = local.list(&folder).await.unwrap().into_iter().find(|entry| entry.name != "plain.txt").unwrap();
     local.delete(&again.path).await.unwrap();
     assert!(!odd.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn list_gives_no_permissions_owner_or_group_on_windows() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("data.txt"), b"hello").unwrap();
+
+    let entries = list(dir.path()).unwrap();
+
+    assert_eq!((entries[0].permissions, entries[0].owner.as_deref(), entries[0].group.as_deref()), (None, None, None));
+}
+
+#[tokio::test]
+async fn set_modified_works_on_a_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("sub");
+    std::fs::create_dir(&folder).unwrap();
+
+    LocalFs::new(dir.path().into()).set_modified(&from_os_path(&folder), 1_600_000_000).await.unwrap();
+
+    assert_eq!(
+        std::fs::metadata(&folder).unwrap().modified().unwrap(),
+        std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000)
+    );
 }

@@ -1,7 +1,6 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
+mod attributes;
 mod os_path;
+#[cfg(unix)]
 mod ownership;
 mod space;
 
@@ -10,7 +9,6 @@ pub use os_path::{from_os_path, to_os_path};
 use std::{
     fs, io,
     io::SeekFrom,
-    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
@@ -46,8 +44,22 @@ fn metadata_from(metadata: &fs::Metadata) -> Metadata {
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|elapsed| elapsed.as_secs()),
         kind,
-        permissions: Some(metadata.permissions().mode()),
+        permissions: attributes::permissions_of(metadata),
     }
+}
+
+#[cfg(unix)]
+fn open_for_times(path: &Path) -> io::Result<fs::File> {
+    fs::File::open(path)
+}
+
+#[cfg(windows)]
+fn open_for_times(path: &Path) -> io::Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES};
+
+    fs::OpenOptions::new().access_mode(FILE_WRITE_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path)
 }
 
 async fn blocking<T: Send + 'static>(
@@ -67,7 +79,7 @@ impl FileSystem for LocalFs {
             let moment = UNIX_EPOCH.checked_add(Duration::from_secs(seconds)).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, format!("the modification time {seconds} is out of range"))
             })?;
-            fs::File::open(&path)?.set_modified(moment)
+            open_for_times(&path)?.set_modified(moment)
         })
         .await
     }
@@ -151,8 +163,7 @@ impl FileSystem for LocalFs {
 
 pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
-    let mut users = ownership::NameCache::new(ownership::user_name);
-    let mut groups = ownership::NameCache::new(ownership::group_name);
+    let mut resolver = attributes::AttributeResolver::new();
 
     for dir_entry in fs::read_dir(path)? {
         let dir_entry = dir_entry?;
@@ -162,19 +173,21 @@ pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
             fs::read_link(dir_entry.path()).map(|target| target.to_string_lossy().into_owned()).unwrap_or_default()
         });
 
+        let attributes = resolver.of(&metadata);
+
         entries.push(Entry {
             name,
             path: from_os_path(&dir_entry.path()),
             is_dir: metadata.is_dir(),
             size: metadata.len(),
-            permissions: Some(metadata.permissions().mode()),
+            permissions: attributes.permissions,
             modified: metadata
                 .modified()
                 .ok()
                 .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|elapsed| elapsed.as_secs()),
-            owner: Some(users.name(metadata.uid())),
-            group: Some(groups.name(metadata.gid())),
+            owner: attributes.owner,
+            group: attributes.group,
             link_target,
         });
     }
