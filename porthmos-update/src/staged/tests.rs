@@ -140,9 +140,27 @@ fn other_process_work(fixture: &Fixture) -> [PathBuf; 2] {
     [staging, download]
 }
 
+#[cfg(unix)]
+fn open_directory(folder: &Path) -> fs::File {
+    fs::File::open(folder).unwrap()
+}
+
+#[cfg(windows)]
+fn open_directory(folder: &Path) -> fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+    fs::OpenOptions::new()
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(folder)
+        .unwrap()
+}
+
 fn make_old(folder: &Path) {
     let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60);
-    fs::File::open(folder).unwrap().set_modified(two_hours_ago).unwrap();
+    open_directory(folder).set_modified(two_hours_ago).unwrap();
 }
 
 #[test]

@@ -1,17 +1,22 @@
 use std::{
     fs,
-    path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
 };
+
+#[cfg(unix)]
+use std::path::PathBuf;
 
 use chrono::{TimeZone, Utc};
 use semver::Version;
 
 use super::*;
 use crate::{
-    Artifact, find_staged, sha256_hex, sha256_hex_of_file,
+    Artifact, sha256_hex,
     testing::{Route, TestServer, archive_with, stub_archive},
 };
+
+#[cfg(unix)]
+use crate::{find_staged, sha256_hex_of_file};
 
 fn version(text: &str) -> Version {
     text.parse().unwrap()
@@ -56,6 +61,7 @@ async fn stage(setup: &Setup, update: &UpdateInfo) -> Result<Staged, StageError>
     setup.stager().stage(update, &AtomicBool::new(false), &mut |_, _| {}).await
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn staging_downloads_unpacks_checks_and_records() {
     let setup = Setup::new();
@@ -132,6 +138,7 @@ async fn an_archive_without_the_binary_stages_nothing() {
     assert!(setup.entries().is_empty(), "{:?}", setup.entries());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn staging_the_same_version_twice_downloads_only_once() {
     let setup = Setup::new();
@@ -146,6 +153,7 @@ async fn staging_the_same_version_twice_downloads_only_once() {
     assert_eq!(server.request_count(), 1);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn staging_a_newer_version_replaces_the_older_one() {
     let setup = Setup::new();
@@ -161,6 +169,7 @@ async fn staging_a_newer_version_replaces_the_older_one() {
     assert_eq!(find_staged(&setup.dir(), &version("0.4.0")), Some(staged));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_failed_attempt_keeps_an_earlier_valid_staged_update() {
     let setup = Setup::new();
@@ -215,6 +224,7 @@ async fn the_production_stager_refuses_plain_http_without_connecting() {
     assert!(setup.entries().is_empty());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_leftover_staging_folder_from_a_crash_does_not_block_staging() {
     let setup = Setup::new();
@@ -230,6 +240,7 @@ async fn a_leftover_staging_folder_from_a_crash_does_not_block_staging() {
     assert_eq!(setup.entries(), ["0.5.0", "staged.toml"]);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn staging_leaves_the_fresh_work_of_another_process_alone() {
     let setup = Setup::new();
