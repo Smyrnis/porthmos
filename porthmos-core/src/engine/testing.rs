@@ -125,10 +125,15 @@ impl TestEngine {
     }
 
     pub(crate) async fn settle(&mut self) {
-        while let Ok(Some(done)) =
-            tokio::time::timeout(std::time::Duration::from_millis(300), self.internal.recv()).await
-        {
-            self.engine.handle_internal(done);
+        const QUIET: std::time::Duration = std::time::Duration::from_millis(300);
+        const LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
+        let started = std::time::Instant::now();
+        loop {
+            match tokio::time::timeout(QUIET, self.internal.recv()).await {
+                Ok(Some(done)) => self.engine.handle_internal(done),
+                Err(_) if !self.engine.latest_keyring_job.is_empty() && started.elapsed() < LIMIT => {}
+                Ok(None) | Err(_) => break,
+            }
         }
     }
 

@@ -1014,3 +1014,16 @@ async fn keeping_a_password_whose_keyring_entry_was_deleted_by_hand_is_quiet() {
     assert_eq!(markers_of(&t, "web"), vec!["password"]);
     assert!(backend.stored("profile:web").is_none());
 }
+
+#[tokio::test]
+async fn settle_waits_for_a_keyring_job_that_outlasts_the_quiet_period() {
+    let backend = std::sync::Arc::new(TestBackend::new());
+    backend.block_for(std::time::Duration::from_millis(400));
+    let mut t = engine_with_sftp_and(&backend);
+
+    t.engine.handle_command(Command::SaveProfile { original: None, draft: with_password("web", "pw") });
+    t.settle().await;
+
+    assert_eq!(backend.stored("profile:web").as_deref(), Some("pw"));
+    assert!(t.engine.latest_keyring_job.is_empty());
+}
