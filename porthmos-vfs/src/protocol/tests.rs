@@ -144,3 +144,38 @@ fn an_invocation_without_arguments_is_left_as_it_was() {
 
     assert_eq!(bare.clone().starting_in(&VfsPath::new("/x")), bare);
 }
+
+#[test]
+fn home_wins_over_the_user_profile() {
+    let home = Environment::home_from(Some("/home/me".into()), Some(r"C:\Users\me".into()));
+
+    assert_eq!(home, Some(PathBuf::from("/home/me")));
+}
+
+#[test]
+fn home_falls_back_to_the_user_profile_when_home_is_unset() {
+    let home = Environment::home_from(None, Some(r"C:\Users\me".into()));
+
+    assert_eq!(home, Some(PathBuf::from(r"C:\Users\me")));
+}
+
+#[test]
+fn an_empty_home_is_ignored() {
+    let home = Environment::home_from(Some("".into()), Some(r"C:\Users\me".into()));
+
+    assert_eq!(home, Some(PathBuf::from(r"C:\Users\me")));
+}
+
+#[test]
+fn without_home_or_user_profile_there_is_no_home() {
+    assert_eq!(Environment::home_from(None, None), None);
+    assert_eq!(Environment::home_from(Some("".into()), Some("".into())), None);
+}
+
+#[test]
+fn the_user_name_falls_back_to_username_when_user_is_unset() {
+    assert_eq!(Environment::user_from(Some("me".into()), Some("WINME".into())), Some("me".to_string()));
+    assert_eq!(Environment::user_from(None, Some("WINME".into())), Some("WINME".to_string()));
+    assert_eq!(Environment::user_from(Some(String::new()), Some("WINME".into())), Some("WINME".to_string()));
+    assert_eq!(Environment::user_from(None, None), None);
+}

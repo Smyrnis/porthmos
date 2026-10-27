@@ -622,6 +622,26 @@ fn the_files_screen_shows_the_local_header_rule_column_header_and_footer() {
 }
 
 #[test]
+fn the_local_header_shortens_the_home_folder_the_app_was_given() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+    let app = app.with_home(Some(VfsPath::new("/d")));
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("local  ~"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
+fn the_local_header_shows_the_full_path_without_a_home_folder() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+    let app = app.with_home(None);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("local  /d"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
 fn the_divider_is_drawn_between_the_panels_in_the_line_colour() {
     let (app, theme) = themed_app();
 

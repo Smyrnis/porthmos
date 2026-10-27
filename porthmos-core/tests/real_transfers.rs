@@ -257,6 +257,7 @@ async fn a_finished_upload_is_kept_in_the_history_file() {
     assert_eq!(stored.entries(), listed.as_slice());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_that_cannot_be_read_is_kept_as_partly_failed() {
     use std::os::unix::fs::PermissionsExt;
@@ -288,6 +289,7 @@ async fn a_file_that_cannot_be_read_is_kept_as_partly_failed() {
     assert!(!text.to_lowercase().contains("permission denied"), "{text}");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edited_remote_file_is_uploaded_in_place() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};

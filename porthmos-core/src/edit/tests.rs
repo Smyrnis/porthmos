@@ -38,8 +38,13 @@ fn shell_syntax_is_not_interpreted() {
     assert_eq!(split_command("ed $HOME `x` ; rm").unwrap(), ["ed", "$HOME", "`x`", ";", "rm"]);
 }
 
+#[cfg(unix)]
+const FALLBACK_PROGRAM: &str = "vi";
+#[cfg(windows)]
+const FALLBACK_PROGRAM: &str = "notepad.exe";
+
 #[test]
-fn the_setting_beats_the_environment_and_the_environment_beats_vi() {
+fn the_setting_beats_the_environment_and_the_environment_beats_the_platform_fallback() {
     let env = env_with(Some("nano -w"));
 
     assert_eq!(
@@ -52,14 +57,14 @@ fn the_setting_beats_the_environment_and_the_environment_beats_vi() {
     );
     assert_eq!(
         resolve_editor(None, &env_with(None)).unwrap(),
-        EditorCommand { program: "vi".to_string(), args: Vec::new() }
+        EditorCommand { program: FALLBACK_PROGRAM.to_string(), args: Vec::new() }
     );
 }
 
 #[test]
 fn blank_values_fall_through_to_the_next_source() {
     assert_eq!(resolve_editor(Some("   "), &env_with(Some("nano"))).unwrap().program, "nano");
-    assert_eq!(resolve_editor(Some(""), &env_with(Some("  "))).unwrap().program, "vi");
+    assert_eq!(resolve_editor(Some(""), &env_with(Some("  "))).unwrap().program, FALLBACK_PROGRAM);
 }
 
 #[test]

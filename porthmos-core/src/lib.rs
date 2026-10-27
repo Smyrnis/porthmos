@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 pub mod config;
 pub mod connections_tree;
 pub mod edit;
@@ -136,6 +133,10 @@ impl CoreHandle {
     }
 }
 
+#[cfg(windows)]
+pub fn disable_core_dumps() {}
+
+#[cfg(unix)]
 pub fn disable_core_dumps() {
     let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     unsafe {

@@ -48,6 +48,7 @@ fn save_then_load_round_trips_including_a_remote_bookmark() {
     assert_eq!(loaded.get(1).unwrap().host, Some("production".to_string()));
 }
 
+#[cfg(unix)]
 #[test]
 fn save_to_leaves_the_original_file_untouched_if_the_write_fails() {
     let dir = tempfile::tempdir().unwrap();
@@ -104,6 +105,7 @@ fn saving_after_a_broken_file_was_set_aside_writes_a_fresh_file_and_keeps_the_ol
     assert_eq!(load(&paths).unwrap().0.len(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_protected_bookmarks_file_is_never_overwritten() {
     use std::os::unix::fs::PermissionsExt;
@@ -127,6 +129,7 @@ fn a_protected_bookmarks_file_is_never_overwritten() {
     assert_eq!(std::fs::read_to_string(paths.bookmarks_file()).unwrap(), "garbage [");
 }
 
+#[cfg(unix)]
 #[test]
 fn the_bookmarks_file_is_private() {
     use std::os::unix::fs::PermissionsExt;

@@ -474,6 +474,7 @@ async fn shutdown_without_an_upload_does_not_wait_for_the_upload_grace() {
     assert!(start.elapsed() < Duration::from_millis(1500));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_history_write_that_never_finishes_does_not_block_the_shutdown() {
     use std::os::unix::ffi::OsStrExt;

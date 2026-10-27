@@ -1,4 +1,6 @@
-use std::{fs, os::unix::fs::PermissionsExt};
+use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use chrono::TimeZone;
 
@@ -72,6 +74,7 @@ fn a_time_that_is_not_a_date_counts_as_corrupt() {
     assert!(warning.is_some());
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_that_cannot_be_set_aside_is_not_writable_and_is_left_alone() {
     let (_dir, paths) = paths();

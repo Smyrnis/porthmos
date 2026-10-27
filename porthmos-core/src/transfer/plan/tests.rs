@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
 
 use porthmos_lfs::{LocalFs, from_os_path};
@@ -44,6 +45,7 @@ async fn discover_local_tree_includes_empty_directories() {
     assert!(tree.files.is_empty());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn discover_local_tree_skips_symlinks_and_counts_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -340,6 +342,7 @@ fn planned_files_for_tree_carries_the_source_modification_time() {
     assert_eq!(planned[0].source_modified, Some(50));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn list_local_destination_sees_through_symlinks_and_keeps_dangling_ones() {
     let dir = tempfile::tempdir().unwrap();

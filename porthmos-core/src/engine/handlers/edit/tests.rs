@@ -1,7 +1,8 @@
-use std::{
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use chrono::Utc;
 use porthmos_lfs::from_os_path;
@@ -190,6 +191,7 @@ async fn open_remote(t: &mut TestEngine, session: u64, path: &str) -> Vec<Event>
     t.drain()
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -202,6 +204,7 @@ fn error_notices(events: &[Event]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_remote_file_is_downloaded_to_a_private_temporary_copy() {
     let mut t = test_engine();

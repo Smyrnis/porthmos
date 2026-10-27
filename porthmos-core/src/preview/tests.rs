@@ -246,6 +246,7 @@ fn only_regular_files_and_unknown_modes_are_read() {
     assert!(is_special(0o140755));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_named_pipe_is_refused_at_once_instead_of_blocking() {
     let dir = tempfile::tempdir().unwrap();

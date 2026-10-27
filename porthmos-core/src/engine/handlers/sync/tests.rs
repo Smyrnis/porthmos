@@ -322,6 +322,7 @@ async fn disconnecting_during_a_scan_cancels_it_quietly() {
     assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn symlinks_are_skipped_with_a_warning() {
     let mut t = test_engine();
@@ -546,6 +547,7 @@ async fn withdrawing_nothing_emits_nothing() {
     assert!(!t.drain().iter().any(|event| matches!(event, Event::SyncWithdrawn { .. })));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn several_symlinks_are_counted_in_the_plural() {
     let mut t = test_engine();
@@ -859,6 +861,7 @@ async fn a_session_that_vanished_before_running_is_an_error() {
     assert!(t.engine.snapshot().rows.is_empty());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_folder_that_cannot_be_created_fails_only_its_own_direction() {
     use std::os::unix::fs::PermissionsExt;
@@ -1144,6 +1147,7 @@ async fn an_upload_never_goes_through_a_symlinked_remote_folder() {
     assert_eq!(remote.contents("/elsewhere/keep.txt").unwrap(), b"keep");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_download_never_replaces_a_local_symlink_at_the_path_of_a_remote_file() {
     let mut t = test_engine();
@@ -1170,6 +1174,7 @@ async fn a_download_never_replaces_a_local_symlink_at_the_path_of_a_remote_file(
     assert_eq!(remote.contents("/srv/a.txt").unwrap(), b"remote data");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_download_never_goes_through_a_local_symlinked_folder() {
     let mut t = test_engine();
@@ -1192,6 +1197,7 @@ async fn a_download_never_goes_through_a_local_symlinked_folder() {
     assert!(remote.exists("/srv/d/one.txt") && remote.exists("/srv/d/deeper/two.txt"));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn without_subfolders_a_real_nested_remote_folder_produces_only_depth_one_items() {
     let mut t = test_engine();

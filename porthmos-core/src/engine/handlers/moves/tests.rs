@@ -73,6 +73,7 @@ fn only_row(t: &TestEngine) -> crate::transfer::rows::QueueRow {
     rows.into_iter().next().unwrap()
 }
 
+#[cfg(unix)]
 fn is_root() -> bool {
     let probe = tempfile::tempdir().unwrap();
     let locked = probe.path().join("locked");
@@ -156,6 +157,7 @@ async fn moving_a_folder_leaves_a_sibling_with_the_same_prefix_alone() {
     assert!(!local(&t, "ab").exists());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_remote_name_with_a_backslash_is_moved_as_one_file() {
     let mut t = test_engine();
@@ -229,6 +231,7 @@ async fn a_failed_file_keeps_its_folder_while_the_others_are_moved() {
     assert_eq!(remote.contents("/up/tree/good.txt").unwrap(), b"g");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_symlink_inside_a_folder_is_never_moved_and_keeps_the_folder() {
     let mut t = test_engine();
@@ -244,6 +247,7 @@ async fn a_symlink_inside_a_folder_is_never_moved_and_keeps_the_folder() {
     assert!(local(&t, "tree/link").symlink_metadata().is_ok());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_source_that_cannot_be_removed_fails_the_job_and_keeps_the_copy() {
     if is_root() {
@@ -751,6 +755,7 @@ async fn renaming_on_conflict_moves_the_file_under_the_new_name_and_leaves_the_o
     assert!(!local(&t, "a.txt").exists());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn retrying_after_the_original_could_not_be_removed_moves_it_once_it_can_be() {
     if is_root() {

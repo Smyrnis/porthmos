@@ -34,8 +34,10 @@ tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
-libc.workspace = true
 keyring-core = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { version = "1.0.1", optional = true, features = ["rt-tokio-crypto-rust"] }

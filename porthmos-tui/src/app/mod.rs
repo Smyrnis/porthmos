@@ -186,6 +186,7 @@ pub struct App {
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     update_mode: UpdateMode,
+    home: Option<VfsPath>,
     update_state: Option<UpdateState>,
     ready_update: Option<String>,
     announced_update: Option<(String, BadgeKind)>,
@@ -242,6 +243,7 @@ impl App {
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             update_mode: UpdateMode::default(),
+            home: None,
             update_state: None,
             ready_update: None,
             announced_update: None,
@@ -253,6 +255,11 @@ impl App {
 
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    pub fn with_home(mut self, home: Option<VfsPath>) -> Self {
+        self.home = home;
         self
     }
 

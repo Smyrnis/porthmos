@@ -1,10 +1,10 @@
-use std::{
-    ffi::OsStr,
-    os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::{ffi::OsStr, path::Path};
+use std::{path::PathBuf, time::Duration};
 
+#[cfg(unix)]
 use porthmos_lfs::from_os_path;
 use porthmos_vfs::VfsPath;
 
@@ -253,6 +253,7 @@ fn nothing_is_published_when_nothing_was_recorded() {
     assert!(!t.drain().iter().any(|event| matches!(event, Event::History(_))));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_name_that_is_not_utf8_is_recorded_lossily() {
     let mut t = test_engine();

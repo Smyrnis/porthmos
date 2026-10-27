@@ -256,6 +256,7 @@ async fn a_closed_connection_for_a_newer_request_drops_the_older_answer() {
     assert!(events[0].2.as_ref().unwrap_err().contains("closed"));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_named_pipe_is_refused_without_blocking_the_engine() {
     let mut t = test_engine();

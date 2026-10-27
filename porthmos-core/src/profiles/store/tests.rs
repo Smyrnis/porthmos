@@ -71,6 +71,7 @@ username = "deploy"
     assert_eq!(crate::profiles::ConnectionEntry::from_profile(profiles[0].clone(), 22).port, 22);
 }
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
@@ -163,6 +164,7 @@ fn delete_from_removes_one_entry_and_leaves_others() {
     assert_eq!(loaded[0].name, "staging");
 }
 
+#[cfg(unix)]
 #[test]
 fn save_to_sets_file_permissions_to_owner_read_write_only() {
     let dir = tempfile::tempdir().unwrap();
@@ -187,6 +189,7 @@ fn save_to_sets_file_permissions_to_owner_read_write_only() {
     assert_eq!(mode, 0o600);
 }
 
+#[cfg(unix)]
 #[test]
 fn save_to_leaves_the_original_file_untouched_if_the_write_fails() {
     let dir = tempfile::tempdir().unwrap();

@@ -1,6 +1,3 @@
-use std::path::Path;
-
-use porthmos_core::from_os_path;
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -299,10 +296,9 @@ impl App {
         let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
 
         if !single || local_active {
-            let home = std::env::var_os("HOME").map(|home| from_os_path(Path::new(&home)));
             let context = PanelContext {
                 protocol: "local",
-                location: abbreviate_home(self.local.path(), home.as_ref()),
+                location: abbreviate_home(self.local.path(), self.home.as_ref()),
                 active: local_active,
                 show_modified,
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),

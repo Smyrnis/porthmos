@@ -11,7 +11,10 @@ use porthmos_vfs::Environment;
 
 pub const MAX_EDIT_BYTES: u64 = 64 * 1024 * 1024;
 
+#[cfg(unix)]
 const FALLBACK_EDITOR: &str = "vi";
+#[cfg(windows)]
+const FALLBACK_EDITOR: &str = "notepad.exe";
 const HASH_CHUNK: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

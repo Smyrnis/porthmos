@@ -44,11 +44,19 @@ pub struct Environment {
 impl Environment {
     pub fn from_process() -> Self {
         Self {
-            home: std::env::var_os("HOME").map(PathBuf::from),
-            user: std::env::var("USER").ok(),
+            home: Self::home_from(std::env::var_os("HOME"), std::env::var_os("USERPROFILE")),
+            user: Self::user_from(std::env::var("USER").ok(), std::env::var("USERNAME").ok()),
             path: std::env::var_os("PATH"),
             editor: Self::editor_from(std::env::var("VISUAL").ok(), std::env::var("EDITOR").ok()),
         }
+    }
+
+    pub fn home_from(home: Option<OsString>, user_profile: Option<OsString>) -> Option<PathBuf> {
+        [home, user_profile].into_iter().flatten().find(|value| !value.is_empty()).map(PathBuf::from)
+    }
+
+    pub fn user_from(user: Option<String>, user_name: Option<String>) -> Option<String> {
+        [user, user_name].into_iter().flatten().find(|value| !value.is_empty())
     }
 
     pub fn editor_from(visual: Option<String>, editor: Option<String>) -> Option<String> {

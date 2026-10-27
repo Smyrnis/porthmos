@@ -134,10 +134,19 @@ fn the_file_is_the_last_argument_and_nothing_goes_through_a_shell() {
     assert_eq!(args, ["--wait", "-n", "/tmp/-weird name; rm -rf.txt"]);
 }
 
+#[cfg(unix)]
+const SHELL: &str = "sh";
+#[cfg(windows)]
+const SHELL: &str = "cmd";
+#[cfg(unix)]
+const SHELL_FLAG: &str = "-c";
+#[cfg(windows)]
+const SHELL_FLAG: &str = "/c";
+
 #[test]
 fn the_exit_status_maps_to_the_editor_outcome() {
-    let ok = std::process::Command::new("sh").args(["-c", "exit 0"]).status();
-    let failed = std::process::Command::new("sh").args(["-c", "exit 3"]).status();
+    let ok = std::process::Command::new(SHELL).args([SHELL_FLAG, "exit 0"]).status();
+    let failed = std::process::Command::new(SHELL).args([SHELL_FLAG, "exit 3"]).status();
     let missing = std::process::Command::new("/nonexistent/editor").status();
 
     assert_eq!(editor_exit(ok), EditorExit::Success);
@@ -145,6 +154,7 @@ fn the_exit_status_maps_to_the_editor_outcome() {
     assert!(matches!(editor_exit(missing), EditorExit::LaunchFailed(message) if !message.is_empty()));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_process_killed_by_a_signal_is_a_failed_status() {
     let killed = std::process::Command::new("sh").args(["-c", "kill -9 $$"]).status();

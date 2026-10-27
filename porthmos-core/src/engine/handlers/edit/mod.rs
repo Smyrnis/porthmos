@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicBool},
 };
@@ -18,6 +17,7 @@ use crate::{
         EditChoice, EditQuestionKind, EditorCommand, EditorExit, MAX_EDIT_BYTES, conflict_copy_name, hash_file,
         printable, resolve_editor,
     },
+    persist::{create_private_dir, restrict_to_owner},
     tasks::Scope,
     transfer::{self, TransferOutcome},
     user_message,
@@ -85,13 +85,6 @@ fn editor_failure(message: &str) -> String {
     format!("Couldn't start the editor ({message}). Set $EDITOR or [edit] editor")
 }
 
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
-    if let Some(parent) = dir.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
-    }
-    std::fs::DirBuilder::new().mode(0o700).create(dir)
-}
-
 fn remove_dir(dir: &Path) {
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -127,7 +120,7 @@ async fn prepare(
             return failed(&err);
         }
     }
-    if let Err(err) = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)) {
+    if let Err(err) = restrict_to_owner(&file, 0o600) {
         remove_dir(&dir);
         return failed(&err);
     }

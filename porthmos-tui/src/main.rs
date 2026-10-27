@@ -1,9 +1,6 @@
 use anyhow::Result;
 use tracing_subscriber::prelude::*;
 
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 mod app;
 mod cli;
 mod clock;
@@ -60,6 +57,7 @@ struct ExitUpdate {
 fn start_app(
     env: Environment, paths: Paths,
 ) -> Result<(App, tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Event>, ExitUpdate)> {
+    let home = env.home.as_deref().map(from_os_path);
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
@@ -72,6 +70,7 @@ fn start_app(
     let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
     let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &panel, key_bindings)
         .with_theme(theme)
+        .with_home(home)
         .with_update_mode(update_mode);
     for warning in config_warnings {
         app.warn(warning.0);
