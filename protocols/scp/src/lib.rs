@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 mod commands;
 mod fs;
 mod listing;

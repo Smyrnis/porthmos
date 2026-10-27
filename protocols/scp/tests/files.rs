@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use std::sync::Arc;
 
 use porthmos_lfs::from_os_path;
@@ -225,6 +227,7 @@ async fn set_modified_runs_a_single_command() {
     assert_eq!(server.started_commands() - before, 1);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn set_modified_on_a_dangling_link_is_not_found_and_creates_nothing() {
     let (server, fs) = open().await;
@@ -278,6 +281,7 @@ async fn remove_dir_refuses_a_file_and_keeps_it() {
     assert!(at(&server, "f").exists());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn list_reports_the_numeric_owner_and_group_of_a_new_file() {
     use std::os::unix::fs::MetadataExt;

@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use std::{sync::Arc, time::Duration};
 
 use porthmos_lfs::from_os_path;
@@ -176,6 +178,7 @@ async fn cancelled_downloads_release_their_sessions() {
     assert_eq!(read_all(fs.as_ref(), &from_os_path(&path), 0).await.len(), 5 * MIB);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_cat_upload_the_server_refuses_fails_quickly_with_the_reason() {
     let (server, fs) = open_with(Options { hide_scp: true, ..Options::default() }, Duration::from_secs(1)).await;
@@ -225,6 +228,7 @@ async fn listing_is_not_starved_by_waiting_transfers() {
     stuck.abort_all();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_refused_scp_upload_keeps_its_reason() {
     let (server, fs) = open(Options::default()).await;

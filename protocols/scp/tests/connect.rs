@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use porthmos_scp::Scp;
 use porthmos_ssh::testing::{self, Options, SshServer};
 use porthmos_vfs::{Answer, ErrorKind, Protocol, Question};

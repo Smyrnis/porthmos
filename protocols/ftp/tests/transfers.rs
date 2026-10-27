@@ -1,6 +1,8 @@
 mod support;
 
-use std::{os::unix::fs::PermissionsExt, sync::Arc};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::sync::Arc;
 
 use porthmos_ftp::Ftp;
 use porthmos_vfs::{FileSystem, Protocol, VfsPath};
@@ -66,6 +68,7 @@ async fn writing_at_an_offset_resumes_the_file() {
     assert_eq!(std::fs::read(server.root.path().join("part.bin")).unwrap(), b"hello world");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_write_the_server_rejects_is_an_error() {
     let server = support::start(Some("pw"), None).await;
