@@ -355,6 +355,7 @@ fn make_tree(rig: &Rig) {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn syncing_up_twice_leaves_nothing_to_do() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -372,6 +373,7 @@ async fn syncing_up_twice_leaves_nothing_to_do() {
     assert!(rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.is_none());
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn both_copies_each_way_and_then_settles() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -388,6 +390,7 @@ async fn both_copies_each_way_and_then_settles() {
     assert!(rig.scan_sync(sync_options(SyncDirection::Both)).await.is_none());
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn downloading_settles_too() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -403,6 +406,7 @@ async fn downloading_settles_too() {
     assert!(rig.scan_sync(sync_options(SyncDirection::RemoteToLocal)).await.is_none());
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_touched_after_a_sync_is_found_again() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -454,6 +458,7 @@ async fn a_sync_with_nothing_ticked_finishes_promptly_and_changes_nothing() {
     assert_eq!(modified_seconds(&rig.remote("tree/a.txt")), 1_900_000_000);
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn awkward_file_names_survive_the_copy_and_the_time_change() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
