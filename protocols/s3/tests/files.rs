@@ -1,9 +1,9 @@
 mod support;
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use porthmos_s3::S3;
-use porthmos_vfs::{ErrorKind, FileSystem, Protocol};
+use porthmos_vfs::{ErrorKind, FileSystem, Protocol, VfsPath};
 use support::{BUCKET, Options, Quirk, SECRET, Server};
 use tokio::io::AsyncReadExt;
 
@@ -23,7 +23,7 @@ async fn open(options: Options) -> (Server, Arc<dyn FileSystem>, tempfile::TempD
 
 async fn names(fs: &dyn FileSystem, dir: &str) -> Vec<(String, bool)> {
     let mut items: Vec<(String, bool)> = fs
-        .read_dir(Path::new(dir))
+        .read_dir(&VfsPath::new(dir))
         .await
         .unwrap()
         .into_iter()
@@ -49,8 +49,8 @@ async fn list_reports_the_modification_time_of_an_object_and_none_for_a_folder()
     let (server, fs, _dir) = open(Options::default()).await;
     put(&server, "docs/a.txt", b"hello");
 
-    let root = fs.list(Path::new("/")).await.unwrap();
-    let docs = fs.list(Path::new("/docs")).await.unwrap();
+    let root = fs.list(&VfsPath::new("/")).await.unwrap();
+    let docs = fs.list(&VfsPath::new("/docs")).await.unwrap();
 
     assert_eq!(root[0].modified, None);
     assert!(within_a_day_of_now(docs[0].modified), "{:?}", docs[0].modified);
@@ -62,24 +62,24 @@ async fn read_dir_shows_folders_and_files() {
     put(&server, "docs/a.txt", b"hello");
     put(&server, "docs/sub/x", b"x");
 
-    let items = fs.read_dir(Path::new("/docs")).await.unwrap();
+    let items = fs.read_dir(&VfsPath::new("/docs")).await.unwrap();
 
     let file = items.iter().find(|item| item.name == "a.txt").unwrap();
-    assert_eq!((file.path.as_path(), file.metadata.size, file.metadata.is_dir()), (Path::new("/docs/a.txt"), 5, false));
+    assert_eq!((&file.path, file.metadata.size, file.metadata.is_dir()), (&VfsPath::new("/docs/a.txt"), 5, false));
     assert!(file.metadata.modified.is_some());
     assert_eq!(names(fs.as_ref(), "/docs").await, vec![("a.txt".to_string(), false), ("sub".to_string(), true)]);
-    assert_eq!(fs.list(Path::new("/docs")).await.unwrap().len(), 2);
+    assert_eq!(fs.list(&VfsPath::new("/docs")).await.unwrap().len(), 2);
 }
 
 #[tokio::test]
 async fn a_new_folder_is_listed_and_its_marker_is_hidden() {
     let (_server, fs, _dir) = open(Options::default()).await;
 
-    fs.create_dir(Path::new("/empty")).await.unwrap();
+    fs.create_dir(&VfsPath::new("/empty")).await.unwrap();
 
     assert_eq!(names(fs.as_ref(), "/").await, vec![("empty".to_string(), true)]);
     assert!(names(fs.as_ref(), "/empty").await.is_empty());
-    assert!(fs.stat(Path::new("/empty")).await.unwrap().is_dir());
+    assert!(fs.stat(&VfsPath::new("/empty")).await.unwrap().is_dir());
 }
 
 #[tokio::test]
@@ -89,7 +89,7 @@ async fn listing_follows_continuation_pages() {
         put(&server, &format!("f{index}"), b"x");
     }
 
-    assert_eq!(fs.read_dir(Path::new("/")).await.unwrap().len(), 5);
+    assert_eq!(fs.read_dir(&VfsPath::new("/")).await.unwrap().len(), 5);
 }
 
 #[tokio::test]
@@ -97,10 +97,27 @@ async fn stat_finds_files_and_folders_and_reports_missing_ones() {
     let (server, fs, _dir) = open(Options::default()).await;
     put(&server, "docs/a.txt", &[0u8; 42]);
 
-    assert_eq!(fs.stat(Path::new("/docs/a.txt")).await.unwrap().size, 42);
-    assert!(fs.stat(Path::new("/docs")).await.unwrap().is_dir());
-    assert!(fs.stat(Path::new("/")).await.unwrap().is_dir());
-    assert_eq!(fs.stat(Path::new("/nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.stat(&VfsPath::new("/docs/a.txt")).await.unwrap().size, 42);
+    assert!(fs.stat(&VfsPath::new("/docs")).await.unwrap().is_dir());
+    assert!(fs.stat(&VfsPath::new("/")).await.unwrap().is_dir());
+    assert_eq!(fs.stat(&VfsPath::new("/nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
+}
+
+#[tokio::test]
+async fn names_that_look_like_windows_paths_round_trip() {
+    let (server, fs, _dir) = open(Options::default()).await;
+    for name in ["a\\b.txt", "C:x.txt", "con.txt"] {
+        put(&server, name, b"odd");
+    }
+
+    let mut names: Vec<_> = fs.read_dir(&VfsPath::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
+    names.sort();
+    assert_eq!(names, vec!["C:x.txt", "a\\b.txt", "con.txt"]);
+
+    let backslashed = VfsPath::new("/").join("a\\b.txt");
+    assert_eq!(fs.stat(&backslashed).await.unwrap().size, 3);
+    fs.rename(&backslashed, &VfsPath::new("/D:y\\z.txt")).await.unwrap();
+    assert_eq!(std::fs::read(server.bucket_dir().join("D:y\\z.txt")).unwrap(), b"odd");
 }
 
 #[tokio::test]
@@ -109,7 +126,7 @@ async fn awkward_keys_round_trip() {
     let name = "a #1 100% & ü +x.txt";
     put(&server, name, b"odd");
 
-    let items = fs.read_dir(Path::new("/")).await.unwrap();
+    let items = fs.read_dir(&VfsPath::new("/")).await.unwrap();
     assert_eq!(items.iter().map(|item| item.name.as_str()).collect::<Vec<_>>(), vec![name]);
     assert_eq!(fs.stat(&items[0].path).await.unwrap().size, 3);
     let mut data = Vec::new();
@@ -123,7 +140,7 @@ async fn renaming_a_file_moves_it_and_replaces_a_file() {
     put(&server, "a.txt", b"new");
     put(&server, "b.txt", b"old");
 
-    fs.rename(Path::new("/a.txt"), Path::new("/b.txt")).await.unwrap();
+    fs.rename(&VfsPath::new("/a.txt"), &VfsPath::new("/b.txt")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("b.txt")).unwrap(), b"new");
     assert!(!server.bucket_dir().join("a.txt").exists());
@@ -135,11 +152,11 @@ async fn renaming_a_folder_moves_every_key() {
     put(&server, "d/x", b"x");
     put(&server, "d/sub/y", b"y");
 
-    fs.rename(Path::new("/d"), Path::new("/e")).await.unwrap();
+    fs.rename(&VfsPath::new("/d"), &VfsPath::new("/e")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("e/x")).unwrap(), b"x");
     assert_eq!(std::fs::read(server.bucket_dir().join("e/sub/y")).unwrap(), b"y");
-    assert_eq!(fs.stat(Path::new("/d")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.stat(&VfsPath::new("/d")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -147,7 +164,7 @@ async fn renaming_awkward_keys() {
     let (server, fs, _dir) = open(Options::default()).await;
     put(&server, "a #1 & ü.txt", b"odd");
 
-    fs.rename(Path::new("/a #1 & ü.txt"), Path::new("/b %2 + ü.txt")).await.unwrap();
+    fs.rename(&VfsPath::new("/a #1 & ü.txt"), &VfsPath::new("/b %2 + ü.txt")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("b %2 + ü.txt")).unwrap(), b"odd");
 }
@@ -161,7 +178,7 @@ async fn renames_never_overwrite_folders() {
     put(&server, "file", b"f");
 
     for (from, to) in [("/notes", "/photos"), ("/d", "/photos"), ("/d", "/file")] {
-        let error = fs.rename(Path::new(from), Path::new(to)).await.unwrap_err();
+        let error = fs.rename(&VfsPath::new(from), &VfsPath::new(to)).await.unwrap_err();
 
         assert_eq!((error.kind(), error.to_string()), (ErrorKind::Other, format!("{to} already exists")));
     }
@@ -176,10 +193,10 @@ async fn remove_file_and_delete_a_file() {
     put(&server, "a", b"a");
     put(&server, "b", b"b");
 
-    fs.remove_file(Path::new("/a")).await.unwrap();
-    fs.delete(Path::new("/b")).await.unwrap();
+    fs.remove_file(&VfsPath::new("/a")).await.unwrap();
+    fs.delete(&VfsPath::new("/b")).await.unwrap();
 
-    assert!(fs.read_dir(Path::new("/")).await.unwrap().is_empty());
+    assert!(fs.read_dir(&VfsPath::new("/")).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -190,7 +207,7 @@ async fn deleting_a_folder_with_more_than_a_thousand_keys() {
     }
     put(&server, "keep", b"k");
 
-    fs.delete(Path::new("/big")).await.unwrap();
+    fs.delete(&VfsPath::new("/big")).await.unwrap();
 
     assert_eq!(names(fs.as_ref(), "/").await, vec![("keep".to_string(), false)]);
 }
@@ -202,7 +219,7 @@ async fn a_server_without_batch_delete_deletes_one_by_one() {
         put(&server, &format!("d/f{index}"), b"x");
     }
 
-    fs.delete(Path::new("/d")).await.unwrap();
+    fs.delete(&VfsPath::new("/d")).await.unwrap();
 
     assert!(names(fs.as_ref(), "/").await.is_empty());
 }
@@ -210,19 +227,19 @@ async fn a_server_without_batch_delete_deletes_one_by_one() {
 #[tokio::test]
 async fn buckets_cannot_be_created_removed_or_crossed() {
     let (_server, fs, _dir) = open_with(Options { buckets: &["bkt", "other"], ..Options::default() }, None).await;
-    fs.create_dir(Path::new("/bkt/folder")).await.unwrap();
+    fs.create_dir(&VfsPath::new("/bkt/folder")).await.unwrap();
 
     for error in [
-        fs.create_dir(Path::new("/new")).await.unwrap_err(),
-        fs.delete(Path::new("/bkt")).await.unwrap_err(),
-        fs.rename(Path::new("/bkt"), Path::new("/renamed")).await.unwrap_err(),
+        fs.create_dir(&VfsPath::new("/new")).await.unwrap_err(),
+        fs.delete(&VfsPath::new("/bkt")).await.unwrap_err(),
+        fs.rename(&VfsPath::new("/bkt"), &VfsPath::new("/renamed")).await.unwrap_err(),
     ] {
         assert_eq!(
             (error.kind(), error.to_string().as_str()),
             (ErrorKind::PermissionDenied, "buckets can't be created or removed here")
         );
     }
-    let crossing = fs.rename(Path::new("/bkt/folder"), Path::new("/other/folder")).await.unwrap_err();
+    let crossing = fs.rename(&VfsPath::new("/bkt/folder"), &VfsPath::new("/other/folder")).await.unwrap_err();
     assert_eq!(crossing.to_string(), "moving between buckets is not supported");
 }
 
@@ -232,7 +249,7 @@ async fn a_key_without_upload_listing_can_still_browse() {
     put(&server, "docs/a.txt", b"a");
 
     assert_eq!(names(fs.as_ref(), "/docs").await, vec![("a.txt".to_string(), false)]);
-    assert_eq!(fs.stat(Path::new("/docs/a.txt")).await.unwrap().size, 1);
+    assert_eq!(fs.stat(&VfsPath::new("/docs/a.txt")).await.unwrap().size, 1);
 }
 
 #[tokio::test]
@@ -248,7 +265,7 @@ async fn buckets_in_another_region_open_in_bucket_list_mode() {
     assert_eq!(names(fs.as_ref(), "/eu-bucket").await, vec![("far.txt".to_string(), false)]);
     assert_eq!(names(fs.as_ref(), "/bkt").await, vec![("near.txt".to_string(), false)]);
     let mut data = Vec::new();
-    fs.open_read(Path::new("/eu-bucket/far.txt"), 0).await.unwrap().read_to_end(&mut data).await.unwrap();
+    fs.open_read(&VfsPath::new("/eu-bucket/far.txt"), 0).await.unwrap().read_to_end(&mut data).await.unwrap();
     assert_eq!(data, b"far");
 }
 
@@ -257,7 +274,7 @@ async fn a_copy_that_fails_inside_a_success_reply_keeps_the_source() {
     let (server, fs, _dir) = open(Options { quirk: Quirk::CopyErrorInSuccess, ..Options::default() }).await;
     put(&server, "a.txt", b"keep me");
 
-    assert!(fs.rename(Path::new("/a.txt"), Path::new("/b.txt")).await.is_err());
+    assert!(fs.rename(&VfsPath::new("/a.txt"), &VfsPath::new("/b.txt")).await.is_err());
 
     assert_eq!(std::fs::read(server.bucket_dir().join("a.txt")).unwrap(), b"keep me");
     assert!(!server.bucket_dir().join("b.txt").exists());
@@ -268,7 +285,7 @@ async fn renaming_a_file_onto_itself_keeps_it() {
     let (server, fs, _dir) = open(Options::default()).await;
     put(&server, "same.txt", b"same");
 
-    fs.rename(Path::new("/same.txt"), Path::new("/same.txt")).await.unwrap();
+    fs.rename(&VfsPath::new("/same.txt"), &VfsPath::new("/same.txt")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("same.txt")).unwrap(), b"same");
 }
@@ -277,12 +294,12 @@ async fn renaming_a_file_onto_itself_keeps_it() {
 async fn renaming_a_folder_abandons_its_unfinished_uploads() {
     let (server, fs, _dir) = open(Options::default()).await;
     put(&server, "d/y", b"y");
-    let mut writer = fs.open_write(Path::new("/d/x.part"), 0).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/d/x.part"), 0).await.unwrap();
     tokio::io::AsyncWriteExt::write_all(&mut writer.stream, b"partial").await.unwrap();
     tokio::io::AsyncWriteExt::shutdown(&mut writer.stream).await.unwrap();
     assert_eq!(server.registry.pending().len(), 1);
 
-    fs.rename(Path::new("/d"), Path::new("/e")).await.unwrap();
+    fs.rename(&VfsPath::new("/d"), &VfsPath::new("/e")).await.unwrap();
 
     assert!(server.registry.pending().is_empty());
     assert_eq!(std::fs::read(server.bucket_dir().join("e/y")).unwrap(), b"y");
@@ -293,7 +310,7 @@ async fn a_short_copy_keeps_the_source_and_removes_the_bad_copy() {
     let (server, fs, _dir) = open(Options { quirk: Quirk::ShortCopy, ..Options::default() }).await;
     put(&server, "a.txt", b"0123456789");
 
-    let error = fs.rename(Path::new("/a.txt"), Path::new("/b.txt")).await.unwrap_err();
+    let error = fs.rename(&VfsPath::new("/a.txt"), &VfsPath::new("/b.txt")).await.unwrap_err();
 
     assert_eq!(error.to_string(), "the copy of /a.txt is incomplete");
     assert_eq!(std::fs::read(server.bucket_dir().join("a.txt")).unwrap(), b"0123456789");
@@ -306,6 +323,6 @@ async fn the_connection_cannot_keep_modification_times() {
 
     assert!(!fs.can_set_modified());
     assert_eq!(fs.time_resolution(), 2);
-    let error = fs.set_modified(Path::new("/anything"), 5).await.unwrap_err();
+    let error = fs.set_modified(&VfsPath::new("/anything"), 5).await.unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Unsupported);
 }

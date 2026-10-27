@@ -418,7 +418,7 @@ async fn a_file_touched_after_a_sync_is_found_again() {
     let plan = rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.expect("a plan");
 
     let found: Vec<(String, SyncReason, bool)> =
-        plan.items.iter().map(|item| (item.path.display().to_string(), item.reason, item.ticked)).collect();
+        plan.items.iter().map(|item| (item.path.to_string(), item.reason, item.ticked)).collect();
     assert_eq!(found, vec![("deep/b.txt".to_string(), SyncReason::LocalNewer, true)]);
 }
 
@@ -430,7 +430,7 @@ async fn a_newer_remote_file_is_listed_unticked_and_left_alone_by_a_one_way_uplo
     stamp(&rig.remote("tree/a.txt"), 1_900_000_000);
     let plan = rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.expect("a plan");
 
-    let a = plan.items.iter().find(|item| item.path.ends_with("a.txt")).unwrap();
+    let a = plan.items.iter().find(|item| item.path.file_name().is_some_and(|name| name == "a.txt")).unwrap();
     assert_eq!((a.reason, a.ticked, a.action), (SyncReason::TargetNewer, false, SyncAction::Skip));
     rig.run_sync(&plan).await;
 

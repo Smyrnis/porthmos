@@ -3300,6 +3300,7 @@ name = "porthmos-scp"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "porthmos-lfs",
  "porthmos-ssh",
  "porthmos-vfs",
  "tempfile",

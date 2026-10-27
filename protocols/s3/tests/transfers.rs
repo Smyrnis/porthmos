@@ -1,9 +1,9 @@
 mod support;
 
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use porthmos_s3::S3;
-use porthmos_vfs::{FileSystem, Protocol};
+use porthmos_vfs::{FileSystem, Protocol, VfsPath};
 use support::{BUCKET, Options, Quirk, SECRET, Server};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -25,12 +25,12 @@ fn pattern(size: usize) -> Vec<u8> {
 
 async fn read_all(fs: &dyn FileSystem, path: &str, offset: u64) -> Vec<u8> {
     let mut data = Vec::new();
-    fs.open_read(Path::new(path), offset).await.unwrap().read_to_end(&mut data).await.unwrap();
+    fs.open_read(&VfsPath::new(path), offset).await.unwrap().read_to_end(&mut data).await.unwrap();
     data
 }
 
 async fn write(fs: &dyn FileSystem, path: &str, offset: u64, data: &[u8]) -> u64 {
-    let mut writer = fs.open_write(Path::new(path), offset).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new(path), offset).await.unwrap();
     writer.stream.write_all(data).await.unwrap();
     writer.stream.shutdown().await.unwrap();
     writer.offset
@@ -39,7 +39,7 @@ async fn write(fs: &dyn FileSystem, path: &str, offset: u64, data: &[u8]) -> u64
 async fn list_root_while_uploads_run(fs: &dyn FileSystem) {
     const ATTEMPTS: usize = 6;
     for _ in 0..ATTEMPTS {
-        if fs.read_dir(Path::new("/")).await.is_ok() {
+        if fs.read_dir(&VfsPath::new("/")).await.is_ok() {
             return;
         }
     }
@@ -83,10 +83,10 @@ async fn the_engine_sequence_resumes_and_completes_one_upload() {
     assert_eq!(write(fs.as_ref(), "/big.bin.part", 0, &data[..20 * MIB]).await, 0);
 
     assert!(!server.bucket_dir().join("big.bin").exists());
-    let listed = fs.read_dir(Path::new("/")).await.unwrap();
+    let listed = fs.read_dir(&VfsPath::new("/")).await.unwrap();
     let part = listed.iter().find(|item| item.name == "big.bin.part").unwrap();
     assert_eq!(part.metadata.size, (16 * MIB) as u64);
-    let size = fs.stat(Path::new("/big.bin.part")).await.unwrap().size;
+    let size = fs.stat(&VfsPath::new("/big.bin.part")).await.unwrap().size;
     assert_eq!(size, (16 * MIB) as u64);
     let first = server.registry.pending();
     assert_eq!(first.len(), 1);
@@ -94,11 +94,11 @@ async fn the_engine_sequence_resumes_and_completes_one_upload() {
     assert_eq!(write(fs.as_ref(), "/big.bin.part", size, &data[size as usize..]).await, size);
     assert_eq!(server.registry.pending(), first);
 
-    fs.rename(Path::new("/big.bin.part"), Path::new("/big.bin")).await.unwrap();
+    fs.rename(&VfsPath::new("/big.bin.part"), &VfsPath::new("/big.bin")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("big.bin")).unwrap(), data);
     assert!(server.registry.pending().is_empty());
-    let names: Vec<String> = fs.read_dir(Path::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
+    let names: Vec<String> = fs.read_dir(&VfsPath::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
     assert_eq!(names, vec!["big.bin".to_string()]);
 }
 
@@ -108,7 +108,7 @@ async fn a_mismatched_offset_restarts_the_upload() {
     write(fs.as_ref(), "/x.part", 0, &pattern(17 * MIB)).await;
     let first = server.registry.pending();
 
-    let mut writer = fs.open_write(Path::new("/x.part"), 5).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/x.part"), 5).await.unwrap();
 
     assert_eq!(writer.offset, 0);
     writer.stream.write_all(b"fresh").await.unwrap();
@@ -116,7 +116,7 @@ async fn a_mismatched_offset_restarts_the_upload() {
     let now = server.registry.pending();
     assert_eq!(now.len(), 1);
     assert_ne!(now[0].id, first[0].id);
-    fs.rename(Path::new("/x.part"), Path::new("/x")).await.unwrap();
+    fs.rename(&VfsPath::new("/x.part"), &VfsPath::new("/x")).await.unwrap();
     assert_eq!(std::fs::read(server.bucket_dir().join("x")).unwrap(), b"fresh");
 }
 
@@ -125,10 +125,10 @@ async fn removing_a_part_aborts_its_upload() {
     let (server, fs, _dir) = open(Options::default()).await;
     write(fs.as_ref(), "/x.part", 0, b"some bytes").await;
 
-    fs.remove_file(Path::new("/x.part")).await.unwrap();
+    fs.remove_file(&VfsPath::new("/x.part")).await.unwrap();
 
     assert!(server.registry.pending().is_empty());
-    assert!(fs.read_dir(Path::new("/")).await.unwrap().is_empty());
+    assert!(fs.read_dir(&VfsPath::new("/")).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -164,7 +164,7 @@ async fn a_read_the_server_never_answers_times_out() {
         .await
         .unwrap();
 
-    let error = fs.open_read(Path::new("/f"), 0).await.err().unwrap();
+    let error = fs.open_read(&VfsPath::new("/f"), 0).await.err().unwrap();
 
     assert_eq!(error.to_string(), "the server did not respond in time");
 }
@@ -175,7 +175,7 @@ async fn uploads_work_for_a_key_that_cannot_list_unfinished_uploads() {
     let data = pattern(MIB);
 
     write(fs.as_ref(), "/x.bin.part", 0, &data).await;
-    fs.rename(Path::new("/x.bin.part"), Path::new("/x.bin")).await.unwrap();
+    fs.rename(&VfsPath::new("/x.bin.part"), &VfsPath::new("/x.bin")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("x.bin")).unwrap(), data);
     assert!(server.registry.pending().is_empty());
@@ -186,7 +186,7 @@ async fn a_cancelled_upload_is_cleaned_up_without_upload_listing() {
     let (server, fs, _dir) = open(Options { quirk: Quirk::DenyUploadListing, ..Options::default() }).await;
 
     write(fs.as_ref(), "/x.bin.part", 0, b"partial").await;
-    fs.remove_file(Path::new("/x.bin.part")).await.unwrap();
+    fs.remove_file(&VfsPath::new("/x.bin.part")).await.unwrap();
 
     assert!(server.registry.pending().is_empty());
 }
@@ -197,9 +197,9 @@ async fn uploads_work_and_folders_list_for_a_key_that_cannot_list_parts() {
     let data = pattern(MIB);
 
     write(fs.as_ref(), "/x.bin.part", 0, &data).await;
-    let names: Vec<String> = fs.read_dir(Path::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
+    let names: Vec<String> = fs.read_dir(&VfsPath::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
     assert_eq!(names, vec!["x.bin.part".to_string()]);
-    fs.rename(Path::new("/x.bin.part"), Path::new("/x.bin")).await.unwrap();
+    fs.rename(&VfsPath::new("/x.bin.part"), &VfsPath::new("/x.bin")).await.unwrap();
 
     assert_eq!(std::fs::read(server.bucket_dir().join("x.bin")).unwrap(), data);
 }

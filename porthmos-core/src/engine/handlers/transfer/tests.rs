@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
+
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 use porthmos_vfs::testing::FakeFs;
 
@@ -19,9 +22,9 @@ fn planning_scan(batch_id: u64, session_id: u64, name: &str) -> PlanningScan {
 
 fn planned(source: &str, destination: &str, size: u64) -> PlannedFile {
     PlannedFile {
-        source: PathBuf::from(source),
-        destination: PathBuf::from(destination),
-        display_name: PathBuf::from(destination).file_name().unwrap().to_string_lossy().into_owned(),
+        source: VfsPath::from(source),
+        destination: VfsPath::from(destination),
+        display_name: VfsPath::from(destination).file_name().unwrap().to_string_lossy().into_owned(),
         size,
         existing: None,
         source_modified: None,
@@ -33,10 +36,8 @@ fn planned(source: &str, destination: &str, size: u64) -> PlannedFile {
 fn plan(files: Vec<PlannedFile>) -> DirectoryPlan {
     let names = files
         .iter()
-        .filter_map(|file| {
-            Some((file.destination.parent()?.to_path_buf(), file.destination.file_name()?.to_string_lossy().into()))
-        })
-        .fold(HashMap::<PathBuf, HashSet<String>>::new(), |mut taken, (parent, name)| {
+        .filter_map(|file| Some((file.destination.parent()?, file.destination.file_name()?.to_string_lossy().into())))
+        .fold(HashMap::<VfsPath, HashSet<String>>::new(), |mut taken, (parent, name)| {
             taken.entry(parent).or_default().insert(name);
             taken
         });
@@ -47,7 +48,7 @@ fn enqueue_job(t: &mut TestEngine, session_id: u64, name: &str, batch_id: Option
     t.engine.transfers.enqueue(
         session_id,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -60,7 +61,7 @@ fn download_job(t: &mut TestEngine, session_id: u64, name: &str) -> u64 {
     t.engine.transfers.enqueue(
         session_id,
         Direction::Download,
-        local,
+        from_os_path(&local),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -80,7 +81,7 @@ fn local_entry(t: &TestEngine, name: &str, is_dir: bool) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: t.dir.path().join(name),
+        path: from_os_path(&t.dir.path().join(name)),
         is_dir,
         size: 1,
         permissions: None,
@@ -107,7 +108,7 @@ fn copying_a_directory_with_a_disconnected_session_fails_without_spawning() {
     std::fs::create_dir(t.dir.path().join("myfolder")).unwrap();
     let entry = local_entry(&t, "myfolder", true);
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(7), PathBuf::from("/remote"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(7), VfsPath::from("/remote"));
 
     assert!(t.engine.planning.is_empty());
     let (severity, message) = t.first_notice().unwrap();
@@ -122,7 +123,7 @@ fn copying_only_files_now_goes_through_the_scan() {
     std::fs::write(t.dir.path().join("a.txt"), b"x").unwrap();
     let entry = local_entry(&t, "a.txt", false);
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(7), PathBuf::from("/remote"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(7), VfsPath::from("/remote"));
 
     assert_eq!(t.first_notice().unwrap().1, "Copy failed: session disconnected");
     assert_eq!(t.engine.transfers.jobs().count(), 0);
@@ -132,7 +133,7 @@ fn copying_only_files_now_goes_through_the_scan() {
 fn copying_between_two_sessions_is_refused() {
     let mut t = test_engine();
 
-    t.engine.copy(Location::Session(1), vec![], Location::Session(2), PathBuf::from("/"));
+    t.engine.copy(Location::Session(1), vec![], Location::Session(2), VfsPath::from("/"));
 
     assert_eq!(
         t.first_notice(),
@@ -148,7 +149,7 @@ async fn an_upload_is_planned_copied_and_announced_end_to_end() {
     std::fs::write(t.dir.path().join("a.txt"), b"hello").unwrap();
     let entry = local_entry(&t, "a.txt", false);
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/upload"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(session), VfsPath::from("/upload"));
     t.run_internal().await;
     while t.engine.transfers.jobs().any(|job| job.status != JobStatus::Completed) {
         t.run_internal().await;
@@ -1033,7 +1034,7 @@ fn a_time_warning_for_a_download_blames_this_computer_not_the_connection() {
     let id = t.engine.transfers.enqueue(
         session,
         Direction::Download,
-        local,
+        from_os_path(&local),
         "/remote/a.txt".to_string(),
         "a.txt".to_string(),
         10,

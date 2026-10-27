@@ -148,7 +148,7 @@ impl App {
                 return;
             }
             Action::Open => panel.target_path_for_open(),
-            Action::Refresh => Some(panel.path().to_path_buf()),
+            Action::Refresh => Some(panel.path().clone()),
             _ => return,
         };
 

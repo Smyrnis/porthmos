@@ -1,10 +1,6 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
-use porthmos_vfs::{FileSystem, ProtocolError};
+use porthmos_vfs::{FileSystem, ProtocolError, VfsPath};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{
@@ -18,25 +14,25 @@ fn send_failure(reporter: &Reporter, message: String, cause: &dyn std::fmt::Debu
     reporter.report_cause(Severity::Error, message, cause);
 }
 
-fn quoted_name(path: &Path) -> String {
+fn quoted_name(path: &VfsPath) -> String {
     format!("\"{}\"", path.file_name().unwrap_or_default().to_string_lossy())
 }
 
-fn differs_only_in_case(from: &Path, to: &Path) -> bool {
+fn differs_only_in_case(from: &VfsPath, to: &VfsPath) -> bool {
     from.to_string_lossy().to_lowercase() == to.to_string_lossy().to_lowercase()
 }
 
 const FREE_SPACE_TIMEOUT: Duration = Duration::from_secs(10);
 
-async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: PathBuf, events: &UnboundedSender<Event>) {
+async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsPath, events: &UnboundedSender<Event>) {
     let bytes = match tokio::time::timeout(FREE_SPACE_TIMEOUT, fs.free_space(&path)).await {
         Ok(Ok(bytes)) => bytes,
         Ok(Err(err)) => {
-            tracing::debug!("free space of {} unavailable: {err:?}", path.display());
+            tracing::debug!("free space of {} unavailable: {err:?}", path);
             None
         }
         Err(_) => {
-            tracing::debug!("free space of {} timed out", path.display());
+            tracing::debug!("free space of {} timed out", path);
             None
         }
     };
@@ -44,7 +40,7 @@ async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: Path
 }
 
 async fn list_into(
-    fs: Arc<dyn FileSystem>, location: Location, path: Option<PathBuf>, events: UnboundedSender<Event>,
+    fs: Arc<dyn FileSystem>, location: Location, path: Option<VfsPath>, events: UnboundedSender<Event>,
     reporter: Reporter,
 ) {
     let path = match path {
@@ -63,26 +59,22 @@ async fn list_into(
             announce_free_space(fs.as_ref(), location, path, &events).await;
         }
         Err(err) => {
-            send_failure(
-                &reporter,
-                failure_message(location, format!("Unable to list {}", path.display()), &err),
-                &err,
-            );
+            send_failure(&reporter, failure_message(location, format!("Unable to list {}", path), &err), &err);
         }
     }
 }
 
-fn start_directory(home: &Path, requested: &str) -> PathBuf {
+fn start_directory(home: &VfsPath, requested: &str) -> VfsPath {
     match requested.strip_prefix('~') {
-        Some("") => home.to_path_buf(),
+        Some("") => home.clone(),
         Some(under_home) if under_home.starts_with('/') => home.join(under_home.trim_start_matches('/')),
         _ => home.join(requested),
     }
 }
 
-async fn resolve_start_directory(fs: &dyn FileSystem, requested: &str) -> Result<PathBuf, ProtocolError> {
-    if Path::new(requested).is_absolute() {
-        return Ok(PathBuf::from(requested));
+async fn resolve_start_directory(fs: &dyn FileSystem, requested: &str) -> Result<VfsPath, ProtocolError> {
+    if VfsPath::new(requested).is_absolute() {
+        return Ok(VfsPath::new(requested));
     }
     Ok(start_directory(&fs.home().await?, requested))
 }
@@ -105,7 +97,7 @@ async fn list_start_into(
             announce_free_space(fs.as_ref(), location, path, &events).await;
         }
         Err(err) => {
-            let context = format!("Unable to open {} on {name}, showing the home directory instead", path.display());
+            let context = format!("Unable to open {} on {name}, showing the home directory instead", path);
             reporter.report_cause(Severity::Warning, user_message(context, &err), &err);
             list_into(fs, location, None, events, reporter).await;
         }
@@ -148,7 +140,7 @@ impl Engine {
         fs
     }
 
-    pub(crate) fn list(&mut self, location: Location, path: Option<PathBuf>) {
+    pub(crate) fn list(&mut self, location: Location, path: Option<VfsPath>) {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };
@@ -156,7 +148,7 @@ impl Engine {
         self.tasks.spawn("list", scope_for(location), move |_| work);
     }
 
-    pub(crate) fn create_dir(&mut self, location: Location, path: PathBuf) {
+    pub(crate) fn create_dir(&mut self, location: Location, path: VfsPath) {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };
@@ -178,7 +170,7 @@ impl Engine {
         });
     }
 
-    pub(crate) fn rename(&mut self, location: Location, from: PathBuf, to: PathBuf) {
+    pub(crate) fn rename(&mut self, location: Location, from: VfsPath, to: VfsPath) {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };
@@ -201,7 +193,7 @@ impl Engine {
         });
     }
 
-    pub(crate) fn delete(&mut self, location: Location, paths: Vec<PathBuf>) {
+    pub(crate) fn delete(&mut self, location: Location, paths: Vec<VfsPath>) {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };

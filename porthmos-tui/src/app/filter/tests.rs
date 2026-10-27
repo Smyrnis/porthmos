@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{Command, Location};
@@ -22,8 +22,8 @@ fn type_text(test: &mut crate::app::testing::TestApp, text: &str) {
 }
 
 fn filtered_app() -> crate::app::testing::TestApp {
-    let mut test = test_app(Path::new("/d"));
-    let dir = Path::new("/d");
+    let mut test = test_app(&VfsPath::new("/d"));
+    let dir = &VfsPath::new("/d");
     test.list_local(vec![
         entry(dir, "porthmos", true),
         entry(dir, "Report.pdf", false),
@@ -88,7 +88,7 @@ fn enter_on_a_folder_while_typing_does_not_open_it() {
 
     press(&mut test, KeyCode::Enter);
 
-    assert_eq!(test.app.local.path(), Path::new("/d"));
+    assert_eq!(test.app.local.path(), &VfsPath::new("/d"));
     assert!(test.sent().is_empty());
 }
 
@@ -188,9 +188,9 @@ fn a_shortcut_key_while_typing_keeps_the_filter_and_does_its_job() {
         test.sent(),
         vec![Command::Copy {
             from: Location::Local,
-            entries: vec![entry(Path::new("/d"), "Report.pdf", false)],
+            entries: vec![entry(&VfsPath::new("/d"), "Report.pdf", false)],
             to: Location::Session(session),
-            dest_dir: Path::new("/srv").to_path_buf(),
+            dest_dir: VfsPath::new("/srv"),
         }]
     );
 }
@@ -199,7 +199,7 @@ fn a_shortcut_key_while_typing_keeps_the_filter_and_does_its_job() {
 fn the_remote_panel_filters_too() {
     let mut test = filtered_app();
     let session = test.connect(3, "srv");
-    let dir = Path::new("/srv");
+    let dir = &VfsPath::new("/srv");
     test.list_remote(session, "/srv", vec![entry(dir, "backup.tar", false), entry(dir, "www", true)]);
     test.app.active_panel = crate::widgets::panel_view::ActivePanel::Remote;
 
@@ -228,7 +228,7 @@ fn typing_in_the_panel_filter_only_types() {
 
 #[test]
 fn typing_in_the_connections_filter_only_types() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.screen = Screen::Connections;
     test.sent();
 
@@ -242,7 +242,7 @@ fn typing_in_the_connections_filter_only_types() {
 
 #[test]
 fn typing_in_the_history_filter_only_types() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.screen = Screen::History;
     test.sent();
 

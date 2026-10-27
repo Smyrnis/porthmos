@@ -1,4 +1,4 @@
-use std::path::Path;
+use crate::VfsPath;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -13,8 +13,8 @@ async fn stat_follows_symlinks_and_read_dir_does_not() {
     let fs = FakeFs::new();
     fs.file("/data/a.txt", b"hello", Some(10)).symlink("/data/link", "/data/a.txt");
 
-    assert_eq!(fs.stat(Path::new("/data/link")).await.unwrap().size, 5);
-    let items = fs.read_dir(Path::new("/data")).await.unwrap();
+    assert_eq!(fs.stat(&VfsPath::new("/data/link")).await.unwrap().size, 5);
+    let items = fs.read_dir(&VfsPath::new("/data")).await.unwrap();
     let link = items.iter().find(|item| item.name == "link").unwrap();
     assert_eq!(link.metadata.kind, FileKind::Symlink);
 }
@@ -23,7 +23,7 @@ async fn stat_follows_symlinks_and_read_dir_does_not() {
 async fn open_write_at_an_offset_truncates_then_appends() {
     let fs = FakeFs::new();
     fs.file("/f.part", b"abcdef", None);
-    let mut writer = fs.open_write(Path::new("/f.part"), 3).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/f.part"), 3).await.unwrap();
     assert_eq!(writer.offset, 3);
     writer.stream.write_all(b"XY").await.unwrap();
     writer.stream.shutdown().await.unwrap();
@@ -34,7 +34,7 @@ async fn open_write_at_an_offset_truncates_then_appends() {
 async fn open_write_on_a_missing_file_starts_at_zero() {
     let fs = FakeFs::new();
     fs.dir("/d");
-    let writer = fs.open_write(Path::new("/d/new"), 5).await.unwrap();
+    let writer = fs.open_write(&VfsPath::new("/d/new"), 5).await.unwrap();
     assert_eq!(writer.offset, 0);
 }
 
@@ -42,7 +42,7 @@ async fn open_write_on_a_missing_file_starts_at_zero() {
 async fn open_read_starts_at_the_offset() {
     let fs = FakeFs::new();
     fs.file("/f", b"abcdef", None);
-    let mut reader = fs.open_read(Path::new("/f"), 2).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new("/f"), 2).await.unwrap();
     let mut read = Vec::new();
     reader.read_to_end(&mut read).await.unwrap();
     assert_eq!(read, b"cdef");
@@ -52,7 +52,7 @@ async fn open_read_starts_at_the_offset() {
 async fn a_failing_read_errors_while_copying() {
     let fs = FakeFs::new();
     fs.file("/f", b"abc", None).fail_reads("/f");
-    let mut reader = fs.open_read(Path::new("/f"), 0).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new("/f"), 0).await.unwrap();
     let mut read = Vec::new();
     assert!(reader.read_to_end(&mut read).await.is_err());
 }
@@ -61,7 +61,7 @@ async fn a_failing_read_errors_while_copying() {
 async fn rename_replaces_an_existing_target() {
     let fs = FakeFs::new();
     fs.file("/a", b"new", None).file("/b", b"old", None);
-    fs.rename(Path::new("/a"), Path::new("/b")).await.unwrap();
+    fs.rename(&VfsPath::new("/a"), &VfsPath::new("/b")).await.unwrap();
     assert_eq!(fs.contents("/b").unwrap(), b"new");
     assert!(!fs.exists("/a"));
 }
@@ -70,7 +70,7 @@ async fn rename_replaces_an_existing_target() {
 async fn delete_removes_a_directory_tree_without_following_symlinks() {
     let fs = FakeFs::new();
     fs.file("/keep/file", b"x", None).file("/gone/inner/file", b"y", None).symlink("/gone/link", "/keep");
-    fs.delete(Path::new("/gone")).await.unwrap();
+    fs.delete(&VfsPath::new("/gone")).await.unwrap();
     assert!(!fs.exists("/gone/inner/file"));
     assert!(fs.exists("/keep/file"));
 }
@@ -79,7 +79,7 @@ async fn delete_removes_a_directory_tree_without_following_symlinks() {
 async fn a_failing_read_dir_reports_permission_denied() {
     let fs = FakeFs::new();
     fs.dir("/locked").fail_read_dir("/locked");
-    let error = fs.read_dir(Path::new("/locked")).await.unwrap_err();
+    let error = fs.read_dir(&VfsPath::new("/locked")).await.unwrap_err();
     assert_eq!(error.kind(), ErrorKind::PermissionDenied);
 }
 
@@ -87,7 +87,7 @@ async fn a_failing_read_dir_reports_permission_denied() {
 async fn list_resolves_symlinked_directories_as_directories() {
     let fs = FakeFs::new();
     fs.dir("/root/real").symlink("/root/alias", "/root/real");
-    let entries = fs.list(Path::new("/root")).await.unwrap();
+    let entries = fs.list(&VfsPath::new("/root")).await.unwrap();
     assert!(entries.iter().all(|entry| entry.is_dir));
 }
 
@@ -101,7 +101,7 @@ async fn walk_does_not_descend_into_symlinked_directories() {
     while let Ok(SearchEvent::Found(entry)) = rx.try_recv() {
         found.push(entry.path);
     }
-    assert_eq!(found, vec![std::path::PathBuf::from("/root/real/match.txt")]);
+    assert_eq!(found, vec![VfsPath::new("/root/real/match.txt")]);
 }
 
 #[tokio::test]
@@ -109,7 +109,7 @@ async fn list_reports_the_modified_time_set_on_a_file_and_none_for_unknown() {
     let fs = FakeFs::new();
     fs.file("/root/dated.txt", b"x", Some(1_700_000_000)).file("/root/undated.txt", b"x", None).dir("/root/sub");
 
-    let mut entries = fs.list(Path::new("/root")).await.unwrap();
+    let mut entries = fs.list(&VfsPath::new("/root")).await.unwrap();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
 
     let times: Vec<(&str, Option<u64>)> = entries.iter().map(|e| (e.name.as_str(), e.modified)).collect();
@@ -191,7 +191,7 @@ fn a_fake_protocol_can_take_another_id_and_form() {
 async fn a_writer_on_a_failing_shutdown_path_errors_on_shutdown() {
     let fs = FakeFs::new();
     fs.fail_shutdown("/f");
-    let mut writer = fs.open_write(Path::new("/f"), 0).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/f"), 0).await.unwrap();
     writer.stream.write_all(b"abc").await.unwrap();
     assert!(writer.stream.shutdown().await.is_err());
 }
@@ -201,55 +201,55 @@ async fn a_sized_write_writes_normally_and_records_the_size() {
     let fs = FakeFs::new();
     fs.dir("/d");
 
-    let mut writer = fs.open_write_sized(Path::new("/d/f"), 0, 3).await.unwrap();
+    let mut writer = fs.open_write_sized(&VfsPath::new("/d/f"), 0, 3).await.unwrap();
     writer.stream.write_all(b"abc").await.unwrap();
     writer.stream.shutdown().await.unwrap();
 
     assert_eq!(fs.contents("/d/f").unwrap(), b"abc");
-    assert_eq!(fs.written_sizes(), vec![(std::path::PathBuf::from("/d/f"), 3)]);
+    assert_eq!(fs.written_sizes(), vec![(VfsPath::new("/d/f"), 3)]);
 }
 
 struct OnlyWrites(FakeFs);
 
 #[async_trait::async_trait]
 impl FileSystem for OnlyWrites {
-    async fn list(&self, dir: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
         self.0.list(dir).await
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
         self.0.read_dir(dir).await
     }
 
-    async fn stat(&self, path: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+    async fn stat(&self, path: &VfsPath) -> Result<crate::Metadata, crate::ProtocolError> {
         self.0.stat(path).await
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), crate::ProtocolError> {
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), crate::ProtocolError> {
         self.0.create_dir(path).await
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), crate::ProtocolError> {
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), crate::ProtocolError> {
         self.0.rename(from, to).await
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), crate::ProtocolError> {
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), crate::ProtocolError> {
         self.0.remove_file(path).await
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), crate::ProtocolError> {
+    async fn delete(&self, path: &VfsPath) -> Result<(), crate::ProtocolError> {
         self.0.delete(path).await
     }
 
-    async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
+    async fn home(&self) -> Result<VfsPath, crate::ProtocolError> {
         self.0.home().await
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<crate::Reader, crate::ProtocolError> {
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<crate::Reader, crate::ProtocolError> {
         self.0.open_read(path, offset).await
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<crate::Writer, crate::ProtocolError> {
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<crate::Writer, crate::ProtocolError> {
         self.0.open_write(path, offset).await
     }
 }
@@ -260,7 +260,7 @@ async fn by_default_a_sized_write_is_a_plain_write() {
     fs.dir("/d");
     let plain = OnlyWrites(fs.clone());
 
-    let mut writer = plain.open_write_sized(Path::new("/d/f"), 0, 99).await.unwrap();
+    let mut writer = plain.open_write_sized(&VfsPath::new("/d/f"), 0, 99).await.unwrap();
     writer.stream.write_all(b"xy").await.unwrap();
     writer.stream.shutdown().await.unwrap();
 
@@ -298,9 +298,9 @@ async fn set_modified_changes_the_time_stat_reports() {
     let fs = FakeFs::new();
     fs.file("/home/user/a", b"x", Some(10));
 
-    fs.set_modified(Path::new("/home/user/a"), 99).await.unwrap();
+    fs.set_modified(&VfsPath::new("/home/user/a"), 99).await.unwrap();
 
-    assert_eq!(fs.stat(Path::new("/home/user/a")).await.unwrap().modified, Some(99));
+    assert_eq!(fs.stat(&VfsPath::new("/home/user/a")).await.unwrap().modified, Some(99));
     assert_eq!(fs.modified_of("/home/user/a"), Some(99));
 }
 
@@ -308,7 +308,7 @@ async fn set_modified_changes_the_time_stat_reports() {
 async fn set_modified_on_a_missing_file_is_not_found() {
     let fs = FakeFs::new();
 
-    let error = fs.set_modified(Path::new("/home/user/missing"), 5).await.unwrap_err();
+    let error = fs.set_modified(&VfsPath::new("/home/user/missing"), 5).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -318,7 +318,7 @@ async fn a_fake_without_time_support_refuses_and_says_so() {
     let fs = FakeFs::new().with_time_support(false);
     fs.file("/home/user/a", b"x", Some(10));
 
-    let error = fs.set_modified(Path::new("/home/user/a"), 5).await.unwrap_err();
+    let error = fs.set_modified(&VfsPath::new("/home/user/a"), 5).await.unwrap_err();
 
     assert!(!fs.can_set_modified());
     assert_eq!(error.kind(), ErrorKind::Unsupported);
@@ -339,43 +339,43 @@ async fn a_filesystem_has_no_server_info_by_default() {
     struct Plain;
     #[async_trait::async_trait]
     impl FileSystem for Plain {
-        async fn list(&self, _: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+        async fn list(&self, _: &VfsPath) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
             Ok(Vec::new())
         }
 
-        async fn read_dir(&self, _: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+        async fn read_dir(&self, _: &VfsPath) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
             Ok(Vec::new())
         }
 
-        async fn stat(&self, _: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+        async fn stat(&self, _: &VfsPath) -> Result<crate::Metadata, crate::ProtocolError> {
             Err(crate::ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("none")))
         }
 
-        async fn create_dir(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+        async fn create_dir(&self, _: &VfsPath) -> Result<(), crate::ProtocolError> {
             Ok(())
         }
 
-        async fn rename(&self, _: &Path, _: &Path) -> Result<(), crate::ProtocolError> {
+        async fn rename(&self, _: &VfsPath, _: &VfsPath) -> Result<(), crate::ProtocolError> {
             Ok(())
         }
 
-        async fn remove_file(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+        async fn remove_file(&self, _: &VfsPath) -> Result<(), crate::ProtocolError> {
             Ok(())
         }
 
-        async fn delete(&self, _: &Path) -> Result<(), crate::ProtocolError> {
+        async fn delete(&self, _: &VfsPath) -> Result<(), crate::ProtocolError> {
             Ok(())
         }
 
-        async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
+        async fn home(&self) -> Result<VfsPath, crate::ProtocolError> {
             Ok("/".into())
         }
 
-        async fn open_read(&self, _: &Path, _: u64) -> Result<crate::Reader, crate::ProtocolError> {
+        async fn open_read(&self, _: &VfsPath, _: u64) -> Result<crate::Reader, crate::ProtocolError> {
             Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("none")))
         }
 
-        async fn open_write(&self, _: &Path, _: u64) -> Result<crate::Writer, crate::ProtocolError> {
+        async fn open_write(&self, _: &VfsPath, _: u64) -> Result<crate::Writer, crate::ProtocolError> {
             Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("none")))
         }
     }
@@ -408,8 +408,8 @@ async fn a_denied_stat_is_a_permission_error_and_a_hanging_one_never_returns() {
     let fs = FakeFs::new();
     fs.dir("/a").dir("/b").denying_stat("/a").hanging_stat("/b");
 
-    assert_eq!(fs.stat(Path::new("/a")).await.unwrap_err().kind(), ErrorKind::PermissionDenied);
-    let hung = tokio::time::timeout(std::time::Duration::from_millis(20), fs.stat(Path::new("/b"))).await;
+    assert_eq!(fs.stat(&VfsPath::new("/a")).await.unwrap_err().kind(), ErrorKind::PermissionDenied);
+    let hung = tokio::time::timeout(std::time::Duration::from_millis(20), fs.stat(&VfsPath::new("/b"))).await;
     assert!(hung.is_err());
 }
 
@@ -479,7 +479,7 @@ async fn remove_dir_removes_an_empty_folder() {
     let fs = FakeFs::new();
     fs.dir("/data/empty");
 
-    fs.remove_dir(Path::new("/data/empty")).await.unwrap();
+    fs.remove_dir(&VfsPath::new("/data/empty")).await.unwrap();
 
     assert!(!fs.exists("/data/empty"));
     assert!(fs.exists("/data"));
@@ -490,7 +490,7 @@ async fn remove_dir_refuses_a_folder_with_a_file_and_keeps_it() {
     let fs = FakeFs::new();
     fs.file("/data/keep.txt", b"x", None);
 
-    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+    assert!(fs.remove_dir(&VfsPath::new("/data")).await.is_err());
 
     assert!(fs.exists("/data/keep.txt"));
 }
@@ -500,7 +500,7 @@ async fn remove_dir_refuses_a_folder_that_holds_an_empty_folder() {
     let fs = FakeFs::new();
     fs.dir("/data/inner");
 
-    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+    assert!(fs.remove_dir(&VfsPath::new("/data")).await.is_err());
 
     assert!(fs.exists("/data/inner"));
 }
@@ -510,7 +510,7 @@ async fn remove_dir_refuses_a_folder_that_holds_a_symlink() {
     let fs = FakeFs::new();
     fs.file("/elsewhere/a.txt", b"x", None).symlink("/data/link", "/elsewhere/a.txt");
 
-    assert!(fs.remove_dir(Path::new("/data")).await.is_err());
+    assert!(fs.remove_dir(&VfsPath::new("/data")).await.is_err());
 
     assert!(fs.exists("/data/link") && fs.exists("/elsewhere/a.txt"));
 }
@@ -519,7 +519,7 @@ async fn remove_dir_refuses_a_folder_that_holds_a_symlink() {
 async fn remove_dir_of_a_missing_folder_is_not_found() {
     let fs = FakeFs::new();
 
-    let err = fs.remove_dir(Path::new("/nope")).await.unwrap_err();
+    let err = fs.remove_dir(&VfsPath::new("/nope")).await.unwrap_err();
 
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
@@ -529,7 +529,7 @@ async fn remove_dir_never_removes_a_file() {
     let fs = FakeFs::new();
     fs.file("/data/a.txt", b"x", None);
 
-    assert!(fs.remove_dir(Path::new("/data/a.txt")).await.is_err());
+    assert!(fs.remove_dir(&VfsPath::new("/data/a.txt")).await.is_err());
 
     assert!(fs.exists("/data/a.txt"));
 }
@@ -538,41 +538,41 @@ struct Bare;
 
 #[async_trait::async_trait]
 impl FileSystem for Bare {
-    async fn list(&self, _dir: &Path) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
+    async fn list(&self, _dir: &VfsPath) -> Result<Vec<crate::Entry>, crate::ProtocolError> {
         Ok(Vec::new())
     }
-    async fn read_dir(&self, _dir: &Path) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
+    async fn read_dir(&self, _dir: &VfsPath) -> Result<Vec<crate::DirItem>, crate::ProtocolError> {
         Ok(Vec::new())
     }
-    async fn stat(&self, _path: &Path) -> Result<crate::Metadata, crate::ProtocolError> {
+    async fn stat(&self, _path: &VfsPath) -> Result<crate::Metadata, crate::ProtocolError> {
         Ok(crate::Metadata { kind: FileKind::Dir, size: 0, modified: None, permissions: None })
     }
-    async fn create_dir(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+    async fn create_dir(&self, _path: &VfsPath) -> Result<(), crate::ProtocolError> {
         Ok(())
     }
-    async fn rename(&self, _from: &Path, _to: &Path) -> Result<(), crate::ProtocolError> {
+    async fn rename(&self, _from: &VfsPath, _to: &VfsPath) -> Result<(), crate::ProtocolError> {
         Ok(())
     }
-    async fn remove_file(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+    async fn remove_file(&self, _path: &VfsPath) -> Result<(), crate::ProtocolError> {
         Ok(())
     }
-    async fn delete(&self, _path: &Path) -> Result<(), crate::ProtocolError> {
+    async fn delete(&self, _path: &VfsPath) -> Result<(), crate::ProtocolError> {
         panic!("a default remove_dir must never fall back to the recursive delete");
     }
-    async fn home(&self) -> Result<std::path::PathBuf, crate::ProtocolError> {
-        Ok(std::path::PathBuf::from("/"))
+    async fn home(&self) -> Result<VfsPath, crate::ProtocolError> {
+        Ok(VfsPath::new("/"))
     }
-    async fn open_read(&self, _path: &Path, _offset: u64) -> Result<crate::Reader, crate::ProtocolError> {
+    async fn open_read(&self, _path: &VfsPath, _offset: u64) -> Result<crate::Reader, crate::ProtocolError> {
         Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no reads")))
     }
-    async fn open_write(&self, _path: &Path, _offset: u64) -> Result<crate::Writer, crate::ProtocolError> {
+    async fn open_write(&self, _path: &VfsPath, _offset: u64) -> Result<crate::Writer, crate::ProtocolError> {
         Err(crate::ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no writes")))
     }
 }
 
 #[tokio::test]
 async fn a_filesystem_without_its_own_remove_dir_refuses_instead_of_deleting_recursively() {
-    let err = Bare.remove_dir(Path::new("/empty")).await.unwrap_err();
+    let err = Bare.remove_dir(&VfsPath::new("/empty")).await.unwrap_err();
 
     assert_eq!(err.kind(), ErrorKind::Unsupported);
 }
@@ -582,7 +582,7 @@ async fn a_hanging_read_gives_the_first_bytes_then_never_answers() {
     use tokio::io::AsyncReadExt;
     let fs = FakeFs::new();
     fs.file("/d/a.txt", b"abcdef", None).hanging_reads("/d/a.txt", 3);
-    let mut reader = fs.open_read(Path::new("/d/a.txt"), 0).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new("/d/a.txt"), 0).await.unwrap();
     let mut first = [0u8; 8];
 
     let got = reader.read(&mut first).await.unwrap();
@@ -596,7 +596,7 @@ async fn a_hanging_read_gives_the_first_bytes_then_never_answers() {
 async fn free_space_is_unknown_until_configured() {
     let fs = FakeFs::new();
 
-    assert_eq!(fs.free_space(Path::new("/home/user")).await.unwrap(), None);
+    assert_eq!(fs.free_space(&VfsPath::new("/home/user")).await.unwrap(), None);
 }
 
 #[tokio::test]
@@ -604,7 +604,7 @@ async fn configured_free_space_is_reported() {
     let fs = FakeFs::new();
     fs.with_free_space(2_000);
 
-    assert_eq!(fs.free_space(Path::new("/home/user")).await.unwrap(), Some(2_000));
+    assert_eq!(fs.free_space(&VfsPath::new("/home/user")).await.unwrap(), Some(2_000));
 }
 
 #[tokio::test]
@@ -612,7 +612,7 @@ async fn free_space_can_fail() {
     let fs = FakeFs::new();
     fs.fail_free_space();
 
-    assert!(fs.free_space(Path::new("/home/user")).await.is_err());
+    assert!(fs.free_space(&VfsPath::new("/home/user")).await.is_err());
 }
 
 #[tokio::test]
@@ -620,7 +620,7 @@ async fn listing_names_what_a_symlink_points_to() {
     let fs = FakeFs::new();
     fs.file("/d/real.txt", b"x", None).symlink("/d/link", "/d/real.txt");
 
-    let entries = fs.list(Path::new("/d")).await.unwrap();
+    let entries = fs.list(&VfsPath::new("/d")).await.unwrap();
     let link = entries.iter().find(|entry| entry.name == "link").unwrap();
     let real = entries.iter().find(|entry| entry.name == "real.txt").unwrap();
 
@@ -633,7 +633,7 @@ async fn listing_carries_the_configured_owner_and_group() {
     let fs = FakeFs::new();
     fs.file("/d/a.txt", b"x", None).file("/d/b.txt", b"x", None).with_owner("/d/a.txt", "nikos", "staff");
 
-    let entries = fs.list(Path::new("/d")).await.unwrap();
+    let entries = fs.list(&VfsPath::new("/d")).await.unwrap();
     let a = entries.iter().find(|entry| entry.name == "a.txt").unwrap();
     let b = entries.iter().find(|entry| entry.name == "b.txt").unwrap();
 
@@ -647,7 +647,7 @@ async fn a_hanging_free_space_query_never_answers() {
     fs.hanging_free_space();
 
     let answer =
-        tokio::time::timeout(std::time::Duration::from_millis(100), fs.free_space(Path::new("/home/user"))).await;
+        tokio::time::timeout(std::time::Duration::from_millis(100), fs.free_space(&VfsPath::new("/home/user"))).await;
 
     assert!(answer.is_err());
 }
@@ -681,5 +681,22 @@ async fn losing_the_connection_leaves_ordinary_operations_alone() {
 
     fs.lose_connection();
 
-    assert!(fs.stat(Path::new("/d")).await.is_ok());
+    assert!(fs.stat(&VfsPath::new("/d")).await.is_ok());
+}
+
+#[tokio::test]
+async fn fake_fs_keeps_windows_looking_names_apart() {
+    let fs = FakeFs::new();
+    fs.dir("/srv").file("/srv/x:1.txt", b"1", None).file("/srv/a\\b", b"2", None).file("/srv/con", b"3", None);
+
+    let mut entries = fs.list(&VfsPath::new("/srv")).await.unwrap();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    let paths: Vec<String> = entries.iter().map(|entry| entry.path.to_string_lossy().into_owned()).collect();
+    assert_eq!(paths, vec!["/srv/a\\b", "/srv/con", "/srv/x:1.txt"]);
+
+    fs.delete(&VfsPath::new("/srv/a\\b")).await.unwrap();
+
+    let mut names: Vec<String> = fs.list(&VfsPath::new("/srv")).await.unwrap().into_iter().map(|e| e.name).collect();
+    names.sort();
+    assert_eq!(names, vec!["con", "x:1.txt"]);
 }

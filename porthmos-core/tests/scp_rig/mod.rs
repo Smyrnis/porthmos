@@ -16,6 +16,7 @@ use porthmos_core::{
         rows::RowState,
     },
 };
+use porthmos_lfs::from_os_path;
 use porthmos_scp::Scp;
 use porthmos_ssh::testing::{Options, PASSWORD, SshServer, USER};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -107,7 +108,10 @@ impl Rig {
     }
 
     pub async fn open_for_edit(&mut self, name: &str) -> (u64, PathBuf) {
-        self.core.send(Command::EditFile { location: Location::Session(self.session), path: self.remote(name) });
+        self.core.send(Command::EditFile {
+            location: Location::Session(self.session),
+            path: from_os_path(&self.remote(name)),
+        });
         loop {
             if let Event::EditReady { edit_id, file, .. } = self.event().await {
                 return (edit_id, file);
@@ -138,7 +142,7 @@ impl Rig {
         Entry {
             modified: None,
             name: path.file_name().unwrap().to_string_lossy().into_owned(),
-            path: path.to_path_buf(),
+            path: from_os_path(path),
             is_dir,
             size,
             permissions: None,
@@ -152,7 +156,7 @@ impl Rig {
             from: Location::Local,
             entries,
             to: Location::Session(self.session),
-            dest_dir: self.server.root.path().to_path_buf(),
+            dest_dir: from_os_path(self.server.root.path()),
         });
     }
 
@@ -162,7 +166,7 @@ impl Rig {
             from: Location::Session(self.session),
             entries,
             to: Location::Local,
-            dest_dir: self.local.path().to_path_buf(),
+            dest_dir: from_os_path(self.local.path()),
         });
     }
 
@@ -172,7 +176,7 @@ impl Rig {
             from: Location::Local,
             entries,
             to: Location::Session(self.session),
-            dest_dir: self.server.root.path().to_path_buf(),
+            dest_dir: from_os_path(self.server.root.path()),
         });
     }
 
@@ -182,7 +186,7 @@ impl Rig {
             from: Location::Session(self.session),
             entries,
             to: Location::Local,
-            dest_dir: self.local.path().to_path_buf(),
+            dest_dir: from_os_path(self.local.path()),
         });
     }
 
@@ -225,8 +229,8 @@ impl Rig {
     pub async fn scan_sync(&mut self, options: SyncOptions) -> Option<Arc<SyncPlan>> {
         self.core.send(Command::StartSync {
             session: self.session,
-            local_dir: self.local("tree"),
-            remote_dir: self.remote("tree"),
+            local_dir: from_os_path(&self.local("tree")),
+            remote_dir: from_os_path(&self.remote("tree")),
             options,
         });
         loop {

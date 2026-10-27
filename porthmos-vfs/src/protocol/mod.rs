@@ -1,14 +1,8 @@
-use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    fmt,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, ffi::OsString, fmt, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 
-use crate::{ConnectionForm, FileSystem, Prompter, ProtocolError};
+use crate::{ConnectionForm, FileSystem, Prompter, ProtocolError, VfsPath};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Target {
@@ -70,7 +64,7 @@ pub struct ShellInvocation {
 }
 
 impl ShellInvocation {
-    pub fn starting_in(mut self, directory: &Path) -> Self {
+    pub fn starting_in(mut self, directory: &VfsPath) -> Self {
         let Some(destination) = self.args.pop() else {
             return self;
         };

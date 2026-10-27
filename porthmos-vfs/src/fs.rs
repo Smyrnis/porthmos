@@ -1,12 +1,11 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::{DirItem, Entry, ErrorKind, Metadata, ProtocolError, SearchQuery, SearchSender, search::walk_search};
+use crate::{
+    DirItem, Entry, ErrorKind, Metadata, ProtocolError, SearchQuery, SearchSender, VfsPath, search::walk_search,
+};
 
 pub type Reader = Box<dyn AsyncRead + Send + Unpin>;
 
@@ -17,23 +16,23 @@ pub struct Writer {
 
 #[async_trait]
 pub trait FileSystem: Send + Sync {
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError>;
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError>;
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError>;
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError>;
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError>;
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError>;
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError>;
-    async fn remove_dir(&self, _path: &Path) -> Result<(), ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError>;
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError>;
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError>;
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError>;
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError>;
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError>;
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError>;
+    async fn remove_dir(&self, _path: &VfsPath) -> Result<(), ProtocolError> {
         Err(ProtocolError::new(
             ErrorKind::Unsupported,
             anyhow::anyhow!("this connection can't remove a folder without deleting what is inside it"),
         ))
     }
-    async fn home(&self) -> Result<PathBuf, ProtocolError>;
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError>;
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError>;
-    async fn open_write_sized(&self, path: &Path, offset: u64, _size: u64) -> Result<Writer, ProtocolError> {
+    async fn home(&self) -> Result<VfsPath, ProtocolError>;
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError>;
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError>;
+    async fn open_write_sized(&self, path: &VfsPath, offset: u64, _size: u64) -> Result<Writer, ProtocolError> {
         self.open_write(path, offset).await
     }
     async fn connection_alive(&self) -> Option<bool> {
@@ -48,7 +47,7 @@ pub trait FileSystem: Send + Sync {
     fn server_info(&self) -> Option<String> {
         None
     }
-    async fn set_modified(&self, _path: &Path, _seconds: u64) -> Result<(), ProtocolError> {
+    async fn set_modified(&self, _path: &VfsPath, _seconds: u64) -> Result<(), ProtocolError> {
         Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("this connection can't set modification times")))
     }
 
@@ -59,7 +58,7 @@ pub trait FileSystem: Send + Sync {
     fn time_resolution(&self) -> u64 {
         2
     }
-    async fn free_space(&self, _dir: &Path) -> Result<Option<u64>, ProtocolError> {
+    async fn free_space(&self, _dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
         Ok(None)
     }
     async fn search(&self, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>) {

@@ -1,6 +1,6 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
-use porthmos_vfs::FileSystem;
+use porthmos_vfs::{FileSystem, VfsPath};
 
 use super::super::{Engine, Event, Internal, Location};
 use crate::{
@@ -9,12 +9,12 @@ use crate::{
     user_message,
 };
 
-fn name_of(path: &std::path::Path) -> String {
-    path.file_name().map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
+fn name_of(path: &VfsPath) -> String {
+    path.file_name().map_or_else(|| path.to_string(), |name| name.to_string_lossy().into_owned())
 }
 
 impl Engine {
-    fn preview_connection_closed(&self, request_id: u64, path: &std::path::Path) {
+    fn preview_connection_closed(&self, request_id: u64, path: &VfsPath) {
         let name = name_of(path);
         self.emit(Event::PreviewReady {
             request_id,
@@ -23,7 +23,7 @@ impl Engine {
         });
     }
 
-    fn spawn_preview(&mut self, request_id: u64, fs: Arc<dyn FileSystem>, path: PathBuf) {
+    fn spawn_preview(&mut self, request_id: u64, fs: Arc<dyn FileSystem>, path: VfsPath) {
         self.preview_busy = true;
         let internal = self.internal.clone();
         self.tasks.spawn("preview", Scope::Preview, move |cancel| async move {
@@ -39,7 +39,7 @@ impl Engine {
         });
     }
 
-    pub(crate) fn start_preview(&mut self, request_id: u64, location: Location, path: PathBuf) {
+    pub(crate) fn start_preview(&mut self, request_id: u64, location: Location, path: VfsPath) {
         if self.preview_busy {
             self.tasks.cancel(Scope::Preview);
             self.tasks.forget(Scope::Preview);

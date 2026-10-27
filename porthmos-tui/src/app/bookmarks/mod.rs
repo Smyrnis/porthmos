@@ -13,10 +13,10 @@ impl App {
         self.pending_action = Some(PendingAction::AddBookmark);
     }
 
-    fn active_panel_path(&self) -> PathBuf {
+    fn active_panel_path(&self) -> VfsPath {
         self.active_location()
             .and_then(|location| self.panel(location))
-            .map(|panel| panel.path().to_path_buf())
+            .map(|panel| panel.path().clone())
             .unwrap_or_default()
     }
 
@@ -39,8 +39,8 @@ impl App {
             .bookmarks
             .iter()
             .map(|bookmark| match &bookmark.host {
-                Some(host) => format!("{} \u{2014} {} [{host}]", bookmark.label, bookmark.path.display()),
-                None => format!("{} \u{2014} {}", bookmark.label, bookmark.path.display()),
+                Some(host) => format!("{} \u{2014} {} [{host}]", bookmark.label, bookmark.path),
+                None => format!("{} \u{2014} {}", bookmark.label, bookmark.path),
             })
             .collect();
 

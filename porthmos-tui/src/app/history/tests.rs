@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use chrono::{TimeZone, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -26,7 +26,7 @@ fn entry(label: &str, result: HistoryResult) -> HistoryEntry {
 }
 
 fn app_with_history(entries: Vec<HistoryEntry>) -> TestApp {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::OpenHistory);
     test.sent();
     test.app.apply_core_event(Event::History(entries));
@@ -47,7 +47,7 @@ fn three() -> Vec<HistoryEntry> {
 
 #[test]
 fn opening_the_history_asks_the_core_for_it_and_shows_the_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_action(Action::OpenHistory);
 
@@ -57,7 +57,7 @@ fn opening_the_history_asks_the_core_for_it_and_shows_the_screen() {
 
 #[test]
 fn ctrl_y_opens_the_history_from_the_file_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL));
 

@@ -3,7 +3,7 @@ use std::fs;
 use super::*;
 
 fn sample() -> Bookmark {
-    Bookmark { label: "projects".to_string(), path: PathBuf::from("/home/user/projects"), host: None }
+    Bookmark { label: "projects".to_string(), path: VfsPath::from("/home/user/projects"), host: None }
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn save_then_load_round_trips_including_a_remote_bookmark() {
     bookmarks.add(sample());
     bookmarks.add(Bookmark {
         label: "nginx conf".to_string(),
-        path: PathBuf::from("/etc/nginx"),
+        path: VfsPath::from("/etc/nginx"),
         host: Some("production".to_string()),
     });
 
@@ -62,7 +62,7 @@ fn save_to_leaves_the_original_file_untouched_if_the_write_fails() {
     fs::set_permissions(dir.path(), perms.clone()).unwrap();
 
     let mut updated = original.clone();
-    updated.add(Bookmark { label: "extra".to_string(), path: PathBuf::from("/tmp"), host: None });
+    updated.add(Bookmark { label: "extra".to_string(), path: VfsPath::from("/tmp"), host: None });
     let result = save_to(&path, &updated);
 
     perms.set_mode(0o700);
@@ -137,4 +137,31 @@ fn the_bookmarks_file_is_private() {
     save_to(&path, &Bookmarks::default()).unwrap();
 
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+#[test]
+fn a_bookmarks_file_written_before_the_change_still_loads_and_saves_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bookmarks.toml");
+    let written_before = "[[bookmark]]\nlabel = \"projects\"\npath = \"/home/user/projects\"\n\n[[bookmark]]\nlabel = \"nginx conf\"\npath = \"/etc/nginx\"\nhost = \"production\"\n";
+    fs::write(&path, written_before).unwrap();
+
+    let (loaded, warnings) = load_from(&path).unwrap();
+    save_to(&path, &loaded).unwrap();
+
+    assert!(warnings.is_empty());
+    assert_eq!(loaded.get(0).unwrap().path, VfsPath::new("/home/user/projects"));
+    assert_eq!(loaded.get(1).unwrap().host.as_deref(), Some("production"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), written_before);
+}
+
+#[test]
+fn a_bookmark_path_with_a_trailing_slash_loads_as_the_same_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bookmarks.toml");
+    fs::write(&path, "[[bookmark]]\nlabel = \"logs\"\npath = \"/var/log/\"\n").unwrap();
+
+    let (loaded, _) = load_from(&path).unwrap();
+
+    assert_eq!(loaded.get(0).unwrap().path, VfsPath::new("/var/log"));
 }

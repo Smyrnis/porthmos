@@ -1,8 +1,8 @@
 mod support;
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
-use porthmos_vfs::{ErrorKind, FileSystem, Protocol};
+use porthmos_vfs::{ErrorKind, FileSystem, Protocol, VfsPath};
 use porthmos_webdav::WebDav;
 use support::{Options, Server};
 
@@ -21,15 +21,15 @@ async fn read_dir_reports_kinds_sizes_and_times_without_the_directory_itself() {
     std::fs::write(server.root.path().join("docs/a.txt"), b"hello").unwrap();
     std::fs::create_dir(server.root.path().join("docs/sub")).unwrap();
 
-    let mut items = fs.read_dir(Path::new("/docs")).await.unwrap();
+    let mut items = fs.read_dir(&VfsPath::new("/docs")).await.unwrap();
     items.sort_by(|left, right| left.name.cmp(&right.name));
 
     assert_eq!(items.iter().map(|item| item.name.as_str()).collect::<Vec<_>>(), vec!["a.txt", "sub"]);
-    assert_eq!(items[0].path, Path::new("/docs/a.txt"));
+    assert_eq!(items[0].path, VfsPath::new("/docs/a.txt"));
     assert_eq!((items[0].metadata.size, items[0].metadata.is_dir()), (5, false));
     assert!(items[0].metadata.modified.is_some());
     assert!(items[1].metadata.is_dir());
-    let entries = fs.list(Path::new("/docs")).await.unwrap();
+    let entries = fs.list(&VfsPath::new("/docs")).await.unwrap();
     assert_eq!(entries.len(), 2);
 }
 
@@ -43,7 +43,7 @@ async fn list_reports_the_modification_time_of_a_new_file() {
     let (server, fs, _dir) = open(Options::default()).await;
     std::fs::write(server.root.path().join("a.txt"), b"hello").unwrap();
 
-    let entries = fs.list(Path::new("/")).await.unwrap();
+    let entries = fs.list(&VfsPath::new("/")).await.unwrap();
 
     assert!(within_a_day_of_now(entries[0].modified), "{:?}", entries[0].modified);
 }
@@ -54,21 +54,21 @@ async fn stat_finds_files_and_directories_and_reports_missing_ones() {
     std::fs::create_dir(server.root.path().join("docs")).unwrap();
     std::fs::write(server.root.path().join("f.bin"), vec![0u8; 42]).unwrap();
 
-    assert_eq!(fs.stat(Path::new("/f.bin")).await.unwrap().size, 42);
-    assert!(fs.stat(Path::new("/docs")).await.unwrap().is_dir());
-    assert_eq!(fs.stat(Path::new("/nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.stat(&VfsPath::new("/f.bin")).await.unwrap().size, 42);
+    assert!(fs.stat(&VfsPath::new("/docs")).await.unwrap().is_dir());
+    assert_eq!(fs.stat(&VfsPath::new("/nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
 async fn create_dir_makes_it_refuses_an_existing_one_and_a_missing_parent() {
     let (server, fs, _dir) = open(Options::default()).await;
 
-    fs.create_dir(Path::new("/new")).await.unwrap();
+    fs.create_dir(&VfsPath::new("/new")).await.unwrap();
     assert!(server.root.path().join("new").is_dir());
 
-    let existing = fs.create_dir(Path::new("/new")).await.unwrap_err();
+    let existing = fs.create_dir(&VfsPath::new("/new")).await.unwrap_err();
     assert_eq!((existing.kind(), existing.to_string().as_str()), (ErrorKind::Other, "/new already exists"));
-    assert_eq!(fs.create_dir(Path::new("/no/such/parent")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.create_dir(&VfsPath::new("/no/such/parent")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -80,8 +80,8 @@ async fn rename_moves_files_and_directories_and_replaces_an_existing_target() {
     std::fs::create_dir(root.join("d")).unwrap();
     std::fs::write(root.join("d/x"), b"x").unwrap();
 
-    fs.rename(Path::new("/a.txt"), Path::new("/b.txt")).await.unwrap();
-    fs.rename(Path::new("/d"), Path::new("/e")).await.unwrap();
+    fs.rename(&VfsPath::new("/a.txt"), &VfsPath::new("/b.txt")).await.unwrap();
+    fs.rename(&VfsPath::new("/d"), &VfsPath::new("/e")).await.unwrap();
 
     assert_eq!(std::fs::read(root.join("b.txt")).unwrap(), b"new");
     assert!(!root.join("a.txt").exists());
@@ -96,11 +96,28 @@ async fn remove_file_and_recursive_delete() {
     std::fs::create_dir_all(root.join("tree/inner")).unwrap();
     std::fs::write(root.join("tree/inner/leaf"), b"l").unwrap();
 
-    fs.remove_file(Path::new("/f")).await.unwrap();
-    fs.delete(Path::new("/tree")).await.unwrap();
+    fs.remove_file(&VfsPath::new("/f")).await.unwrap();
+    fs.delete(&VfsPath::new("/tree")).await.unwrap();
 
     assert!(!root.join("f").exists());
     assert!(!root.join("tree").exists());
+}
+
+#[tokio::test]
+async fn names_that_look_like_windows_paths_round_trip() {
+    let (server, fs, _dir) = open(Options::default()).await;
+    for name in ["a\\b.txt", "C:x.txt", "con.txt"] {
+        std::fs::write(server.root.path().join(name), b"odd").unwrap();
+    }
+
+    let mut names: Vec<_> = fs.read_dir(&VfsPath::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
+    names.sort();
+    assert_eq!(names, vec!["C:x.txt", "a\\b.txt", "con.txt"]);
+
+    let slashed = VfsPath::new("/").join("a\\b.txt");
+    assert_eq!(fs.stat(&slashed).await.unwrap().size, 3);
+    fs.rename(&slashed, &VfsPath::new("/D:y\\z.txt")).await.unwrap();
+    assert_eq!(std::fs::read(server.root.path().join("D:y\\z.txt")).unwrap(), b"odd");
 }
 
 #[tokio::test]
@@ -109,11 +126,11 @@ async fn awkward_names_round_trip() {
     let name = "a #1 100% & ü.txt";
     std::fs::write(server.root.path().join(name), b"odd").unwrap();
 
-    let items = fs.read_dir(Path::new("/")).await.unwrap();
+    let items = fs.read_dir(&VfsPath::new("/")).await.unwrap();
     assert_eq!(items.iter().map(|item| item.name.as_str()).collect::<Vec<_>>(), vec![name]);
     assert_eq!(fs.stat(&items[0].path).await.unwrap().size, 3);
 
-    fs.rename(&items[0].path, Path::new("/renamed ü & #2.txt")).await.unwrap();
+    fs.rename(&items[0].path, &VfsPath::new("/renamed ü & #2.txt")).await.unwrap();
     assert_eq!(std::fs::read(server.root.path().join("renamed ü & #2.txt")).unwrap(), b"odd");
 }
 
@@ -126,8 +143,8 @@ async fn a_root_typed_without_slashes_lists_the_share() {
 
     let fs = WebDav::new(dir.path().join("k.toml")).connect(&target, &mut support::answers(vec![])).await.unwrap();
 
-    let items = fs.read_dir(Path::new("/")).await.unwrap();
-    assert_eq!(items.iter().map(|item| item.path.as_path()).collect::<Vec<_>>(), vec![Path::new("/inside.txt")]);
+    let items = fs.read_dir(&VfsPath::new("/")).await.unwrap();
+    assert_eq!(items.iter().map(|item| &item.path).collect::<Vec<_>>(), vec![&VfsPath::new("/inside.txt")]);
 }
 
 #[tokio::test]
@@ -138,7 +155,7 @@ async fn renaming_a_directory_onto_an_existing_one_is_refused_and_keeps_it() {
     std::fs::create_dir(root.join("b")).unwrap();
     std::fs::write(root.join("b/keep"), b"precious").unwrap();
 
-    let error = fs.rename(Path::new("/a"), Path::new("/b")).await.unwrap_err();
+    let error = fs.rename(&VfsPath::new("/a"), &VfsPath::new("/b")).await.unwrap_err();
 
     assert_eq!((error.kind(), error.to_string().as_str()), (ErrorKind::Other, "/b already exists"));
     assert_eq!(std::fs::read(root.join("b/keep")).unwrap(), b"precious");
@@ -154,7 +171,7 @@ async fn a_listing_whose_paths_are_outside_the_root_is_an_error() {
     let target = support::with_option(support::target(server.port, "", None), "root", "/dav");
     let fs = WebDav::new(dir.path().join("k.toml")).connect(&target, &mut support::answers(vec![])).await.unwrap();
 
-    let error = fs.read_dir(Path::new("/")).await.unwrap_err();
+    let error = fs.read_dir(&VfsPath::new("/")).await.unwrap_err();
 
     assert_eq!(
         (error.kind(), error.to_string().as_str()),
@@ -170,7 +187,7 @@ async fn renaming_a_file_onto_an_existing_directory_is_refused_and_keeps_it() {
     std::fs::create_dir(root.join("photos")).unwrap();
     std::fs::write(root.join("photos/keep"), b"precious").unwrap();
 
-    let error = fs.rename(Path::new("/notes"), Path::new("/photos")).await.unwrap_err();
+    let error = fs.rename(&VfsPath::new("/notes"), &VfsPath::new("/photos")).await.unwrap_err();
 
     assert_eq!((error.kind(), error.to_string().as_str()), (ErrorKind::Other, "/photos already exists"));
     assert_eq!(std::fs::read(root.join("photos/keep")).unwrap(), b"precious");
@@ -182,7 +199,7 @@ async fn a_partially_failed_move_is_an_error() {
     let (server, fs, _dir) = open(Options { quirk: support::Quirk::PartialMove, ..Options::default() }).await;
     std::fs::create_dir(server.root.path().join("d")).unwrap();
 
-    let error = fs.rename(Path::new("/d"), Path::new("/e")).await.unwrap_err();
+    let error = fs.rename(&VfsPath::new("/d"), &VfsPath::new("/e")).await.unwrap_err();
 
     assert_eq!(
         (error.kind(), error.to_string().as_str()),
@@ -201,7 +218,7 @@ async fn a_move_the_server_never_answers_times_out() {
         .await
         .unwrap();
 
-    let error = fs.rename(Path::new("/f"), Path::new("/g")).await.unwrap_err();
+    let error = fs.rename(&VfsPath::new("/f"), &VfsPath::new("/g")).await.unwrap_err();
 
     assert_eq!(error.to_string(), "the server did not respond in time");
 }
@@ -212,6 +229,6 @@ async fn the_connection_cannot_keep_modification_times() {
 
     assert!(!fs.can_set_modified());
     assert_eq!(fs.time_resolution(), 2);
-    let error = fs.set_modified(Path::new("/anything"), 5).await.unwrap_err();
+    let error = fs.set_modified(&VfsPath::new("/anything"), 5).await.unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Unsupported);
 }

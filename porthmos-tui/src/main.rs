@@ -17,7 +17,7 @@ mod theme;
 mod widgets;
 
 use app::App;
-use porthmos_core::{Core, Environment, Paths, UpdateMode, config};
+use porthmos_core::{Core, Environment, Paths, UpdateMode, config, from_os_path};
 
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
@@ -70,8 +70,9 @@ fn start_app(
     let (core, events) = Core::builder().paths(paths).environment(env).settings(settings).release_updates().start()?;
 
     let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
-    let mut app =
-        App::new(core, std::env::current_dir()?, &panel, key_bindings).with_theme(theme).with_update_mode(update_mode);
+    let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &panel, key_bindings)
+        .with_theme(theme)
+        .with_update_mode(update_mode);
     for warning in config_warnings {
         app.warn(warning.0);
     }

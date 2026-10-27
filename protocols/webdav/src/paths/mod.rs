@@ -1,7 +1,7 @@
-use std::path::{Component, Path, PathBuf};
-
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
+use porthmos_vfs::VfsPath;
 
+const PARENT: &str = "..";
 const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +20,7 @@ impl Locator {
         Self { origin: origin.to_string(), root }
     }
 
-    pub(crate) fn href(&self, path: &Path, collection: bool) -> String {
+    pub(crate) fn href(&self, path: &VfsPath, collection: bool) -> String {
         let encoded: Vec<String> = self
             .root
             .iter()
@@ -43,7 +43,7 @@ impl Locator {
         format!("{}{href}", self.origin)
     }
 
-    pub(crate) fn path_of_href(&self, href: &str) -> Option<PathBuf> {
+    pub(crate) fn path_of_href(&self, href: &str) -> Option<VfsPath> {
         let absolute = match href.find("://") {
             Some(scheme_end) => {
                 let rest = &href[scheme_end + 3..];
@@ -62,28 +62,24 @@ impl Locator {
     }
 }
 
-pub(crate) fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &VfsPath) -> VfsPath {
     to_path(&segments(path))
 }
 
-fn segments(path: &Path) -> Vec<String> {
+fn segments(path: &VfsPath) -> Vec<String> {
     let mut segments = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(name) => segments.push(name.to_string_lossy().into_owned()),
-            Component::ParentDir => {
-                segments.pop();
-            }
-            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+    for segment in path.segments() {
+        if segment == PARENT {
+            segments.pop();
+        } else {
+            segments.push(segment.to_string_lossy().into_owned());
         }
     }
     segments
 }
 
-fn to_path(segments: &[String]) -> PathBuf {
-    let mut path = PathBuf::from("/");
-    path.extend(segments);
-    path
+fn to_path(segments: &[String]) -> VfsPath {
+    VfsPath::from_segments(true, segments)
 }
 
 #[cfg(test)]

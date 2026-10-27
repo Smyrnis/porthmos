@@ -1,7 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-};
+use std::collections::{HashMap, HashSet};
+
+use porthmos_vfs::VfsPath;
 
 use super::plan::{DirectoryPlan, ExistingFile, PlannedFile};
 
@@ -149,16 +148,15 @@ pub fn resolve(plan: DirectoryPlan, answers: &[Resolution]) -> ResolvedPlan {
     ResolvedPlan { files: resolved, skipped, skipped_partials, blocked_by_folder }
 }
 
-fn rename_destination(file: &mut PlannedFile, taken_names: &mut HashMap<PathBuf, HashSet<String>>) {
+fn rename_destination(file: &mut PlannedFile, taken_names: &mut HashMap<VfsPath, HashSet<String>>) {
     let (Some(parent), Some(name)) = (file.destination.parent(), file.destination.file_name()) else {
         return;
     };
-    let parent = parent.to_path_buf();
     let taken = taken_names.entry(parent.clone()).or_default();
     let new_name = unique_name(&name.to_string_lossy(), taken);
     taken.insert(new_name.clone());
     file.destination = parent.join(&new_name);
-    file.display_name = Path::new(&file.display_name).with_file_name(&new_name).to_string_lossy().into_owned();
+    file.display_name = VfsPath::new(&file.display_name).with_file_name(&new_name).to_string_lossy().into_owned();
 }
 
 fn split_extension(name: &str) -> (&str, &str) {

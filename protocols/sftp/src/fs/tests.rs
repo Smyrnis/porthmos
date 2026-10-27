@@ -134,3 +134,18 @@ fn free_space_counts_the_blocks_an_ordinary_user_may_use() {
 fn free_space_does_not_overflow() {
     assert_eq!(available_bytes(&statvfs(u64::MAX, 2, 2)), u64::MAX);
 }
+
+#[test]
+fn names_that_look_like_windows_paths_are_sent_to_the_server_verbatim() {
+    let folder = VfsPath::new("/srv");
+
+    for name in ["x:1.txt", "a\\b", "con", "name.", "C:", "\\\\server\\share"] {
+        assert_eq!(remote(&folder.join(name)), format!("/srv/{name}"), "{name}");
+    }
+}
+
+#[test]
+fn the_remote_text_of_a_path_has_no_trailing_slash_except_for_the_root() {
+    assert_eq!(remote(&VfsPath::new("/srv/")), "/srv");
+    assert_eq!(remote(&VfsPath::root()), "/");
+}

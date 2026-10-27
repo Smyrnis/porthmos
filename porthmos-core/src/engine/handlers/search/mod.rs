@@ -1,6 +1,6 @@
-use std::{path::PathBuf, sync::atomic::Ordering, time::Duration};
+use std::{sync::atomic::Ordering, time::Duration};
 
-use porthmos_vfs::{SearchEvent, SearchQuery};
+use porthmos_vfs::{SearchEvent, SearchQuery, VfsPath};
 
 use super::super::{Engine, Event, Location, Reporter};
 use crate::{Severity, tasks::Scope};
@@ -16,7 +16,7 @@ fn event_for(search_event: SearchEvent) -> Event {
 }
 
 impl Engine {
-    pub(crate) fn search(&mut self, location: Location, root: PathBuf, pattern: String) {
+    pub(crate) fn search(&mut self, location: Location, root: VfsPath, pattern: String) {
         self.tasks.cancel(Scope::Search);
         let generation = self.search.generation.fetch_add(1, Ordering::Relaxed) + 1;
         let current_generation = self.search.generation.clone();

@@ -1,8 +1,6 @@
 pub mod sort;
 
-use std::path::{Path, PathBuf};
-
-use porthmos_vfs::{Entry, glob_match};
+use porthmos_vfs::{Entry, VfsPath, glob_match};
 pub use sort::{SortKey, SortOrder, SortSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,7 +11,7 @@ pub enum Row {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listing {
-    path: PathBuf,
+    path: VfsPath,
     entries: Vec<Entry>,
     rows: Vec<Row>,
     sort_spec: SortSpec,
@@ -27,13 +25,13 @@ fn name_matches(filter: &str, lowered: &str, name: &str) -> bool {
 }
 
 impl Listing {
-    pub fn new(path: PathBuf, entries: Vec<Entry>, sort_spec: SortSpec, show_hidden: bool) -> Self {
+    pub fn new(path: VfsPath, entries: Vec<Entry>, sort_spec: SortSpec, show_hidden: bool) -> Self {
         let mut listing = Self { path, entries, rows: Vec::new(), sort_spec, show_hidden, filter: None, shown: 0 };
         listing.recompute_rows();
         listing
     }
 
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &VfsPath {
         &self.path
     }
 
@@ -41,7 +39,7 @@ impl Listing {
         &self.rows
     }
 
-    pub fn replace(&mut self, path: PathBuf, entries: Vec<Entry>) {
+    pub fn replace(&mut self, path: VfsPath, entries: Vec<Entry>) {
         if path != self.path {
             self.filter = None;
         }

@@ -1,4 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
+
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 use porthmos_vfs::{
     Answer, Entry, Question, ShellInvocation,
@@ -58,7 +61,7 @@ async fn connecting_lists_the_remote_home() {
     .await;
     let names = next_matching(&mut t, |event| match event {
         Event::Listed { location: Location::Session(id), entries, path } if *id == session => {
-            assert_eq!(path, &PathBuf::from("/home/user"));
+            assert_eq!(path, &VfsPath::from("/home/user"));
             Some(entries.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>())
         }
         _ => None,
@@ -67,7 +70,7 @@ async fn connecting_lists_the_remote_home() {
     assert_eq!(names, ["notes.txt"]);
 }
 
-async fn first_session_listing(t: &mut TestEngine) -> (PathBuf, Vec<String>) {
+async fn first_session_listing(t: &mut TestEngine) -> (VfsPath, Vec<String>) {
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
     t.run_internal().await;
     let session = next_matching(t, |event| match event {
@@ -91,7 +94,7 @@ async fn connecting_opens_the_profiles_absolute_remote_path() {
 
     let (path, names) = first_session_listing(&mut t).await;
 
-    assert_eq!(path, PathBuf::from("/var/www"));
+    assert_eq!(path, VfsPath::from("/var/www"));
     assert_eq!(names, ["index.html"]);
 }
 
@@ -102,7 +105,7 @@ async fn connecting_opens_a_relative_remote_path_under_the_remote_home() {
 
     let (path, names) = first_session_listing(&mut t).await;
 
-    assert_eq!(path, PathBuf::from("/home/user/projects"));
+    assert_eq!(path, VfsPath::from("/home/user/projects"));
     assert_eq!(names, ["app.rs"]);
 }
 
@@ -113,7 +116,7 @@ async fn connecting_opens_a_tilde_remote_path_under_the_remote_home() {
 
     let (path, _) = first_session_listing(&mut t).await;
 
-    assert_eq!(path, PathBuf::from("/home/user/projects"));
+    assert_eq!(path, VfsPath::from("/home/user/projects"));
 }
 
 #[tokio::test]
@@ -138,7 +141,7 @@ async fn a_missing_remote_path_warns_and_falls_back_to_the_remote_home() {
     .await;
 
     assert!(warning.starts_with("Unable to open /var/www on srv, showing the home directory instead:\n"), "{warning}");
-    assert_eq!(path, PathBuf::from("/home/user"));
+    assert_eq!(path, VfsPath::from("/home/user"));
     assert_eq!(names, ["notes.txt"]);
 }
 
@@ -149,7 +152,7 @@ async fn an_absolute_remote_path_opens_even_when_the_remote_home_is_unavailable(
 
     let (path, names) = first_session_listing(&mut t).await;
 
-    assert_eq!(path, PathBuf::from("/var/www"));
+    assert_eq!(path, VfsPath::from("/var/www"));
     assert_eq!(names, ["index.html"]);
 }
 
@@ -270,7 +273,7 @@ fn enqueue(t: &mut TestEngine, session: u64, name: &str) -> u64 {
     t.engine.transfers.enqueue(
         session,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -367,8 +370,8 @@ fn disconnecting_drops_that_sessions_waiting_copies_and_counts_them() {
     let (session, _) = t.add_session("test");
     let batch_id = t.engine.transfers.start_batch("copy".to_string());
     let mut conflicting = crate::transfer::plan::PlannedFile {
-        source: PathBuf::from("/local/a.txt"),
-        destination: PathBuf::from("/remote/a.txt"),
+        source: VfsPath::from("/local/a.txt"),
+        destination: VfsPath::from("/remote/a.txt"),
         display_name: "a.txt".to_string(),
         size: 1,
         existing: None,
@@ -416,7 +419,7 @@ async fn disconnecting_during_a_copy_cancels_it_and_late_results_do_not_bring_it
             Entry {
                 modified: None,
                 name: name.to_string(),
-                path: t.dir.path().join(name),
+                path: from_os_path(&t.dir.path().join(name)),
                 is_dir: false,
                 size: 64,
                 permissions: None,
@@ -429,7 +432,7 @@ async fn disconnecting_during_a_copy_cancels_it_and_late_results_do_not_bring_it
         from: Location::Local,
         entries,
         to: Location::Session(session),
-        dest_dir: PathBuf::from("/home/user"),
+        dest_dir: VfsPath::from("/home/user"),
     });
     t.engine.handle_command(Command::Disconnect { session });
     t.run_internal().await;
@@ -463,10 +466,10 @@ fn preparing_a_shell_in_a_directory_starts_the_shell_there() {
     t.engine.sessions.get_mut(&session).unwrap().protocol =
         Arc::new(FakeProtocol::new(FakeFs::new()).with_shell(invocation.clone()));
 
-    t.engine.handle_command(Command::PrepareShell { session, directory: Some(PathBuf::from("/srv/www")) });
+    t.engine.handle_command(Command::PrepareShell { session, directory: Some(VfsPath::from("/srv/www")) });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ShellReady { invocation: ready, .. }] if *ready == invocation.clone().starting_in(std::path::Path::new("/srv/www")))
+        matches!(t.drain().as_slice(), [Event::ShellReady { invocation: ready, .. }] if *ready == invocation.clone().starting_in(&VfsPath::new("/srv/www")))
     );
 }
 

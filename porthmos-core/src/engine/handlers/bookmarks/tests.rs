@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use super::*;
 use crate::engine::{Command, testing::test_engine};
@@ -20,11 +20,11 @@ fn a_local_bookmark_is_saved_and_published() {
     t.engine.handle_command(Command::AddBookmark {
         label: "here".to_string(),
         location: Location::Local,
-        path: PathBuf::from("/data"),
+        path: VfsPath::from("/data"),
     });
 
     let published = bookmark_events(t.drain());
-    assert_eq!(published, vec![vec![Bookmark { label: "here".into(), path: PathBuf::from("/data"), host: None }]]);
+    assert_eq!(published, vec![vec![Bookmark { label: "here".into(), path: VfsPath::from("/data"), host: None }]]);
     let (reloaded, _) = bookmarks::load(&t.engine.paths).unwrap();
     assert_eq!(reloaded.len(), 1);
 }
@@ -35,7 +35,7 @@ fn adding_the_same_bookmark_twice_keeps_one_and_says_so() {
     let add = || Command::AddBookmark {
         label: "src".to_string(),
         location: Location::Local,
-        path: PathBuf::from("/data/src"),
+        path: VfsPath::from("/data/src"),
     };
     t.engine.handle_command(add());
     t.drain();
@@ -53,7 +53,7 @@ fn the_same_path_under_another_label_or_connection_is_a_new_bookmark() {
     let add = |label: &str, location| Command::AddBookmark {
         label: label.to_string(),
         location,
-        path: PathBuf::from("/data"),
+        path: VfsPath::from("/data"),
     };
 
     t.engine.handle_command(add("one", Location::Local));
@@ -71,7 +71,7 @@ fn a_remote_bookmark_remembers_the_connection_name() {
     t.engine.handle_command(Command::AddBookmark {
         label: "etc".to_string(),
         location: Location::Session(session),
-        path: PathBuf::from("/etc"),
+        path: VfsPath::from("/etc"),
     });
 
     let published = bookmark_events(t.drain());
@@ -85,7 +85,7 @@ fn a_remote_bookmark_without_the_session_warns() {
     t.engine.handle_command(Command::AddBookmark {
         label: "etc".to_string(),
         location: Location::Session(9),
-        path: PathBuf::from("/etc"),
+        path: VfsPath::from("/etc"),
     });
 
     assert_eq!(t.notices(), vec![(Severity::Warning, "Connect to a remote server first".to_string())]);
@@ -97,7 +97,7 @@ fn removing_a_bookmark_deletes_it_and_says_so() {
     t.engine.handle_command(Command::AddBookmark {
         label: "a".to_string(),
         location: Location::Local,
-        path: PathBuf::from("/a"),
+        path: VfsPath::from("/a"),
     });
     t.drain();
 
@@ -119,7 +119,7 @@ fn a_protected_bookmarks_file_reports_an_error_instead_of_overwriting() {
     std::fs::write(t.engine.paths.bookmarks_file(), "garbage [").unwrap();
     t.engine.bookmarks = crate::config::bookmarks::Bookmarks::protected_for_test(Vec::new());
 
-    t.engine.add_bookmark("home".to_string(), Location::Local, std::path::PathBuf::from("/home/me"));
+    t.engine.add_bookmark("home".to_string(), Location::Local, VfsPath::from("/home/me"));
 
     assert_eq!(std::fs::read_to_string(t.engine.paths.bookmarks_file()).unwrap(), "garbage [");
     assert_eq!(t.first_notice().map(|notice| notice.0), Some(Severity::Error));
@@ -130,7 +130,7 @@ fn a_protected_bookmarks_file_does_not_change_or_publish_the_list_on_add() {
     let mut t = test_engine();
     t.engine.bookmarks = crate::config::bookmarks::Bookmarks::protected_for_test(Vec::new());
 
-    t.engine.add_bookmark("home".to_string(), Location::Local, std::path::PathBuf::from("/home/me"));
+    t.engine.add_bookmark("home".to_string(), Location::Local, VfsPath::from("/home/me"));
 
     assert!(t.engine.bookmarks.is_empty());
     assert!(bookmark_events(t.drain()).is_empty());
@@ -139,7 +139,7 @@ fn a_protected_bookmarks_file_does_not_change_or_publish_the_list_on_add() {
 #[test]
 fn a_protected_bookmarks_file_does_not_change_or_publish_the_list_on_remove() {
     let mut t = test_engine();
-    let existing = Bookmark { label: "kept".to_string(), path: PathBuf::from("/kept"), host: None };
+    let existing = Bookmark { label: "kept".to_string(), path: VfsPath::from("/kept"), host: None };
     t.engine.bookmarks = crate::config::bookmarks::Bookmarks::protected_for_test(vec![existing]);
 
     t.engine.remove_bookmark(0);

@@ -1,4 +1,7 @@
-use std::{path::Path, process::ExitStatus};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitStatus,
+};
 
 use porthmos_core::edit::{EditorCommand, EditorExit};
 

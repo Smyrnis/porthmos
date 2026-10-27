@@ -1,12 +1,8 @@
-use std::path::Path;
-
-use porthmos_vfs::ErrorKind;
-
 use super::*;
 
 fn mapped(status: u16, code: &str, message: &str) -> (ErrorKind, String) {
     let error = S3Error { status, code: code.to_string(), message: message.to_string(), region: None };
-    let mapped = to_protocol(&error, Path::new("/b/a.txt"));
+    let mapped = to_protocol(&error, &VfsPath::new("/b/a.txt"));
     (mapped.kind(), mapped.to_string())
 }
 

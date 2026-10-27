@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use super::*;
 use crate::engine::{Command, testing::test_engine};
@@ -21,7 +21,7 @@ async fn typing_a_pattern_streams_matching_results_back() {
 
     t.engine.handle_command(Command::Search {
         location: Location::Session(session),
-        root: PathBuf::from("/home/user"),
+        root: VfsPath::from("/home/user"),
         pattern: "*target*".to_string(),
     });
 
@@ -47,7 +47,7 @@ async fn rapid_pattern_changes_dispatch_only_one_search_for_the_final_pattern() 
     for pattern in ["*b*", "*bb*", "*a*"] {
         t.engine.handle_command(Command::Search {
             location,
-            root: PathBuf::from("/home/user"),
+            root: VfsPath::from("/home/user"),
             pattern: pattern.to_string(),
         });
     }
@@ -67,7 +67,7 @@ async fn cancelling_before_the_debounce_sends_nothing() {
 
     t.engine.handle_command(Command::Search {
         location: Location::Session(session),
-        root: PathBuf::from("/home/user"),
+        root: VfsPath::from("/home/user"),
         pattern: "*a*".to_string(),
     });
     t.engine.handle_command(Command::CancelSearch);
@@ -81,8 +81,8 @@ async fn a_new_search_stops_the_previous_one_so_only_the_latest_streams_results(
     let mut t = test_engine();
     let (session, remote) = t.add_session("srv");
     remote.file("/home/user/alpha.log", b"", None).file("/home/user/beta.log", b"", None);
-    t.engine.search(Location::Session(session), PathBuf::from("/home/user"), "*alpha*".to_string());
-    t.engine.search(Location::Session(session), PathBuf::from("/home/user"), "*beta*".to_string());
+    t.engine.search(Location::Session(session), VfsPath::from("/home/user"), "*alpha*".to_string());
+    t.engine.search(Location::Session(session), VfsPath::from("/home/user"), "*beta*".to_string());
 
     let mut events = Vec::new();
     loop {

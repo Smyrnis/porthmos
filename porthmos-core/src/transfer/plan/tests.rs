@@ -1,12 +1,12 @@
 use std::os::unix::fs::symlink;
 
-use porthmos_lfs::LocalFs;
+use porthmos_lfs::{LocalFs, from_os_path};
 use porthmos_vfs::testing::FakeFs;
 
 use super::*;
 
 fn local() -> LocalFs {
-    LocalFs::new(PathBuf::from("/"))
+    LocalFs::new(std::path::PathBuf::from("/"))
 }
 
 #[tokio::test]
@@ -16,11 +16,11 @@ async fn discover_local_tree_finds_files_at_every_depth() {
     std::fs::create_dir(dir.path().join("sub")).unwrap();
     std::fs::write(dir.path().join("sub/nested.txt"), b"bb").unwrap();
 
-    let tree = discover_tree(&local(), dir.path(), &AtomicBool::new(false)).await.unwrap().unwrap();
+    let tree = discover_tree(&local(), &from_os_path(dir.path()), &AtomicBool::new(false)).await.unwrap().unwrap();
 
-    let mut files: Vec<(PathBuf, u64)> = tree.files.into_iter().map(|(path, size, _)| (path, size)).collect();
+    let mut files: Vec<(VfsPath, u64)> = tree.files.into_iter().map(|(path, size, _)| (path, size)).collect();
     files.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(files, vec![(PathBuf::from("sub/nested.txt"), 2), (PathBuf::from("top.txt"), 1),]);
+    assert_eq!(files, vec![(VfsPath::from("sub/nested.txt"), 2), (VfsPath::from("top.txt"), 1),]);
 }
 
 #[tokio::test]
@@ -28,9 +28,9 @@ async fn discover_local_tree_lists_directories_parent_before_child() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("a/b")).unwrap();
 
-    let tree = discover_tree(&local(), dir.path(), &AtomicBool::new(false)).await.unwrap().unwrap();
+    let tree = discover_tree(&local(), &from_os_path(dir.path()), &AtomicBool::new(false)).await.unwrap().unwrap();
 
-    assert_eq!(tree.directories, vec![PathBuf::from("a"), PathBuf::from("a/b")]);
+    assert_eq!(tree.directories, vec![VfsPath::from("a"), VfsPath::from("a/b")]);
 }
 
 #[tokio::test]
@@ -38,9 +38,9 @@ async fn discover_local_tree_includes_empty_directories() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("empty")).unwrap();
 
-    let tree = discover_tree(&local(), dir.path(), &AtomicBool::new(false)).await.unwrap().unwrap();
+    let tree = discover_tree(&local(), &from_os_path(dir.path()), &AtomicBool::new(false)).await.unwrap().unwrap();
 
-    assert_eq!(tree.directories, vec![PathBuf::from("empty")]);
+    assert_eq!(tree.directories, vec![VfsPath::from("empty")]);
     assert!(tree.files.is_empty());
 }
 
@@ -50,11 +50,11 @@ async fn discover_local_tree_skips_symlinks_and_counts_them() {
     std::fs::write(dir.path().join("real.txt"), b"a").unwrap();
     symlink(dir.path().join("real.txt"), dir.path().join("link.txt")).unwrap();
 
-    let tree = discover_tree(&local(), dir.path(), &AtomicBool::new(false)).await.unwrap().unwrap();
+    let tree = discover_tree(&local(), &from_os_path(dir.path()), &AtomicBool::new(false)).await.unwrap().unwrap();
 
     assert_eq!(
         tree.files.into_iter().map(|(path, size, _)| (path, size)).collect::<Vec<_>>(),
-        vec![(PathBuf::from("real.txt"), 1)]
+        vec![(VfsPath::from("real.txt"), 1)]
     );
     assert_eq!(tree.skipped_symlinks, 1);
 }
@@ -67,11 +67,11 @@ async fn discover_reports_the_relative_path_of_every_symlink() {
     fs.symlink("/root/top_link", "/root/real.txt");
     fs.symlink("/root/sub/deep_link", "/root/sub");
 
-    let tree = discover(&fs, Path::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+    let tree = discover(&fs, &VfsPath::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
 
     let mut symlinks = tree.symlinks;
     symlinks.sort();
-    assert_eq!(symlinks, vec![PathBuf::from("sub/deep_link"), PathBuf::from("top_link")]);
+    assert_eq!(symlinks, vec![VfsPath::from("sub/deep_link"), VfsPath::from("top_link")]);
     assert_eq!(tree.skipped_symlinks, 2);
     assert_eq!(tree.files.len(), 2);
 }
@@ -81,7 +81,7 @@ async fn ensure_local_directory_creates_a_missing_directory() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("new");
 
-    ensure_directory(&local(), &target).await.unwrap();
+    ensure_directory(&local(), &from_os_path(&target)).await.unwrap();
 
     assert!(target.is_dir());
 }
@@ -92,7 +92,7 @@ async fn ensure_local_directory_is_a_no_op_when_it_already_exists() {
     let target = dir.path().join("existing");
     std::fs::create_dir(&target).unwrap();
 
-    ensure_directory(&local(), &target).await.unwrap();
+    ensure_directory(&local(), &from_os_path(&target)).await.unwrap();
 
     assert!(target.is_dir());
 }
@@ -101,7 +101,7 @@ fn sample_entry(name: &str, path: &str, is_dir: bool, size: u64) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: PathBuf::from(path),
+        path: VfsPath::from(path),
         is_dir,
         size,
         permissions: None,
@@ -112,12 +112,12 @@ fn sample_entry(name: &str, path: &str, is_dir: bool, size: u64) -> Entry {
 #[test]
 fn planned_file_for_loose_entry_maps_paths_for_an_upload() {
     let entry = sample_entry("a.txt", "/local/a.txt", false, 10);
-    let dest_dir = PathBuf::from("/remote/dest");
+    let dest_dir = VfsPath::from("/remote/dest");
 
     let planned = planned_file_for_loose_entry(&entry, &dest_dir);
 
-    assert_eq!(planned.source, PathBuf::from("/local/a.txt"));
-    assert_eq!(planned.destination, PathBuf::from("/remote/dest/a.txt"));
+    assert_eq!(planned.source, VfsPath::from("/local/a.txt"));
+    assert_eq!(planned.destination, VfsPath::from("/remote/dest/a.txt"));
     assert_eq!(planned.display_name, "a.txt");
     assert_eq!(planned.size, 10);
 }
@@ -127,7 +127,7 @@ fn planned_file_for_loose_entry_carries_the_modification_time_of_the_entry() {
     let mut entry = sample_entry("a.txt", "/local/a.txt", false, 10);
     entry.modified = Some(1_234);
 
-    let planned = planned_file_for_loose_entry(&entry, Path::new("/remote/dest"));
+    let planned = planned_file_for_loose_entry(&entry, &VfsPath::new("/remote/dest"));
 
     assert_eq!(planned.source_modified, Some(1_234));
 }
@@ -135,12 +135,12 @@ fn planned_file_for_loose_entry_carries_the_modification_time_of_the_entry() {
 #[test]
 fn planned_file_for_loose_entry_maps_paths_for_a_download() {
     let entry = sample_entry("a.txt", "/remote/a.txt", false, 10);
-    let dest_dir = PathBuf::from("/local/dest");
+    let dest_dir = VfsPath::from("/local/dest");
 
     let planned = planned_file_for_loose_entry(&entry, &dest_dir);
 
-    assert_eq!(planned.destination, PathBuf::from("/local/dest/a.txt"));
-    assert_eq!(planned.source, PathBuf::from("/remote/a.txt"));
+    assert_eq!(planned.destination, VfsPath::from("/local/dest/a.txt"));
+    assert_eq!(planned.source, VfsPath::from("/remote/a.txt"));
     assert_eq!(planned.display_name, "a.txt");
     assert_eq!(planned.size, 10);
 }
@@ -148,10 +148,10 @@ fn planned_file_for_loose_entry_maps_paths_for_a_download() {
 #[test]
 fn planned_files_for_tree_maps_paths_for_an_upload_including_a_nested_file() {
     let entry = sample_entry("myfolder", "/local/myfolder", true, 0);
-    let dest_root = PathBuf::from("/remote/dest/myfolder");
+    let dest_root = VfsPath::from("/remote/dest/myfolder");
     let tree = DiscoveredTree {
-        directories: vec![PathBuf::from("sub")],
-        files: vec![(PathBuf::from("top.txt"), 5, Some(50)), (PathBuf::from("sub/nested.txt"), 7, None)],
+        directories: vec![VfsPath::from("sub")],
+        files: vec![(VfsPath::from("top.txt"), 5, Some(50)), (VfsPath::from("sub/nested.txt"), 7, None)],
         skipped_symlinks: 0,
         unreadable: Vec::new(),
         symlinks: Vec::new(),
@@ -162,13 +162,13 @@ fn planned_files_for_tree_maps_paths_for_an_upload_including_a_nested_file() {
 
     assert_eq!(planned.len(), 2);
 
-    assert_eq!(planned[0].source, PathBuf::from("/local/myfolder/sub/nested.txt"));
-    assert_eq!(planned[0].destination, PathBuf::from("/remote/dest/myfolder/sub/nested.txt"));
+    assert_eq!(planned[0].source, VfsPath::from("/local/myfolder/sub/nested.txt"));
+    assert_eq!(planned[0].destination, VfsPath::from("/remote/dest/myfolder/sub/nested.txt"));
     assert_eq!(planned[0].display_name, "sub/nested.txt");
     assert_eq!(planned[0].size, 7);
 
-    assert_eq!(planned[1].source, PathBuf::from("/local/myfolder/top.txt"));
-    assert_eq!(planned[1].destination, PathBuf::from("/remote/dest/myfolder/top.txt"));
+    assert_eq!(planned[1].source, VfsPath::from("/local/myfolder/top.txt"));
+    assert_eq!(planned[1].destination, VfsPath::from("/remote/dest/myfolder/top.txt"));
     assert_eq!(planned[1].display_name, "top.txt");
     assert_eq!(planned[1].size, 5);
 }
@@ -176,10 +176,10 @@ fn planned_files_for_tree_maps_paths_for_an_upload_including_a_nested_file() {
 #[test]
 fn planned_files_for_tree_maps_paths_for_a_download_including_a_nested_file() {
     let entry = sample_entry("myfolder", "/remote/myfolder", true, 0);
-    let dest_root = PathBuf::from("/local/dest/myfolder");
+    let dest_root = VfsPath::from("/local/dest/myfolder");
     let tree = DiscoveredTree {
-        directories: vec![PathBuf::from("sub")],
-        files: vec![(PathBuf::from("top.txt"), 5, Some(50)), (PathBuf::from("sub/nested.txt"), 7, None)],
+        directories: vec![VfsPath::from("sub")],
+        files: vec![(VfsPath::from("top.txt"), 5, Some(50)), (VfsPath::from("sub/nested.txt"), 7, None)],
         skipped_symlinks: 0,
         unreadable: Vec::new(),
         symlinks: Vec::new(),
@@ -190,13 +190,13 @@ fn planned_files_for_tree_maps_paths_for_a_download_including_a_nested_file() {
 
     assert_eq!(planned.len(), 2);
 
-    assert_eq!(planned[0].destination, PathBuf::from("/local/dest/myfolder/sub/nested.txt"));
-    assert_eq!(planned[0].source, PathBuf::from("/remote/myfolder/sub/nested.txt"));
+    assert_eq!(planned[0].destination, VfsPath::from("/local/dest/myfolder/sub/nested.txt"));
+    assert_eq!(planned[0].source, VfsPath::from("/remote/myfolder/sub/nested.txt"));
     assert_eq!(planned[0].display_name, "sub/nested.txt");
     assert_eq!(planned[0].size, 7);
 
-    assert_eq!(planned[1].destination, PathBuf::from("/local/dest/myfolder/top.txt"));
-    assert_eq!(planned[1].source, PathBuf::from("/remote/myfolder/top.txt"));
+    assert_eq!(planned[1].destination, VfsPath::from("/local/dest/myfolder/top.txt"));
+    assert_eq!(planned[1].source, VfsPath::from("/remote/myfolder/top.txt"));
     assert_eq!(planned[1].display_name, "top.txt");
     assert_eq!(planned[1].size, 5);
 }
@@ -207,15 +207,15 @@ async fn discover_local_tree_returns_none_when_already_cancelled() {
     std::fs::create_dir(dir.path().join("sub")).unwrap();
     std::fs::write(dir.path().join("sub/nested.txt"), b"a").unwrap();
 
-    let tree = discover_tree(&local(), dir.path(), &AtomicBool::new(true)).await.unwrap();
+    let tree = discover_tree(&local(), &from_os_path(dir.path()), &AtomicBool::new(true)).await.unwrap();
 
     assert!(tree.is_none());
 }
 
 fn planned(source: &str, destination: &str) -> PlannedFile {
     PlannedFile {
-        source: PathBuf::from(source),
-        destination: PathBuf::from(destination),
+        source: VfsPath::from(source),
+        destination: VfsPath::from(destination),
         display_name: "x".to_string(),
         size: 1,
         existing: None,
@@ -238,8 +238,8 @@ fn mark_conflicts_flags_files_whose_name_exists_at_the_destination() {
     ];
     let listing: DestinationListing =
         [("a.txt".to_string(), existing(false)), ("c".to_string(), existing(true))].into_iter().collect();
-    let listings: HashMap<PathBuf, DestinationListing> =
-        [(PathBuf::from("/remote/dest"), listing)].into_iter().collect();
+    let listings: HashMap<VfsPath, DestinationListing> =
+        [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
     mark_conflicts(&mut files, &listings);
 
@@ -252,8 +252,8 @@ fn mark_conflicts_flags_files_whose_name_exists_at_the_destination() {
 fn mark_conflicts_uses_the_local_side_for_downloads_and_treats_unlisted_folders_as_empty() {
     let mut files = vec![planned("/remote/a.txt", "/local/dest/a.txt"), planned("/remote/b.txt", "/local/other/a.txt")];
     let listing: DestinationListing = [("a.txt".to_string(), existing(false))].into_iter().collect();
-    let listings: HashMap<PathBuf, DestinationListing> =
-        [(PathBuf::from("/local/dest"), listing)].into_iter().collect();
+    let listings: HashMap<VfsPath, DestinationListing> =
+        [(VfsPath::from("/local/dest"), listing)].into_iter().collect();
 
     mark_conflicts(&mut files, &listings);
 
@@ -269,22 +269,22 @@ fn parents_created_by_the_scan_are_not_listed() {
         planned("/l/c", "/remote/dest/new/sub/c"),
         planned("/l/d", "/remote/dest/d"),
     ];
-    let created: HashSet<PathBuf> =
-        [PathBuf::from("/remote/dest/new"), PathBuf::from("/remote/dest/new/sub")].into_iter().collect();
+    let created: HashSet<VfsPath> =
+        [VfsPath::from("/remote/dest/new"), VfsPath::from("/remote/dest/new/sub")].into_iter().collect();
 
-    assert_eq!(parents_needing_listing(&files, &created), vec![PathBuf::from("/remote/dest")]);
+    assert_eq!(parents_needing_listing(&files, &created), vec![VfsPath::from("/remote/dest")]);
 }
 
 #[test]
 fn taken_names_combine_existing_and_planned_names_per_folder() {
     let files = vec![planned("/l/a", "/remote/dest/a.txt"), planned("/l/b", "/remote/dest/b.txt")];
     let listing: DestinationListing = [("old.txt".to_string(), existing(false))].into_iter().collect();
-    let listings: HashMap<PathBuf, DestinationListing> =
-        [(PathBuf::from("/remote/dest"), listing)].into_iter().collect();
+    let listings: HashMap<VfsPath, DestinationListing> =
+        [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
     let taken = taken_names(&files, &listings);
 
-    let names = &taken[&PathBuf::from("/remote/dest")];
+    let names = &taken[&VfsPath::from("/remote/dest")];
     assert_eq!(names.len(), 3);
     assert!(names.contains("old.txt") && names.contains("a.txt") && names.contains("b.txt"));
 }
@@ -295,8 +295,8 @@ async fn list_local_destination_reports_files_and_folders_and_treats_missing_as_
     std::fs::write(dir.path().join("a.txt"), b"hello").unwrap();
     std::fs::create_dir(dir.path().join("sub")).unwrap();
 
-    let listing = list_destination(&local(), dir.path(), &[]).await.unwrap();
-    let missing = list_destination(&local(), &dir.path().join("nope"), &[]).await.unwrap();
+    let listing = list_destination(&local(), &from_os_path(dir.path()), &[]).await.unwrap();
+    let missing = list_destination(&local(), &from_os_path(&dir.path().join("nope")), &[]).await.unwrap();
 
     assert_eq!(listing["a.txt"].size, 5);
     assert!(!listing["a.txt"].is_dir);
@@ -310,8 +310,8 @@ async fn ensure_local_directory_reports_whether_it_created_the_folder() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("new");
 
-    assert!(ensure_directory(&local(), &target).await.unwrap());
-    assert!(!ensure_directory(&local(), &target).await.unwrap());
+    assert!(ensure_directory(&local(), &from_os_path(&target)).await.unwrap());
+    assert!(!ensure_directory(&local(), &from_os_path(&target)).await.unwrap());
 }
 
 #[tokio::test]
@@ -319,7 +319,7 @@ async fn discover_local_tree_records_modification_times() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
 
-    let tree = discover_tree(&local(), dir.path(), &AtomicBool::new(false)).await.unwrap().unwrap();
+    let tree = discover_tree(&local(), &from_os_path(dir.path()), &AtomicBool::new(false)).await.unwrap().unwrap();
 
     assert!(tree.files[0].2.is_some());
 }
@@ -329,13 +329,13 @@ fn planned_files_for_tree_carries_the_source_modification_time() {
     let entry = sample_entry("myfolder", "/local/myfolder", true, 0);
     let tree = DiscoveredTree {
         directories: Vec::new(),
-        files: vec![(PathBuf::from("top.txt"), 5, Some(50))],
+        files: vec![(VfsPath::from("top.txt"), 5, Some(50))],
         skipped_symlinks: 0,
         unreadable: Vec::new(),
         symlinks: Vec::new(),
     };
 
-    let planned = planned_files_for_tree(&entry, &PathBuf::from("/remote/dest/myfolder"), &tree);
+    let planned = planned_files_for_tree(&entry, &VfsPath::from("/remote/dest/myfolder"), &tree);
 
     assert_eq!(planned[0].source_modified, Some(50));
 }
@@ -347,7 +347,7 @@ async fn list_local_destination_sees_through_symlinks_and_keeps_dangling_ones() 
     symlink(dir.path().join("real_folder"), dir.path().join("photos")).unwrap();
     symlink(dir.path().join("missing"), dir.path().join("dangling")).unwrap();
 
-    let listing = list_destination(&local(), dir.path(), &[]).await.unwrap();
+    let listing = list_destination(&local(), &from_os_path(dir.path()), &[]).await.unwrap();
 
     assert!(listing["photos"].is_dir);
     assert!(!listing["dangling"].is_dir);
@@ -367,8 +367,8 @@ fn mark_conflicts_finds_a_partial_beside_the_file_and_on_its_own() {
     ]
     .into_iter()
     .collect();
-    let listings: HashMap<PathBuf, DestinationListing> =
-        [(PathBuf::from("/remote/dest"), listing)].into_iter().collect();
+    let listings: HashMap<VfsPath, DestinationListing> =
+        [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
     mark_conflicts(&mut files, &listings);
 
@@ -383,8 +383,8 @@ fn mark_conflicts_finds_a_partial_beside_the_file_and_on_its_own() {
 fn a_folder_named_like_the_partial_is_not_a_partial() {
     let mut files = vec![planned("/l/a", "/remote/dest/a.iso")];
     let listing: DestinationListing = [("a.iso.part".to_string(), existing(true))].into_iter().collect();
-    let listings: HashMap<PathBuf, DestinationListing> =
-        [(PathBuf::from("/remote/dest"), listing)].into_iter().collect();
+    let listings: HashMap<VfsPath, DestinationListing> =
+        [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
     mark_conflicts(&mut files, &listings);
 
@@ -392,7 +392,7 @@ fn a_folder_named_like_the_partial_is_not_a_partial() {
 }
 
 fn dir_entry(path: &str) -> Entry {
-    let path = PathBuf::from(path);
+    let path = VfsPath::from(path);
     Entry {
         modified: None,
         name: path.file_name().unwrap().to_string_lossy().into(),
@@ -405,7 +405,7 @@ fn dir_entry(path: &str) -> Entry {
 }
 
 fn file_entry(path: &str, size: u64) -> Entry {
-    let path = PathBuf::from(path);
+    let path = VfsPath::from(path);
     Entry {
         modified: None,
         name: path.file_name().unwrap().to_string_lossy().into(),
@@ -432,8 +432,14 @@ async fn a_symlink_inside_a_copied_folder_is_skipped_and_counted() {
     destination.dir("/dst");
 
     let plan = ready(
-        plan_copy(&source, &destination, vec![dir_entry("/src/photos")], Path::new("/dst"), &AtomicBool::new(false))
-            .await,
+        plan_copy(
+            &source,
+            &destination,
+            vec![dir_entry("/src/photos")],
+            &VfsPath::new("/dst"),
+            &AtomicBool::new(false),
+        )
+        .await,
     );
 
     assert_eq!(plan.skipped_symlinks, 1);
@@ -453,7 +459,7 @@ async fn a_destination_symlink_to_a_file_is_a_conflict_with_the_target_size() {
             &source,
             &destination,
             vec![file_entry("/src/report.pdf", 4)],
-            Path::new("/dst"),
+            &VfsPath::new("/dst"),
             &AtomicBool::new(false),
         )
         .await,
@@ -470,7 +476,7 @@ async fn an_unlistable_destination_falls_back_to_checking_each_planned_name() {
     destination.file("/dst/a", b"22", None).fail_read_dir("/dst");
 
     let plan = ready(
-        plan_copy(&source, &destination, vec![file_entry("/src/a", 1)], Path::new("/dst"), &AtomicBool::new(false))
+        plan_copy(&source, &destination, vec![file_entry("/src/a", 1)], &VfsPath::new("/dst"), &AtomicBool::new(false))
             .await,
     );
 
@@ -489,7 +495,7 @@ async fn a_leftover_part_file_is_reported_as_a_partial() {
             &source,
             &destination,
             vec![file_entry("/src/big.iso", 10)],
-            Path::new("/dst"),
+            &VfsPath::new("/dst"),
             &AtomicBool::new(false),
         )
         .await,
@@ -507,11 +513,12 @@ async fn created_destination_folders_are_not_listed_for_conflicts() {
     destination.dir("/dst");
 
     let plan = ready(
-        plan_copy(&source, &destination, vec![dir_entry("/src/new")], Path::new("/dst"), &AtomicBool::new(false)).await,
+        plan_copy(&source, &destination, vec![dir_entry("/src/new")], &VfsPath::new("/dst"), &AtomicBool::new(false))
+            .await,
     );
 
     assert!(plan.files[0].existing.is_none());
-    assert_eq!(plan.files[0].destination, PathBuf::from("/dst/new/x"));
+    assert_eq!(plan.files[0].destination, VfsPath::from("/dst/new/x"));
 }
 
 #[tokio::test]
@@ -520,12 +527,17 @@ async fn a_download_of_a_remote_folder_plans_every_file_under_the_local_destinat
     remote.file("/srv/site/index.html", b"<html>", Some(4)).file("/srv/site/css/app.css", b"body{}", Some(5));
     let dir = tempfile::tempdir().unwrap();
 
-    let plan =
-        ready(plan_copy(&remote, &local(), vec![dir_entry("/srv/site")], dir.path(), &AtomicBool::new(false)).await);
+    let plan = ready(
+        plan_copy(&remote, &local(), vec![dir_entry("/srv/site")], &from_os_path(dir.path()), &AtomicBool::new(false))
+            .await,
+    );
 
-    let mut destinations: Vec<PathBuf> = plan.files.iter().map(|file| file.destination.clone()).collect();
+    let mut destinations: Vec<VfsPath> = plan.files.iter().map(|file| file.destination.clone()).collect();
     destinations.sort();
-    assert_eq!(destinations, vec![dir.path().join("site/css/app.css"), dir.path().join("site/index.html")]);
+    assert_eq!(
+        destinations,
+        vec![from_os_path(&dir.path().join("site/css/app.css")), from_os_path(&dir.path().join("site/index.html"))]
+    );
     assert!(dir.path().join("site/css").is_dir());
 }
 
@@ -535,7 +547,7 @@ async fn planning_that_starts_cancelled_reports_cancelled() {
     source.file("/src/a", b"1", None);
 
     let outcome =
-        plan_copy(&source, &FakeFs::new(), vec![file_entry("/src/a", 1)], Path::new("/"), &AtomicBool::new(true))
+        plan_copy(&source, &FakeFs::new(), vec![file_entry("/src/a", 1)], &VfsPath::new("/"), &AtomicBool::new(true))
             .await
             .unwrap();
 

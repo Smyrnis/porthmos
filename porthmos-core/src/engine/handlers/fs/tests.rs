@@ -1,10 +1,9 @@
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::time::Duration;
 
 use super::*;
 use crate::engine::{Command, testing::test_engine};
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 #[tokio::test]
 async fn listing_the_local_side_sends_its_entries() {
@@ -12,11 +11,11 @@ async fn listing_the_local_side_sends_its_entries() {
     std::fs::write(t.dir.path().join("file.txt"), b"x").unwrap();
     let dir = t.dir.path().to_path_buf();
 
-    t.engine.handle_command(Command::List { location: Location::Local, path: Some(dir.clone()) });
+    t.engine.handle_command(Command::List { location: Location::Local, path: Some(from_os_path(&dir.clone())) });
 
     match t.next_event().await {
         Event::Listed { location: Location::Local, path, entries } => {
-            assert_eq!(path, dir);
+            assert_eq!(path, from_os_path(&dir));
             assert_eq!(entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(), ["file.txt"]);
         }
         other => panic!("unexpected {other:?}"),
@@ -28,7 +27,7 @@ async fn a_local_listing_failure_shows_the_bare_error() {
     let mut t = test_engine();
 
     t.engine
-        .handle_command(Command::List { location: Location::Local, path: Some(PathBuf::from("/definitely/missing")) });
+        .handle_command(Command::List { location: Location::Local, path: Some(VfsPath::from("/definitely/missing")) });
 
     match t.next_event().await {
         Event::Notice { severity: Severity::Error, message } => {
@@ -43,7 +42,7 @@ async fn a_remote_listing_failure_names_the_folder() {
     let mut t = test_engine();
     let (session, _) = t.add_session("srv");
 
-    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/gone")) });
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/gone")) });
 
     match t.next_event().await {
         Event::Notice { severity: Severity::Error, message } => assert!(message.starts_with("Unable to list /gone:\n")),
@@ -59,7 +58,7 @@ async fn a_listing_without_a_path_uses_the_home_folder() {
 
     t.engine.handle_command(Command::List { location: Location::Session(session), path: None });
 
-    assert!(matches!(t.next_event().await, Event::Listed { path, .. } if path == std::path::Path::new("/home/user")));
+    assert!(matches!(t.next_event().await, Event::Listed { path, .. } if path == VfsPath::new("/home/user")));
 }
 
 #[test]
@@ -67,7 +66,7 @@ fn operations_on_a_vanished_session_are_dropped() {
     let mut t = test_engine();
 
     t.engine.handle_command(Command::List { location: Location::Session(42), path: None });
-    t.engine.handle_command(Command::CreateDir { location: Location::Session(42), path: PathBuf::from("/x") });
+    t.engine.handle_command(Command::CreateDir { location: Location::Session(42), path: VfsPath::from("/x") });
 
     assert!(t.drain().is_empty());
 }
@@ -77,7 +76,7 @@ async fn mkdir_creates_the_directory_and_reports_the_change() {
     let mut t = test_engine();
     let target = t.dir.path().join("new_dir");
 
-    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: target.clone() });
+    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: from_os_path(&target.clone()) });
 
     assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
     assert!(target.is_dir());
@@ -89,7 +88,7 @@ async fn a_failed_mkdir_shows_an_error_and_does_not_report_a_change() {
     let target = t.dir.path().join("dup");
     std::fs::create_dir(&target).unwrap();
 
-    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: target });
+    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: from_os_path(&target) });
 
     assert!(matches!(t.next_event().await, Event::Notice { severity: Severity::Error, .. }));
     tokio::task::yield_now().await;
@@ -102,7 +101,7 @@ async fn making_a_folder_that_exists_names_it() {
     let target = t.dir.path().join("dup");
     std::fs::create_dir(&target).unwrap();
 
-    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: target });
+    t.engine.handle_command(Command::CreateDir { location: Location::Local, path: from_os_path(&target) });
 
     match t.next_event().await {
         Event::Notice { severity: Severity::Error, message } => assert_eq!(message, "\"dup\" already exists"),
@@ -116,7 +115,7 @@ async fn making_a_remote_folder_that_exists_names_it() {
     let (session, remote) = t.add_session("srv");
     remote.dir("/dup");
 
-    t.engine.handle_command(Command::CreateDir { location: Location::Session(session), path: PathBuf::from("/dup") });
+    t.engine.handle_command(Command::CreateDir { location: Location::Session(session), path: VfsPath::from("/dup") });
 
     match t.next_event().await {
         Event::Notice { message, .. } => assert_eq!(message, "Unable to create directory:\n\"dup\" already exists"),
@@ -131,7 +130,7 @@ async fn a_failed_remote_mkdir_says_what_failed() {
 
     t.engine.handle_command(Command::CreateDir {
         location: Location::Session(session),
-        path: PathBuf::from("/no/parent/x"),
+        path: VfsPath::from("/no/parent/x"),
     });
 
     match t.next_event().await {
@@ -147,8 +146,8 @@ async fn rename_moves_the_entry() {
 
     t.engine.handle_command(Command::Rename {
         location: Location::Local,
-        from: t.dir.path().join("old.txt"),
-        to: t.dir.path().join("new.txt"),
+        from: from_os_path(&t.dir.path().join("old.txt")),
+        to: from_os_path(&t.dir.path().join("new.txt")),
     });
 
     assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
@@ -164,8 +163,8 @@ async fn renaming_onto_an_existing_local_file_is_refused_and_keeps_both() {
 
     t.engine.handle_command(Command::Rename {
         location: Location::Local,
-        from: t.dir.path().join("small.dat"),
-        to: t.dir.path().join("big.dat"),
+        from: from_os_path(&t.dir.path().join("small.dat")),
+        to: from_os_path(&t.dir.path().join("big.dat")),
     });
 
     match t.next_event().await {
@@ -184,8 +183,8 @@ async fn renaming_onto_an_existing_remote_file_is_refused_and_keeps_both() {
 
     t.engine.handle_command(Command::Rename {
         location: Location::Session(session),
-        from: PathBuf::from("/small.dat"),
-        to: PathBuf::from("/big.dat"),
+        from: VfsPath::from("/small.dat"),
+        to: VfsPath::from("/big.dat"),
     });
 
     match t.next_event().await {
@@ -206,8 +205,8 @@ async fn renaming_onto_an_existing_remote_folder_leaves_the_folder_in_place() {
 
     t.engine.handle_command(Command::Rename {
         location: Location::Session(session),
-        from: PathBuf::from("/a.txt"),
-        to: PathBuf::from("/empty_dir"),
+        from: VfsPath::from("/a.txt"),
+        to: VfsPath::from("/empty_dir"),
     });
 
     assert!(matches!(t.next_event().await, Event::Notice { severity: Severity::Error, .. }));
@@ -223,8 +222,8 @@ async fn renaming_to_the_same_name_changes_nothing_and_reports_nothing() {
 
     t.engine.handle_command(Command::Rename {
         location: Location::Local,
-        from: t.dir.path().join("same.txt"),
-        to: t.dir.path().join("same.txt"),
+        from: from_os_path(&t.dir.path().join("same.txt")),
+        to: from_os_path(&t.dir.path().join("same.txt")),
     });
 
     assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
@@ -238,7 +237,7 @@ async fn deleting_a_local_folder_emits_location_changed() {
     std::fs::create_dir(&target).unwrap();
     std::fs::write(target.join("inside"), b"x").unwrap();
 
-    t.engine.handle_command(Command::Delete { location: Location::Local, paths: vec![target.clone()] });
+    t.engine.handle_command(Command::Delete { location: Location::Local, paths: vec![from_os_path(&target.clone())] });
 
     assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
     assert!(!target.exists());
@@ -252,7 +251,7 @@ async fn deleting_stops_at_the_first_failure() {
 
     t.engine.handle_command(Command::Delete {
         location: Location::Session(session),
-        paths: vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")],
+        paths: vec![VfsPath::from("/a"), VfsPath::from("/b"), VfsPath::from("/c")],
     });
 
     match t.next_event().await {
@@ -265,27 +264,27 @@ async fn deleting_stops_at_the_first_failure() {
 
 #[test]
 fn an_absolute_start_directory_is_used_as_is() {
-    assert_eq!(start_directory(Path::new("/home/user"), "/var/www"), PathBuf::from("/var/www"));
+    assert_eq!(start_directory(&VfsPath::new("/home/user"), "/var/www"), VfsPath::from("/var/www"));
 }
 
 #[test]
 fn a_relative_start_directory_is_under_home() {
-    assert_eq!(start_directory(Path::new("/home/user"), "projects/app"), PathBuf::from("/home/user/projects/app"));
+    assert_eq!(start_directory(&VfsPath::new("/home/user"), "projects/app"), VfsPath::from("/home/user/projects/app"));
 }
 
 #[test]
 fn a_tilde_start_directory_is_home() {
-    assert_eq!(start_directory(Path::new("/home/user"), "~"), PathBuf::from("/home/user"));
+    assert_eq!(start_directory(&VfsPath::new("/home/user"), "~"), VfsPath::from("/home/user"));
 }
 
 #[test]
 fn a_tilde_slash_start_directory_is_under_home() {
-    assert_eq!(start_directory(Path::new("/home/user"), "~/projects"), PathBuf::from("/home/user/projects"));
+    assert_eq!(start_directory(&VfsPath::new("/home/user"), "~/projects"), VfsPath::from("/home/user/projects"));
 }
 
 #[test]
 fn a_tilde_followed_by_a_name_is_a_relative_directory_not_another_users_home() {
-    assert_eq!(start_directory(Path::new("/home/user"), "~backup"), PathBuf::from("/home/user/~backup"));
+    assert_eq!(start_directory(&VfsPath::new("/home/user"), "~backup"), VfsPath::from("/home/user/~backup"));
 }
 
 #[test]
@@ -311,13 +310,13 @@ async fn a_listing_is_followed_by_the_free_space_of_that_folder() {
     let (session, remote) = t.add_session("srv");
     remote.file("/data/a", b"", None).with_free_space(5_000);
 
-    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/data")) });
 
     assert!(matches!(t.next_event().await, Event::Listed { .. }));
     match t.next_event().await {
         Event::FreeSpace { location, path, bytes } => {
             assert_eq!(location, Location::Session(session));
-            assert_eq!(path, PathBuf::from("/data"));
+            assert_eq!(path, VfsPath::from("/data"));
             assert_eq!(bytes, Some(5_000));
         }
         other => panic!("unexpected {other:?}"),
@@ -330,7 +329,7 @@ async fn a_server_that_cannot_tell_its_free_space_reports_none() {
     let (session, remote) = t.add_session("srv");
     remote.dir("/data");
 
-    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/data")) });
 
     assert!(matches!(t.next_event().await, Event::Listed { .. }));
     assert!(matches!(t.next_event().await, Event::FreeSpace { bytes: None, .. }));
@@ -343,7 +342,7 @@ async fn a_failing_free_space_query_reports_none_and_stays_quiet() {
     remote.dir("/data");
     remote.fail_free_space();
 
-    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/data")) });
     t.settle().await;
     let events = t.drain();
 
@@ -357,7 +356,7 @@ async fn a_failed_listing_reports_no_free_space() {
     let (session, remote) = t.add_session("srv");
     remote.with_free_space(5_000);
 
-    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/gone")) });
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/gone")) });
     t.settle().await;
 
     assert!(!t.drain().iter().any(|event| matches!(event, Event::FreeSpace { .. })));
@@ -368,12 +367,12 @@ async fn listing_the_local_side_reports_the_free_space_of_the_disk() {
     let mut t = test_engine();
     let dir = t.dir.path().to_path_buf();
 
-    t.engine.handle_command(Command::List { location: Location::Local, path: Some(dir.clone()) });
+    t.engine.handle_command(Command::List { location: Location::Local, path: Some(from_os_path(&dir.clone())) });
 
     assert!(matches!(t.next_event().await, Event::Listed { .. }));
     match t.next_event().await {
         Event::FreeSpace { location: Location::Local, path, bytes } => {
-            assert_eq!(path, dir);
+            assert_eq!(path, from_os_path(&dir));
             assert!(bytes.unwrap() > 0);
         }
         other => panic!("unexpected {other:?}"),
@@ -399,7 +398,7 @@ async fn a_free_space_query_that_never_answers_gives_up() {
     let (session, remote) = t.add_session("srv");
     remote.dir("/data").hanging_free_space();
 
-    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(PathBuf::from("/data")) });
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/data")) });
 
     let listed = tokio::time::timeout(Duration::from_secs(60), t.events.recv()).await.unwrap().unwrap();
     let free = tokio::time::timeout(Duration::from_secs(60), t.events.recv()).await.unwrap().unwrap();
@@ -409,6 +408,6 @@ async fn a_free_space_query_that_never_answers_gives_up() {
 
 #[test]
 fn a_rename_that_only_changes_the_case_is_not_a_collision() {
-    assert!(differs_only_in_case(Path::new("/d/readme.md"), Path::new("/d/README.md")));
-    assert!(!differs_only_in_case(Path::new("/d/readme.md"), Path::new("/d/other.md")));
+    assert!(differs_only_in_case(&VfsPath::new("/d/readme.md"), &VfsPath::new("/d/README.md")));
+    assert!(!differs_only_in_case(&VfsPath::new("/d/readme.md"), &VfsPath::new("/d/other.md")));
 }

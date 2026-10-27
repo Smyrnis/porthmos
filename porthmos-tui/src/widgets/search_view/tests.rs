@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use porthmos_core::Entry;
@@ -18,7 +18,7 @@ fn entry(name: &str) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: PathBuf::from(format!("/{name}")),
+        path: VfsPath::from(format!("/{name}")),
         is_dir: false,
         size: 0,
         permissions: None,
@@ -202,7 +202,7 @@ fn the_directory_part_is_dim_and_the_file_name_is_text_coloured() {
     let theme = indexed();
     let mut view = typed("a");
     let mut found = entry("a.txt");
-    found.path = PathBuf::from("/srv/site/a.txt");
+    found.path = VfsPath::from("/srv/site/a.txt");
     view.push_result(found);
     view.push_result(entry("b.txt"));
     view.handle_key(key(KeyCode::Down));
@@ -244,10 +244,10 @@ fn results_scroll_with_the_selection() {
 fn hostile_and_very_long_paths_are_sanitised_and_cut() {
     let mut view = typed("a");
     let mut hostile = entry("x");
-    hostile.path = PathBuf::from(format!("/{}", "d\u{1b}[2J\u{202e}\u{65e5}/".repeat(80)));
+    hostile.path = VfsPath::from(format!("/{}", "d\u{1b}[2J\u{202e}\u{65e5}/".repeat(80)));
     view.push_result(hostile);
     let mut long_name = entry("y");
-    long_name.path = PathBuf::from(format!("/dir/{}", "n".repeat(500)));
+    long_name.path = VfsPath::from(format!("/dir/{}", "n".repeat(500)));
     view.push_result(long_name);
 
     let terminal = draw(&view, 60, 10);

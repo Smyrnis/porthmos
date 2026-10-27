@@ -1,4 +1,6 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
+
+use porthmos_vfs::VfsPath;
 
 use tokio::sync::watch;
 
@@ -14,7 +16,7 @@ fn queue_job(t: &mut TestEngine, session: u64, name: &str) -> u64 {
     t.engine.transfers.enqueue(
         session,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,

@@ -93,7 +93,7 @@ async fn read_dir_reports_symlinks_without_following_them() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("real")).unwrap();
     std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("alias")).unwrap();
-    let items = LocalFs::new(dir.path().into()).read_dir(dir.path()).await.unwrap();
+    let items = LocalFs::new(dir.path().into()).read_dir(&from_os_path(dir.path())).await.unwrap();
     let alias = items.iter().find(|item| item.name == "alias").unwrap();
     assert_eq!(alias.metadata.kind, FileKind::Symlink);
 }
@@ -103,7 +103,7 @@ async fn stat_follows_symlinks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("f"), b"12345").unwrap();
     std::os::unix::fs::symlink(dir.path().join("f"), dir.path().join("l")).unwrap();
-    let metadata = LocalFs::new(dir.path().into()).stat(&dir.path().join("l")).await.unwrap();
+    let metadata = LocalFs::new(dir.path().into()).stat(&from_os_path(&dir.path().join("l"))).await.unwrap();
     assert_eq!((metadata.kind, metadata.size), (FileKind::File, 5));
 }
 
@@ -112,7 +112,7 @@ async fn open_write_at_an_offset_trims_and_appends() {
     let dir = tempfile::tempdir().unwrap();
     let part = dir.path().join("x.part");
     std::fs::write(&part, b"abcdef").unwrap();
-    let mut writer = LocalFs::new(dir.path().into()).open_write(&part, 3).await.unwrap();
+    let mut writer = LocalFs::new(dir.path().into()).open_write(&from_os_path(&part), 3).await.unwrap();
     assert_eq!(writer.offset, 3);
     tokio::io::AsyncWriteExt::write_all(&mut writer.stream, b"XY").await.unwrap();
     tokio::io::AsyncWriteExt::shutdown(&mut writer.stream).await.unwrap();
@@ -124,7 +124,7 @@ async fn open_write_at_zero_truncates() {
     let dir = tempfile::tempdir().unwrap();
     let part = dir.path().join("a.bin.part");
     std::fs::write(&part, b"stale").unwrap();
-    drop(LocalFs::new(dir.path().into()).open_write(&part, 0).await.unwrap());
+    drop(LocalFs::new(dir.path().into()).open_write(&from_os_path(&part), 0).await.unwrap());
     assert!(std::fs::read(&part).unwrap().is_empty());
 }
 
@@ -132,7 +132,7 @@ async fn open_write_at_zero_truncates() {
 async fn open_read_starts_at_the_offset() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("f"), b"abcdef").unwrap();
-    let mut reader = LocalFs::new(dir.path().into()).open_read(&dir.path().join("f"), 2).await.unwrap();
+    let mut reader = LocalFs::new(dir.path().into()).open_read(&from_os_path(&dir.path().join("f")), 2).await.unwrap();
     let mut read = Vec::new();
     tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut read).await.unwrap();
     assert_eq!(read, b"cdef");
@@ -143,7 +143,10 @@ async fn rename_replaces_an_existing_target() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a"), b"new").unwrap();
     std::fs::write(dir.path().join("b"), b"old").unwrap();
-    LocalFs::new(dir.path().into()).rename(&dir.path().join("a"), &dir.path().join("b")).await.unwrap();
+    LocalFs::new(dir.path().into())
+        .rename(&from_os_path(&dir.path().join("a")), &from_os_path(&dir.path().join("b")))
+        .await
+        .unwrap();
     assert_eq!(std::fs::read(dir.path().join("b")).unwrap(), b"new");
 }
 
@@ -154,13 +157,13 @@ async fn local_writes_need_no_resume_backoff() {
 
 #[tokio::test]
 async fn a_missing_directory_is_not_found() {
-    let error = LocalFs::new("/".into()).list(std::path::Path::new("/definitely/missing")).await.unwrap_err();
+    let error = LocalFs::new("/".into()).list(&VfsPath::new("/definitely/missing")).await.unwrap_err();
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
 async fn home_is_the_configured_directory() {
-    assert_eq!(LocalFs::new("/srv".into()).home().await.unwrap(), std::path::PathBuf::from("/srv"));
+    assert_eq!(LocalFs::new("/srv".into()).home().await.unwrap(), VfsPath::new("/srv"));
 }
 
 #[tokio::test]
@@ -170,10 +173,10 @@ async fn set_modified_changes_the_modification_time() {
     std::fs::write(&file, b"x").unwrap();
     let fs = LocalFs::new(dir.path().into());
 
-    fs.set_modified(&file, 1_700_000_000).await.unwrap();
+    fs.set_modified(&from_os_path(&file), 1_700_000_000).await.unwrap();
 
     assert!(fs.can_set_modified());
-    assert_eq!(fs.stat(&file).await.unwrap().modified, Some(1_700_000_000));
+    assert_eq!(fs.stat(&from_os_path(&file)).await.unwrap().modified, Some(1_700_000_000));
 }
 
 #[tokio::test]
@@ -185,7 +188,7 @@ async fn set_modified_works_on_a_read_only_file_the_user_owns() {
     std::fs::write(&file, b"x").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
 
-    LocalFs::new(dir.path().into()).set_modified(&file, 1_600_000_000).await.unwrap();
+    LocalFs::new(dir.path().into()).set_modified(&from_os_path(&file), 1_600_000_000).await.unwrap();
 
     assert_eq!(
         std::fs::metadata(&file).unwrap().modified().unwrap(),
@@ -197,7 +200,8 @@ async fn set_modified_works_on_a_read_only_file_the_user_owns() {
 async fn set_modified_on_a_missing_file_is_not_found() {
     let dir = tempfile::tempdir().unwrap();
 
-    let error = LocalFs::new(dir.path().into()).set_modified(&dir.path().join("missing"), 5).await.unwrap_err();
+    let error =
+        LocalFs::new(dir.path().into()).set_modified(&from_os_path(&dir.path().join("missing")), 5).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -209,7 +213,7 @@ async fn set_modified_with_an_absurd_time_is_refused_and_leaves_the_file_alone()
     std::fs::write(&file, b"x").unwrap();
     let before = std::fs::metadata(&file).unwrap().modified().unwrap();
 
-    let error = LocalFs::new(dir.path().into()).set_modified(&file, u64::MAX).await.unwrap_err();
+    let error = LocalFs::new(dir.path().into()).set_modified(&from_os_path(&file), u64::MAX).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::Other);
     assert!(error.to_string().contains("modification time"), "{error}");
@@ -240,7 +244,7 @@ async fn remove_dir_removes_an_empty_folder() {
     let target = dir.path().join("empty");
     fs::create_dir(&target).unwrap();
 
-    LocalFs::new(dir.path().to_path_buf()).remove_dir(&target).await.unwrap();
+    LocalFs::new(dir.path().to_path_buf()).remove_dir(&from_os_path(&target)).await.unwrap();
 
     assert!(!target.exists());
 }
@@ -252,7 +256,7 @@ async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
     fs::create_dir_all(target.join("inner")).unwrap();
     fs::write(target.join("inner/keep.txt"), b"keep").unwrap();
 
-    assert!(LocalFs::new(dir.path().to_path_buf()).remove_dir(&target).await.is_err());
+    assert!(LocalFs::new(dir.path().to_path_buf()).remove_dir(&from_os_path(&target)).await.is_err());
 
     assert!(target.join("inner/keep.txt").exists());
 }
@@ -268,8 +272,8 @@ async fn remove_dir_refuses_a_file_and_a_symlink_and_keeps_them() {
     std::os::unix::fs::symlink(&folder, &alias).unwrap();
     let local = LocalFs::new(dir.path().to_path_buf());
 
-    assert!(local.remove_dir(&file).await.is_err());
-    assert!(local.remove_dir(&alias).await.is_err());
+    assert!(local.remove_dir(&from_os_path(&file)).await.is_err());
+    assert!(local.remove_dir(&from_os_path(&alias)).await.is_err());
 
     assert!(file.exists() && folder.exists() && alias.exists());
 }
@@ -287,7 +291,7 @@ async fn remove_dir_removes_an_empty_folder_that_cannot_be_listed() {
         return;
     }
 
-    LocalFs::new(dir.path().to_path_buf()).remove_dir(&target).await.unwrap();
+    LocalFs::new(dir.path().to_path_buf()).remove_dir(&from_os_path(&target)).await.unwrap();
 
     assert!(!target.exists());
 }
@@ -296,7 +300,8 @@ async fn remove_dir_removes_an_empty_folder_that_cannot_be_listed() {
 async fn remove_dir_of_a_missing_folder_is_not_found() {
     let dir = tempfile::tempdir().unwrap();
 
-    let err = LocalFs::new(dir.path().to_path_buf()).remove_dir(&dir.path().join("nope")).await.unwrap_err();
+    let err =
+        LocalFs::new(dir.path().to_path_buf()).remove_dir(&from_os_path(&dir.path().join("nope"))).await.unwrap_err();
 
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
@@ -358,7 +363,7 @@ fn list_keeps_a_broken_symlink_as_a_file_with_its_target() {
 async fn free_space_of_a_local_folder_is_known() {
     let dir = tempfile::tempdir().unwrap();
 
-    let free = LocalFs::new(dir.path().into()).free_space(dir.path()).await.unwrap();
+    let free = LocalFs::new(dir.path().into()).free_space(&from_os_path(dir.path())).await.unwrap();
 
     assert!(free.unwrap() > 0);
 }
@@ -367,7 +372,8 @@ async fn free_space_of_a_local_folder_is_known() {
 async fn free_space_of_a_missing_local_folder_is_not_found() {
     let dir = tempfile::tempdir().unwrap();
 
-    let error = LocalFs::new(dir.path().into()).free_space(&dir.path().join("missing")).await.unwrap_err();
+    let error =
+        LocalFs::new(dir.path().into()).free_space(&from_os_path(&dir.path().join("missing"))).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -387,4 +393,27 @@ fn list_resolves_each_distinct_owner_once() {
 
     assert_eq!(names, ["5", "5", "6", "5", "6"]);
     assert_eq!(LOOKUPS.load(Ordering::SeqCst), 2);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_with_a_non_utf8_name_can_be_listed_renamed_and_deleted() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+    let dir = tempfile::tempdir().unwrap();
+    let odd = dir.path().join(OsStr::from_bytes(b"caf\xe9.txt"));
+    fs::write(&odd, b"x").unwrap();
+    let local = LocalFs::new(dir.path().into());
+    let folder = from_os_path(dir.path());
+
+    let listed = local.list(&folder).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    local.rename(&listed[0].path, &folder.join("plain.txt")).await.unwrap();
+    assert!(dir.path().join("plain.txt").exists());
+    assert!(!odd.exists());
+
+    fs::write(&odd, b"y").unwrap();
+    let again = local.list(&folder).await.unwrap().into_iter().find(|entry| entry.name != "plain.txt").unwrap();
+    local.delete(&again.path).await.unwrap();
+    assert!(!odd.exists());
 }

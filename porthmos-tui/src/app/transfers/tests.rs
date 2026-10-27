@@ -1,12 +1,12 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use super::*;
 use crate::app::testing::{entry, test_app};
 
 #[test]
 fn copying_without_a_session_warns() {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
 
     test.app.apply_action(Action::Copy);
@@ -17,10 +17,10 @@ fn copying_without_a_session_warns() {
 
 #[test]
 fn copying_from_the_local_panel_uploads_into_the_remote_folder() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "srv");
     test.list_remote(session, "/srv/in", Vec::new());
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
 
     test.app.apply_action(Action::Copy);
@@ -29,18 +29,18 @@ fn copying_from_the_local_panel_uploads_into_the_remote_folder() {
         test.sent(),
         vec![Command::Copy {
             from: Location::Local,
-            entries: vec![entry(Path::new("/d"), "a.txt", false)],
+            entries: vec![entry(&VfsPath::new("/d"), "a.txt", false)],
             to: Location::Session(session),
-            dest_dir: PathBuf::from("/srv/in"),
+            dest_dir: VfsPath::from("/srv/in"),
         }]
     );
 }
 
 #[test]
 fn copying_from_the_remote_panel_downloads_into_the_local_folder() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "srv");
-    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "b.bin", false)]);
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "b.bin", false)]);
     test.app.active_panel = ActivePanel::Remote;
     test.app.sessions.active_mut().unwrap().panel.cursor = 1;
 
@@ -50,16 +50,16 @@ fn copying_from_the_remote_panel_downloads_into_the_local_folder() {
         test.sent(),
         vec![Command::Copy {
             from: Location::Session(session),
-            entries: vec![entry(Path::new("/srv"), "b.bin", false)],
+            entries: vec![entry(&VfsPath::new("/srv"), "b.bin", false)],
             to: Location::Local,
-            dest_dir: PathBuf::from("/d"),
+            dest_dir: VfsPath::from("/d"),
         }]
     );
 }
 
 #[test]
 fn copying_with_nothing_under_the_cursor_sends_nothing() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.connect(3, "srv");
 
     test.app.apply_action(Action::Copy);
@@ -69,7 +69,7 @@ fn copying_with_nothing_under_the_cursor_sends_nothing() {
 
 #[test]
 fn cancel_all_copies_asks_the_core() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_action(Action::CancelTransfer);
 
@@ -78,9 +78,9 @@ fn cancel_all_copies_asks_the_core() {
 
 #[test]
 fn copying_is_only_available_on_the_files_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.connect(3, "srv");
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
     test.app.screen = Screen::Connections;
 
@@ -91,8 +91,8 @@ fn copying_is_only_available_on_the_files_screen() {
 
 #[test]
 fn moving_without_a_session_warns() {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
 
     test.app.apply_action(Action::Move);
@@ -103,10 +103,10 @@ fn moving_without_a_session_warns() {
 
 #[test]
 fn moving_from_the_local_panel_uploads_into_the_remote_folder() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "srv");
     test.list_remote(session, "/srv/in", Vec::new());
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
 
     test.app.apply_action(Action::Move);
@@ -115,18 +115,18 @@ fn moving_from_the_local_panel_uploads_into_the_remote_folder() {
         test.sent(),
         vec![Command::Move {
             from: Location::Local,
-            entries: vec![entry(Path::new("/d"), "a.txt", false)],
+            entries: vec![entry(&VfsPath::new("/d"), "a.txt", false)],
             to: Location::Session(session),
-            dest_dir: PathBuf::from("/srv/in"),
+            dest_dir: VfsPath::from("/srv/in"),
         }]
     );
 }
 
 #[test]
 fn moving_from_the_remote_panel_downloads_into_the_local_folder() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "srv");
-    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "b.bin", false)]);
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "b.bin", false)]);
     test.app.active_panel = ActivePanel::Remote;
     test.app.sessions.active_mut().unwrap().panel.cursor = 1;
 
@@ -136,16 +136,16 @@ fn moving_from_the_remote_panel_downloads_into_the_local_folder() {
         test.sent(),
         vec![Command::Move {
             from: Location::Session(session),
-            entries: vec![entry(Path::new("/srv"), "b.bin", false)],
+            entries: vec![entry(&VfsPath::new("/srv"), "b.bin", false)],
             to: Location::Local,
-            dest_dir: PathBuf::from("/d"),
+            dest_dir: VfsPath::from("/d"),
         }]
     );
 }
 
 #[test]
 fn moving_with_nothing_under_the_cursor_sends_nothing() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.connect(3, "srv");
 
     test.app.apply_action(Action::Move);
@@ -155,9 +155,9 @@ fn moving_with_nothing_under_the_cursor_sends_nothing() {
 
 #[test]
 fn moving_is_only_available_on_the_files_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.connect(3, "srv");
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
     test.app.screen = Screen::Connections;
 
@@ -168,10 +168,10 @@ fn moving_is_only_available_on_the_files_screen() {
 
 #[test]
 fn the_move_key_sends_a_move_and_not_a_new_connection_form() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "srv");
     test.list_remote(session, "/srv/in", Vec::new());
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
 
     test.app.apply_key(crossterm::event::KeyEvent::new(

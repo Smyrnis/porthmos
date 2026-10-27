@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_core::VfsPath;
 
 use chrono::{DateTime, Local, TimeZone};
 use porthmos_core::Entry;
@@ -22,7 +22,7 @@ fn now() -> DateTime<Local> {
 fn script() -> Entry {
     Entry {
         name: "deploy.sh".to_string(),
-        path: PathBuf::from("/d/deploy.sh"),
+        path: VfsPath::from("/d/deploy.sh"),
         is_dir: false,
         size: 2457,
         permissions: Some(0o100755),

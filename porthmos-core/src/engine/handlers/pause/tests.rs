@@ -1,6 +1,7 @@
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
-use porthmos_vfs::{FileSystem, testing::FakeFs};
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::{FileSystem, VfsPath, testing::FakeFs};
 
 use crate::{
     Severity,
@@ -23,7 +24,7 @@ fn batch_of(t: &mut TestEngine, session: u64, names: &[&str], size: usize) -> (u
             t.engine.transfers.enqueue(
                 session,
                 Direction::Upload,
-                t.dir.path().join(name),
+                from_os_path(&t.dir.path().join(name)),
                 format!("/up/{name}"),
                 name.to_string(),
                 size as u64,
@@ -299,7 +300,7 @@ async fn a_paused_move_that_lost_its_stop_report_does_not_remove_the_original() 
     let paused = job(&t, ids[0]);
     assert_eq!(paused.status, JobStatus::Queued);
     assert!(paused.paused);
-    assert_eq!(remote.stat(Path::new("/up/a.bin")).await.unwrap().size, 4000);
+    assert_eq!(remote.stat(&VfsPath::new("/up/a.bin")).await.unwrap().size, 4000);
 }
 
 #[test]
@@ -380,7 +381,7 @@ fn a_paused_job_holding_a_partial_file_keeps_other_rows_off_its_destination() {
         t.engine.transfers.enqueue(
             session,
             Direction::Upload,
-            t.dir.path().join(name),
+            from_os_path(&t.dir.path().join(name)),
             "/up/x.txt".to_string(),
             name.to_string(),
             10,

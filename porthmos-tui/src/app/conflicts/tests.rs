@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use porthmos_core::transfer::plan::ExistingFile;
 
@@ -6,7 +6,7 @@ use super::*;
 use crate::app::testing::{TestApp, test_app};
 
 fn app() -> TestApp {
-    test_app(Path::new("/d"))
+    test_app(&VfsPath::new("/d"))
 }
 
 fn file(name: &str, conflict: bool) -> ConflictInfo {

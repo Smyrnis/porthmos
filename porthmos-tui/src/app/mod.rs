@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -10,7 +9,7 @@ use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, K
 use futures_util::StreamExt;
 use porthmos_core::{
     Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation, UpdateMode,
-    UpdateState,
+    UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
@@ -71,8 +70,8 @@ const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
 
 enum PendingAction {
     Mkdir,
-    Rename { location: Location, from: PathBuf },
-    Delete { location: Location, paths: Vec<PathBuf> },
+    Rename { location: Location, from: VfsPath },
+    Delete { location: Location, paths: Vec<VfsPath> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
     SubmitTestPassword { request_id: RequestId },
@@ -194,7 +193,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(core: CoreHandle, local_path: PathBuf, panel: &PanelSettings, key_bindings: input::KeyBindings) -> Self {
+    pub fn new(core: CoreHandle, local_path: VfsPath, panel: &PanelSettings, key_bindings: input::KeyBindings) -> Self {
         let app = Self {
             should_quit: false,
             screen: Screen::Files,
@@ -467,10 +466,10 @@ impl App {
         }
     }
 
-    fn apply_listing(&mut self, location: Location, path: PathBuf, entries: Vec<porthmos_core::Entry>) {
+    fn apply_listing(&mut self, location: Location, path: VfsPath, entries: Vec<porthmos_core::Entry>) {
         match location {
             Location::Local => {
-                if path != self.local.path() {
+                if &path != self.local.path() {
                     self.local.cursor = 0;
                 }
                 self.local.replace_listing(path, entries);
@@ -486,7 +485,7 @@ impl App {
         }
     }
 
-    fn apply_free_space(&mut self, location: Location, path: &Path, bytes: Option<u64>) {
+    fn apply_free_space(&mut self, location: Location, path: &VfsPath, bytes: Option<u64>) {
         match location {
             Location::Local => self.local.set_free_space(path, bytes),
             Location::Session(id) => {
@@ -499,9 +498,9 @@ impl App {
 
     fn relist(&self, location: Location) {
         let path = match location {
-            Location::Local => Some(self.local.path().to_path_buf()),
+            Location::Local => Some(self.local.path().clone()),
             Location::Session(id) => match self.sessions.by_id(id) {
-                Some(session) => Some(session.panel.path().to_path_buf()),
+                Some(session) => Some(session.panel.path().clone()),
                 None => return,
             },
         };

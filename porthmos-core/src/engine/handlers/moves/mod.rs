@@ -1,11 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
     net::IpAddr,
-    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, ProtocolError};
+use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, ProtocolError, VfsPath};
 
 use super::super::{Engine, Event, Internal, Location, TransferEvent};
 use crate::{
@@ -21,11 +20,11 @@ use crate::{
 pub(crate) struct MoveBatch {
     pub(crate) session_id: u64,
     pub(crate) direction: Direction,
-    pub(crate) roots: Vec<PathBuf>,
+    pub(crate) roots: Vec<VfsPath>,
 }
 
 pub(crate) async fn remove_copied_source(
-    source: &dyn FileSystem, source_path: &Path, destination: &dyn FileSystem, destination_path: &Path,
+    source: &dyn FileSystem, source_path: &VfsPath, destination: &dyn FileSystem, destination_path: &VfsPath,
 ) -> Result<(), String> {
     let original = match source.stat(source_path).await {
         Ok(metadata) => metadata,
@@ -40,7 +39,7 @@ pub(crate) async fn remove_copied_source(
     source.remove_file(source_path).await.map_err(|err| err.to_string())
 }
 
-pub(crate) async fn remove_emptied_directories(fs: &dyn FileSystem, roots: &[PathBuf]) -> usize {
+pub(crate) async fn remove_emptied_directories(fs: &dyn FileSystem, roots: &[VfsPath]) -> usize {
     let cancel = AtomicBool::new(false);
     let mut removed = 0;
     for root in roots {
@@ -68,22 +67,22 @@ pub(crate) fn is_loopback(host: &str) -> bool {
 pub(crate) async fn without_symlinks(
     fs: &dyn FileSystem, entries: Vec<Entry>,
 ) -> Result<(Vec<Entry>, usize), ProtocolError> {
-    let mut links_by_parent: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    let mut links_by_parent: HashMap<VfsPath, HashSet<String>> = HashMap::new();
     for entry in &entries {
         let Some(parent) = entry.path.parent() else {
             continue;
         };
-        if links_by_parent.contains_key(parent) {
+        if links_by_parent.contains_key(&parent) {
             continue;
         }
         let links = fs
-            .read_dir(parent)
+            .read_dir(&parent)
             .await?
             .into_iter()
             .filter(|item| item.metadata.kind == FileKind::Symlink)
             .map(|item| item.name)
             .collect();
-        links_by_parent.insert(parent.to_path_buf(), links);
+        links_by_parent.insert(parent, links);
     }
     let total = entries.len();
     let kept: Vec<Entry> = entries
@@ -92,7 +91,7 @@ pub(crate) async fn without_symlinks(
             let is_link = entry
                 .path
                 .parent()
-                .and_then(|parent| links_by_parent.get(parent))
+                .and_then(|parent| links_by_parent.get(&parent))
                 .is_some_and(|links| links.contains(&entry.name));
             !is_link
         })
@@ -101,26 +100,23 @@ pub(crate) async fn without_symlinks(
     Ok((kept, skipped))
 }
 
-fn case_collisions(files: &[PlannedFile]) -> HashSet<PathBuf> {
-    let mut groups: HashMap<(PathBuf, String), Vec<&PathBuf>> = HashMap::new();
+fn case_collisions(files: &[PlannedFile]) -> HashSet<VfsPath> {
+    let mut groups: HashMap<(VfsPath, String), Vec<&VfsPath>> = HashMap::new();
     for file in files {
         let (Some(parent), Some(name)) = (file.destination.parent(), file.destination.file_name()) else {
             continue;
         };
-        groups
-            .entry((parent.to_path_buf(), name.to_string_lossy().to_lowercase()))
-            .or_default()
-            .push(&file.destination);
+        groups.entry((parent, name.to_string_lossy().to_lowercase())).or_default().push(&file.destination);
     }
     groups.into_values().filter(|group| group.len() > 1).flatten().cloned().collect()
 }
 
 impl Engine {
-    pub(crate) fn move_entries(&mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf) {
+    pub(crate) fn move_entries(&mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: VfsPath) {
         self.copy_or_move(from, entries, to, dest_dir, true);
     }
 
-    pub(crate) fn vet_move(&self, session_id: u64, files: Vec<PlannedFile>) -> (Vec<PlannedFile>, HashSet<PathBuf>) {
+    pub(crate) fn vet_move(&self, session_id: u64, files: Vec<PlannedFile>) -> (Vec<PlannedFile>, HashSet<VfsPath>) {
         let on_this_computer = self.sessions.get(&session_id).is_some_and(|session| is_loopback(&session.entry.host));
         let (onto_themselves, files): (Vec<PlannedFile>, Vec<PlannedFile>) = if on_this_computer {
             files.into_iter().partition(|file| file.source == file.destination)

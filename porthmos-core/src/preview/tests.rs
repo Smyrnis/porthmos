@@ -1,9 +1,9 @@
 use std::{
-    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
+use porthmos_lfs::from_os_path;
 use porthmos_vfs::{ErrorKind, testing::FakeFs};
 
 use super::*;
@@ -96,7 +96,7 @@ fn fs_with(path: &str, data: &[u8]) -> FakeFs {
 async fn a_small_file_is_read_whole() {
     let fs = fs_with("/d/a.txt", b"hello");
 
-    let preview = read_preview(&fs, Path::new("/d/a.txt"), 100, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 100, &never()).await.unwrap();
 
     assert_eq!(preview, Preview { size: Some(5), shown: 5, truncated: false, content: text("hello") });
 }
@@ -105,7 +105,7 @@ async fn a_small_file_is_read_whole() {
 async fn a_file_longer_than_the_limit_is_cut_and_says_so() {
     let fs = fs_with("/d/big.txt", &vec![b'x'; 1_000_000]);
 
-    let preview = read_preview(&fs, Path::new("/d/big.txt"), 1000, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/big.txt"), 1000, &never()).await.unwrap();
 
     assert_eq!((preview.size, preview.shown, preview.truncated), (Some(1_000_000), 1000, true));
     assert_eq!(preview.content, text(&"x".repeat(1000)));
@@ -115,7 +115,7 @@ async fn a_file_longer_than_the_limit_is_cut_and_says_so() {
 async fn a_file_exactly_the_limit_long_is_not_truncated() {
     let fs = fs_with("/d/a.txt", &vec![b'x'; 1000]);
 
-    let preview = read_preview(&fs, Path::new("/d/a.txt"), 1000, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 1000, &never()).await.unwrap();
 
     assert_eq!((preview.shown, preview.truncated), (1000, false));
 }
@@ -124,7 +124,7 @@ async fn a_file_exactly_the_limit_long_is_not_truncated() {
 async fn a_file_one_byte_over_the_limit_is_truncated() {
     let fs = fs_with("/d/a.txt", &vec![b'x'; 1001]);
 
-    let preview = read_preview(&fs, Path::new("/d/a.txt"), 1000, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 1000, &never()).await.unwrap();
 
     assert_eq!((preview.shown, preview.truncated), (1000, true));
 }
@@ -133,7 +133,7 @@ async fn a_file_one_byte_over_the_limit_is_truncated() {
 async fn a_binary_file_is_kept_as_bytes() {
     let fs = fs_with("/d/a.bin", &[0, 1, 2, 3, 255]);
 
-    let preview = read_preview(&fs, Path::new("/d/a.bin"), 100, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.bin"), 100, &never()).await.unwrap();
 
     assert_eq!(preview.content, PreviewContent::Binary(vec![0, 1, 2, 3, 255]));
 }
@@ -142,7 +142,7 @@ async fn a_binary_file_is_kept_as_bytes() {
 async fn a_character_cut_by_the_limit_still_reads_as_text() {
     let fs = fs_with("/d/a.txt", "ab\u{4e2d}\u{6587}".as_bytes());
 
-    let preview = read_preview(&fs, Path::new("/d/a.txt"), 4, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 4, &never()).await.unwrap();
 
     assert_eq!(preview.content, text("ab"));
     assert!(preview.truncated);
@@ -153,7 +153,7 @@ async fn a_folder_is_refused() {
     let fs = FakeFs::new();
     fs.dir("/d/sub");
 
-    let error = read_preview(&fs, Path::new("/d/sub"), 100, &never()).await.unwrap_err();
+    let error = read_preview(&fs, &VfsPath::new("/d/sub"), 100, &never()).await.unwrap_err();
 
     assert!(error.to_string().contains("folder"), "{error}");
 }
@@ -162,7 +162,7 @@ async fn a_folder_is_refused() {
 async fn a_missing_file_is_not_found() {
     let fs = FakeFs::new();
 
-    let error = read_preview(&fs, Path::new("/d/none"), 100, &never()).await.unwrap_err();
+    let error = read_preview(&fs, &VfsPath::new("/d/none"), 100, &never()).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -172,14 +172,14 @@ async fn a_read_that_fails_is_an_error() {
     let fs = fs_with("/d/a.txt", b"hello");
     fs.fail_reads("/d/a.txt");
 
-    assert!(read_preview(&fs, Path::new("/d/a.txt"), 100, &never()).await.is_err());
+    assert!(read_preview(&fs, &VfsPath::new("/d/a.txt"), 100, &never()).await.is_err());
 }
 
 #[tokio::test]
 async fn an_empty_file_is_empty_text_with_size_zero() {
     let fs = fs_with("/d/empty", b"");
 
-    let preview = read_preview(&fs, Path::new("/d/empty"), 100, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/empty"), 100, &never()).await.unwrap();
 
     assert_eq!(preview, Preview { size: Some(0), shown: 0, truncated: false, content: text("") });
 }
@@ -220,7 +220,7 @@ async fn a_nul_just_past_the_limit_does_not_make_a_text_file_binary() {
     data.push(0);
     let fs = fs_with("/d/a.txt", &data);
 
-    let preview = read_preview(&fs, Path::new("/d/a.txt"), 1000, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 1000, &never()).await.unwrap();
 
     assert_eq!(preview.content, text(&"x".repeat(1000)));
     assert!(preview.truncated);
@@ -254,7 +254,8 @@ async fn a_named_pipe_is_refused_at_once_instead_of_blocking() {
     assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
     let fs = porthmos_lfs::LocalFs::new(dir.path().to_path_buf());
 
-    let outcome = tokio::time::timeout(Duration::from_secs(2), read_preview(&fs, &pipe, 100, &never())).await;
+    let outcome =
+        tokio::time::timeout(Duration::from_secs(2), read_preview(&fs, &from_os_path(&pipe), 100, &never())).await;
 
     let error = outcome.expect("did not block").unwrap_err();
     assert!(error.to_string().contains("not a regular file"), "{error}");
@@ -264,7 +265,7 @@ async fn a_named_pipe_is_refused_at_once_instead_of_blocking() {
 async fn a_device_file_is_refused() {
     let fs = porthmos_lfs::LocalFs::new("/".into());
 
-    let error = read_preview(&fs, Path::new("/dev/null"), 100, &never()).await.unwrap_err();
+    let error = read_preview(&fs, &VfsPath::new("/dev/null"), 100, &never()).await.unwrap_err();
 
     assert!(error.to_string().contains("not a regular file"), "{error}");
 }
@@ -275,7 +276,7 @@ async fn a_regular_local_file_still_reads() {
     std::fs::write(dir.path().join("a.txt"), "local text").unwrap();
     let fs = porthmos_lfs::LocalFs::new(dir.path().to_path_buf());
 
-    let preview = read_preview(&fs, &dir.path().join("a.txt"), 100, &never()).await.unwrap();
+    let preview = read_preview(&fs, &from_os_path(&dir.path().join("a.txt")), 100, &never()).await.unwrap();
 
     assert_eq!((preview.size, preview.content), (Some(10), text("local text")));
 }
@@ -286,7 +287,7 @@ async fn a_read_that_stalls_gives_up_after_the_stall_time_not_before() {
     fs.hanging_reads("/d/a.txt", 3);
     let started = tokio::time::Instant::now();
 
-    let error = read_preview(&fs, Path::new("/d/a.txt"), 100, &never()).await.unwrap_err();
+    let error = read_preview(&fs, &VfsPath::new("/d/a.txt"), 100, &never()).await.unwrap_err();
 
     assert!(error.to_string().contains("took too long"), "{error}");
     assert!(started.elapsed() >= STALL_TIMEOUT && started.elapsed() < STALL_TIMEOUT + Duration::from_secs(1));
@@ -296,7 +297,7 @@ async fn a_read_that_stalls_gives_up_after_the_stall_time_not_before() {
 async fn a_slow_but_steady_read_is_never_cut_off() {
     let fs = fs_with("/d/a.txt", &vec![b'x'; 4000]);
 
-    let preview = read_preview(&fs, Path::new("/d/a.txt"), 5000, &never()).await.unwrap();
+    let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 5000, &never()).await.unwrap();
 
     assert_eq!(preview.shown, 4000);
 }
@@ -307,7 +308,7 @@ async fn a_stat_that_never_answers_gives_up_after_the_open_time() {
     fs.hanging_stat("/d/a.txt");
     let started = tokio::time::Instant::now();
 
-    let error = read_preview(&fs, Path::new("/d/a.txt"), 100, &never()).await.unwrap_err();
+    let error = read_preview(&fs, &VfsPath::new("/d/a.txt"), 100, &never()).await.unwrap_err();
 
     assert!(error.to_string().contains("took too long"), "{error}");
     assert!(started.elapsed() >= OPEN_TIMEOUT);
@@ -318,7 +319,7 @@ async fn a_read_cancelled_before_it_starts_reads_nothing() {
     let fs = fs_with("/d/a.txt", b"abc");
     let cancel = AtomicBool::new(true);
 
-    let error = read_preview(&fs, Path::new("/d/a.txt"), 100, &cancel).await.unwrap_err();
+    let error = read_preview(&fs, &VfsPath::new("/d/a.txt"), 100, &cancel).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::Cancelled);
 }
@@ -331,7 +332,7 @@ async fn cancelling_a_stalled_read_stops_it_within_a_fraction_of_a_second() {
     let flag = cancel.clone();
     let reading = fs.clone();
     let started = tokio::time::Instant::now();
-    let task = tokio::spawn(async move { read_preview(&reading, Path::new("/d/a.txt"), 100, &flag).await });
+    let task = tokio::spawn(async move { read_preview(&reading, &VfsPath::new("/d/a.txt"), 100, &flag).await });
 
     tokio::time::sleep(Duration::from_millis(300)).await;
     cancel.store(true, Ordering::Relaxed);

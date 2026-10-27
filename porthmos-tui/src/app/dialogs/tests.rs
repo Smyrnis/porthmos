@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
@@ -13,15 +13,15 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn app_with_file(name: &str) -> TestApp {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), name, false)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), name, false)]);
     test.app.local.cursor = test.app.local.rows().len() - 1;
     test
 }
 
 #[test]
 fn mkdir_dialog_creates_a_directory_on_submit() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::Mkdir);
     assert!(test.app.dialog.is_some());
 
@@ -31,12 +31,12 @@ fn mkdir_dialog_creates_a_directory_on_submit() {
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
     assert!(test.app.dialog.is_none());
-    assert_eq!(test.sent(), vec![Command::CreateDir { location: Location::Local, path: PathBuf::from("/d/new_dir") }]);
+    assert_eq!(test.sent(), vec![Command::CreateDir { location: Location::Local, path: VfsPath::from("/d/new_dir") }]);
 }
 
 #[test]
 fn mkdir_on_the_remote_panel_goes_to_that_session() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(2, "srv");
     test.list_remote(session, "/srv", Vec::new());
     test.app.active_panel = ActivePanel::Remote;
@@ -47,13 +47,13 @@ fn mkdir_on_the_remote_panel_goes_to_that_session() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::CreateDir { location: Location::Session(session), path: PathBuf::from("/srv/x") }]
+        vec![Command::CreateDir { location: Location::Session(session), path: VfsPath::from("/srv/x") }]
     );
 }
 
 #[test]
 fn mkdir_dialog_cancelled_with_esc_creates_nothing() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::Mkdir);
     test.app.apply_dialog_key(key(KeyCode::Char('x')));
     test.app.apply_dialog_key(key(KeyCode::Esc));
@@ -73,7 +73,7 @@ fn delete_dialog_confirmed_with_y_deletes_the_target() {
     assert!(test.app.dialog.is_none());
     assert_eq!(
         test.sent(),
-        vec![Command::Delete { location: Location::Local, paths: vec![PathBuf::from("/d/doomed.txt")] }]
+        vec![Command::Delete { location: Location::Local, paths: vec![VfsPath::from("/d/doomed.txt")] }]
     );
 }
 
@@ -114,15 +114,15 @@ fn rename_dialog_submits_the_rename() {
         test.sent(),
         vec![Command::Rename {
             location: Location::Local,
-            from: PathBuf::from("/d/old.txt"),
-            to: PathBuf::from("/d/new.txt"),
+            from: VfsPath::from("/d/old.txt"),
+            to: VfsPath::from("/d/new.txt"),
         }]
     );
 }
 
 #[test]
 fn failed_operation_sets_a_status_message() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_core_event(Event::Notice {
         severity: Severity::Error,
@@ -161,18 +161,18 @@ fn a_confirm_dialog_ignores_keys_it_does_not_own() {
 
 #[test]
 fn a_refresh_while_the_delete_dialog_is_open_does_not_change_what_is_deleted() {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), "big.txt", false)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "big.txt", false)]);
     test.app.local.cursor = 1;
     test.app.apply_action(Action::Delete);
 
-    test.list_local(vec![entry(Path::new("/d"), "aaa.bin", false), entry(Path::new("/d"), "big.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "aaa.bin", false), entry(&VfsPath::new("/d"), "big.txt", false)]);
     test.app.local.cursor = 1;
     test.app.apply_dialog_key(key(KeyCode::Char('y')));
 
     assert_eq!(
         test.sent(),
-        vec![Command::Delete { location: Location::Local, paths: vec![PathBuf::from("/d/big.txt")] }]
+        vec![Command::Delete { location: Location::Local, paths: vec![VfsPath::from("/d/big.txt")] }]
     );
 }
 
@@ -180,7 +180,7 @@ fn a_refresh_while_the_delete_dialog_is_open_does_not_change_what_is_deleted() {
 fn a_delete_confirmed_after_switching_panels_still_targets_the_original_panel() {
     let mut test = app_with_file("doomed.txt");
     let session = test.connect(2, "srv");
-    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "keep.txt", false)]);
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "keep.txt", false)]);
     test.app.apply_action(Action::Delete);
 
     test.app.active_panel = ActivePanel::Remote;
@@ -188,21 +188,21 @@ fn a_delete_confirmed_after_switching_panels_still_targets_the_original_panel() 
 
     assert_eq!(
         test.sent(),
-        vec![Command::Delete { location: Location::Local, paths: vec![PathBuf::from("/d/doomed.txt")] }]
+        vec![Command::Delete { location: Location::Local, paths: vec![VfsPath::from("/d/doomed.txt")] }]
     );
 }
 
 #[test]
 fn a_refresh_while_the_rename_dialog_is_open_does_not_change_what_is_renamed() {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), "big.txt", false)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "big.txt", false)]);
     test.app.local.cursor = 1;
     test.app.apply_action(Action::Rename);
     if let Some(Dialog::TextInput(dialog)) = test.app.dialog.as_mut() {
         dialog.value = "renamed.txt".to_string();
     }
 
-    test.list_local(vec![entry(Path::new("/d"), "aaa.bin", false), entry(Path::new("/d"), "big.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "aaa.bin", false), entry(&VfsPath::new("/d"), "big.txt", false)]);
     test.app.local.cursor = 1;
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
@@ -210,8 +210,8 @@ fn a_refresh_while_the_rename_dialog_is_open_does_not_change_what_is_renamed() {
         test.sent(),
         vec![Command::Rename {
             location: Location::Local,
-            from: PathBuf::from("/d/big.txt"),
-            to: PathBuf::from("/d/renamed.txt"),
+            from: VfsPath::from("/d/big.txt"),
+            to: VfsPath::from("/d/renamed.txt"),
         }]
     );
 }
@@ -257,7 +257,7 @@ fn names_with_spaces_dots_and_unicode_are_accepted() {
 
         assert_eq!(
             test.sent(),
-            vec![Command::CreateDir { location: Location::Local, path: PathBuf::from("/d").join(name) }]
+            vec![Command::CreateDir { location: Location::Local, path: VfsPath::from("/d").join(name) }]
         );
     }
 }

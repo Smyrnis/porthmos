@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use porthmos_core::from_os_path;
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -298,10 +299,10 @@ impl App {
         let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
 
         if !single || local_active {
-            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let home = std::env::var_os("HOME").map(|home| from_os_path(Path::new(&home)));
             let context = PanelContext {
                 protocol: "local",
-                location: abbreviate_home(self.local.path(), home.as_deref()),
+                location: abbreviate_home(self.local.path(), home.as_ref()),
                 active: local_active,
                 show_modified,
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
@@ -359,7 +360,7 @@ impl App {
     }
 
     fn remote_header(&self, session: &crate::sessions::Session) -> (String, String) {
-        let path = session.panel.path().display();
+        let path = session.panel.path();
         let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
         match saved {
             Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
@@ -545,12 +546,12 @@ impl App {
     }
 }
 
-fn abbreviate_home(path: &Path, home: Option<&Path>) -> String {
-    let usable_home = home.filter(|home| !home.as_os_str().is_empty() && *home != Path::new("/"));
-    match usable_home.and_then(|home| path.strip_prefix(home).ok()) {
-        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Some(rest) => format!("~/{}", rest.display()),
-        None => path.display().to_string(),
+fn abbreviate_home(path: &VfsPath, home: Option<&VfsPath>) -> String {
+    let usable_home = home.filter(|home| !home.is_empty() && !home.is_root());
+    match usable_home.and_then(|home| path.strip_prefix(home)) {
+        Some(rest) if rest.is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{rest}"),
+        None => path.to_string(),
     }
 }
 

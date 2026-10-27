@@ -1,28 +1,25 @@
-use std::{
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use tokio::sync::mpsc;
 
-use crate::{Entry, FileKind, FileSystem};
+use crate::{Entry, FileKind, FileSystem, VfsPath};
 
 pub const MAX_SEARCH_DEPTH: usize = 16;
 pub const MAX_SEARCH_RESULTS: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
-    pub root: PathBuf,
+    pub root: VfsPath,
     pub pattern: String,
     pub max_depth: usize,
     pub max_results: usize,
 }
 
 impl SearchQuery {
-    pub fn new(root: PathBuf, pattern: String) -> Self {
+    pub fn new(root: VfsPath, pattern: String) -> Self {
         Self { root, pattern, max_depth: MAX_SEARCH_DEPTH, max_results: MAX_SEARCH_RESULTS }
     }
 }
@@ -75,7 +72,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
     let SearchQuery { root, pattern, max_depth, max_results } = query;
     let mut found = 0usize;
     let mut truncated = false;
-    let mut stack: Vec<(PathBuf, usize)> = vec![(root, 0)];
+    let mut stack: Vec<(VfsPath, usize)> = vec![(root, 0)];
     let mut is_root = true;
 
     while let Some((dir, depth)) = stack.pop() {

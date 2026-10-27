@@ -1,11 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use futures_util::future::BoxFuture;
-use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError};
+use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError, VfsPath};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExistingFile {
@@ -23,8 +22,8 @@ impl From<Metadata> for ExistingFile {
 pub type DestinationListing = HashMap<String, ExistingFile>;
 
 pub struct PlannedFile {
-    pub source: PathBuf,
-    pub destination: PathBuf,
+    pub source: VfsPath,
+    pub destination: VfsPath,
     pub display_name: String,
     pub size: u64,
     pub existing: Option<ExistingFile>,
@@ -42,7 +41,7 @@ impl PlannedFile {
 pub struct DirectoryPlan {
     pub files: Vec<PlannedFile>,
     pub skipped_symlinks: usize,
-    pub taken_names: HashMap<PathBuf, HashSet<String>>,
+    pub taken_names: HashMap<VfsPath, HashSet<String>>,
 }
 
 pub enum PlanOutcome {
@@ -56,27 +55,27 @@ enum Walk {
 }
 
 pub(crate) struct DiscoveredTree {
-    pub(crate) directories: Vec<PathBuf>,
-    pub(crate) files: Vec<(PathBuf, u64, Option<u64>)>,
+    pub(crate) directories: Vec<VfsPath>,
+    pub(crate) files: Vec<(VfsPath, u64, Option<u64>)>,
     pub(crate) skipped_symlinks: usize,
-    pub(crate) symlinks: Vec<PathBuf>,
-    pub(crate) unreadable: Vec<PathBuf>,
+    pub(crate) symlinks: Vec<VfsPath>,
+    pub(crate) unreadable: Vec<VfsPath>,
 }
 
 async fn discover_tree(
-    fs: &dyn FileSystem, root: &Path, cancel: &AtomicBool,
+    fs: &dyn FileSystem, root: &VfsPath, cancel: &AtomicBool,
 ) -> Result<Option<DiscoveredTree>, ProtocolError> {
     discover(fs, root, true, cancel).await
 }
 
 pub(crate) async fn discover(
-    fs: &dyn FileSystem, root: &Path, recursive: bool, cancel: &AtomicBool,
+    fs: &dyn FileSystem, root: &VfsPath, recursive: bool, cancel: &AtomicBool,
 ) -> Result<Option<DiscoveredTree>, ProtocolError> {
     discover_with(fs, root, recursive, Strictness::Strict, cancel).await
 }
 
 pub(crate) async fn discover_skipping_unreadable(
-    fs: &dyn FileSystem, root: &Path, recursive: bool, cancel: &AtomicBool,
+    fs: &dyn FileSystem, root: &VfsPath, recursive: bool, cancel: &AtomicBool,
 ) -> Result<Option<DiscoveredTree>, ProtocolError> {
     discover_with(fs, root, recursive, Strictness::SkipUnreadableFolders, cancel).await
 }
@@ -88,7 +87,7 @@ enum Strictness {
 }
 
 async fn discover_with(
-    fs: &dyn FileSystem, root: &Path, recursive: bool, strictness: Strictness, cancel: &AtomicBool,
+    fs: &dyn FileSystem, root: &VfsPath, recursive: bool, strictness: Strictness, cancel: &AtomicBool,
 ) -> Result<Option<DiscoveredTree>, ProtocolError> {
     let mut tree = DiscoveredTree {
         directories: Vec::new(),
@@ -97,14 +96,14 @@ async fn discover_with(
         symlinks: Vec::new(),
         unreadable: Vec::new(),
     };
-    match discover_tree_into(fs, root, Path::new(""), recursive, strictness, &mut tree, cancel).await? {
+    match discover_tree_into(fs, root, &VfsPath::new(""), recursive, strictness, &mut tree, cancel).await? {
         Walk::Completed => Ok(Some(tree)),
         Walk::Cancelled => Ok(None),
     }
 }
 
 fn discover_tree_into<'a>(
-    fs: &'a dyn FileSystem, root: &'a Path, relative: &'a Path, recursive: bool, strictness: Strictness,
+    fs: &'a dyn FileSystem, root: &'a VfsPath, relative: &'a VfsPath, recursive: bool, strictness: Strictness,
     tree: &'a mut DiscoveredTree, cancel: &'a AtomicBool,
 ) -> BoxFuture<'a, Result<Walk, ProtocolError>> {
     Box::pin(async move {
@@ -113,9 +112,9 @@ fn discover_tree_into<'a>(
             Err(err)
                 if strictness == Strictness::SkipUnreadableFolders
                     && err.kind() == ErrorKind::PermissionDenied
-                    && !relative.as_os_str().is_empty() =>
+                    && !relative.is_empty() =>
             {
-                tree.unreadable.push(relative.to_path_buf());
+                tree.unreadable.push(relative.clone());
                 return Ok(Walk::Completed);
             }
             Err(err) => return Err(err),
@@ -147,7 +146,7 @@ fn discover_tree_into<'a>(
     })
 }
 
-pub(crate) async fn ensure_directory(fs: &dyn FileSystem, path: &Path) -> Result<bool, ProtocolError> {
+pub(crate) async fn ensure_directory(fs: &dyn FileSystem, path: &VfsPath) -> Result<bool, ProtocolError> {
     if fs.stat(path).await.is_ok_and(|metadata| metadata.is_dir()) {
         return Ok(false);
     }
@@ -155,7 +154,7 @@ pub(crate) async fn ensure_directory(fs: &dyn FileSystem, path: &Path) -> Result
     Ok(true)
 }
 
-fn planned_file_for_loose_entry(entry: &Entry, dest_dir: &Path) -> PlannedFile {
+fn planned_file_for_loose_entry(entry: &Entry, dest_dir: &VfsPath) -> PlannedFile {
     PlannedFile {
         source: entry.path.clone(),
         destination: dest_dir.join(&entry.name),
@@ -168,7 +167,7 @@ fn planned_file_for_loose_entry(entry: &Entry, dest_dir: &Path) -> PlannedFile {
     }
 }
 
-fn planned_files_for_tree(entry: &Entry, dest_root: &Path, tree: &DiscoveredTree) -> Vec<PlannedFile> {
+fn planned_files_for_tree(entry: &Entry, dest_root: &VfsPath, tree: &DiscoveredTree) -> Vec<PlannedFile> {
     tree.files
         .iter()
         .map(|(relative_file, size, modified)| PlannedFile {
@@ -185,12 +184,12 @@ fn planned_files_for_tree(entry: &Entry, dest_root: &Path, tree: &DiscoveredTree
 }
 
 pub async fn plan_copy(
-    source: &dyn FileSystem, destination: &dyn FileSystem, source_entries: Vec<Entry>, dest_dir: &Path,
+    source: &dyn FileSystem, destination: &dyn FileSystem, source_entries: Vec<Entry>, dest_dir: &VfsPath,
     cancel: &AtomicBool,
 ) -> Result<PlanOutcome, ProtocolError> {
     let mut files = Vec::new();
     let mut skipped_symlinks = 0;
-    let mut created: HashSet<PathBuf> = HashSet::new();
+    let mut created: HashSet<VfsPath> = HashSet::new();
 
     for entry in source_entries {
         if cancel.load(Ordering::Relaxed) {
@@ -240,12 +239,12 @@ pub async fn plan_copy(
     Ok(PlanOutcome::Ready(DirectoryPlan { files, skipped_symlinks, taken_names }))
 }
 
-fn destination_parent_and_name(file: &PlannedFile) -> Option<(PathBuf, String)> {
-    Some((file.destination.parent()?.to_path_buf(), file.destination.file_name()?.to_string_lossy().into_owned()))
+fn destination_parent_and_name(file: &PlannedFile) -> Option<(VfsPath, String)> {
+    Some((file.destination.parent()?, file.destination.file_name()?.to_string_lossy().into_owned()))
 }
 
-pub(crate) fn parents_needing_listing(files: &[PlannedFile], created: &HashSet<PathBuf>) -> Vec<PathBuf> {
-    let mut parents: Vec<PathBuf> = files
+pub(crate) fn parents_needing_listing(files: &[PlannedFile], created: &HashSet<VfsPath>) -> Vec<VfsPath> {
+    let mut parents: Vec<VfsPath> = files
         .iter()
         .filter_map(destination_parent_and_name)
         .map(|(parent, _)| parent)
@@ -256,15 +255,15 @@ pub(crate) fn parents_needing_listing(files: &[PlannedFile], created: &HashSet<P
     parents
 }
 
-fn names_by_parent(files: &[PlannedFile]) -> HashMap<PathBuf, Vec<String>> {
-    let mut names: HashMap<PathBuf, Vec<String>> = HashMap::new();
+fn names_by_parent(files: &[PlannedFile]) -> HashMap<VfsPath, Vec<String>> {
+    let mut names: HashMap<VfsPath, Vec<String>> = HashMap::new();
     for (parent, name) in files.iter().filter_map(destination_parent_and_name) {
         names.entry(parent).or_default().push(name);
     }
     names
 }
 
-pub(crate) fn mark_conflicts(files: &mut [PlannedFile], listings: &HashMap<PathBuf, DestinationListing>) {
+pub(crate) fn mark_conflicts(files: &mut [PlannedFile], listings: &HashMap<VfsPath, DestinationListing>) {
     for file in files.iter_mut() {
         let Some((parent, name)) = destination_parent_and_name(file) else {
             continue;
@@ -279,9 +278,9 @@ pub(crate) fn mark_conflicts(files: &mut [PlannedFile], listings: &HashMap<PathB
 }
 
 pub(crate) fn taken_names(
-    files: &[PlannedFile], listings: &HashMap<PathBuf, DestinationListing>,
-) -> HashMap<PathBuf, HashSet<String>> {
-    let mut taken: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    files: &[PlannedFile], listings: &HashMap<VfsPath, DestinationListing>,
+) -> HashMap<VfsPath, HashSet<String>> {
+    let mut taken: HashMap<VfsPath, HashSet<String>> = HashMap::new();
     for (parent, listing) in listings {
         taken.entry(parent.clone()).or_default().extend(listing.keys().cloned());
     }
@@ -292,7 +291,7 @@ pub(crate) fn taken_names(
 }
 
 pub(crate) async fn list_destination(
-    fs: &dyn FileSystem, dir: &Path, planned_names: &[String],
+    fs: &dyn FileSystem, dir: &VfsPath, planned_names: &[String],
 ) -> Result<DestinationListing, ProtocolError> {
     let mut listing = HashMap::new();
     match fs.read_dir(dir).await {

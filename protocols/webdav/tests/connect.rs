@@ -1,8 +1,6 @@
 mod support;
 
-use std::path::Path;
-
-use porthmos_vfs::{Answer, ErrorKind, Protocol, Question};
+use porthmos_vfs::{Answer, ErrorKind, Protocol, Question, VfsPath};
 use porthmos_webdav::WebDav;
 use support::{Auth, Options, Quirk, USER};
 
@@ -26,8 +24,8 @@ async fn an_open_share_connects_anonymously_and_lists() {
     let fs = webdav(&dir).connect(&support::target(server.port, "", None), &mut prompter).await.unwrap();
 
     assert!(prompter.asked.is_empty());
-    assert_eq!(fs.home().await.unwrap(), Path::new("/"));
-    let names: Vec<String> = fs.read_dir(Path::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
+    assert_eq!(fs.home().await.unwrap(), VfsPath::new("/"));
+    let names: Vec<String> = fs.read_dir(&VfsPath::new("/")).await.unwrap().into_iter().map(|item| item.name).collect();
     assert_eq!(names, vec!["hello.txt".to_string()]);
 }
 
@@ -41,8 +39,8 @@ async fn basic_and_digest_accept_the_saved_password_silently() {
         let fs = webdav(&dir).connect(&support::target(server.port, USER, Some("pw")), &mut prompter).await.unwrap();
 
         assert!(prompter.asked.is_empty(), "{auth:?}");
-        fs.read_dir(Path::new("/")).await.unwrap();
-        fs.read_dir(Path::new("/")).await.unwrap();
+        fs.read_dir(&VfsPath::new("/")).await.unwrap();
+        fs.read_dir(&VfsPath::new("/")).await.unwrap();
     }
 }
 
@@ -157,8 +155,8 @@ async fn a_share_that_only_protects_writes_uses_the_saved_password() {
     let mut prompter = support::answers(vec![]);
 
     let fs = webdav(&dir).connect(&support::target(server.port, USER, Some("pw")), &mut prompter).await.unwrap();
-    fs.read_dir(Path::new("/")).await.unwrap();
-    fs.create_dir(Path::new("/made")).await.unwrap();
+    fs.read_dir(&VfsPath::new("/")).await.unwrap();
+    fs.create_dir(&VfsPath::new("/made")).await.unwrap();
 
     assert!(prompter.asked.is_empty());
     assert!(server.root.path().join("made").is_dir());

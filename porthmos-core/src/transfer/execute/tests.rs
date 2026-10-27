@@ -9,9 +9,9 @@ const SFTP_LIKE_BACKOFF: u64 = 16 * 32 * 1024;
 
 #[test]
 fn part_path_appends_dot_part_to_the_final_path() {
-    let path = Path::new("/tmp/downloads/report.pdf");
+    let path = &VfsPath::new("/tmp/downloads/report.pdf");
 
-    assert_eq!(part_path(path), PathBuf::from("/tmp/downloads/report.pdf.part"));
+    assert_eq!(part_path(path), VfsPath::from("/tmp/downloads/report.pdf.part"));
 }
 
 fn source_with(data: &[u8]) -> FakeFs {
@@ -33,9 +33,9 @@ async fn a_completed_copy_replaces_the_part_file_with_the_final_file() {
 
     let outcome = execute(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         |_| {},
@@ -53,10 +53,17 @@ async fn a_cancelled_copy_keeps_the_part_file() {
     let source = source_with(b"payload");
     let destination = empty_destination();
 
-    let outcome =
-        execute(&source, Path::new("/src/f"), &destination, Path::new("/dst/f"), &AtomicBool::new(true), false, |_| {})
-            .await
-            .unwrap();
+    let outcome = execute(
+        &source,
+        &VfsPath::new("/src/f"),
+        &destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(true),
+        false,
+        |_| {},
+    )
+    .await
+    .unwrap();
 
     assert_eq!(outcome, TransferOutcome::Cancelled);
     assert!(destination.exists("/dst/f.part"));
@@ -71,9 +78,9 @@ async fn a_failed_read_keeps_the_part_file_and_reports_the_error() {
 
     let result = execute(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         |_| {},
@@ -93,9 +100,9 @@ async fn a_source_that_cannot_be_opened_leaves_no_part_file_behind() {
 
     let result = execute(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         |_| {},
@@ -113,9 +120,16 @@ async fn a_source_that_cannot_be_opened_keeps_an_earlier_partial_to_resume_from(
     let destination = empty_destination();
     destination.file("/dst/f.part", b"0123", Some(950));
 
-    let result =
-        execute(&source, Path::new("/src/f"), &destination, Path::new("/dst/f"), &AtomicBool::new(false), true, |_| {})
-            .await;
+    let result = execute(
+        &source,
+        &VfsPath::new("/src/f"),
+        &destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(false),
+        true,
+        |_| {},
+    )
+    .await;
 
     assert!(result.is_err());
     assert!(destination.exists("/dst/f.part"));
@@ -128,9 +142,9 @@ async fn a_missing_source_fails_before_any_part_file_is_created() {
 
     let result = execute(
         &source,
-        Path::new("/src/gone"),
+        &VfsPath::new("/src/gone"),
         &destination,
-        Path::new("/dst/gone"),
+        &VfsPath::new("/dst/gone"),
         &AtomicBool::new(false),
         false,
         |_| {},
@@ -149,9 +163,15 @@ async fn resume_backs_off_by_the_larger_of_source_and_destination() {
     destination.file("/dst/f.part", &[7u8; 10], Some(2));
     let mut reported = Vec::new();
 
-    execute(&source, Path::new("/src/f"), &destination, Path::new("/dst/f"), &AtomicBool::new(false), true, |bytes| {
-        reported.push(bytes)
-    })
+    execute(
+        &source,
+        &VfsPath::new("/src/f"),
+        &destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(false),
+        true,
+        |bytes| reported.push(bytes),
+    )
     .await
     .unwrap();
 
@@ -167,9 +187,15 @@ async fn resume_uses_the_source_backoff_when_it_is_the_larger_one() {
     destination.file("/dst/f.part", &[1u8; 10], Some(2));
     let mut reported = Vec::new();
 
-    execute(&source, Path::new("/src/f"), &destination, Path::new("/dst/f"), &AtomicBool::new(false), true, |bytes| {
-        reported.push(bytes)
-    })
+    execute(
+        &source,
+        &VfsPath::new("/src/f"),
+        &destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(false),
+        true,
+        |bytes| reported.push(bytes),
+    )
     .await
     .unwrap();
 
@@ -253,9 +279,9 @@ async fn resuming_from_a_partial_with_a_bad_tail_reproduces_the_source() {
 
     execute(
         &source,
-        Path::new("/src/big.bin"),
+        &VfsPath::new("/src/big.bin"),
         &destination,
-        Path::new("/dst/big.bin"),
+        &VfsPath::new("/dst/big.bin"),
         &AtomicBool::new(false),
         true,
         |bytes| reported.push(bytes),
@@ -275,9 +301,9 @@ async fn an_upload_whose_final_shutdown_fails_is_reported_and_not_renamed() {
 
     let result = execute(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         |_| {},
@@ -294,11 +320,19 @@ async fn the_destination_learns_the_size_of_the_transfer() {
     let source = source_with(b"payload");
     let destination = empty_destination();
 
-    execute(&source, Path::new("/src/f"), &destination, Path::new("/dst/f"), &AtomicBool::new(false), false, |_| {})
-        .await
-        .unwrap();
+    execute(
+        &source,
+        &VfsPath::new("/src/f"),
+        &destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(false),
+        false,
+        |_| {},
+    )
+    .await
+    .unwrap();
 
-    assert_eq!(destination.written_sizes(), vec![(PathBuf::from("/dst/f.part"), 7)]);
+    assert_eq!(destination.written_sizes(), vec![(VfsPath::from("/dst/f.part"), 7)]);
 }
 
 #[tokio::test]
@@ -310,9 +344,9 @@ async fn the_source_time_is_set_on_the_destination_after_the_rename() {
 
     let executed = execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         Some(100),
@@ -337,9 +371,9 @@ async fn a_destination_that_cannot_keep_times_still_completes_and_says_so() {
 
     let executed = execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         Some(100),
@@ -363,9 +397,9 @@ async fn no_time_is_touched_when_none_was_requested() {
 
     let executed = execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         None,
@@ -388,9 +422,9 @@ async fn a_cancelled_transfer_sets_no_time_and_leaves_no_destination() {
 
     let executed = execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(true),
         false,
         Some(100),
@@ -420,9 +454,9 @@ async fn a_limited_copy_takes_as_long_as_the_limit_allows_and_keeps_every_byte()
 
     let executed = execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         None,
@@ -446,9 +480,9 @@ async fn a_copy_without_a_limit_does_not_wait() {
 
     execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &AtomicBool::new(false),
         false,
         None,
@@ -470,17 +504,9 @@ async fn lifting_the_limit_during_a_copy_lets_the_rest_go_at_full_speed() {
     let started = Instant::now();
     let never = AtomicBool::new(false);
 
-    let copy = execute_preserving(
-        &source,
-        Path::new("/src/f"),
-        &destination,
-        Path::new("/dst/f"),
-        &never,
-        false,
-        None,
-        &limit,
-        |_| {},
-    );
+    let from_path = VfsPath::new("/src/f");
+    let to_path = VfsPath::new("/dst/f");
+    let copy = execute_preserving(&source, &from_path, &destination, &to_path, &never, false, None, &limit, |_| {});
     let lift = async {
         tokio::time::sleep(Duration::from_millis(400)).await;
         lifter.set(None);
@@ -504,9 +530,9 @@ async fn cancelling_a_slow_copy_stops_it_promptly_and_keeps_the_partial_file() {
     let task = tokio::spawn(async move {
         execute_preserving(
             &task_source,
-            Path::new("/src/f"),
+            &VfsPath::new("/src/f"),
             &task_destination,
-            Path::new("/dst/f"),
+            &VfsPath::new("/dst/f"),
             &flag,
             false,
             None,
@@ -537,9 +563,9 @@ async fn progress_keeps_flowing_under_a_low_limit() {
 
     execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &never,
         false,
         None,
@@ -563,9 +589,9 @@ async fn an_unlimited_copy_still_reports_only_when_a_step_is_done() {
 
     execute_preserving(
         &source,
-        Path::new("/src/f"),
+        &VfsPath::new("/src/f"),
         &destination,
-        Path::new("/dst/f"),
+        &VfsPath::new("/dst/f"),
         &never,
         false,
         None,

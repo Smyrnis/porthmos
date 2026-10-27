@@ -1,79 +1,9 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::{DirItem, FileKind, FileSystem, Metadata, ProtocolError, Reader, Writer};
-
-struct LocalTestFs;
-
-#[async_trait::async_trait]
-impl FileSystem for LocalTestFs {
-    async fn list(&self, _dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
-        let mut items = Vec::new();
-        for dir_entry in fs::read_dir(dir)? {
-            let dir_entry = dir_entry?;
-            let metadata = fs::symlink_metadata(dir_entry.path())?;
-            let kind = if metadata.file_type().is_symlink() {
-                FileKind::Symlink
-            } else if metadata.is_dir() {
-                FileKind::Dir
-            } else {
-                FileKind::File
-            };
-            items.push(DirItem {
-                name: dir_entry.file_name().to_string_lossy().into_owned(),
-                path: dir_entry.path(),
-                metadata: Metadata { size: metadata.len(), modified: None, kind, permissions: None },
-            });
-        }
-        Ok(items)
-    }
-
-    async fn stat(&self, _path: &Path) -> Result<Metadata, ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn create_dir(&self, _path: &Path) -> Result<(), ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn rename(&self, _from: &Path, _to: &Path) -> Result<(), ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn remove_file(&self, _path: &Path) -> Result<(), ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn delete(&self, _path: &Path) -> Result<(), ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn open_read(&self, _path: &Path, _offset: u64) -> Result<Reader, ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn open_write(&self, _path: &Path, _offset: u64) -> Result<Writer, ProtocolError> {
-        unimplemented!()
-    }
-
-    async fn search(&self, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>) {
-        walk_search(self, query, tx, cancel).await
-    }
-}
+use crate::testing::FakeFs;
 
 #[test]
 fn glob_match_supports_star_and_question_wildcards() {
@@ -126,17 +56,14 @@ async fn drain(mut rx: mpsc::UnboundedReceiver<SearchEvent>) -> (Vec<Entry>, boo
 }
 
 #[tokio::test]
-async fn search_local_finds_matching_files_recursively() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::create_dir(dir.path().join("sub")).unwrap();
-    fs::write(dir.path().join("a.log"), b"x").unwrap();
-    fs::write(dir.path().join("sub/b.log"), b"x").unwrap();
-    fs::write(dir.path().join("c.txt"), b"x").unwrap();
+async fn search_finds_matching_files_recursively() {
+    let fs = FakeFs::new();
+    fs.file("/root/a.log", b"x", None).file("/root/sub/b.log", b"x", None).file("/root/c.txt", b"x", None);
 
     let (tx, rx) = mpsc::unbounded_channel();
     walk_search(
-        &LocalTestFs,
-        SearchQuery { root: dir.path().to_path_buf(), pattern: "*.log".to_string(), max_depth: 16, max_results: 1000 },
+        &fs,
+        SearchQuery { root: VfsPath::new("/root"), pattern: "*.log".to_string(), max_depth: 16, max_results: 1000 },
         tx,
         Arc::new(AtomicBool::new(false)),
     )
@@ -150,16 +77,14 @@ async fn search_local_finds_matching_files_recursively() {
 }
 
 #[tokio::test]
-async fn search_local_respects_the_depth_limit() {
-    let dir = tempfile::tempdir().unwrap();
-    let deep = dir.path().join("a").join("b").join("c");
-    fs::create_dir_all(&deep).unwrap();
-    fs::write(deep.join("target.log"), b"x").unwrap();
+async fn search_respects_the_depth_limit() {
+    let fs = FakeFs::new();
+    fs.file("/root/a/b/c/target.log", b"x", None);
 
     let (tx, rx) = mpsc::unbounded_channel();
     walk_search(
-        &LocalTestFs,
-        SearchQuery { root: dir.path().to_path_buf(), pattern: "*.log".to_string(), max_depth: 1, max_results: 1000 },
+        &fs,
+        SearchQuery { root: VfsPath::new("/root"), pattern: "*.log".to_string(), max_depth: 1, max_results: 1000 },
         tx,
         Arc::new(AtomicBool::new(false)),
     )
@@ -170,16 +95,16 @@ async fn search_local_respects_the_depth_limit() {
 }
 
 #[tokio::test]
-async fn search_local_reports_truncation_at_the_cap() {
-    let dir = tempfile::tempdir().unwrap();
+async fn search_reports_truncation_at_the_cap() {
+    let fs = FakeFs::new();
     for i in 0..5 {
-        fs::write(dir.path().join(format!("{i}.log")), b"x").unwrap();
+        fs.file(format!("/root/{i}.log"), b"x", None);
     }
 
     let (tx, rx) = mpsc::unbounded_channel();
     walk_search(
-        &LocalTestFs,
-        SearchQuery { root: dir.path().to_path_buf(), pattern: "*.log".to_string(), max_depth: 16, max_results: 3 },
+        &fs,
+        SearchQuery { root: VfsPath::new("/root"), pattern: "*.log".to_string(), max_depth: 16, max_results: 3 },
         tx,
         Arc::new(AtomicBool::new(false)),
     )
@@ -191,15 +116,15 @@ async fn search_local_reports_truncation_at_the_cap() {
 }
 
 #[tokio::test]
-async fn search_local_stops_promptly_when_already_cancelled() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("a.log"), b"x").unwrap();
+async fn search_stops_promptly_when_already_cancelled() {
+    let fs = FakeFs::new();
+    fs.file("/root/a.log", b"x", None);
     let cancel = Arc::new(AtomicBool::new(true));
 
     let (tx, rx) = mpsc::unbounded_channel();
     walk_search(
-        &LocalTestFs,
-        SearchQuery { root: dir.path().to_path_buf(), pattern: "*.log".to_string(), max_depth: 16, max_results: 1000 },
+        &fs,
+        SearchQuery { root: VfsPath::new("/root"), pattern: "*.log".to_string(), max_depth: 16, max_results: 1000 },
         tx,
         cancel,
     )
@@ -210,15 +135,35 @@ async fn search_local_stops_promptly_when_already_cancelled() {
 }
 
 #[tokio::test]
-async fn search_local_reports_a_root_that_cannot_be_read() {
+async fn search_reports_a_root_that_cannot_be_read() {
     let (tx, rx) = mpsc::unbounded_channel();
     walk_search(
-        &LocalTestFs,
-        SearchQuery::new(PathBuf::from("/definitely/missing/root"), "*".to_string()),
+        &FakeFs::new(),
+        SearchQuery::new(VfsPath::new("/definitely/missing/root"), "*".to_string()),
         tx,
         Arc::new(AtomicBool::new(false)),
     )
     .await;
     let mut rx = rx;
     assert!(matches!(rx.recv().await, Some(SearchEvent::Failed(_))));
+}
+
+#[tokio::test]
+async fn search_finds_names_that_look_like_windows_paths() {
+    let fs = FakeFs::new();
+    fs.file("/root/x:1.log", b"x", None).file("/root/a\\b.log", b"x", None).file("/root/con.log", b"x", None);
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    walk_search(
+        &fs,
+        SearchQuery::new(VfsPath::new("/root"), "*.log".to_string()),
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await;
+
+    let (found, _) = drain(rx).await;
+    let mut paths: Vec<String> = found.iter().map(|entry| entry.path.to_string_lossy().into_owned()).collect();
+    paths.sort();
+    assert_eq!(paths, vec!["/root/a\\b.log", "/root/con.log", "/root/x:1.log"]);
 }

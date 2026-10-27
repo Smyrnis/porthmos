@@ -1,13 +1,12 @@
 mod support;
 
 use std::{
-    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use porthmos_ftp::Ftp;
-use porthmos_vfs::{Answer, ErrorKind, FileKind, FileSystem, Protocol};
+use porthmos_vfs::{Answer, ErrorKind, FileKind, FileSystem, Protocol, VfsPath};
 use support::scripted::{self, Node, Script};
 use tokio::io::AsyncWriteExt;
 
@@ -33,7 +32,7 @@ async fn a_list_only_server_lists_files_and_directories() {
     server.dir("/photos");
     let fs = connect(server.port).await;
 
-    let mut entries = fs.list(Path::new("/")).await.unwrap();
+    let mut entries = fs.list(&VfsPath::new("/")).await.unwrap();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
 
     assert_eq!(
@@ -49,8 +48,8 @@ async fn a_symlinked_directory_is_browsable_but_read_dir_reports_it_as_a_link() 
     server.link("/shared", "/archive");
     let fs = connect(server.port).await;
 
-    let listed = fs.list(Path::new("/")).await.unwrap();
-    let items = fs.read_dir(Path::new("/")).await.unwrap();
+    let listed = fs.list(&VfsPath::new("/")).await.unwrap();
+    let items = fs.read_dir(&VfsPath::new("/")).await.unwrap();
 
     assert!(listed.iter().any(|entry| entry.name == "shared" && entry.is_dir));
     assert!(items.iter().any(|item| item.name == "shared" && item.metadata.kind == FileKind::Symlink));
@@ -66,7 +65,7 @@ async fn deleting_a_tree_removes_a_symlink_inside_it_but_never_the_links_target(
     server.link("/project/shared", "/archive");
     let fs = connect(server.port).await;
 
-    fs.delete(Path::new("/project")).await.unwrap();
+    fs.delete(&VfsPath::new("/project")).await.unwrap();
 
     assert!(server.get("/project").is_none());
     assert!(server.get("/project/shared").is_none());
@@ -81,7 +80,7 @@ async fn deleting_a_symlink_to_a_directory_removes_only_the_link() {
     server.link("/shared", "/archive");
     let fs = connect(server.port).await;
 
-    fs.delete(Path::new("/shared")).await.unwrap();
+    fs.delete(&VfsPath::new("/shared")).await.unwrap();
 
     assert!(server.get("/shared").is_none());
     assert!(is_file(server.get("/archive/keep.txt")));
@@ -94,7 +93,7 @@ async fn a_failed_rename_never_touches_an_existing_backup_file() {
     server.file("/target.txt.bak", b"precious");
     let fs = connect(server.port).await;
 
-    let result = fs.rename(Path::new("/missing.txt"), Path::new("/target.txt")).await;
+    let result = fs.rename(&VfsPath::new("/missing.txt"), &VfsPath::new("/target.txt")).await;
 
     assert!(result.is_err());
     assert!(matches!(server.get("/target.txt.bak"), Some(Node::File(data)) if data == b"precious"));
@@ -107,7 +106,7 @@ async fn a_server_refusing_rest_and_appe_restarts_the_upload_from_zero() {
     server.file("/part.bin", b"stale");
     let fs = connect(server.port).await;
 
-    let mut writer = fs.open_write(Path::new("/part.bin"), 5).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/part.bin"), 5).await.unwrap();
     writer.stream.write_all(b"whole file").await.unwrap();
     writer.stream.shutdown().await.unwrap();
 
@@ -141,7 +140,7 @@ async fn a_server_that_stops_answering_times_out_instead_of_hanging() {
     let server = scripted::start(Script { silent_after_login: true, ..Script::default() }).await;
     let fs = connect(server.port).await;
 
-    let result = tokio::time::timeout(Duration::from_secs(10), fs.list(Path::new("/"))).await;
+    let result = tokio::time::timeout(Duration::from_secs(10), fs.list(&VfsPath::new("/"))).await;
 
     let error = result.expect("the listing must give up by itself").unwrap_err();
     assert!(error.to_string().contains("timed out"), "{error}");
@@ -174,7 +173,7 @@ async fn an_unparseable_reply_does_not_throw_away_a_healthy_connection() {
     let fs = connect(server.port).await;
 
     for _ in 0..3 {
-        assert_eq!(fs.stat(Path::new("/a.txt")).await.unwrap().size, 5);
+        assert_eq!(fs.stat(&VfsPath::new("/a.txt")).await.unwrap().size, 5);
     }
 
     assert_eq!(server.connection_count(), 1);
@@ -188,7 +187,7 @@ async fn a_slow_large_listing_is_allowed_to_finish() {
     }
     let fs = connect(server.port).await;
 
-    let entries = fs.list(Path::new("/")).await.unwrap();
+    let entries = fs.list(&VfsPath::new("/")).await.unwrap();
 
     assert_eq!(entries.len(), 5);
 }
@@ -230,7 +229,7 @@ async fn a_server_that_lists_mfmt_can_set_times() {
     server.file("/a.txt", b"12345");
     let fs = connect(server.port).await;
 
-    fs.set_modified(Path::new("/a.txt"), 1_700_000_000).await.unwrap();
+    fs.set_modified(&VfsPath::new("/a.txt"), 1_700_000_000).await.unwrap();
 
     assert!(fs.can_set_modified());
     assert_eq!(fs.time_resolution(), 60);
@@ -243,7 +242,7 @@ async fn a_server_without_mfmt_cannot_set_times_and_is_never_asked() {
     server.file("/a.txt", b"12345");
     let fs = connect(server.port).await;
 
-    let error = fs.set_modified(Path::new("/a.txt"), 5).await.unwrap_err();
+    let error = fs.set_modified(&VfsPath::new("/a.txt"), 5).await.unwrap_err();
 
     assert!(!fs.can_set_modified());
     assert_eq!(error.kind(), ErrorKind::Unsupported);
@@ -255,7 +254,7 @@ async fn mfmt_on_a_missing_file_is_not_found() {
     let server = scripted::start(Script { mfmt: true, ..Script::default() }).await;
     let fs = connect(server.port).await;
 
-    let error = fs.set_modified(Path::new("/missing"), 5).await.unwrap_err();
+    let error = fs.set_modified(&VfsPath::new("/missing"), 5).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -282,7 +281,7 @@ async fn a_late_feat_reply_never_answers_a_later_command() {
     let fs = connect(server.port).await;
     assert_eq!(server.connection_count(), 1);
 
-    let metadata = fs.stat(Path::new("/a.txt")).await.unwrap();
+    let metadata = fs.stat(&VfsPath::new("/a.txt")).await.unwrap();
 
     assert_eq!(metadata.size, 5);
     assert_eq!(server.connection_count(), 2);
@@ -296,10 +295,10 @@ async fn a_time_beyond_year_9999_is_refused_without_asking_the_server() {
     let fs = connect(server.port).await;
 
     for seconds in [253_402_300_800, u64::MAX] {
-        let error = fs.set_modified(Path::new("/a.txt"), seconds).await.unwrap_err();
+        let error = fs.set_modified(&VfsPath::new("/a.txt"), seconds).await.unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Other, "{seconds}");
     }
-    fs.set_modified(Path::new("/a.txt"), 253_402_300_799).await.unwrap();
+    fs.set_modified(&VfsPath::new("/a.txt"), 253_402_300_799).await.unwrap();
 
     assert_eq!(server.mfmt_calls.lock().unwrap().as_slice(), [("99991231235959".to_string(), "/a.txt".to_string())]);
 }

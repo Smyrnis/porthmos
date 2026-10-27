@@ -13,7 +13,7 @@ use std::{
 
 pub use command::{Command, Location, RequestId, SessionId};
 pub use event::Event;
-use porthmos_vfs::{Environment, FileSystem, Protocol};
+use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
 pub(crate) use report::Reporter;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -180,7 +180,7 @@ pub(crate) struct Engine {
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     preview_busy: bool,
-    preview_next: Option<(u64, Location, PathBuf)>,
+    preview_next: Option<(u64, Location, VfsPath)>,
     pub(crate) pause_stops: std::collections::HashSet<u64>,
     pub(crate) source_removals: std::collections::HashSet<u64>,
     history: handlers::HistoryLog,

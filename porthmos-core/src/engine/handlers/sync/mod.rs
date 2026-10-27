@@ -1,13 +1,12 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
 
-use porthmos_vfs::{FileSystem, ProtocolError};
+use porthmos_vfs::{FileSystem, ProtocolError, VfsPath};
 
 use super::super::{Engine, Event, Internal, PlanningScan, TransferEvent};
 use crate::{
@@ -25,10 +24,9 @@ use crate::{
 
 const NAMED_UNREADABLE_FOLDERS: usize = 3;
 
-fn unreadable_folders_notice(folders: &[PathBuf]) -> String {
+fn unreadable_folders_notice(folders: &[VfsPath]) -> String {
     let plural = if folders.len() == 1 { "" } else { "s" };
-    let named: Vec<String> =
-        folders.iter().take(NAMED_UNREADABLE_FOLDERS).map(|folder| folder.display().to_string()).collect();
+    let named: Vec<String> = folders.iter().take(NAMED_UNREADABLE_FOLDERS).map(|folder| folder.to_string()).collect();
     let more = folders.len().saturating_sub(NAMED_UNREADABLE_FOLDERS);
     let tail = if more > 0 { format!(" and {more} more") } else { String::new() };
     format!("Skipped {} unreadable folder{plural}: {}{tail}", folders.len(), named.join(", "))
@@ -66,21 +64,21 @@ fn planned_file(plan: &SyncPlan, item: &SyncItem, action: SyncAction) -> Option<
     })
 }
 
-fn missing_folders(files: &[PlannedFile], root: &Path) -> BTreeSet<PathBuf> {
+fn missing_folders(files: &[PlannedFile], root: &VfsPath) -> BTreeSet<VfsPath> {
     let mut folders = BTreeSet::new();
     for file in files {
         for ancestor in file.destination.ancestors().skip(1) {
-            if ancestor == root || !ancestor.starts_with(root) {
+            if ancestor == *root || !ancestor.starts_with(root) {
                 break;
             }
-            folders.insert(ancestor.to_path_buf());
+            folders.insert(ancestor);
         }
     }
     folders
 }
 
 async fn create_folders(
-    fs: &dyn FileSystem, folders: &BTreeSet<PathBuf>, cancel: &AtomicBool,
+    fs: &dyn FileSystem, folders: &BTreeSet<VfsPath>, cancel: &AtomicBool,
 ) -> Result<bool, ProtocolError> {
     for folder in folders {
         if cancel.load(Ordering::Relaxed) {
@@ -93,7 +91,7 @@ async fn create_folders(
 
 impl Engine {
     pub(crate) fn start_sync(
-        &mut self, session_id: u64, local_dir: PathBuf, remote_dir: PathBuf, options: SyncOptions,
+        &mut self, session_id: u64, local_dir: VfsPath, remote_dir: VfsPath, options: SyncOptions,
     ) {
         if let Err(message) = options.validate() {
             self.report(Severity::Warning, message);
@@ -115,7 +113,7 @@ impl Engine {
             SyncDirection::RemoteToLocal => local.can_set_modified(),
             SyncDirection::Both => true,
         };
-        let display_name = format!("sync {}", local_dir.display());
+        let display_name = format!("sync {}", local_dir);
         let batch_id = self.transfers.start_batch(display_name.clone());
         self.planning.push(PlanningScan { batch_id, session_id, direction: Direction::Upload, display_name });
         self.sync.scanning.insert(batch_id);
@@ -241,7 +239,7 @@ impl Engine {
             Direction::Upload => (live.fs.clone(), plan.remote_root.clone(), '\u{2191}'),
             Direction::Download => (self.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
         };
-        let display_name = format!("sync {arrow} {}", target_root.display());
+        let display_name = format!("sync {arrow} {}", target_root);
         let batch_id = self.transfers.start_batch(display_name.clone());
         let session_id = plan.session;
         self.planning.push(PlanningScan { batch_id, session_id, direction, display_name });

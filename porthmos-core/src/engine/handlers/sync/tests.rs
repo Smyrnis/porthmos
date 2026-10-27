@@ -4,6 +4,8 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 use porthmos_vfs::testing::FakeFs;
 
 use super::*;
@@ -60,7 +62,12 @@ fn plan_of(events: Vec<Event>) -> Option<Arc<SyncPlan>> {
 
 fn start(t: &mut TestEngine, session: u64, options: SyncOptions) {
     let local_dir = work_dir(t);
-    t.engine.handle_command(Command::StartSync { session, local_dir, remote_dir: PathBuf::from(REMOTE_ROOT), options });
+    t.engine.handle_command(Command::StartSync {
+        session,
+        local_dir: from_os_path(&local_dir),
+        remote_dir: VfsPath::from(REMOTE_ROOT),
+        options,
+    });
 }
 
 async fn scan(t: &mut TestEngine, session: u64, options: SyncOptions) -> Arc<SyncPlan> {
@@ -79,10 +86,9 @@ async fn a_scan_ends_in_a_plan_with_the_differences() {
     let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
 
     assert_eq!(plan.session, session);
-    assert_eq!(plan.remote_root, PathBuf::from(REMOTE_ROOT));
-    assert_eq!(plan.local_root, t.dir.path().join("work"));
-    let items: Vec<(String, SyncReason)> =
-        plan.items.iter().map(|item| (item.path.display().to_string(), item.reason)).collect();
+    assert_eq!(plan.remote_root, VfsPath::from(REMOTE_ROOT));
+    assert_eq!(plan.local_root, from_os_path(&t.dir.path().join("work")));
+    let items: Vec<(String, SyncReason)> = plan.items.iter().map(|item| (item.path.to_string(), item.reason)).collect();
     assert_eq!(items, vec![("mine.txt".to_string(), SyncReason::OnlyLocal)]);
     assert!(t.engine.sync.plans.contains_key(&plan.sync_id));
 }
@@ -197,8 +203,8 @@ async fn an_unreadable_folder_fails_the_scan_with_an_error_and_no_plan() {
     let local_dir = work_dir(&t);
     t.engine.handle_command(Command::StartSync {
         session,
-        local_dir,
-        remote_dir: PathBuf::from("/does/not/exist"),
+        local_dir: from_os_path(&local_dir),
+        remote_dir: VfsPath::from("/does/not/exist"),
         options: options(SyncDirection::LocalToRemote, SyncBy::Time),
     });
 
@@ -345,14 +351,14 @@ async fn an_unreadable_remote_folder_is_skipped_on_both_sides_with_a_warning() {
     let events = t.drain();
     assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Warning, message } if message == "Skipped 1 unreadable folder: locked")));
     let plan = plan_of(events).unwrap();
-    let paths: Vec<_> = plan.items.iter().map(|item| item.path.display().to_string()).collect();
+    let paths: Vec<_> = plan.items.iter().map(|item| item.path.to_string()).collect();
     assert_eq!(paths, ["open.txt"]);
-    assert_eq!(plan.unreadable_folders, vec![PathBuf::from("locked")]);
+    assert_eq!(plan.unreadable_folders, vec![VfsPath::from("locked")]);
 }
 
 #[test]
 fn the_notice_for_many_unreadable_folders_names_only_the_first_few() {
-    let folders: Vec<PathBuf> = ["a", "b", "c", "d", "e"].iter().map(PathBuf::from).collect();
+    let folders: Vec<VfsPath> = ["a", "b", "c", "d", "e"].iter().map(|path| VfsPath::new(path)).collect();
 
     assert_eq!(unreadable_folders_notice(&folders), "Skipped 5 unreadable folders: a, b, c and 2 more");
 }
@@ -558,7 +564,7 @@ async fn several_symlinks_are_counted_in_the_plural() {
 fn time_less_local_with(name: &str, data: &[u8], seconds: u64) -> FakeFs {
     let local = FakeFs::new().with_time_support(false);
     local.dir("/work");
-    local.file(Path::new("/work").join(name), data, Some(seconds));
+    local.file(VfsPath::new("/work").join(name), data, Some(seconds));
     local
 }
 
@@ -597,8 +603,8 @@ async fn a_same_size_target_stamped_newer_is_not_listed_when_the_local_target_ca
     remote.file("/srv/a.txt", b"x", Some(1_000));
     t.engine.handle_command(Command::StartSync {
         session,
-        local_dir: PathBuf::from("/work"),
-        remote_dir: PathBuf::from(REMOTE_ROOT),
+        local_dir: VfsPath::from("/work"),
+        remote_dir: VfsPath::from(REMOTE_ROOT),
         options: options(SyncDirection::RemoteToLocal, SyncBy::Time),
     });
 
@@ -618,8 +624,8 @@ async fn a_same_size_target_stamped_newer_is_listed_when_the_local_target_keeps_
     remote.file("/srv/a.txt", b"x", Some(1_000));
     t.engine.handle_command(Command::StartSync {
         session,
-        local_dir: PathBuf::from("/work"),
-        remote_dir: PathBuf::from(REMOTE_ROOT),
+        local_dir: VfsPath::from("/work"),
+        remote_dir: VfsPath::from(REMOTE_ROOT),
         options: options(SyncDirection::RemoteToLocal, SyncBy::Time),
     });
 
@@ -728,7 +734,7 @@ async fn items_that_are_not_chosen_are_not_copied() {
     write_local(&t, "keep.txt", b"1", 10);
     write_local(&t, "skip.txt", b"2", 10);
     let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
-    let keep = plan.items.iter().find(|item| item.path == Path::new("keep.txt")).unwrap();
+    let keep = plan.items.iter().find(|item| item.path == VfsPath::new("keep.txt")).unwrap();
 
     run(&mut t, &plan, vec![(keep.id, keep.action)]).await;
 
@@ -1147,7 +1153,7 @@ async fn a_download_never_replaces_a_local_symlink_at_the_path_of_a_remote_file(
     let link = work_dir(&t).join("a.txt");
     std::os::unix::fs::symlink(&real, &link).unwrap();
     let plan = scan(&mut t, session, options(SyncDirection::RemoteToLocal, SyncBy::Time)).await;
-    let mismatch: Vec<_> = plan.items.iter().filter(|item| item.path == Path::new("a.txt")).collect();
+    let mismatch: Vec<_> = plan.items.iter().filter(|item| item.path == VfsPath::new("a.txt")).collect();
     assert_eq!(mismatch.len(), 1);
     assert_eq!(
         (mismatch[0].reason, mismatch[0].ticked, mismatch[0].flippable),
@@ -1201,7 +1207,7 @@ async fn without_subfolders_a_real_nested_remote_folder_produces_only_depth_one_
 
     run(&mut t, &plan, ticked(&plan)).await;
 
-    let paths: Vec<PathBuf> = plan.items.iter().map(|item| item.path.clone()).collect();
-    assert_eq!(paths, vec![PathBuf::from("top.txt")]);
+    let paths: Vec<VfsPath> = plan.items.iter().map(|item| item.path.clone()).collect();
+    assert_eq!(paths, vec![VfsPath::from("top.txt")]);
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
 }

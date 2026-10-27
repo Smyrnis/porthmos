@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use super::*;
 
@@ -15,7 +15,7 @@ fn symlink() -> TreeEntry {
 }
 
 fn tree(entries: &[(&str, TreeEntry)]) -> Tree {
-    entries.iter().map(|(path, entry)| (PathBuf::from(path), *entry)).collect()
+    entries.iter().map(|(path, entry)| (VfsPath::new(path), *entry)).collect()
 }
 
 fn options(direction: SyncDirection, by: SyncBy) -> SyncOptions {
@@ -29,7 +29,7 @@ fn diff(local: &Tree, remote: &Tree, options: SyncOptions, tolerance: u64) -> Ve
 }
 
 fn rows(items: &[SyncItem]) -> Vec<Row> {
-    items.iter().map(|item| (item.path.display().to_string(), item.action, item.reason, item.ticked)).collect()
+    items.iter().map(|item| (item.path.to_string(), item.action, item.reason, item.ticked)).collect()
 }
 
 fn run(local: &[(&str, TreeEntry)], remote: &[(&str, TreeEntry)], options: SyncOptions) -> Vec<Row> {
@@ -196,7 +196,7 @@ fn items_are_sorted_by_path_and_numbered_from_zero() {
         2,
     );
 
-    let order: Vec<(u32, String)> = plan.iter().map(|item| (item.id, item.path.display().to_string())).collect();
+    let order: Vec<(u32, String)> = plan.iter().map(|item| (item.id, item.path.to_string())).collect();
     assert_eq!(order, vec![(0, "a".into()), (1, "b".into()), (2, "c/d".into())]);
 }
 
@@ -269,8 +269,7 @@ fn only_the_ambiguous_rows_are_flippable() {
         2,
     );
 
-    let flippable: Vec<(String, bool)> =
-        items.iter().map(|item| (item.path.display().to_string(), item.flippable)).collect();
+    let flippable: Vec<(String, bool)> = items.iter().map(|item| (item.path.to_string(), item.flippable)).collect();
     assert_eq!(
         flippable,
         vec![
@@ -285,7 +284,7 @@ fn only_the_ambiguous_rows_are_flippable() {
 
 fn item_for(local: Option<SyncFacts>, remote: Option<SyncFacts>, action: SyncAction, reason: SyncReason) -> SyncItem {
     let flippable = matches!(reason, TargetNewer | SameTimeDifferentSize | SizeDiffersTimeUnknown);
-    SyncItem { id: 0, path: PathBuf::from("a"), local, remote, action, reason, ticked: false, flippable }
+    SyncItem { id: 0, path: VfsPath::from("a"), local, remote, action, reason, ticked: false, flippable }
 }
 
 fn facts() -> Option<SyncFacts> {
@@ -350,9 +349,9 @@ fn a_hundred_thousand_files_compare_quickly() {
     let mut remote = Tree::new();
     for index in 0..100_000u64 {
         let path = format!("dir{}/sub{}/file{index}", index % 50, index % 7);
-        local.insert(PathBuf::from(&path), file(index, Some(1_000)));
+        local.insert(VfsPath::from(&path), file(index, Some(1_000)));
         let remote_time = if index % 10 == 0 { 500 } else { 1_000 };
-        remote.insert(PathBuf::from(&path), file(index, Some(remote_time)));
+        remote.insert(VfsPath::from(&path), file(index, Some(remote_time)));
     }
     let started = std::time::Instant::now();
 

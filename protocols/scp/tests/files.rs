@@ -1,9 +1,10 @@
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
+use porthmos_lfs::from_os_path;
 use porthmos_scp::Scp;
 use porthmos_ssh::testing::{self, Options, SshServer};
-use porthmos_vfs::{Answer, ErrorKind, FileSystem, Protocol};
-use tokio::io::AsyncReadExt;
+use porthmos_vfs::{Answer, ErrorKind, FileSystem, Protocol, VfsPath};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 async fn open() -> (SshServer, Arc<dyn FileSystem>) {
     let server = SshServer::start(Options::default()).await;
@@ -19,7 +20,15 @@ fn at(server: &SshServer, name: &str) -> std::path::PathBuf {
     server.root.path().join(name)
 }
 
-async fn names(fs: &dyn FileSystem, dir: &Path) -> Vec<(String, bool)> {
+fn vat(server: &SshServer, name: &str) -> VfsPath {
+    from_os_path(&at(server, name))
+}
+
+fn root(server: &SshServer) -> VfsPath {
+    from_os_path(server.root.path())
+}
+
+async fn names(fs: &dyn FileSystem, dir: &VfsPath) -> Vec<(String, bool)> {
     let mut items: Vec<(String, bool)> =
         fs.read_dir(dir).await.unwrap().into_iter().map(|item| (item.name, item.metadata.is_dir())).collect();
     items.sort();
@@ -32,16 +41,13 @@ async fn read_dir_lists_files_and_folders_with_sizes() {
     std::fs::write(at(&server, "a.txt"), b"hello").unwrap();
     std::fs::create_dir(at(&server, "sub")).unwrap();
 
-    let items = fs.read_dir(server.root.path()).await.unwrap();
+    let items = fs.read_dir(&root(&server)).await.unwrap();
 
     let file = items.iter().find(|item| item.name == "a.txt").unwrap();
-    assert_eq!((file.path.clone(), file.metadata.size, file.metadata.is_dir()), (at(&server, "a.txt"), 5, false));
+    assert_eq!((file.path.clone(), file.metadata.size, file.metadata.is_dir()), (vat(&server, "a.txt"), 5, false));
     assert!(file.metadata.modified.is_some());
-    assert_eq!(
-        names(fs.as_ref(), server.root.path()).await,
-        vec![("a.txt".to_string(), false), ("sub".to_string(), true)]
-    );
-    assert_eq!(fs.list(server.root.path()).await.unwrap().len(), 2);
+    assert_eq!(names(fs.as_ref(), &root(&server)).await, vec![("a.txt".to_string(), false), ("sub".to_string(), true)]);
+    assert_eq!(fs.list(&root(&server)).await.unwrap().len(), 2);
 }
 
 fn within_a_day_of_now(modified: Option<u64>) -> bool {
@@ -54,7 +60,7 @@ async fn list_reports_the_modification_time_of_a_new_file() {
     let (server, fs) = open().await;
     std::fs::write(at(&server, "a.txt"), b"hello").unwrap();
 
-    let entries = fs.list(server.root.path()).await.unwrap();
+    let entries = fs.list(&root(&server)).await.unwrap();
 
     assert!(within_a_day_of_now(entries[0].modified), "{:?}", entries[0].modified);
 }
@@ -65,13 +71,13 @@ async fn awkward_names_round_trip() {
     let odd = " it's $HOME `id` -x ü.txt";
     std::fs::write(at(&server, odd), b"odd").unwrap();
 
-    let items = fs.read_dir(server.root.path()).await.unwrap();
+    let items = fs.read_dir(&root(&server)).await.unwrap();
     assert_eq!(items.iter().map(|item| item.name.as_str()).collect::<Vec<_>>(), vec![odd]);
     assert_eq!(fs.stat(&items[0].path).await.unwrap().size, 3);
     let mut data = Vec::new();
     fs.open_read(&items[0].path, 0).await.unwrap().read_to_end(&mut data).await.unwrap();
     assert_eq!(data, b"odd");
-    fs.rename(&items[0].path, &at(&server, "-renamed $x")).await.unwrap();
+    fs.rename(&items[0].path, &vat(&server, "-renamed $x")).await.unwrap();
     assert_eq!(std::fs::read(at(&server, "-renamed $x")).unwrap(), b"odd");
 }
 
@@ -81,21 +87,21 @@ async fn stat_finds_files_and_folders_and_reports_missing_ones() {
     std::fs::write(at(&server, "f"), [0u8; 42]).unwrap();
     std::fs::create_dir(at(&server, "d")).unwrap();
 
-    assert_eq!(fs.stat(&at(&server, "f")).await.unwrap().size, 42);
-    assert!(fs.stat(&at(&server, "d")).await.unwrap().is_dir());
-    assert_eq!(fs.stat(&at(&server, "nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.stat(&vat(&server, "f")).await.unwrap().size, 42);
+    assert!(fs.stat(&vat(&server, "d")).await.unwrap().is_dir());
+    assert_eq!(fs.stat(&vat(&server, "nope")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
 async fn create_dir_refuses_an_existing_folder_and_a_missing_parent() {
     let (server, fs) = open().await;
 
-    fs.create_dir(&at(&server, "new")).await.unwrap();
+    fs.create_dir(&vat(&server, "new")).await.unwrap();
     assert!(at(&server, "new").is_dir());
 
-    let existing = fs.create_dir(&at(&server, "new")).await.unwrap_err();
+    let existing = fs.create_dir(&vat(&server, "new")).await.unwrap_err();
     assert_eq!(existing.to_string(), format!("{} already exists", at(&server, "new").display()));
-    assert_eq!(fs.create_dir(&at(&server, "no/such")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.create_dir(&vat(&server, "no/such")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -106,8 +112,8 @@ async fn rename_moves_files_folders_and_replaces_a_file() {
     std::fs::create_dir(at(&server, "d")).unwrap();
     std::fs::write(at(&server, "d/x"), b"x").unwrap();
 
-    fs.rename(&at(&server, "a"), &at(&server, "b")).await.unwrap();
-    fs.rename(&at(&server, "d"), &at(&server, "e")).await.unwrap();
+    fs.rename(&vat(&server, "a"), &vat(&server, "b")).await.unwrap();
+    fs.rename(&vat(&server, "d"), &vat(&server, "e")).await.unwrap();
 
     assert_eq!(std::fs::read(at(&server, "b")).unwrap(), b"new");
     assert!(!at(&server, "a").exists());
@@ -122,7 +128,7 @@ async fn renames_never_move_into_an_existing_folder() {
     std::fs::create_dir(at(&server, "other")).unwrap();
 
     for from in ["file", "other"] {
-        let error = fs.rename(&at(&server, from), &at(&server, "folder")).await.unwrap_err();
+        let error = fs.rename(&vat(&server, from), &vat(&server, "folder")).await.unwrap_err();
 
         assert_eq!(error.to_string(), format!("{} already exists", at(&server, "folder").display()));
     }
@@ -137,11 +143,11 @@ async fn remove_file_and_delete_a_tree() {
     std::fs::create_dir_all(at(&server, "tree/inner")).unwrap();
     std::fs::write(at(&server, "tree/inner/leaf"), b"l").unwrap();
 
-    fs.remove_file(&at(&server, "f")).await.unwrap();
-    fs.delete(&at(&server, "tree")).await.unwrap();
+    fs.remove_file(&vat(&server, "f")).await.unwrap();
+    fs.delete(&vat(&server, "tree")).await.unwrap();
 
     assert!(!at(&server, "f").exists() && !at(&server, "tree").exists());
-    assert_eq!(fs.remove_file(&at(&server, "f")).await.unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.remove_file(&vat(&server, "f")).await.unwrap_err().kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -149,7 +155,7 @@ async fn a_rename_into_a_missing_folder_names_the_target() {
     let (server, fs) = open().await;
     std::fs::write(at(&server, "f"), b"f").unwrap();
 
-    let error = fs.rename(&at(&server, "f"), &at(&server, "no/such/f")).await.unwrap_err();
+    let error = fs.rename(&vat(&server, "f"), &vat(&server, "no/such/f")).await.unwrap_err();
 
     assert_eq!(
         (error.kind(), error.to_string()),
@@ -164,7 +170,7 @@ async fn set_modified_changes_the_time_of_a_file_with_an_awkward_name() {
     let path = at(&server, "it's a $name \u{e9}.txt");
     std::fs::write(&path, b"x").unwrap();
 
-    fs.set_modified(&path, 1_700_000_000).await.unwrap();
+    fs.set_modified(&from_os_path(&path), 1_700_000_000).await.unwrap();
 
     assert!(fs.can_set_modified());
     assert_eq!(fs.time_resolution(), 60);
@@ -176,7 +182,7 @@ async fn set_modified_changes_the_time_of_a_file_with_an_awkward_name() {
 async fn set_modified_on_a_missing_file_is_an_error() {
     let (server, fs) = open().await;
 
-    let error = fs.set_modified(&at(&server, "missing"), 5).await.unwrap_err();
+    let error = fs.set_modified(&vat(&server, "missing"), 5).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -186,7 +192,7 @@ async fn set_modified_on_a_missing_file_does_not_create_it() {
     let (server, fs) = open().await;
     let path = at(&server, "missing");
 
-    let _ = fs.set_modified(&path, 5).await;
+    let _ = fs.set_modified(&from_os_path(&path), 5).await;
 
     assert!(!path.exists());
 }
@@ -198,10 +204,10 @@ async fn an_old_file_keeps_its_exact_time_through_set_modified_and_a_listing() {
     let path = at(&server, "old.txt");
     std::fs::write(&path, b"x").unwrap();
 
-    fs.set_modified(&path, 1_400_000_123).await.unwrap();
+    fs.set_modified(&from_os_path(&path), 1_400_000_123).await.unwrap();
 
-    assert_eq!(fs.stat(&path).await.unwrap().modified, Some(1_400_000_123));
-    let listed = fs.read_dir(server.root.path()).await.unwrap();
+    assert_eq!(fs.stat(&from_os_path(&path)).await.unwrap().modified, Some(1_400_000_123));
+    let listed = fs.read_dir(&root(&server)).await.unwrap();
     let item = listed.iter().find(|item| item.name == "old.txt").unwrap();
     assert_eq!(item.metadata.modified, Some(1_400_000_123));
 }
@@ -214,7 +220,7 @@ async fn set_modified_runs_a_single_command() {
     std::fs::write(&path, b"x").unwrap();
     let before = server.started_commands();
 
-    fs.set_modified(&path, 1_700_000_000).await.unwrap();
+    fs.set_modified(&from_os_path(&path), 1_700_000_000).await.unwrap();
 
     assert_eq!(server.started_commands() - before, 1);
 }
@@ -225,7 +231,7 @@ async fn set_modified_on_a_dangling_link_is_not_found_and_creates_nothing() {
     let link = at(&server, "dangling");
     std::os::unix::fs::symlink(at(&server, "target"), &link).unwrap();
 
-    let error = fs.set_modified(&link, 5).await.unwrap_err();
+    let error = fs.set_modified(&from_os_path(&link), 5).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
     assert!(!at(&server, "target").exists());
@@ -246,7 +252,7 @@ async fn remove_dir_removes_an_empty_folder() {
     let (server, fs) = open().await;
     std::fs::create_dir(at(&server, "empty")).unwrap();
 
-    fs.remove_dir(&at(&server, "empty")).await.unwrap();
+    fs.remove_dir(&vat(&server, "empty")).await.unwrap();
 
     assert!(!at(&server, "empty").exists());
 }
@@ -257,7 +263,7 @@ async fn remove_dir_refuses_a_folder_with_contents_and_keeps_them() {
     std::fs::create_dir_all(at(&server, "full/inner")).unwrap();
     std::fs::write(at(&server, "full/inner/keep.txt"), b"keep").unwrap();
 
-    assert!(fs.remove_dir(&at(&server, "full")).await.is_err());
+    assert!(fs.remove_dir(&vat(&server, "full")).await.is_err());
 
     assert!(at(&server, "full/inner/keep.txt").exists());
 }
@@ -267,7 +273,7 @@ async fn remove_dir_refuses_a_file_and_keeps_it() {
     let (server, fs) = open().await;
     std::fs::write(at(&server, "f"), b"f").unwrap();
 
-    assert!(fs.remove_dir(&at(&server, "f")).await.is_err());
+    assert!(fs.remove_dir(&vat(&server, "f")).await.is_err());
 
     assert!(at(&server, "f").exists());
 }
@@ -280,7 +286,7 @@ async fn list_reports_the_numeric_owner_and_group_of_a_new_file() {
     std::fs::write(at(&server, "a.txt"), b"hello").unwrap();
     let metadata = std::fs::metadata(at(&server, "a.txt")).unwrap();
 
-    let entries = fs.list(server.root.path()).await.unwrap();
+    let entries = fs.list(&root(&server)).await.unwrap();
 
     assert_eq!(entries[0].owner, Some(metadata.uid().to_string()));
     assert_eq!(entries[0].group, Some(metadata.gid().to_string()));
@@ -290,7 +296,7 @@ async fn list_reports_the_numeric_owner_and_group_of_a_new_file() {
 async fn free_space_of_a_folder_is_reported() {
     let (server, fs) = open().await;
 
-    let free = fs.free_space(server.root.path()).await.unwrap();
+    let free = fs.free_space(&root(&server)).await.unwrap();
 
     assert!(free.is_some_and(|bytes| bytes > 0), "{free:?}");
 }
@@ -299,7 +305,7 @@ async fn free_space_of_a_folder_is_reported() {
 async fn free_space_of_a_missing_folder_is_not_found() {
     let (server, fs) = open().await;
 
-    let error = fs.free_space(&at(&server, "missing")).await.unwrap_err();
+    let error = fs.free_space(&vat(&server, "missing")).await.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -309,4 +315,27 @@ async fn a_fresh_scp_session_reports_its_connection_alive() {
     let (_server, fs) = open().await;
 
     assert_eq!(fs.connection_alive().await, Some(true));
+}
+
+#[tokio::test]
+async fn names_that_look_like_windows_paths_round_trip() {
+    let (server, fs) = open().await;
+    let odd = ["x:1.txt", "a\\b", "con", "name."];
+    for name in odd {
+        let mut writer = fs.open_write(&vat(&server, name), 0).await.unwrap();
+        writer.stream.write_all(name.as_bytes()).await.unwrap();
+        writer.stream.shutdown().await.unwrap();
+    }
+
+    let mut expected: Vec<(String, bool)> = odd.iter().map(|name| (name.to_string(), false)).collect();
+    expected.sort();
+    assert_eq!(names(fs.as_ref(), &root(&server)).await, expected);
+    assert_eq!(fs.stat(&vat(&server, "a\\b")).await.unwrap().size, 3);
+
+    fs.rename(&vat(&server, "a\\b"), &vat(&server, "c\\d")).await.unwrap();
+    assert_eq!(std::fs::read(at(&server, "c\\d")).unwrap(), b"a\\b");
+    for name in ["x:1.txt", "c\\d", "con", "name."] {
+        fs.delete(&vat(&server, name)).await.unwrap();
+    }
+    assert!(names(fs.as_ref(), &root(&server)).await.is_empty());
 }

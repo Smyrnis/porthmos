@@ -1,8 +1,10 @@
-use std::path::{Component, Path};
-
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
+use porthmos_vfs::VfsPath;
+
 use crate::settings::Addressing;
+
+const PARENT: &str = "..";
 
 pub(crate) const UNRESERVED: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
 
@@ -29,21 +31,19 @@ impl Location {
     }
 }
 
-pub(crate) fn segments(path: &Path) -> Vec<String> {
+pub(crate) fn segments(path: &VfsPath) -> Vec<String> {
     let mut segments = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(name) => segments.push(name.to_string_lossy().into_owned()),
-            Component::ParentDir => {
-                segments.pop();
-            }
-            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+    for segment in path.segments() {
+        if segment == PARENT {
+            segments.pop();
+        } else {
+            segments.push(segment.to_string_lossy().into_owned());
         }
     }
     segments
 }
 
-pub(crate) fn locate(path: &Path, configured: Option<&str>) -> Location {
+pub(crate) fn locate(path: &VfsPath, configured: Option<&str>) -> Location {
     let mut segments = segments(path);
     let bucket = match configured {
         Some(bucket) => bucket.to_string(),

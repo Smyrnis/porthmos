@@ -1,4 +1,4 @@
-use porthmos_core::{Command, Event, Severity, UpdateMode, UpdateState};
+use porthmos_core::{Command, Event, Severity, UpdateMode, UpdateState, VfsPath};
 
 use crate::{
     app::testing::{TestApp, test_app},
@@ -6,8 +6,7 @@ use crate::{
 };
 
 fn app_in(mode: UpdateMode) -> TestApp {
-    let dir = tempfile::tempdir().unwrap();
-    let mut test = test_app(dir.path());
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app = test.app.with_update_mode(mode);
     test
 }

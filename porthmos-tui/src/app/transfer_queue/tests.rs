@@ -1,8 +1,6 @@
-use std::{
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
+use porthmos_core::VfsPath;
 use porthmos_core::transfer::{
     JobStatus, TransferQueue,
     rows::{RowState, ScanInfo},
@@ -12,7 +10,7 @@ use super::*;
 use crate::app::testing::{TestApp, test_app};
 
 fn app_on_transfers_screen() -> TestApp {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::OpenTransfers);
     test
 }
@@ -21,7 +19,7 @@ fn add_job(queue: &mut TransferQueue, name: &str, batch_id: Option<u64>, status:
     let id = queue.enqueue(
         999,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -203,7 +201,7 @@ fn job_for(queue: &mut TransferQueue, session: u64, direction: Direction, name: 
     let id = queue.enqueue(
         session,
         direction,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -464,7 +462,7 @@ fn the_speed_limit_dialog_starts_with_the_current_limit_in_the_form_it_accepts()
 
 #[test]
 fn the_speed_limit_can_be_set_from_any_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_action(Action::SpeedLimit);
 
@@ -578,7 +576,7 @@ fn p_on_a_finished_row_or_with_no_rows_sends_nothing() {
 
 #[test]
 fn pausing_is_available_only_on_the_transfers_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     showing_rows(&mut test, &[RowState::Running]);
 
     test.sent();
@@ -637,7 +635,7 @@ fn reordering_a_finished_row_or_with_no_rows_sends_nothing() {
 
 #[test]
 fn reordering_is_available_only_on_the_transfers_screen() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     showing_rows(&mut test, &[RowState::Queued, RowState::Queued]);
 
     test.sent();

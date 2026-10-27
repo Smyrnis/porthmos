@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
 use crossterm::event::KeyEventState;
 use porthmos_core::{Answer, ConnectionForm, OptionField, OptionKind, ProtocolInfo, profiles::ProfileDraft};
@@ -13,7 +13,7 @@ use crate::{
 };
 
 fn app() -> TestApp {
-    test_app(Path::new("/d"))
+    test_app(&VfsPath::new("/d"))
 }
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -58,7 +58,7 @@ fn sample_protocols() -> Vec<ProtocolInfo> {
 }
 
 fn screen_with(protocols: Vec<ProtocolInfo>, entries: Vec<ConnectionEntry>) -> TestApp {
-    let mut test = test_app_with_protocols(Path::new("/d"), protocols);
+    let mut test = test_app_with_protocols(&VfsPath::new("/d"), protocols);
     test.app.screen = Screen::Connections;
     test.app.connections.replace(entries);
     test.app.connections.cursor = 0;
@@ -153,7 +153,7 @@ fn panel_event_listed_updates_the_matching_sessions_panel() {
 
     test.list_remote(id, "/home/user", Vec::new());
 
-    assert_eq!(test.app.sessions.active().unwrap().panel.path(), Path::new("/home/user"));
+    assert_eq!(test.app.sessions.active().unwrap().panel.path(), &VfsPath::new("/home/user"));
 }
 
 #[test]

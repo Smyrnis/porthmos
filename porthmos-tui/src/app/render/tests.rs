@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use chrono::TimeZone;
 use porthmos_core::{
@@ -17,7 +17,7 @@ use crate::{
 };
 
 fn app_in_temp_dir() -> ((), App) {
-    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let TestApp { app, .. } = test_app(&VfsPath::new("/d"));
     ((), app)
 }
 
@@ -80,7 +80,7 @@ fn indexed_theme() -> Theme {
 }
 
 fn themed_app() -> (App, Theme) {
-    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let TestApp { app, .. } = test_app(&VfsPath::new("/d"));
     let theme = indexed_theme();
     (app.with_theme(theme.clone()), theme)
 }
@@ -122,7 +122,7 @@ fn the_whole_screen_is_painted_with_the_theme_background() {
 
 #[test]
 fn the_terminal_background_setting_leaves_cells_unpainted() {
-    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let TestApp { app, .. } = test_app(&VfsPath::new("/d"));
     let settings = ThemeSettings { terminal_background: true, ..ThemeSettings::default() };
     let app = app.with_theme(Theme::new(ColorDepth::Indexed, &settings));
 
@@ -183,7 +183,7 @@ fn a_dialog_is_drawn_on_the_themed_background() {
 }
 
 fn add_session(app: &mut App, id: u64, name: &str) {
-    app.sessions.insert(id, name.to_string(), true, PanelView::from_listing(PathBuf::from("/"), Vec::new()));
+    app.sessions.insert(id, name.to_string(), true, PanelView::from_listing(VfsPath::from("/"), Vec::new()));
 }
 
 fn saved_connection(name: &str, protocol: &str) -> ConnectionEntry {
@@ -589,7 +589,7 @@ fn with_clock_replaces_the_time_source() {
 }
 
 fn listed_app(entries: Vec<Entry>) -> (App, Theme) {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.list_local(entries);
     let theme = indexed_theme();
     let moment = chrono::Local.with_ymd_and_hms(2026, 10, 20, 12, 0, 0).unwrap();
@@ -599,7 +599,7 @@ fn listed_app(entries: Vec<Entry>) -> (App, Theme) {
 fn deploy_script() -> Entry {
     Entry {
         name: "deploy.sh".to_string(),
-        path: PathBuf::from("/d/deploy.sh"),
+        path: VfsPath::from("/d/deploy.sh"),
         is_dir: false,
         size: 2457,
         permissions: Some(0o100755),
@@ -725,16 +725,27 @@ fn connecting_shows_the_target_name_in_the_remote_panel() {
 
 #[test]
 fn the_home_directory_is_shown_as_a_tilde() {
-    let home = Path::new("/home/me");
+    let home = &VfsPath::new("/home/me");
 
-    assert_eq!(abbreviate_home(Path::new("/home/me/projects"), Some(home)), "~/projects");
-    assert_eq!(abbreviate_home(Path::new("/home/me"), Some(home)), "~");
-    assert_eq!(abbreviate_home(Path::new("/home/mex"), Some(home)), "/home/mex");
-    assert_eq!(abbreviate_home(Path::new("/etc"), Some(home)), "/etc");
-    assert_eq!(abbreviate_home(Path::new("/home/me/x"), None), "/home/me/x");
-    assert_eq!(abbreviate_home(Path::new("/etc"), Some(Path::new("/"))), "/etc");
-    assert_eq!(abbreviate_home(Path::new("/"), Some(Path::new("/"))), "/");
-    assert_eq!(abbreviate_home(Path::new("/etc"), Some(Path::new(""))), "/etc");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/projects"), Some(home)), "~/projects");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me"), Some(home)), "~");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/mex"), Some(home)), "/home/mex");
+    assert_eq!(abbreviate_home(&VfsPath::new("/etc"), Some(home)), "/etc");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/x"), None), "/home/me/x");
+    assert_eq!(abbreviate_home(&VfsPath::new("/etc"), Some(&VfsPath::new("/"))), "/etc");
+    assert_eq!(abbreviate_home(&VfsPath::new("/"), Some(&VfsPath::new("/"))), "/");
+    assert_eq!(abbreviate_home(&VfsPath::new("/etc"), Some(&VfsPath::new(""))), "/etc");
+}
+
+#[test]
+fn the_panel_header_shortens_the_home_folder_for_a_vfs_path() {
+    let home = &VfsPath::new("/home/me");
+    let drive_home = &VfsPath::new("/C:/Users/me");
+
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/a\\b"), Some(home)), "~/a\\b");
+    assert_eq!(abbreviate_home(&VfsPath::new("/C:/Users/me/docs"), Some(drive_home)), "~/docs");
+    assert_eq!(abbreviate_home(&VfsPath::new("/C:/Users/other"), Some(drive_home)), "/C:/Users/other");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/"), Some(home)), "~");
 }
 
 #[test]
@@ -852,7 +863,7 @@ fn running_snapshot(session: u64, label: &str) -> porthmos_core::transfer::Trans
     let id = queue.enqueue(
         session,
         Direction::Upload,
-        PathBuf::from(format!("/local/{label}")),
+        VfsPath::from(format!("/local/{label}")),
         format!("/remote/{label}"),
         label.to_string(),
         100,
@@ -936,7 +947,7 @@ fn transfer_rows_snapshot() -> porthmos_core::transfer::TransferSnapshot {
         let id = queue.enqueue(
             1,
             Direction::Download,
-            PathBuf::from(format!("/local/{name}")),
+            VfsPath::from(format!("/local/{name}")),
             format!("/remote/{name}"),
             name.to_string(),
             100,
@@ -1325,7 +1336,7 @@ fn form_protocols() -> Vec<porthmos_core::ProtocolInfo> {
 }
 
 fn form_app() -> (App, tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Command>) {
-    let TestApp { app, commands } = crate::app::testing::test_app_with_protocols(Path::new("/d"), form_protocols());
+    let TestApp { app, commands } = crate::app::testing::test_app_with_protocols(&VfsPath::new("/d"), form_protocols());
     let mut app = app.with_theme(indexed_theme());
     app.connections.replace(vec![saved_connection("prod", "sftp"), saved_connection("backup", "sftp")]);
     app.screen = Screen::Connections;
@@ -1586,7 +1597,7 @@ fn the_files_screen_reminds_you_of_paused_transfers_when_nothing_else_is_running
     let id = queue.enqueue(
         1,
         porthmos_core::transfer::Direction::Upload,
-        std::path::PathBuf::from("/l/a"),
+        VfsPath::from("/l/a"),
         "/r/a".to_string(),
         "a".to_string(),
         10,

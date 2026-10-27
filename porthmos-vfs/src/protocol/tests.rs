@@ -111,7 +111,7 @@ fn args_of(invocation: &ShellInvocation) -> Vec<String> {
 
 #[test]
 fn starting_in_a_directory_asks_for_a_terminal_and_changes_into_it_before_the_shell() {
-    let started = ssh_invocation().starting_in(Path::new("/home/tester/docs"));
+    let started = ssh_invocation().starting_in(&VfsPath::new("/home/tester/docs"));
 
     assert_eq!(args_of(&started), ["-p", "22", "-t", "deploy@example.com", "cd '/home/tester/docs' && exec $SHELL -l"]);
     assert_eq!(started.program, "ssh");
@@ -120,7 +120,7 @@ fn starting_in_a_directory_asks_for_a_terminal_and_changes_into_it_before_the_sh
 
 #[test]
 fn starting_in_a_directory_quotes_spaces_and_apostrophes() {
-    let started = ssh_invocation().starting_in(Path::new("/srv/it's mine; rm -rf"));
+    let started = ssh_invocation().starting_in(&VfsPath::new("/srv/it's mine; rm -rf"));
 
     assert_eq!(args_of(&started).last().unwrap(), "cd '/srv/it'\\''s mine; rm -rf' && exec $SHELL -l");
 }
@@ -133,7 +133,7 @@ fn starting_in_a_directory_keeps_a_sshpass_wrapper_in_front() {
         env: Vec::new(),
     };
 
-    let started = wrapped.starting_in(Path::new("/x"));
+    let started = wrapped.starting_in(&VfsPath::new("/x"));
 
     assert_eq!(args_of(&started), ["-e", "ssh", "-p", "22", "-t", "deploy@example.com", "cd '/x' && exec $SHELL -l"]);
 }
@@ -142,5 +142,5 @@ fn starting_in_a_directory_keeps_a_sshpass_wrapper_in_front() {
 fn an_invocation_without_arguments_is_left_as_it_was() {
     let bare = ShellInvocation { program: "ssh".into(), args: Vec::new(), env: Vec::new() };
 
-    assert_eq!(bare.clone().starting_in(Path::new("/x")), bare);
+    assert_eq!(bare.clone().starting_in(&VfsPath::new("/x")), bare);
 }

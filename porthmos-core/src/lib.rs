@@ -30,10 +30,11 @@ pub use config::{UpdateMode, UpdateSettings};
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, user_message};
 pub use paths::{ConfigMigration, Paths};
+pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{
     Answer, Choice, CommonField, ConnectionForm, DirItem, Entry, Environment, ErrorKind, FileKind, FileSystem,
     Metadata, OptionField, OptionKind, PortField, Protocol, ProtocolError, Question, SearchEvent, SearchQuery,
-    ShellInvocation, Target, glob_match, path_to_remote_string,
+    ShellInvocation, Target, VfsPath, glob_match,
 };
 pub use protocol_info::ProtocolInfo;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};

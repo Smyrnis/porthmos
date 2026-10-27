@@ -18,7 +18,7 @@ impl App {
             self.notifications.push(Severity::Warning, "This connection doesn't support a terminal session");
             return;
         }
-        let directory = Some(session.panel.path().to_path_buf());
+        let directory = Some(session.panel.path().clone());
         self.core.send(Command::PrepareShell { session: session.id, directory });
     }
 
@@ -364,7 +364,7 @@ impl App {
         if self.sessions.activate(session) {
             return;
         }
-        let placeholder_panel = PanelView::from_listing(PathBuf::from("/"), Vec::new());
+        let placeholder_panel = PanelView::from_listing(VfsPath::root(), Vec::new());
         self.sessions.insert(session, name, shell_available, placeholder_panel);
     }
 }

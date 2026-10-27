@@ -4,7 +4,7 @@ fn queue_with_one_job(queue: &mut TransferQueue) -> u64 {
     queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from("/local/file.txt"),
+        VfsPath::from("/local/file.txt"),
         "/remote/file.txt".to_string(),
         "file.txt".to_string(),
         100,
@@ -16,7 +16,7 @@ fn queue_with_a_batch_job(queue: &mut TransferQueue, batch_id: u64, name: &str, 
     queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         total_bytes,
@@ -74,7 +74,7 @@ fn fail_queued_for_session_marks_only_that_sessions_queued_jobs() {
     let a1 = queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from("/local/a1.txt"),
+        VfsPath::from("/local/a1.txt"),
         "/remote/a1.txt".to_string(),
         "a1.txt".to_string(),
         10,
@@ -83,7 +83,7 @@ fn fail_queued_for_session_marks_only_that_sessions_queued_jobs() {
     let a2 = queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from("/local/a2.txt"),
+        VfsPath::from("/local/a2.txt"),
         "/remote/a2.txt".to_string(),
         "a2.txt".to_string(),
         10,
@@ -94,7 +94,7 @@ fn fail_queued_for_session_marks_only_that_sessions_queued_jobs() {
     let in_progress = queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from("/local/a3.txt"),
+        VfsPath::from("/local/a3.txt"),
         "/remote/a3.txt".to_string(),
         "a3.txt".to_string(),
         10,
@@ -137,7 +137,7 @@ fn enqueue_for(queue: &mut TransferQueue, session_id: u64, direction: Direction,
     queue.enqueue(
         session_id,
         direction,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -552,7 +552,7 @@ fn add_job(queue: &mut TransferQueue, name: &str, batch: Option<u64>, session: u
     queue.enqueue(
         session,
         direction,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         100,
@@ -1197,7 +1197,7 @@ fn named_job(queue: &mut TransferQueue, name: &str) -> u64 {
     queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -1254,9 +1254,9 @@ fn nothing_starts_while_every_queued_job_is_paused() {
 fn a_paused_job_of_another_session_does_not_block_the_first_job_of_this_one() {
     let mut queue = TransferQueue::new();
     let blocked =
-        queue.enqueue(1, Direction::Upload, PathBuf::from("/l/a"), "/r/a".to_string(), "a".to_string(), 1, None);
+        queue.enqueue(1, Direction::Upload, VfsPath::from("/l/a"), "/r/a".to_string(), "a".to_string(), 1, None);
     let other =
-        queue.enqueue(2, Direction::Upload, PathBuf::from("/l/b"), "/r/b".to_string(), "b".to_string(), 1, None);
+        queue.enqueue(2, Direction::Upload, VfsPath::from("/l/b"), "/r/b".to_string(), "b".to_string(), 1, None);
     pause(&mut queue, blocked);
 
     assert_eq!(queue.startable(4), vec![other]);
@@ -1352,7 +1352,7 @@ fn row_of_files(queue: &mut TransferQueue, name: &str, session: u64, files: &[&s
         queue.enqueue(
             session,
             Direction::Upload,
-            PathBuf::from(format!("/local/{name}/{file}")),
+            VfsPath::from(format!("/local/{name}/{file}")),
             format!("/remote/{name}/{file}"),
             file.to_string(),
             10,
@@ -1516,7 +1516,7 @@ fn a_file_added_to_a_moved_row_later_keeps_that_rows_place() {
     queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from("/local/B/b2"),
+        VfsPath::from("/local/B/b2"),
         "/remote/B/b2".to_string(),
         "b2".to_string(),
         10,
@@ -1640,7 +1640,7 @@ fn shared_destination_job(queue: &mut TransferQueue, local: &str) -> u64 {
     queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from(format!("/local/{local}")),
+        VfsPath::from(format!("/local/{local}")),
         "/remote/shared.txt".to_string(),
         local.to_string(),
         10,
@@ -1812,7 +1812,7 @@ fn a_row_keeps_its_place_when_its_first_job_is_removed_even_if_it_sits_at_its_ow
     queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from("/local/B/b2"),
+        VfsPath::from("/local/B/b2"),
         "/remote/B/b2".to_string(),
         "b2".to_string(),
         10,

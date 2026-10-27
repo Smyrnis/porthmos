@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use porthmos_core::{
     Command, Event,
@@ -27,7 +27,7 @@ fn host(name: &str, labelled: bool) -> ConnectionEntry {
 
 #[test]
 fn missing_hosts_are_announced_once() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_core_event(Event::Profiles(vec![missing("web1"), missing("db2")]));
     let Some(Dialog::Message(message)) = &test.app.dialog else { panic!("no announcement") };
@@ -44,7 +44,7 @@ fn missing_hosts_are_announced_once() {
 
 #[test]
 fn the_announcement_waits_while_another_dialog_is_open() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.dialog = Some(Dialog::Confirm(crate::widgets::dialog::ConfirmDialog::new("busy")));
 
     test.app.apply_core_event(Event::Profiles(vec![missing("web1")]));
@@ -57,7 +57,7 @@ fn the_announcement_waits_while_another_dialog_is_open() {
 
 #[test]
 fn forget_sends_forget_labels() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.announced_missing.insert("web1".into());
     test.app.connections.replace(vec![missing("web1")]);
 
@@ -69,7 +69,7 @@ fn forget_sends_forget_labels() {
 
 #[test]
 fn move_offers_unlabelled_hosts_and_sends_the_pick() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.announced_missing.insert("old".into());
     test.app.connections.replace(vec![missing("old"), host("labelled", true), host("new", false)]);
 
@@ -83,7 +83,7 @@ fn move_offers_unlabelled_hosts_and_sends_the_pick() {
 
 #[test]
 fn move_without_candidates_shows_a_notice() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.announced_missing.insert("old".into());
     test.app.connections.replace(vec![missing("old")]);
 
@@ -95,7 +95,7 @@ fn move_without_candidates_shows_a_notice() {
 
 #[test]
 fn enter_on_a_missing_row_opens_the_fix_dialog() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.announced_missing.insert("web1".into());
     test.app.screen = crate::app::Screen::Connections;
     test.app.connections.replace(vec![missing("web1")]);
@@ -110,7 +110,7 @@ fn enter_on_a_missing_row_opens_the_fix_dialog() {
 
 #[test]
 fn choosing_from_the_fix_list_by_key_reaches_the_choice() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.announced_missing.insert("web1".into());
     test.app.screen = crate::app::Screen::Connections;
     test.app.connections.replace(vec![missing("web1")]);
@@ -140,7 +140,7 @@ fn press(test: &mut crate::app::testing::TestApp, code: crossterm::event::KeyCod
 
 #[test]
 fn the_announcement_appears_once_the_blocking_dialog_closes() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.dialog = Some(Dialog::Confirm(crate::widgets::dialog::ConfirmDialog::new("busy")));
     test.app.apply_core_event(Event::Profiles(vec![missing("web1")]));
 
@@ -152,7 +152,7 @@ fn the_announcement_appears_once_the_blocking_dialog_closes() {
 
 #[test]
 fn shadowed_hosts_get_their_own_sentence_and_title() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_core_event(Event::Profiles(vec![missing("old"), shadowed("web1")]));
 
@@ -174,7 +174,7 @@ fn shadowed_hosts_get_their_own_sentence_and_title() {
 
 #[test]
 fn closing_the_announcement_does_not_announce_again() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_core_event(Event::Profiles(vec![missing("web1")]));
 
     press(&mut test, crossterm::event::KeyCode::Enter);

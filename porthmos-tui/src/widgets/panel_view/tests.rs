@@ -23,23 +23,23 @@ fn from_listing_builds_rows_from_provided_entries() {
     let entries = vec![Entry {
         modified: None,
         name: "remote_dir".to_string(),
-        path: PathBuf::from("/home/user/remote_dir"),
+        path: VfsPath::from("/home/user/remote_dir"),
         is_dir: true,
         size: 0,
         permissions: None,
         ..Default::default()
     }];
 
-    let panel = PanelView::from_listing(PathBuf::from("/home/user"), entries);
+    let panel = PanelView::from_listing(VfsPath::from("/home/user"), entries);
 
-    assert_eq!(panel.path(), Path::new("/home/user"));
+    assert_eq!(panel.path(), &VfsPath::new("/home/user"));
     assert_eq!(panel.rows().len(), 2);
     assert_eq!(panel.rows()[0], Row::Parent);
 }
 
 #[test]
 fn from_listing_at_root_has_no_parent_row() {
-    let panel = PanelView::from_listing(PathBuf::from("/"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/"), Vec::new());
 
     assert!(panel.rows().is_empty());
 }
@@ -49,25 +49,25 @@ fn target_path_for_open_resolves_parent_and_directory_targets() {
     let entries = vec![Entry {
         modified: None,
         name: "child".to_string(),
-        path: PathBuf::from("/home/user/child"),
+        path: VfsPath::from("/home/user/child"),
         is_dir: true,
         size: 0,
         permissions: None,
         ..Default::default()
     }];
-    let mut panel = PanelView::from_listing(PathBuf::from("/home/user"), entries);
+    let mut panel = PanelView::from_listing(VfsPath::from("/home/user"), entries);
 
-    assert_eq!(panel.target_path_for_open(), Some(PathBuf::from("/home")));
+    assert_eq!(panel.target_path_for_open(), Some(VfsPath::from("/home")));
 
     panel.cursor = 1;
-    assert_eq!(panel.target_path_for_open(), Some(PathBuf::from("/home/user/child")));
+    assert_eq!(panel.target_path_for_open(), Some(VfsPath::from("/home/user/child")));
 }
 
 fn file(dir: &str, name: &str, size: u64) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: PathBuf::from(dir).join(name),
+        path: VfsPath::from(dir).join(name),
         is_dir: false,
         size,
         permissions: None,
@@ -79,7 +79,7 @@ fn folder(dir: &str, name: &str) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: PathBuf::from(dir).join(name),
+        path: VfsPath::from(dir).join(name),
         is_dir: true,
         size: 0,
         permissions: None,
@@ -100,7 +100,7 @@ fn names(panel: &PanelView) -> Vec<String> {
 
 #[test]
 fn new_panel_lists_the_given_directory() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "file.txt", 7)]);
+    let panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "file.txt", 7)]);
 
     assert_eq!(panel.rows().len(), 2);
     assert_eq!(panel.rows()[0], Row::Parent);
@@ -108,7 +108,7 @@ fn new_panel_lists_the_given_directory() {
 
 #[test]
 fn move_cursor_clamps_within_bounds() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "file.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "file.txt", 7)]);
 
     panel.move_cursor(-5);
     assert_eq!(panel.cursor, 0);
@@ -119,33 +119,33 @@ fn move_cursor_clamps_within_bounds() {
 
 #[test]
 fn navigate_to_changes_the_path_and_refreshes() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![folder("/d", "child")]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![folder("/d", "child")]);
 
-    panel.replace_listing(PathBuf::from("/d/child"), vec![file("/d/child", "inner.txt", 1)]);
+    panel.replace_listing(VfsPath::from("/d/child"), vec![file("/d/child", "inner.txt", 1)]);
 
-    assert_eq!(panel.path(), Path::new("/d/child"));
+    assert_eq!(panel.path(), &VfsPath::new("/d/child"));
     assert_eq!(names(&panel), ["inner.txt"]);
 }
 
 #[test]
 fn open_selected_navigates_into_a_directory() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![folder("/d", "child")]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![folder("/d", "child")]);
     panel.cursor = panel.rows().len() - 1;
 
-    assert_eq!(panel.target_path_for_open(), Some(PathBuf::from("/d/child")));
+    assert_eq!(panel.target_path_for_open(), Some(VfsPath::from("/d/child")));
 }
 
 #[test]
 fn open_selected_on_parent_row_navigates_up() {
-    let panel = PanelView::from_listing(PathBuf::from("/d/child"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/d/child"), Vec::new());
     assert_eq!(panel.rows()[0], Row::Parent);
 
-    assert_eq!(panel.target_path_for_open(), Some(PathBuf::from("/d")));
+    assert_eq!(panel.target_path_for_open(), Some(VfsPath::from("/d")));
 }
 
 #[test]
 fn opening_a_file_row_goes_nowhere() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
     panel.cursor = 1;
 
     assert_eq!(panel.target_path_for_open(), None);
@@ -153,7 +153,7 @@ fn opening_a_file_row_goes_nowhere() {
 
 #[test]
 fn toggle_selection_adds_and_removes_the_current_entry() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "file.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "file.txt", 7)]);
     panel.cursor = panel.rows().len() - 1;
 
     panel.toggle_selection();
@@ -166,7 +166,7 @@ fn toggle_selection_adds_and_removes_the_current_entry() {
 #[test]
 fn reloading_the_same_folder_keeps_the_selected_entries_that_still_exist() {
     let mut panel = PanelView::from_listing(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![file("/d", "a.txt", 1), file("/d", "b.txt", 1), file("/d", "c.txt", 1)],
     );
     panel.cursor = 2;
@@ -174,55 +174,55 @@ fn reloading_the_same_folder_keeps_the_selected_entries_that_still_exist() {
     panel.cursor = 3;
     panel.toggle_selection();
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1), file("/d", "c.txt", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1), file("/d", "c.txt", 1)]);
 
-    assert_eq!(panel.selected, HashSet::from([PathBuf::from("/d/c.txt")]));
+    assert_eq!(panel.selected, HashSet::from([VfsPath::from("/d/c.txt")]));
 }
 
 #[test]
 fn entering_another_folder_clears_the_selection() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "file.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "file.txt", 7)]);
     panel.cursor = 1;
     panel.toggle_selection();
 
-    panel.replace_listing(PathBuf::from("/d/sub"), vec![file("/d/sub", "file.txt", 7)]);
+    panel.replace_listing(VfsPath::from("/d/sub"), vec![file("/d/sub", "file.txt", 7)]);
 
     assert!(panel.selected.is_empty());
 }
 
 #[test]
 fn reloading_the_same_folder_keeps_the_cursor_on_the_same_entry() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "big.txt", 1)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "big.txt", 1)]);
     panel.cursor = 1;
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "aaa.bin", 1), file("/d", "big.txt", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "aaa.bin", 1), file("/d", "big.txt", 1)]);
 
     assert_eq!(cursor_name(&panel), Some("big.txt"));
 }
 
 #[test]
 fn reloading_keeps_the_cursor_in_range_when_its_entry_disappears() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
     panel.cursor = 2;
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
 
     assert_eq!(panel.cursor, 1);
 }
 
 #[test]
 fn reloading_keeps_the_cursor_on_the_parent_row() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
     panel.cursor = 0;
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "0", 1), file("/d", "a", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "0", 1), file("/d", "a", 1)]);
 
     assert!(panel.on_parent_row());
 }
 
 #[test]
 fn target_entries_returns_the_cursor_entry_without_a_selection() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "only.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "only.txt", 7)]);
     panel.cursor = panel.rows().len() - 1;
 
     let entries = panel.target_entries();
@@ -233,7 +233,7 @@ fn target_entries_returns_the_cursor_entry_without_a_selection() {
 
 #[test]
 fn target_entries_returns_all_selected_entries() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 7), file("/d", "b.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 7), file("/d", "b.txt", 7)]);
     panel.cursor = 1;
     panel.toggle_selection();
     panel.cursor = 2;
@@ -247,7 +247,7 @@ fn target_entries_returns_all_selected_entries() {
 
 #[test]
 fn delete_targets_removes_selected_entries() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 7), file("/d", "b.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 7), file("/d", "b.txt", 7)]);
     panel.cursor = 1;
     panel.toggle_selection();
     panel.cursor = 2;
@@ -256,28 +256,28 @@ fn delete_targets_removes_selected_entries() {
     let mut targets = panel.targets();
     targets.sort();
 
-    assert_eq!(targets, vec![PathBuf::from("/d/a.txt"), PathBuf::from("/d/b.txt")]);
+    assert_eq!(targets, vec![VfsPath::from("/d/a.txt"), VfsPath::from("/d/b.txt")]);
 }
 
 #[test]
 fn delete_targets_falls_back_to_cursor_entry_without_selection() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "only.txt", 7)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "only.txt", 7)]);
     panel.cursor = panel.rows().len() - 1;
 
-    assert_eq!(panel.targets(), vec![PathBuf::from("/d/only.txt")]);
+    assert_eq!(panel.targets(), vec![VfsPath::from("/d/only.txt")]);
 }
 
 #[test]
 fn hidden_entries_are_excluded_by_default() {
     let panel =
-        PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", ".hidden", 1), file("/d", "visible.txt", 1)]);
+        PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", ".hidden", 1), file("/d", "visible.txt", 1)]);
 
     assert_eq!(names(&panel), vec!["visible.txt".to_string()]);
 }
 
 #[test]
 fn toggle_hidden_reveals_dotfiles_without_touching_the_filesystem() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", ".hidden", 1)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", ".hidden", 1)]);
 
     panel.toggle_hidden();
     assert_eq!(names(&panel), vec![".hidden".to_string()]);
@@ -289,7 +289,7 @@ fn toggle_hidden_reveals_dotfiles_without_touching_the_filesystem() {
 #[test]
 fn cycle_sort_reorders_rows_by_size_when_advanced_twice() {
     let mut panel =
-        PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "big.txt", 100), file("/d", "small.txt", 1)]);
+        PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "big.txt", 100), file("/d", "small.txt", 1)]);
 
     panel.cycle_sort();
     panel.cycle_sort();
@@ -300,9 +300,9 @@ fn cycle_sort_reorders_rows_by_size_when_advanced_twice() {
 #[test]
 fn set_sort_spec_and_set_show_hidden_apply_immediately() {
     let spec = SortSpec { key: SortKey::Size, order: SortOrder::Descending };
-    let mut panel = PanelView::new(PathBuf::from("/d"), spec, true);
+    let mut panel = PanelView::new(VfsPath::from("/d"), spec, true);
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", ".hidden", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", ".hidden", 1)]);
 
     assert_eq!(panel.rows().len(), 2);
     assert_eq!(panel.sort_spec(), spec);
@@ -311,17 +311,17 @@ fn set_sort_spec_and_set_show_hidden_apply_immediately() {
 #[test]
 fn a_shrinking_listing_keeps_the_cursor_on_a_row() {
     let mut panel =
-        PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1), file("/d", "c", 1)]);
+        PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1), file("/d", "c", 1)]);
     panel.cursor = 3;
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
 
     assert_eq!(panel.cursor, 1);
 }
 
 fn filter_panel() -> PanelView {
     PanelView::from_listing(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![
             folder("/d", "porthmos"),
             file("/d", "Report.pdf", 1),
@@ -392,7 +392,7 @@ fn only_visible_selected_files_are_targets() {
     panel.start_filter();
     type_text(&mut panel, "pdf");
 
-    assert_eq!(panel.targets(), vec![PathBuf::from("/d/Report.pdf")]);
+    assert_eq!(panel.targets(), vec![VfsPath::from("/d/Report.pdf")]);
     assert_eq!(panel.target_entries().iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(), vec!["Report.pdf"]);
     panel.clear_filter();
     assert_eq!(panel.targets().len(), 2);
@@ -404,7 +404,7 @@ fn opening_another_folder_closes_the_filter_line() {
     panel.start_filter();
     type_text(&mut panel, "port");
 
-    panel.replace_listing(PathBuf::from("/d/porthmos"), vec![file("/d/porthmos", "x", 1)]);
+    panel.replace_listing(VfsPath::from("/d/porthmos"), vec![file("/d/porthmos", "x", 1)]);
 
     assert!(!panel.editing_filter());
     assert_eq!(panel.filter(), None);
@@ -438,7 +438,7 @@ fn a_refresh_keeps_the_filter_and_the_open_line() {
     panel.start_filter();
     type_text(&mut panel, "port");
 
-    panel.replace_listing(PathBuf::from("/d"), vec![folder("/d", "porthmos"), file("/d", "passport.txt", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![folder("/d", "porthmos"), file("/d", "passport.txt", 1)]);
 
     assert!(panel.editing_filter());
     assert_eq!(panel.filter(), Some("port"));
@@ -448,7 +448,7 @@ fn a_refresh_keeps_the_filter_and_the_open_line() {
 #[test]
 fn showing_hidden_files_counts_them_and_filters_them() {
     let mut panel = PanelView::from_listing(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![file("/d", ".profile", 1), file("/d", "profile.txt", 2), file("/d", "notes", 3)],
     );
     panel.start_filter();
@@ -561,7 +561,7 @@ fn select_all_files(panel: &mut PanelView) {
 
 #[test]
 fn the_header_shows_protocol_path_and_sort_indicator() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+    let panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
 
     let terminal = drawn(&panel, 40, 8, true);
 
@@ -573,8 +573,8 @@ fn the_header_shows_protocol_path_and_sort_indicator() {
 #[test]
 fn the_sort_indicator_follows_the_sort_spec() {
     let spec = SortSpec { key: SortKey::Size, order: SortOrder::Descending };
-    let mut panel = PanelView::new(PathBuf::from("/d"), spec, false);
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+    let mut panel = PanelView::new(VfsPath::from("/d"), spec, false);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
 
     let terminal = drawn(&panel, 40, 8, true);
 
@@ -583,7 +583,7 @@ fn the_sort_indicator_follows_the_sort_spec() {
 
 #[test]
 fn a_long_path_is_cut_from_the_left_with_an_ellipsis() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
     let now = fixed_now();
     let mut long = context(&now, true);
     long.location = "/very/long/path/that/does/not/fit/in/the/header".to_string();
@@ -599,7 +599,7 @@ fn a_long_path_is_cut_from_the_left_with_an_ellipsis() {
 #[test]
 fn the_rule_is_accent_for_the_active_panel_and_line_otherwise() {
     let theme = indexed();
-    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
 
     let active = drawn(&panel, 40, 8, true);
     let inactive = drawn(&panel, 40, 8, false);
@@ -612,7 +612,7 @@ fn the_rule_is_accent_for_the_active_panel_and_line_otherwise() {
 #[test]
 fn the_header_path_is_bright_when_active_and_muted_when_inactive() {
     let theme = indexed();
-    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
 
     let active = drawn(&panel, 40, 8, true);
     let inactive = drawn(&panel, 40, 8, false);
@@ -625,9 +625,9 @@ fn the_header_path_is_bright_when_active_and_muted_when_inactive() {
 #[test]
 fn the_footer_counts_items_without_the_parent_row() {
     let three =
-        PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1), folder("/d", "c")]);
-    let one = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
-    let none = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+        PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1), folder("/d", "c")]);
+    let one = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
+    let none = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
 
     assert!(row_string(&drawn(&three, 40, 8, true), 7).trim_end().ends_with("3 items"));
     assert!(row_string(&drawn(&one, 40, 8, true), 7).trim_end().ends_with("1 item"));
@@ -638,11 +638,11 @@ fn the_footer_counts_items_without_the_parent_row() {
 fn the_footer_shows_the_selection_count_and_the_size_of_selected_files() {
     let theme = indexed();
     let mut panel = PanelView::from_listing(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![sized("a.bin", 6_710_886), sized("b.bin", 6_710_886), sized("c.bin", 1)],
     );
     for name in ["a.bin", "b.bin"] {
-        panel.selected.insert(PathBuf::from("/d").join(name));
+        panel.selected.insert(VfsPath::from("/d").join(name));
     }
 
     let terminal = drawn(&panel, 50, 8, true);
@@ -654,7 +654,7 @@ fn the_footer_shows_the_selection_count_and_the_size_of_selected_files() {
 
 #[test]
 fn selected_directories_add_no_size() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![folder("/d", "src"), sized("a.bin", 1024)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![folder("/d", "src"), sized("a.bin", 1024)]);
     select_all_files(&mut panel);
 
     let terminal = drawn(&panel, 50, 8, true);
@@ -664,7 +664,7 @@ fn selected_directories_add_no_size() {
 
 #[test]
 fn only_selected_directories_show_just_the_count() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![folder("/d", "src")]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![folder("/d", "src")]);
     select_all_files(&mut panel);
 
     let footer = row_string(&drawn(&panel, 50, 8, true), 7);
@@ -689,7 +689,7 @@ fn hidden_selected_entries_are_not_counted() {
 
 #[test]
 fn the_selection_size_sum_saturates() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![sized("a", u64::MAX), sized("b", u64::MAX)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![sized("a", u64::MAX), sized("b", u64::MAX)]);
     select_all_files(&mut panel);
 
     let footer = row_string(&drawn(&panel, 50, 8, true), 7);
@@ -714,7 +714,7 @@ fn the_filter_status_takes_the_left_slot_with_the_selection_after_it() {
 #[test]
 fn the_right_footer_part_is_dropped_before_the_left_is_cut() {
     let mut panel =
-        PanelView::from_listing(PathBuf::from("/d"), vec![sized("a.bin", 6_710_886), sized("b.bin", 6_710_886)]);
+        PanelView::from_listing(VfsPath::from("/d"), vec![sized("a.bin", 6_710_886), sized("b.bin", 6_710_886)]);
     select_all_files(&mut panel);
 
     let wide_enough = row_string(&drawn(&panel, 30, 8, true), 7);
@@ -728,7 +728,7 @@ fn the_right_footer_part_is_dropped_before_the_left_is_cut() {
 
 #[test]
 fn there_are_no_box_borders() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1)]);
+    let panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
 
     let terminal = drawn(&panel, 40, 8, true);
 
@@ -740,7 +740,7 @@ fn there_are_no_box_borders() {
 
 #[test]
 fn hostile_paths_are_sanitised_and_cut() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
     let now = fixed_now();
     let mut hostile = context(&now, true);
     hostile.location = "a\u{202e}b\nc".to_string();
@@ -754,8 +754,8 @@ fn hostile_paths_are_sanitised_and_cut() {
 fn tiny_panels_do_not_panic() {
     let theme = indexed();
     let now = fixed_now();
-    let full = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a.txt", 1), folder("/d", "src")]);
-    let empty = PanelView::new(PathBuf::from("/"), SortSpec::default(), false);
+    let full = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1), folder("/d", "src")]);
+    let empty = PanelView::new(VfsPath::from("/"), SortSpec::default(), false);
     let mut filtered = filter_panel();
     filtered.start_filter();
     type_text(&mut filtered, "zzzz");
@@ -772,7 +772,7 @@ fn tiny_panels_do_not_panic() {
 
 #[test]
 fn a_switch_hint_replaces_the_protocol_label() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), Vec::new());
+    let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
     let now = fixed_now();
     let mut single = context(&now, true);
     single.switch_hint = Some("local \u{21c4} sftp".to_string());
@@ -824,14 +824,14 @@ fn listing_of(names: &[&str]) -> PanelView {
         .map(|name| Entry {
             modified: None,
             name: name.to_string(),
-            path: PathBuf::from(format!("/home/user/{name}")),
+            path: VfsPath::from(format!("/home/user/{name}")),
             is_dir: false,
             size: 0,
             permissions: None,
             ..Default::default()
         })
         .collect();
-    PanelView::from_listing(PathBuf::from("/home/user"), entries)
+    PanelView::from_listing(VfsPath::from("/home/user"), entries)
 }
 
 #[test]
@@ -875,8 +875,8 @@ fn focus_name_with_a_filter_only_finds_visible_rows() {
 
 #[test]
 fn the_footer_shows_the_free_space_after_the_item_count() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
-    panel.set_free_space(Path::new("/d"), Some(2_254_857_830));
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    panel.set_free_space(&VfsPath::new("/d"), Some(2_254_857_830));
 
     let footer = row_string(&drawn(&panel, 40, 8, true), 7);
 
@@ -885,7 +885,7 @@ fn the_footer_shows_the_free_space_after_the_item_count() {
 
 #[test]
 fn the_footer_has_no_free_space_until_it_is_known() {
-    let panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    let panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
 
     let footer = row_string(&drawn(&panel, 40, 8, true), 7);
 
@@ -895,47 +895,47 @@ fn the_footer_has_no_free_space_until_it_is_known() {
 
 #[test]
 fn free_space_for_another_folder_is_ignored() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
 
-    panel.set_free_space(Path::new("/elsewhere"), Some(1_000_000));
+    panel.set_free_space(&VfsPath::new("/elsewhere"), Some(1_000_000));
 
     assert!(!row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
 }
 
 #[test]
 fn unknown_free_space_clears_a_known_figure() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
-    panel.set_free_space(Path::new("/d"), Some(1_000_000));
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
+    panel.set_free_space(&VfsPath::new("/d"), Some(1_000_000));
 
-    panel.set_free_space(Path::new("/d"), None);
+    panel.set_free_space(&VfsPath::new("/d"), None);
 
     assert!(!row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
 }
 
 #[test]
 fn entering_another_folder_forgets_the_free_space() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
-    panel.set_free_space(Path::new("/d"), Some(1_000_000));
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
+    panel.set_free_space(&VfsPath::new("/d"), Some(1_000_000));
 
-    panel.replace_listing(PathBuf::from("/d/sub"), vec![file("/d/sub", "b", 1)]);
+    panel.replace_listing(VfsPath::from("/d/sub"), vec![file("/d/sub", "b", 1)]);
 
     assert!(!row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
 }
 
 #[test]
 fn reloading_the_same_folder_keeps_the_free_space() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1)]);
-    panel.set_free_space(Path::new("/d"), Some(1_000_000));
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1)]);
+    panel.set_free_space(&VfsPath::new("/d"), Some(1_000_000));
 
-    panel.replace_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
 
     assert!(row_string(&drawn(&panel, 40, 8, true), 7).contains("free"));
 }
 
 #[test]
 fn a_narrow_footer_drops_the_free_space_before_the_item_count() {
-    let mut panel = PanelView::from_listing(PathBuf::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
-    panel.set_free_space(Path::new("/d"), Some(2_254_857_830));
+    let mut panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a", 1), file("/d", "b", 1)]);
+    panel.set_free_space(&VfsPath::new("/d"), Some(2_254_857_830));
 
     let narrow = row_string(&drawn(&panel, 16, 8, true), 7);
 

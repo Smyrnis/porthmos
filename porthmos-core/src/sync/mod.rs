@@ -1,7 +1,6 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    path::PathBuf,
-};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+use porthmos_vfs::VfsPath;
 
 pub mod scan;
 
@@ -63,7 +62,7 @@ pub struct SyncFacts {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncItem {
     pub id: u32,
-    pub path: PathBuf,
+    pub path: VfsPath,
     pub local: Option<SyncFacts>,
     pub remote: Option<SyncFacts>,
     pub action: SyncAction,
@@ -110,12 +109,12 @@ impl SyncItem {
 pub struct SyncPlan {
     pub sync_id: u64,
     pub session: u64,
-    pub local_root: PathBuf,
-    pub remote_root: PathBuf,
+    pub local_root: VfsPath,
+    pub remote_root: VfsPath,
     pub options: SyncOptions,
     pub items: Vec<SyncItem>,
     pub skipped_symlinks: usize,
-    pub unreadable_folders: Vec<PathBuf>,
+    pub unreadable_folders: Vec<VfsPath>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +137,7 @@ impl TreeEntry {
     }
 }
 
-pub type Tree = BTreeMap<PathBuf, TreeEntry>;
+pub type Tree = BTreeMap<VfsPath, TreeEntry>;
 
 struct Verdict {
     action: SyncAction,
@@ -226,11 +225,11 @@ pub fn compare(
     if options.validate().is_err() {
         return Vec::new();
     }
-    let paths: BTreeSet<&PathBuf> = local.keys().chain(remote.keys()).collect();
-    let mut mismatched: HashSet<PathBuf> = HashSet::new();
+    let paths: BTreeSet<&VfsPath> = local.keys().chain(remote.keys()).collect();
+    let mut mismatched: HashSet<VfsPath> = HashSet::new();
     let mut items = Vec::new();
     for path in paths {
-        if path.ancestors().skip(1).any(|ancestor| mismatched.contains(ancestor)) {
+        if path.ancestors().skip(1).any(|ancestor| mismatched.contains(&ancestor)) {
             continue;
         }
         let verdict = match (local.get(path), remote.get(path)) {

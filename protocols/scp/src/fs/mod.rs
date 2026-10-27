@@ -1,12 +1,13 @@
 use std::{
     io,
-    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use porthmos_ssh::{ExecChannel, Output, Session, exec, open_exec};
-use porthmos_vfs::{DirItem, Entry, ErrorKind, FileSystem, Metadata, ProtocolError, Reader, Writer, async_trait};
+use porthmos_vfs::{
+    DirItem, Entry, ErrorKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath, Writer, async_trait,
+};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
@@ -22,7 +23,7 @@ const FINAL_WAIT_FACTOR: u32 = 20;
 
 pub(crate) struct ScpFs {
     session: Arc<Session>,
-    home: PathBuf,
+    home: VfsPath,
     scp: bool,
     timeout: Duration,
     transfers: Arc<Semaphore>,
@@ -51,7 +52,7 @@ fn as_protocol(err: io::Error) -> ProtocolError {
 }
 
 impl ScpFs {
-    pub(crate) fn new(session: Arc<Session>, home: PathBuf, scp: bool, timeout: Duration) -> Self {
+    pub(crate) fn new(session: Arc<Session>, home: VfsPath, scp: bool, timeout: Duration) -> Self {
         Self {
             session,
             home,
@@ -78,7 +79,7 @@ impl ScpFs {
         }
     }
 
-    async fn run_ok(&self, command: &str, path: &Path) -> Result<Output, ProtocolError> {
+    async fn run_ok(&self, command: &str, path: &VfsPath) -> Result<Output, ProtocolError> {
         let output = self.run(command).await?;
         if output.status == Some(0) {
             Ok(output)
@@ -87,7 +88,7 @@ impl ScpFs {
         }
     }
 
-    async fn lines(&self, command: &str, path: &Path) -> Result<Vec<Line>, ProtocolError> {
+    async fn lines(&self, command: &str, path: &VfsPath) -> Result<Vec<Line>, ProtocolError> {
         let output = self.run(command).await?;
         if output.status != Some(0) && output.stdout.is_empty() {
             return Err(failure(&output.stderr, output.status, path, "ls"));
@@ -104,15 +105,15 @@ impl ScpFs {
         Ok((channel, permit))
     }
 
-    fn exit_finisher(&self, path: &Path, command: &str) -> Finisher {
-        let (path, command, wait) = (path.to_path_buf(), command.to_string(), self.final_wait());
+    fn exit_finisher(&self, path: &VfsPath, command: &str) -> Finisher {
+        let (path, command, wait) = (path.clone(), command.to_string(), self.final_wait());
         Box::new(move |channel| {
             Box::pin(async move { within(wait, async { checked_exit(channel.finish().await, &path, &command) }).await })
         })
     }
 
-    fn source_finisher(&self, path: &Path) -> Finisher {
-        let (path, wait) = (path.to_path_buf(), self.final_wait());
+    fn source_finisher(&self, path: &VfsPath) -> Finisher {
+        let (path, wait) = (path.clone(), self.final_wait());
         Box::new(move |mut channel| {
             Box::pin(async move {
                 within(wait, async {
@@ -126,7 +127,7 @@ impl ScpFs {
         })
     }
 
-    async fn scp_source(&self, path: &Path) -> Result<Reader, ProtocolError> {
+    async fn scp_source(&self, path: &VfsPath) -> Result<Reader, ProtocolError> {
         let (mut channel, permit) = self.channel(&commands::scp_source(path)).await?;
         let size = within(self.timeout, async {
             channel.input.send(&[0]).await?;
@@ -149,7 +150,7 @@ impl ScpFs {
         Ok(Box::new(reader))
     }
 
-    async fn command_reader(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
+    async fn command_reader(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
         let command = commands::read_from(path, offset);
         let (channel, permit) = self.channel(&command).await?;
         channel.input.close().await.map_err(as_protocol)?;
@@ -157,7 +158,7 @@ impl ScpFs {
         Ok(Box::new(ChannelReader::new(channel, None, self.exit_finisher(path, &name), self.timeout, permit)))
     }
 
-    async fn scp_sink(&self, path: &Path, size: u64) -> Result<Writer, ProtocolError> {
+    async fn scp_sink(&self, path: &VfsPath, size: u64) -> Result<Writer, ProtocolError> {
         let (mut channel, permit) = self.channel(&commands::scp_sink(path)).await?;
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
         let ready = within(self.timeout, async {
@@ -173,21 +174,15 @@ impl ScpFs {
             }
             return Err(as_protocol(err));
         }
-        let job = Pump {
-            channel,
-            expected: Some(size),
-            path: path.to_path_buf(),
-            command: "scp".to_string(),
-            idle: self.timeout,
-        };
+        let job =
+            Pump { channel, expected: Some(size), path: path.clone(), command: "scp".to_string(), idle: self.timeout };
         Ok(Writer { stream: Box::new(ChannelWriter::new(job, self.final_wait(), permit)), offset: 0 })
     }
 
-    async fn command_writer(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
+    async fn command_writer(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
         let command = if offset > 0 { commands::append(path) } else { commands::create(path) };
         let (channel, permit) = self.channel(&command).await?;
-        let job =
-            Pump { channel, expected: None, path: path.to_path_buf(), command: "cat".to_string(), idle: self.timeout };
+        let job = Pump { channel, expected: None, path: path.clone(), command: "cat".to_string(), idle: self.timeout };
         Ok(Writer { stream: Box::new(ChannelWriter::new(job, self.final_wait(), permit)), offset })
     }
 }
@@ -202,7 +197,7 @@ impl FileSystem for ScpFs {
         Some(!self.session.is_closed())
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         let lines = self.lines(&commands::list(dir), dir).await?;
         Ok(lines
             .into_iter()
@@ -220,7 +215,7 @@ impl FileSystem for ScpFs {
             .collect())
     }
 
-    async fn free_space(&self, dir: &Path) -> Result<Option<u64>, ProtocolError> {
+    async fn free_space(&self, dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
         let output = self.run(&commands::free_space(dir)).await?;
         if output.status != Some(0) && output.stdout.is_empty() {
             return Err(failure(&output.stderr, output.status, dir, "df"));
@@ -228,7 +223,7 @@ impl FileSystem for ScpFs {
         Ok(listing::parse_free_space(&String::from_utf8_lossy(&output.stdout)))
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let lines = self.lines(&commands::list(dir), dir).await?;
         Ok(lines
             .into_iter()
@@ -236,21 +231,21 @@ impl FileSystem for ScpFs {
             .collect())
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
         let lines = self.lines(&commands::stat(path), path).await?;
         lines
             .into_iter()
             .next()
             .map(|line| line.metadata)
-            .ok_or_else(|| ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("{} not found", path.display())))
+            .ok_or_else(|| ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("{} not found", path)))
     }
 
-    async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
+    async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
         let output = self.run(&commands::touch(path, seconds)).await?;
         match output.status {
             Some(0) => Ok(()),
             Some(1) if output.stderr.is_empty() => {
-                Err(ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("{} not found", path.display())))
+                Err(ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("{} not found", path)))
             }
             status => Err(failure(&output.stderr, status, path, "touch")),
         }
@@ -264,14 +259,14 @@ impl FileSystem for ScpFs {
         60
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.run_ok(&commands::mkdir(path), path).await.map(|_| ())
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
         match self.stat(to).await {
             Ok(metadata) if metadata.is_dir() => {
-                return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} already exists", to.display())));
+                return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} already exists", to)));
             }
             Ok(_) => {}
             Err(err) if err.kind() == ErrorKind::NotFound => {}
@@ -279,21 +274,21 @@ impl FileSystem for ScpFs {
         }
         match self.run_ok(&commands::rename(from, to), from).await {
             Err(err) if err.kind() == ErrorKind::NotFound && self.stat(from).await.is_ok() => {
-                Err(ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("{} not found", to.display())))
+                Err(ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("{} not found", to)))
             }
             result => result.map(|_| ()),
         }
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.run_ok(&commands::remove(path), path).await.map(|_| ())
     }
 
-    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.run_ok(&commands::remove_dir(path), path).await.map(|_| ())
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.stat(path).await?;
         self.run_ok(&commands::remove_tree(path), path).await.map(|_| ())
     }
@@ -302,22 +297,22 @@ impl FileSystem for ScpFs {
         Some(TRANSFER_CHANNELS)
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
         Ok(self.home.clone())
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
         if offset == 0 && self.scp {
             return self.scp_source(path).await;
         }
         self.command_reader(path, offset).await
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
         self.command_writer(path, offset).await
     }
 
-    async fn open_write_sized(&self, path: &Path, offset: u64, size: u64) -> Result<Writer, ProtocolError> {
+    async fn open_write_sized(&self, path: &VfsPath, offset: u64, size: u64) -> Result<Writer, ProtocolError> {
         if offset == 0 && self.scp {
             return self.scp_sink(path, size).await;
         }

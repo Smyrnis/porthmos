@@ -1,6 +1,6 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, OptionKind, Protocol, Target};
+use porthmos_vfs::{FileSystem, OptionKind, Protocol, Target, VfsPath};
 
 use super::{
     super::{
@@ -193,7 +193,7 @@ impl Engine {
         self.emit(Event::Disconnected { session, name: live.name });
     }
 
-    pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<PathBuf>) {
+    pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<VfsPath>) {
         let Some(live) = self.sessions.get(&session) else {
             self.report(Severity::Warning, "Connect to a server first");
             return;

@@ -84,7 +84,7 @@ impl App {
         self.core.send(Command::CreateDir { location, path });
     }
 
-    fn rename_entry(&mut self, location: Location, from: PathBuf, new_name: &str) {
+    fn rename_entry(&mut self, location: Location, from: VfsPath, new_name: &str) {
         if self.refuse_bad_name(new_name) {
             return;
         }

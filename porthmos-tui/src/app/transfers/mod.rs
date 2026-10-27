@@ -22,7 +22,7 @@ impl App {
         }
     }
 
-    fn transfer_command(moving: bool, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf) -> Command {
+    fn transfer_command(moving: bool, from: Location, entries: Vec<Entry>, to: Location, dest_dir: VfsPath) -> Command {
         if moving {
             Command::Move { from, entries, to, dest_dir }
         } else {
@@ -44,7 +44,7 @@ impl App {
             Location::Local,
             entries,
             Location::Session(session.id),
-            session.panel.path().to_path_buf(),
+            session.panel.path().clone(),
         ));
     }
 
@@ -61,7 +61,7 @@ impl App {
             Location::Session(session.id),
             entries,
             Location::Local,
-            self.local.path().to_path_buf(),
+            self.local.path().clone(),
         ));
     }
 }

@@ -1,4 +1,7 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
+
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 use crate::{
     engine::{
@@ -19,7 +22,7 @@ fn preview_events(events: &[Event]) -> Vec<(u64, String, Result<Arc<Preview>, St
 }
 
 fn ask(t: &mut TestEngine, request_id: u64, location: Location, path: &str) {
-    t.engine.handle_command(Command::Preview { request_id, location, path: PathBuf::from(path) });
+    t.engine.handle_command(Command::Preview { request_id, location, path: VfsPath::from(path) });
 }
 
 async fn next_preview(t: &mut TestEngine) -> (u64, String, Result<Arc<Preview>, String>) {
@@ -40,7 +43,7 @@ async fn a_local_file_is_previewed_with_its_name_and_the_request_id() {
     std::fs::write(t.dir.path().join("notes.txt"), "hello\nworld\n").unwrap();
     let path = t.dir.path().join("notes.txt");
 
-    t.engine.handle_command(Command::Preview { request_id: 7, location: Location::Local, path });
+    t.engine.handle_command(Command::Preview { request_id: 7, location: Location::Local, path: from_os_path(&path) });
     t.run_internal().await;
 
     let (id, name, result) = next_preview(&mut t).await;
@@ -260,7 +263,7 @@ async fn a_named_pipe_is_refused_without_blocking_the_engine() {
     let path = std::ffi::CString::new(pipe.to_str().unwrap()).unwrap();
     assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
 
-    t.engine.handle_command(Command::Preview { request_id: 1, location: Location::Local, path: pipe });
+    t.engine.handle_command(Command::Preview { request_id: 1, location: Location::Local, path: from_os_path(&pipe) });
     t.run_internal().await;
 
     let (_, name, result) = next_preview(&mut t).await;

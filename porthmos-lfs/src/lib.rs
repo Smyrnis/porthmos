@@ -1,8 +1,11 @@
 #[cfg(not(unix))]
 compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
 
+mod os_path;
 mod ownership;
 mod space;
+
+pub use os_path::{from_os_path, to_os_path};
 
 use std::{
     fs, io,
@@ -12,7 +15,9 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use porthmos_vfs::{DirItem, Entry, FileKind, FileSystem, Metadata, ProtocolError, Reader, Writer, async_trait};
+use porthmos_vfs::{
+    DirItem, Entry, FileKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath, Writer, async_trait,
+};
 use tokio::io::AsyncSeekExt;
 
 pub struct LocalFs {
@@ -56,8 +61,8 @@ async fn blocking<T: Send + 'static>(
 
 #[async_trait]
 impl FileSystem for LocalFs {
-    async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
-        let path = path.to_path_buf();
+    async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
+        let path = to_os_path(path);
         blocking(move || {
             let moment = UNIX_EPOCH.checked_add(Duration::from_secs(seconds)).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, format!("the modification time {seconds} is out of range"))
@@ -71,18 +76,18 @@ impl FileSystem for LocalFs {
         true
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
-        let dir = dir.to_path_buf();
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
+        let dir = to_os_path(dir);
         blocking(move || list(&dir)).await
     }
 
-    async fn free_space(&self, dir: &Path) -> Result<Option<u64>, ProtocolError> {
-        let dir = dir.to_path_buf();
+    async fn free_space(&self, dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
+        let dir = to_os_path(dir);
         blocking(move || space::free_space(&dir).map(Some)).await
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
-        let dir = dir.to_path_buf();
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
+        let dir = to_os_path(dir);
         blocking(move || {
             let mut items = Vec::new();
             for dir_entry in fs::read_dir(&dir)? {
@@ -90,7 +95,7 @@ impl FileSystem for LocalFs {
                 let metadata = fs::symlink_metadata(dir_entry.path())?;
                 items.push(DirItem {
                     name: dir_entry.file_name().to_string_lossy().into_owned(),
-                    path: dir_entry.path(),
+                    path: from_os_path(&dir_entry.path()),
                     metadata: metadata_from(&metadata),
                 });
             }
@@ -99,44 +104,45 @@ impl FileSystem for LocalFs {
         .await
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
-        Ok(metadata_from(&tokio::fs::metadata(path).await?))
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
+        Ok(metadata_from(&tokio::fs::metadata(to_os_path(path)).await?))
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
-        Ok(tokio::fs::create_dir(path).await?)
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        Ok(tokio::fs::create_dir(to_os_path(path)).await?)
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
-        Ok(tokio::fs::rename(from, to).await?)
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
+        Ok(tokio::fs::rename(to_os_path(from), to_os_path(to)).await?)
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
-        Ok(tokio::fs::remove_file(path).await?)
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        Ok(tokio::fs::remove_file(to_os_path(path)).await?)
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
-        let path = path.to_path_buf();
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        let path = to_os_path(path);
         blocking(move || delete(&path)).await
     }
 
-    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
-        let path = path.to_path_buf();
+    async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        let path = to_os_path(path);
         blocking(move || fs::remove_dir(&path)).await
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
-        Ok(self.home.clone())
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
+        Ok(from_os_path(&self.home))
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
-        let mut file = tokio::fs::File::open(path).await?;
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
+        let mut file = tokio::fs::File::open(to_os_path(path)).await?;
         file.seek(SeekFrom::Start(offset)).await?;
         Ok(Box::new(file))
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
-        let mut file = tokio::fs::OpenOptions::new().create(true).write(true).truncate(false).open(path).await?;
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
+        let mut file =
+            tokio::fs::OpenOptions::new().create(true).write(true).truncate(false).open(to_os_path(path)).await?;
         file.set_len(offset).await?;
         file.seek(SeekFrom::Start(offset)).await?;
         Ok(Writer { stream: Box::new(file), offset })
@@ -158,7 +164,7 @@ pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
 
         entries.push(Entry {
             name,
-            path: dir_entry.path(),
+            path: from_os_path(&dir_entry.path()),
             is_dir: metadata.is_dir(),
             size: metadata.len(),
             permissions: Some(metadata.permissions().mode()),

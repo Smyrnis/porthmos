@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use chrono::{DateTime, Utc};
 
-use porthmos_vfs::{Entry, Question, ShellInvocation};
+use porthmos_vfs::{Entry, Question, ShellInvocation, VfsPath};
 
 use super::{Location, RequestId, SessionId};
 use crate::{
@@ -31,8 +31,8 @@ pub enum Event {
     Disconnected { session: SessionId, name: String },
     SessionHealth { session: SessionId, healthy: bool },
     ShellReady { session: SessionId, invocation: ShellInvocation },
-    Listed { location: Location, path: PathBuf, entries: Vec<Entry> },
-    FreeSpace { location: Location, path: PathBuf, bytes: Option<u64> },
+    Listed { location: Location, path: VfsPath, entries: Vec<Entry> },
+    FreeSpace { location: Location, path: VfsPath, bytes: Option<u64> },
     LocationChanged { location: Location },
     Profiles(Vec<ConnectionEntry>),
     LastUsed(BTreeMap<String, DateTime<Utc>>),

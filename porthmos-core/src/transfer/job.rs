@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-use porthmos_vfs::PART_SUFFIX;
+use porthmos_vfs::{PART_SUFFIX, VfsPath};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,7 +19,7 @@ pub enum JobStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Destination {
-    Local(PathBuf),
+    Local(VfsPath),
     Remote { session_id: u64, path: String },
 }
 
@@ -30,7 +28,7 @@ pub struct TransferJob {
     pub id: u64,
     pub session_id: u64,
     pub direction: Direction,
-    pub local_path: PathBuf,
+    pub local_path: VfsPath,
     pub remote_path: String,
     pub display_name: String,
     pub total_bytes: u64,
@@ -50,11 +48,7 @@ impl TransferJob {
             Direction::Upload => {
                 Destination::Remote { session_id: self.session_id, path: format!("{}{PART_SUFFIX}", self.remote_path) }
             }
-            Direction::Download => {
-                let mut part = self.local_path.clone().into_os_string();
-                part.push(PART_SUFFIX);
-                Destination::Local(PathBuf::from(part))
-            }
+            Direction::Download => Destination::Local(self.local_path.with_suffix(PART_SUFFIX)),
         }
     }
 
@@ -65,8 +59,8 @@ impl TransferJob {
         }
     }
 
-    pub fn source_and_destination(&self) -> (PathBuf, PathBuf) {
-        let remote = PathBuf::from(&self.remote_path);
+    pub fn source_and_destination(&self) -> (VfsPath, VfsPath) {
+        let remote = VfsPath::new(&self.remote_path);
         match self.direction {
             Direction::Upload => (self.local_path.clone(), remote),
             Direction::Download => (remote, self.local_path.clone()),

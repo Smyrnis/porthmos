@@ -7,13 +7,13 @@ mod listing;
 mod streams;
 mod wire;
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use porthmos_ssh::{ConnectOptions, DEFAULT_PORT, exec};
 use porthmos_vfs::{
     ConnectionForm, Environment, ErrorKind, FileSystem, OptionField, OptionKind, Prompter, Protocol, ProtocolError,
-    ShellInvocation, Target, async_trait,
+    ShellInvocation, Target, VfsPath, async_trait,
 };
 
 use crate::fs::ScpFs;
@@ -98,7 +98,7 @@ impl Protocol for Scp {
         }
         let home = lines.next().map(str::trim).filter(|home| home.starts_with('/')).unwrap_or("/");
         let scp = lines.any(|line| line.trim() == "scp");
-        Ok(Arc::new(ScpFs::new(Arc::new(session), PathBuf::from(home), scp, self.timeout)))
+        Ok(Arc::new(ScpFs::new(Arc::new(session), VfsPath::new(home), scp, self.timeout)))
     }
 
     fn shell_command(&self, target: &Target, env: &Environment) -> Option<ShellInvocation> {
