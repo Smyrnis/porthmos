@@ -57,7 +57,7 @@ jobs:
           shellcheck scripts/install/*.sh
           bash scripts/install/test.sh
 
-  # W1 adds porthmos-vfs to the test step; W2 widens this job to the whole workspace.
+  # W2 widens this job to the whole workspace.
   windows:
     runs-on: windows-latest
     steps:
@@ -68,7 +68,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p porthmos-vfs -p porthmos-update -p porthmos-release --all-targets
       - run: cargo clippy -p porthmos-vfs -p porthmos-update -p porthmos-release --all-targets -- -D warnings
-      - run: cargo test -p porthmos-update -p porthmos-release
+      - run: cargo test -p porthmos-vfs -p porthmos-update -p porthmos-release
 
   macos:
     runs-on: macos-latest
