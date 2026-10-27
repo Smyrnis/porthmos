@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, development]
+    branches: [main, development, compatibility/windows]
   pull_request:
 
 jobs:
