@@ -3405,8 +3405,10 @@ dependencies = [
  "anyhow",
  "async-trait",
  "porthmos-vfs",
+ "serde",
  "tempfile",
  "tokio",
+ "toml",
  "unicode-width",
 ]
 

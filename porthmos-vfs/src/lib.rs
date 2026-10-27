@@ -2,6 +2,7 @@ mod entry;
 mod error;
 mod form;
 mod fs;
+mod path;
 mod prompt;
 mod protocol;
 pub mod search;
@@ -12,6 +13,7 @@ pub use entry::{DirItem, Entry, FileKind, Metadata, PART_SUFFIX, join_remote, pa
 pub use error::{ErrorKind, ProtocolError};
 pub use form::{Choice, CommonField, ConnectionForm, OptionField, OptionKind, PortField, RESERVED_KEYS};
 pub use fs::{FileSystem, Reader, Writer};
+pub use path::VfsPath;
 pub use prompt::{Answer, Prompter, Question};
 pub use protocol::{Environment, Protocol, ShellInvocation, Target};
 pub use search::{
