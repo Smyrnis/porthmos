@@ -88,6 +88,7 @@ jobs:
           $authorized = 'C:\ProgramData\ssh\administrators_authorized_keys'
           Get-Content "$key.pub" | Set-Content -Encoding ascii $authorized
           icacls $authorized /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
+          Set-Service sshd -StartupType Manual
           Start-Service sshd
           "PORTHMOS_TEST_SSHD_PORT=22" >> $env:GITHUB_ENV
           "PORTHMOS_TEST_SSHD_USER=$env:USERNAME" >> $env:GITHUB_ENV
