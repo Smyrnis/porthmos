@@ -8,6 +8,15 @@ use crate::widgets::dialog::{FormDialog, FormField, FormLayout, TestState};
 
 const NO_KEYRING_HINT: &str = "Passwords are not saved: no system keyring. They are kept until Porthmos quits.";
 
+fn ssh_launch_failure(error: &std::io::Error, windows: bool) -> String {
+    if windows && error.kind() == std::io::ErrorKind::NotFound {
+        "ssh.exe was not found. Install the OpenSSH Client under Settings > Apps > Optional features, then try again."
+            .to_string()
+    } else {
+        format!("Failed to launch ssh: {error}")
+    }
+}
+
 impl App {
     pub(super) fn request_shell(&mut self) {
         let Some(session) = self.sessions.active() else {
@@ -37,7 +46,7 @@ impl App {
             }
             Ok(Ok(_)) => {}
             Ok(Err(io_err)) => {
-                self.error(format!("Failed to launch ssh: {io_err}"));
+                self.error(ssh_launch_failure(&io_err, cfg!(windows)));
             }
             Err(join_err) => {
                 self.error(format!("ssh task failed: {join_err}"));

@@ -1710,3 +1710,27 @@ fn a_restored_session_is_switched_to_again_not_reconnected() {
 
     assert!(test.sent().is_empty());
 }
+
+#[test]
+fn a_missing_ssh_on_windows_points_at_the_optional_feature() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    assert_eq!(
+        ssh_launch_failure(&error, true),
+        "ssh.exe was not found. Install the OpenSSH Client under Settings > Apps > Optional features, then try again."
+    );
+}
+
+#[test]
+fn a_missing_ssh_elsewhere_keeps_the_plain_message() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    assert_eq!(ssh_launch_failure(&error, false), format!("Failed to launch ssh: {error}"));
+}
+
+#[test]
+fn another_launch_error_on_windows_keeps_the_plain_message() {
+    let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+
+    assert_eq!(ssh_launch_failure(&error, true), format!("Failed to launch ssh: {error}"));
+}
