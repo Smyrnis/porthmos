@@ -5,7 +5,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use porthmos_lfs::{from_os_path, to_os_path};
+use porthmos_lfs::{checked_os_path, from_os_path};
 use porthmos_vfs::{ErrorKind, FileSystem, ProtocolError, VfsPath};
 use tokio::io::AsyncWriteExt;
 
@@ -233,7 +233,13 @@ impl Engine {
     }
 
     fn edit_local_file(&mut self, path: VfsPath, editor: EditorCommand) {
-        let os_path = to_os_path(&path);
+        let os_path = match checked_os_path(&path) {
+            Ok(os_path) => os_path,
+            Err(err) => {
+                self.report(Severity::Error, err.to_string());
+                return;
+            }
+        };
         if os_path.is_dir() {
             self.report(Severity::Warning, "Can't edit a folder");
             return;

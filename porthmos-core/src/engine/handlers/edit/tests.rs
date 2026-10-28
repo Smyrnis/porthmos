@@ -57,6 +57,22 @@ fn a_local_file_is_edited_in_place_without_a_temporary_copy() {
     assert!(!t.engine.paths.edit_dir().exists());
 }
 
+#[cfg(windows)]
+#[test]
+fn a_local_path_without_a_drive_is_refused_and_opens_no_editor() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: VfsPath::from("/Users/me/x.txt") });
+
+    let events = t.drain();
+    assert!(find_ready(&events).is_none());
+    assert!(
+        notices_of(&events)
+            .iter()
+            .any(|(severity, message)| { *severity == Severity::Error && message.contains("start with a drive") })
+    );
+}
+
 #[test]
 fn each_edit_gets_its_own_id() {
     let mut t = test_engine();

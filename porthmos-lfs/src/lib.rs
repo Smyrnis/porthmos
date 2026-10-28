@@ -7,8 +7,7 @@ mod roots;
 mod space;
 
 use in_use::explain;
-use os_path::checked_os_path;
-pub use os_path::{from_os_path, to_os_path};
+pub use os_path::{checked_os_path, from_os_path, to_os_path};
 
 use std::{
     fs, io,
