@@ -16,7 +16,11 @@ use crate::{
 };
 
 #[cfg(unix)]
-use crate::{find_staged, sha256_hex_of_file};
+use crate::{
+    find_staged, sha256_hex_of_file,
+    testing::{stub_script, zip_archive_with},
+    unpack::PROGRAM_FILE,
+};
 
 fn version(text: &str) -> Version {
     text.parse().unwrap()
@@ -284,4 +288,18 @@ async fn the_scratch_folder_is_named_after_this_process() {
         .await;
 
     assert!(scratch_names.contains(&format!("download.{}", std::process::id())), "{scratch_names:?}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_staged_update_from_a_zip_is_stored_under_the_platform_program_name() {
+    let setup = Setup::new();
+    let archive = zip_archive_with(&[(PROGRAM_FILE, &stub_script("0.5.0")), ("LICENSE", b"MIT")]);
+    let server = TestServer::start(vec![("/p.zip", Route::Body(archive.clone()))]).await;
+    let update = update_for(&server, "/p.zip", "0.5.0", &archive);
+
+    let staged = stage(&setup, &update).await.unwrap();
+
+    assert_eq!(staged.binary, setup.dir().path().join("0.5.0").join(PROGRAM_FILE));
+    assert_eq!(find_staged(&setup.dir(), &version("0.4.0")), Some(staged));
 }

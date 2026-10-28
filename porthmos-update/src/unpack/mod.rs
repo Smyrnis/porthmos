@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, Read},
+    io::{self, Read, Seek},
     path::Path,
     process::{Command, Stdio},
     thread,
@@ -12,6 +12,10 @@ use flate2::read::GzDecoder;
 use semver::Version;
 
 const BINARY_NAME: &str = "porthmos";
+#[cfg(windows)]
+pub(crate) const PROGRAM_FILE: &str = "porthmos.exe";
+#[cfg(not(windows))]
+pub(crate) const PROGRAM_FILE: &str = "porthmos";
 const ARCHIVE_SLACK: u64 = 16 * 1024 * 1024;
 const OUTPUT_LIMIT: u64 = 4096;
 const POLL: Duration = Duration::from_millis(10);
@@ -46,27 +50,57 @@ fn copy_member(entry: &mut impl Read, destination: &Path, max_bytes: u64) -> Res
     Ok(())
 }
 
-fn find_and_copy(archive: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
-    let file = File::open(archive).with_context(|| format!("couldn't open {}", archive.display()))?;
-    let bounded = GzDecoder::new(file).take(max_bytes.saturating_add(ARCHIVE_SLACK));
+fn copy_from_tar(archive: File, destination: &Path, max_bytes: u64, member: &str) -> Result<()> {
+    let bounded = GzDecoder::new(archive).take(max_bytes.saturating_add(ARCHIVE_SLACK));
     let mut tar = tar::Archive::new(bounded);
     for entry in tar.entries().context("the archive is not readable")? {
         let mut entry = entry.context("the archive is damaged")?;
         let is_the_program = entry.header().entry_type() == tar::EntryType::Regular
-            && entry.path().is_ok_and(|path| path == Path::new(BINARY_NAME));
+            && entry.path().is_ok_and(|path| path == Path::new(member));
         if is_the_program {
             return copy_member(&mut entry, destination, max_bytes);
         }
     }
-    bail!("the archive does not contain the {BINARY_NAME} program")
+    bail!("the archive does not contain the {member} program")
 }
 
-pub(crate) fn extract_binary(archive: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
-    let result = find_and_copy(archive, destination, max_bytes);
+fn copy_from_zip(archive: File, destination: &Path, max_bytes: u64, member: &str) -> Result<()> {
+    let mut zip = zip::ZipArchive::new(archive).context("the archive is not readable")?;
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).context("the archive is damaged")?;
+        let is_the_program = entry.is_file() && entry.enclosed_name().is_some_and(|path| path == Path::new(member));
+        if is_the_program {
+            if entry.size() > max_bytes {
+                bail!("the program in the archive is larger than {max_bytes} bytes");
+            }
+            return copy_member(&mut entry, destination, max_bytes);
+        }
+    }
+    bail!("the archive does not contain the {member} program")
+}
+
+fn find_and_copy(archive: &Path, destination: &Path, max_bytes: u64, member: &str) -> Result<()> {
+    let mut file = File::open(archive).with_context(|| format!("couldn't open {}", archive.display()))?;
+    let mut magic = [0u8; 4];
+    let read = file.read(&mut magic)?;
+    file.rewind()?;
+    match &magic[..read] {
+        [0x1f, 0x8b, ..] => copy_from_tar(file, destination, max_bytes, member),
+        [0x50, 0x4b, 0x03, 0x04] => copy_from_zip(file, destination, max_bytes, member),
+        _ => bail!("the archive is not a .tar.gz or .zip file"),
+    }
+}
+
+pub(crate) fn extract_binary_named(archive: &Path, destination: &Path, max_bytes: u64, member: &str) -> Result<()> {
+    let result = find_and_copy(archive, destination, max_bytes, member);
     if result.is_err() {
         let _ = fs::remove_file(destination);
     }
     result
+}
+
+pub(crate) fn extract_binary(archive: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
+    extract_binary_named(archive, destination, max_bytes, PROGRAM_FILE)
 }
 
 pub(crate) fn version_output(binary: &Path, timeout: Duration) -> Result<String> {

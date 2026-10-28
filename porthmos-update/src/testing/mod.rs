@@ -170,3 +170,17 @@ pub(crate) fn stub_archive(version: &str, extra_members: &[(&str, &[u8])]) -> Ve
     members.extend(extra_members.iter().map(|(name, bytes)| (*name, *bytes, tar::EntryType::Regular, 0o644)));
     raw_archive(&members)
 }
+
+pub(crate) fn zip_archive_with(members: &[(&str, &[u8])]) -> Vec<u8> {
+    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in members {
+        if name.ends_with('/') {
+            writer.add_directory(*name, options).unwrap();
+        } else {
+            writer.start_file(*name, options).unwrap();
+            std::io::Write::write_all(&mut writer, bytes).unwrap();
+        }
+    }
+    writer.finish().unwrap().into_inner()
+}

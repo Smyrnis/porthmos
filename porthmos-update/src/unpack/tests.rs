@@ -1,7 +1,7 @@
 use std::fs;
 
 use super::*;
-use crate::testing::{archive_with, raw_archive, stub_archive};
+use crate::testing::{archive_with, raw_archive, stub_archive, zip_archive_with};
 
 const CAP: u64 = 1024 * 1024;
 
@@ -249,4 +249,111 @@ fn a_binary_that_is_still_being_closed_by_its_writer_is_retried() {
 
     closer.join().unwrap();
     assert!(result.is_ok(), "{result:?}");
+}
+
+const WINDOWS_PROGRAM: &str = "porthmos.exe";
+
+impl Folder {
+    fn windows_destination(&self) -> std::path::PathBuf {
+        self.root.path().join("stage").join(WINDOWS_PROGRAM)
+    }
+}
+
+#[test]
+fn a_zip_member_is_extracted_to_the_destination() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[(WINDOWS_PROGRAM, b"MZ program"), ("LICENSE", b"MIT")]));
+
+    extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).unwrap();
+
+    assert_eq!(fs::read(folder.windows_destination()).unwrap(), b"MZ program");
+    assert_eq!(folder.stage_listing(), [WINDOWS_PROGRAM]);
+}
+
+#[test]
+fn a_tar_gz_is_still_extracted_by_the_named_function() {
+    let folder = Folder::new();
+    let archive = folder.archive(&archive_with(&[("porthmos", b"unix program")]));
+
+    extract_binary_named(&archive, &folder.destination(), CAP, "porthmos").unwrap();
+
+    assert_eq!(fs::read(folder.destination()).unwrap(), b"unix program");
+}
+
+#[test]
+fn a_file_that_is_neither_gzip_nor_zip_is_refused_with_a_clear_message() {
+    let folder = Folder::new();
+    let archive = folder.archive(b"just some text, not an archive");
+
+    let message = extract_binary_named(&archive, &folder.destination(), CAP, "porthmos").unwrap_err().to_string();
+
+    assert!(message.contains(".zip") && message.contains(".tar.gz"), "{message}");
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_zip_without_the_program_is_refused() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[("LICENSE", b"MIT"), ("other.exe", b"x")]));
+
+    let message =
+        extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).unwrap_err().to_string();
+
+    assert!(message.contains("porthmos"), "{message}");
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_zip_member_named_with_a_parent_folder_is_never_extracted() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[
+        ("../porthmos.exe", b"bad"),
+        ("sub/porthmos.exe", b"bad"),
+        ("..\\porthmos.exe", b"bad"),
+    ]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+    assert!(!folder.root.path().join("porthmos.exe").exists());
+}
+
+#[test]
+fn a_zip_member_that_is_a_folder_is_not_the_program() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[("porthmos.exe/", b"")]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_zip_member_over_the_size_cap_is_refused_and_removed() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[(WINDOWS_PROGRAM, &[b'x'; 5000])]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), 10, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_deflated_zip_member_that_inflates_past_the_cap_is_cut_off() {
+    let folder = Folder::new();
+    let bomb = vec![0u8; 20 * 1024 * 1024];
+    let archive = folder.archive(&zip_archive_with(&[(WINDOWS_PROGRAM, &bomb)]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), 1024, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_truncated_or_corrupt_zip_is_an_error_not_a_panic() {
+    let folder = Folder::new();
+    let good = zip_archive_with(&[(WINDOWS_PROGRAM, b"MZ program")]);
+
+    for bytes in [good[..good.len() / 2].to_vec(), good[..4].to_vec(), b"PK\x03\x04 garbage".to_vec()] {
+        let archive = folder.archive(&bytes);
+
+        assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
+        assert!(folder.stage_listing().is_empty());
+    }
 }

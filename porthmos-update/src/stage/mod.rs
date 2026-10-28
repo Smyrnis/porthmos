@@ -13,7 +13,7 @@ use crate::{
     fetch::{FetchError, Fetcher},
     find_staged, sha256_hex_of_file,
     staged::{is_another_process_at_work, record_staged},
-    unpack::{extract_binary, health_check},
+    unpack::{PROGRAM_FILE, extract_binary, health_check},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +42,7 @@ impl std::error::Error for StageError {}
 const ARCHIVE_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const MAX_BINARY_BYTES: u64 = 256 * 1024 * 1024;
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
-const ARCHIVE_FILE: &str = "archive.tar.gz";
+const ARCHIVE_FILE: &str = "archive";
 
 pub struct Stager {
     fetcher: Fetcher,
@@ -106,7 +106,7 @@ impl Stager {
             return Err(StageError::Cancelled);
         }
 
-        let binary = staging.join("porthmos");
+        let binary = staging.join(PROGRAM_FILE);
         let (unpack_from, unpack_to) = (archive, binary.clone());
         tokio::task::spawn_blocking(move || extract_binary(&unpack_from, &unpack_to, MAX_BINARY_BYTES))
             .await
@@ -124,7 +124,7 @@ impl Stager {
         let folder = self.dir.path().join(update.version.to_string());
         remove_folder(&folder);
         fs::rename(staging, &folder).map_err(disk)?;
-        let staged = Staged { version: update.version.clone(), binary: folder.join("porthmos"), sha256, size };
+        let staged = Staged { version: update.version.clone(), binary: folder.join(PROGRAM_FILE), sha256, size };
         record_staged(&self.dir, &staged).map_err(disk)?;
         self.forget_other_versions(&folder);
         Ok(staged)
