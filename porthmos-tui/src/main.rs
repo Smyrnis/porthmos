@@ -37,7 +37,12 @@ fn init_tracing(log_file: Option<&std::path::Path>) {
     match writer {
         Ok(file) => {
             tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_writer(std::sync::Mutex::new(file)).with_filter(filter))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(std::sync::Mutex::new(file))
+                        .with_ansi(false)
+                        .with_filter(filter),
+                )
                 .init();
         }
         Err(err) => {
