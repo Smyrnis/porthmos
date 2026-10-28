@@ -1116,9 +1116,11 @@ fn upload_two_files_preserving_times(t: &mut TestEngine, remote: &FakeFs, sessio
     std::fs::write(t.dir.path().join("a.txt"), b"alpha").unwrap();
     std::fs::write(t.dir.path().join("b.txt"), b"bravo").unwrap();
     let batch_id = t.engine.transfers.start_batch("sync".to_string());
-    let mut first = planned(t.dir.path().join("a.txt").to_str().unwrap(), "/upload/a.txt", 5);
+    let mut first = planned("/local/a.txt", "/upload/a.txt", 5);
+    first.source = from_os_path(&t.dir.path().join("a.txt"));
     first.source_modified = Some(1_000);
-    let mut second = planned(t.dir.path().join("b.txt").to_str().unwrap(), "/upload/b.txt", 5);
+    let mut second = planned("/local/b.txt", "/upload/b.txt", 5);
+    second.source = from_os_path(&t.dir.path().join("b.txt"));
     second.source_modified = Some(2_000);
 
     t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan(vec![first, second]), &[], true);

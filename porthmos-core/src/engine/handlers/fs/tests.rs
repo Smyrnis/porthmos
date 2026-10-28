@@ -26,12 +26,13 @@ async fn listing_the_local_side_sends_its_entries() {
 async fn a_local_listing_failure_shows_the_bare_error() {
     let mut t = test_engine();
 
-    t.engine
-        .handle_command(Command::List { location: Location::Local, path: Some(VfsPath::from("/definitely/missing")) });
+    let missing = t.dir.path().join("missing");
+
+    t.engine.handle_command(Command::List { location: Location::Local, path: Some(from_os_path(&missing)) });
 
     match t.next_event().await {
         Event::Notice { severity: Severity::Error, message } => {
-            let expected = std::fs::read_dir("/definitely/missing").unwrap_err().to_string();
+            let expected = std::fs::read_dir(&missing).unwrap_err().to_string();
             assert_eq!(message, expected);
         }
         other => panic!("unexpected {other:?}"),
