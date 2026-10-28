@@ -8,12 +8,28 @@ fn table(text: &str) -> toml::Table {
 
 #[test]
 fn colorterm_truecolor_and_24bit_select_truecolor_everything_else_indexed() {
-    assert_eq!(ColorDepth::detect(Some("truecolor")), ColorDepth::TrueColor);
-    assert_eq!(ColorDepth::detect(Some("24bit")), ColorDepth::TrueColor);
-    assert_eq!(ColorDepth::detect(Some("TrueColor")), ColorDepth::TrueColor);
-    assert_eq!(ColorDepth::detect(Some("")), ColorDepth::Indexed);
-    assert_eq!(ColorDepth::detect(Some("yes")), ColorDepth::Indexed);
-    assert_eq!(ColorDepth::detect(None), ColorDepth::Indexed);
+    assert_eq!(ColorDepth::detect(Some("truecolor"), None), ColorDepth::TrueColor);
+    assert_eq!(ColorDepth::detect(Some("24bit"), None), ColorDepth::TrueColor);
+    assert_eq!(ColorDepth::detect(Some("TrueColor"), None), ColorDepth::TrueColor);
+    assert_eq!(ColorDepth::detect(Some(""), None), ColorDepth::Indexed);
+    assert_eq!(ColorDepth::detect(Some("yes"), None), ColorDepth::Indexed);
+    assert_eq!(ColorDepth::detect(None, None), ColorDepth::Indexed);
+}
+
+#[test]
+fn a_windows_terminal_session_is_true_colour_without_colorterm() {
+    assert_eq!(ColorDepth::detect(None, Some("0d1e-guid")), ColorDepth::TrueColor);
+}
+
+#[test]
+fn an_empty_windows_terminal_session_is_not_true_colour() {
+    assert_eq!(ColorDepth::detect(None, Some("")), ColorDepth::Indexed);
+}
+
+#[test]
+fn colorterm_wins_over_a_missing_windows_terminal_session() {
+    assert_eq!(ColorDepth::detect(Some("24bit"), None), ColorDepth::TrueColor);
+    assert_eq!(ColorDepth::detect(Some("yes"), None), ColorDepth::Indexed);
 }
 
 #[test]
