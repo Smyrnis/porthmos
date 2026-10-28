@@ -9,7 +9,9 @@ use std::{
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::{DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath, Writer};
+use crate::{
+    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, VfsPath, Writer,
+};
 
 #[derive(Debug, Clone)]
 enum Node {
@@ -97,6 +99,7 @@ pub struct FakeFs {
     time_support: bool,
     time_resolution: u64,
     holds_connection: bool,
+    name_rules: NameRules,
 }
 
 impl Default for FakeFs {
@@ -114,6 +117,7 @@ impl FakeFs {
             time_support: true,
             time_resolution: 2,
             holds_connection: false,
+            name_rules: NameRules::Permissive,
         };
         fs.dir("/home/user");
         fs
@@ -236,6 +240,11 @@ impl FakeFs {
         self
     }
 
+    pub fn with_name_rules(mut self, rules: NameRules) -> Self {
+        self.name_rules = rules;
+        self
+    }
+
     pub fn with_time_support(mut self, supported: bool) -> Self {
         self.time_support = supported;
         self
@@ -345,6 +354,10 @@ impl FileSystem for FakeFs {
         self.time_support
     }
 
+    fn name_rules(&self) -> NameRules {
+        self.name_rules
+    }
+
     fn server_info(&self) -> Option<String> {
         self.tree.lock().unwrap().server_info.clone()
     }
@@ -381,6 +394,7 @@ impl FileSystem for FakeFs {
                     owner,
                     group,
                     link_target,
+                    hidden: false,
                 }
             })
             .collect())

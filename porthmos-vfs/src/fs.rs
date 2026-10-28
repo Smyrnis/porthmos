@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    DirItem, Entry, ErrorKind, Metadata, ProtocolError, SearchQuery, SearchSender, VfsPath, search::walk_search,
+    DirItem, Entry, ErrorKind, Metadata, NameRules, ProtocolError, SearchQuery, SearchSender, VfsPath,
+    search::walk_search,
 };
 
 pub type Reader = Box<dyn AsyncRead + Send + Unpin>;
@@ -57,6 +58,9 @@ pub trait FileSystem: Send + Sync {
 
     fn time_resolution(&self) -> u64 {
         2
+    }
+    fn name_rules(&self) -> NameRules {
+        NameRules::Permissive
     }
     async fn free_space(&self, _dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
         Ok(None)

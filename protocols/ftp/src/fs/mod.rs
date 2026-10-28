@@ -347,6 +347,7 @@ impl FileSystem for FtpFs {
                 owner: item.owner,
                 group: item.group,
                 link_target: item.link_target,
+                hidden: false,
             });
         }
         Ok(entries)

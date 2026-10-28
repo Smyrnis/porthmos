@@ -167,6 +167,7 @@ impl FileSystem for SftpFs {
                 owner,
                 group,
                 link_target,
+                hidden: false,
             });
         }
 

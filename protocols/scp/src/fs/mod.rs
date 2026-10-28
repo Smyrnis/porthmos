@@ -211,6 +211,7 @@ impl FileSystem for ScpFs {
                 owner: Some(line.owner),
                 group: Some(line.group),
                 link_target: None,
+                hidden: false,
             })
             .collect())
     }

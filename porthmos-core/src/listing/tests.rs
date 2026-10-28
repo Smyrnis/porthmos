@@ -164,3 +164,14 @@ fn a_listing_path_typed_with_a_trailing_slash_matches_its_entries() {
     assert_eq!(listing.path(), &VfsPath::from("/srv"));
     assert_eq!(listing.rows().len(), 2);
 }
+
+#[test]
+fn an_entry_flagged_hidden_is_not_shown_until_hidden_files_are_shown() {
+    let flagged = Entry { hidden: true, ..entry("desktop.ini", false, 1) };
+    let mut listing =
+        Listing::new(VfsPath::from("/d"), vec![flagged, entry("a.txt", false, 1)], SortSpec::default(), false);
+
+    assert_eq!(listing.rows().len(), 2);
+    listing.set_show_hidden(true);
+    assert_eq!(listing.rows().len(), 3);
+}

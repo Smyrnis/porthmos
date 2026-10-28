@@ -700,3 +700,9 @@ async fn fake_fs_keeps_windows_looking_names_apart() {
     names.sort();
     assert_eq!(names, vec!["con", "x:1.txt"]);
 }
+
+#[test]
+fn a_fake_file_system_reports_the_rules_it_was_given() {
+    assert_eq!(FakeFs::new().name_rules(), crate::NameRules::Permissive);
+    assert_eq!(FakeFs::new().with_name_rules(crate::NameRules::Windows).name_rules(), crate::NameRules::Windows);
+}

@@ -13,6 +13,13 @@ pub struct Entry {
     pub owner: Option<String>,
     pub group: Option<String>,
     pub link_target: Option<String>,
+    pub hidden: bool,
+}
+
+impl Entry {
+    pub fn is_hidden(&self) -> bool {
+        self.hidden || self.name.starts_with('.')
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

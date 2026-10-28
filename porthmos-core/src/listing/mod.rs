@@ -91,8 +91,7 @@ impl Listing {
     }
 
     fn recompute_rows(&mut self) {
-        let shown: Vec<&Entry> =
-            self.entries.iter().filter(|entry| self.show_hidden || !entry.name.starts_with('.')).collect();
+        let shown: Vec<&Entry> = self.entries.iter().filter(|entry| self.show_hidden || !entry.is_hidden()).collect();
         self.shown = shown.len();
         let lowered = self.filter.as_deref().map(str::to_lowercase).unwrap_or_default();
         let mut visible: Vec<Entry> = shown
