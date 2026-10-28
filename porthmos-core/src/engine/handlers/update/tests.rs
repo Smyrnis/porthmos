@@ -333,7 +333,7 @@ async fn a_package_managed_install_announces_managed_and_stages_nothing() {
 
     let found = updates(&setup.t.drain());
     assert!(
-        matches!(found.as_slice(), [UpdateState::Managed { version, reason }] if version == "0.9.0" && reason.contains(".cargo/bin")),
+        matches!(found.as_slice(), [UpdateState::Managed { version, reason }] if version == "0.9.0" && reason.contains(&format!(".cargo{}bin", std::path::MAIN_SEPARATOR))),
         "{found:?}"
     );
     assert!(!setup.calls().iter().any(|call| call.starts_with("stage")));
