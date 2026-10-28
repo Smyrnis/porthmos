@@ -162,7 +162,9 @@ async fn local_writes_need_no_resume_backoff() {
 
 #[tokio::test]
 async fn a_missing_directory_is_not_found() {
-    let error = LocalFs::new("/".into()).list(&VfsPath::new("/definitely/missing")).await.unwrap_err();
+    let dir = tempfile::tempdir().unwrap();
+    let missing = from_os_path(&dir.path().join("missing"));
+    let error = LocalFs::new(dir.path().into()).list(&missing).await.unwrap_err();
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
 
