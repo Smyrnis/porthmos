@@ -179,3 +179,100 @@ fn the_user_name_falls_back_to_username_when_user_is_unset() {
     assert_eq!(Environment::user_from(Some(String::new()), Some("WINME".into())), Some("WINME".to_string()));
     assert_eq!(Environment::user_from(None, None), None);
 }
+
+fn windows_style(path: &[&std::path::Path]) -> Environment {
+    Environment {
+        path: Some(std::env::join_paths(path).unwrap()),
+        path_extensions: vec![".exe".to_string(), ".cmd".to_string()],
+        ..Environment::default()
+    }
+}
+
+fn touch(path: &std::path::Path) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, b"").unwrap();
+}
+
+#[test]
+fn a_bare_name_is_found_with_an_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    touch(&dir.path().join("code.cmd"));
+
+    assert_eq!(windows_style(&[dir.path()]).find_program("code"), Some(dir.path().join("code.cmd")));
+}
+
+#[test]
+fn extension_order_decides_between_two_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    touch(&dir.path().join("tool.cmd"));
+    touch(&dir.path().join("tool.exe"));
+
+    assert_eq!(windows_style(&[dir.path()]).find_program("tool"), Some(dir.path().join("tool.exe")));
+}
+
+#[test]
+fn a_name_that_already_has_a_listed_extension_is_found_as_is() {
+    let dir = tempfile::tempdir().unwrap();
+    touch(&dir.path().join("code.cmd"));
+
+    assert_eq!(windows_style(&[dir.path()]).find_program("code.cmd"), Some(dir.path().join("code.cmd")));
+}
+
+#[test]
+fn an_earlier_path_directory_wins() {
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    touch(&first.path().join("tool.exe"));
+    touch(&second.path().join("tool.exe"));
+
+    assert_eq!(windows_style(&[first.path(), second.path()]).find_program("tool"), Some(first.path().join("tool.exe")));
+}
+
+#[test]
+fn a_name_with_a_separator_is_not_searched_on_path() {
+    let dir = tempfile::tempdir().unwrap();
+    touch(&dir.path().join("sub").join("tool.exe"));
+    let env = windows_style(&[dir.path()]);
+
+    assert_eq!(env.find_program("sub/tool"), None);
+    assert_eq!(
+        env.find_program(dir.path().join("sub").join("tool").to_str().unwrap()),
+        Some(dir.path().join("sub").join("tool.exe"))
+    );
+}
+
+#[test]
+fn nothing_listed_means_exact_name_only() {
+    let dir = tempfile::tempdir().unwrap();
+    touch(&dir.path().join("vi"));
+    let env = Environment { path: Some(dir.path().as_os_str().to_owned()), ..Environment::default() };
+
+    assert_eq!(env.find_program("vi"), Some(dir.path().join("vi")));
+    assert_eq!(env.find_program("vim"), None);
+}
+
+#[test]
+fn a_missing_program_or_path_is_none() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert_eq!(windows_style(&[dir.path()]).find_program("nosuch"), None);
+    assert_eq!(Environment::default().find_program("tool"), None);
+}
+
+#[test]
+fn pathext_text_is_normalised() {
+    assert_eq!(Environment::path_extensions_from(Some(".COM;exe;;.Cmd".into())), [".com", ".exe", ".cmd"]);
+    assert_eq!(Environment::path_extensions_from(Some(".VBS;.exe;.JS;.cmd;.py".into())), [".exe", ".cmd"]);
+    assert_eq!(Environment::path_extensions_from(Some(".vbs;.js".into())), [".com", ".exe", ".bat", ".cmd"]);
+    assert_eq!(Environment::path_extensions_from(None), [".com", ".exe", ".bat", ".cmd"]);
+    assert_eq!(Environment::path_extensions_from(Some("".into())), [".com", ".exe", ".bat", ".cmd"]);
+}
+
+#[test]
+fn an_empty_path_entry_never_searches_the_current_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = std::env::join_paths([std::path::Path::new(""), dir.path()]).unwrap();
+    let env = Environment { path: Some(path), ..Environment::default() };
+
+    assert_eq!(env.find_program("Cargo.toml"), None);
+}

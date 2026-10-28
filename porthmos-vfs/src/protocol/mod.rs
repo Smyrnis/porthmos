@@ -33,12 +33,15 @@ impl fmt::Debug for Target {
     }
 }
 
+const LAUNCHABLE_EXTENSIONS: [&str; 4] = [".com", ".exe", ".bat", ".cmd"];
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Environment {
     pub home: Option<PathBuf>,
     pub user: Option<String>,
     pub path: Option<OsString>,
     pub editor: Option<String>,
+    pub path_extensions: Vec<String>,
 }
 
 impl Environment {
@@ -48,7 +51,48 @@ impl Environment {
             user: Self::user_from(std::env::var("USER").ok(), std::env::var("USERNAME").ok()),
             path: std::env::var_os("PATH"),
             editor: Self::editor_from(std::env::var("VISUAL").ok(), std::env::var("EDITOR").ok()),
+            path_extensions: if cfg!(windows) {
+                Self::path_extensions_from(std::env::var_os("PATHEXT"))
+            } else {
+                Vec::new()
+            },
         }
+    }
+
+    pub fn path_extensions_from(pathext: Option<OsString>) -> Vec<String> {
+        let listed: Vec<String> = pathext
+            .map(|text| text.to_string_lossy().into_owned())
+            .unwrap_or_default()
+            .split(';')
+            .map(str::trim)
+            .filter(|extension| !extension.is_empty())
+            .map(|extension| format!(".{}", extension.trim_start_matches('.').to_lowercase()))
+            .filter(|extension| LAUNCHABLE_EXTENSIONS.contains(&extension.as_str()))
+            .collect();
+        if listed.is_empty() { LAUNCHABLE_EXTENSIONS.map(String::from).to_vec() } else { listed }
+    }
+
+    pub fn find_program(&self, name: &str) -> Option<PathBuf> {
+        if name.contains(['/', '\\']) {
+            return self.first_existing(PathBuf::from(name));
+        }
+        let path = self.path.as_deref()?;
+        std::env::split_paths(path)
+            .filter(|directory| !directory.as_os_str().is_empty())
+            .find_map(|directory| self.first_existing(directory.join(name)))
+    }
+
+    fn first_existing(&self, base: PathBuf) -> Option<PathBuf> {
+        let lowered = base.to_string_lossy().to_lowercase();
+        let already_listed = self.path_extensions.is_empty()
+            || self.path_extensions.iter().any(|extension| lowered.ends_with(extension));
+        let as_given = already_listed.then(|| base.clone());
+        let with_extensions = self.path_extensions.iter().map(|extension| {
+            let mut extended = base.clone().into_os_string();
+            extended.push(extension);
+            PathBuf::from(extended)
+        });
+        as_given.into_iter().chain(with_extensions).find(|candidate| candidate.is_file())
     }
 
     pub fn home_from(home: Option<OsString>, user_profile: Option<OsString>) -> Option<PathBuf> {
