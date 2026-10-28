@@ -1734,3 +1734,33 @@ fn another_launch_error_on_windows_keeps_the_plain_message() {
 
     assert_eq!(ssh_launch_failure(&error, true), format!("Failed to launch ssh: {error}"));
 }
+
+#[test]
+fn a_failed_ssh_names_its_exit_code() {
+    assert_eq!(ssh_exit_failure(Some(255), false), "ssh exited with code 255");
+}
+
+#[test]
+fn an_ssh_killed_by_a_signal_has_no_code_to_name() {
+    assert_eq!(ssh_exit_failure(None, false), "ssh was stopped before it finished");
+}
+
+#[test]
+fn sshpass_reports_a_wrong_password_as_a_hint() {
+    let message = ssh_exit_failure(Some(5), true);
+
+    assert!(message.contains("password") && message.contains("incorrect"), "{message}");
+}
+
+#[test]
+fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
+    let message = ssh_exit_failure(Some(6), true);
+
+    assert!(message.contains("known_hosts"), "{message}");
+    assert!(!message.contains("status"), "{message}");
+}
+
+#[test]
+fn exit_code_six_without_sshpass_is_just_an_exit_code() {
+    assert_eq!(ssh_exit_failure(Some(6), false), "ssh exited with code 6");
+}

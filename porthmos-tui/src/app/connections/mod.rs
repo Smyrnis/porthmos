@@ -17,6 +17,22 @@ fn ssh_launch_failure(error: &std::io::Error, windows: bool) -> String {
     }
 }
 
+fn ssh_exit_failure(code: Option<i32>, via_sshpass: bool) -> String {
+    let Some(code) = code else {
+        return "ssh was stopped before it finished".to_string();
+    };
+    let hint = match (via_sshpass, code) {
+        (true, 5) => Some("the password is incorrect"),
+        (true, 6) => Some("the host key is not known to ssh; add it to ~/.ssh/known_hosts"),
+        (true, 7) => Some("the host key has changed; check ~/.ssh/known_hosts"),
+        _ => None,
+    };
+    match hint {
+        Some(hint) => format!("ssh exited with code {code} \u{2014} {hint}"),
+        None => format!("ssh exited with code {code}"),
+    }
+}
+
 impl App {
     pub(super) fn request_shell(&mut self) {
         let Some(session) = self.sessions.active() else {
@@ -36,13 +52,14 @@ impl App {
     ) -> Result<()> {
         terminal::restore()?;
 
+        let via_sshpass = std::path::Path::new(&invocation.program).file_stem().is_some_and(|name| name == "sshpass");
         let ssh_result = tokio::task::spawn_blocking(move || invocation.to_command().status()).await;
 
         *terminal = terminal::init()?;
 
         match ssh_result {
             Ok(Ok(status)) if !status.success() => {
-                self.error(format!("ssh exited with status {status}"));
+                self.error(ssh_exit_failure(status.code(), via_sshpass));
             }
             Ok(Ok(_)) => {}
             Ok(Err(io_err)) => {

@@ -79,7 +79,7 @@ impl Engine {
         let entries = match self.all_profiles() {
             Ok(entries) => entries,
             Err(err) => {
-                self.report(Severity::Error, err.to_string());
+                self.report(Severity::Error, format!("{err:#}"));
                 return;
             }
         };

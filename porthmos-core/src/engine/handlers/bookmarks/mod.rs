@@ -9,7 +9,7 @@ use crate::{
 impl Engine {
     fn save_bookmarks(&self) {
         if let Err(err) = bookmarks::save_to(&self.paths.bookmarks_file(), &self.bookmarks) {
-            self.report(Severity::Error, err.to_string());
+            self.report(Severity::Error, format!("{err:#}"));
         }
     }
 

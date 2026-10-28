@@ -1028,3 +1028,16 @@ async fn settle_waits_for_a_keyring_job_that_outlasts_the_quiet_period() {
     assert_eq!(backend.stored("profile:web").as_deref(), Some("pw"));
     assert!(t.engine.latest_keyring_job.is_empty());
 }
+
+#[test]
+fn listing_with_a_malformed_connections_file_shows_the_file_name_and_the_line() {
+    let mut t = test_engine();
+    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
+    std::fs::write(t.engine.paths.connections_file(), "[connections.s3]\nhost = \"h\nusername = \"u\"\n").unwrap();
+
+    t.engine.list_profiles();
+
+    let (severity, message) = t.first_notice().expect("an error notice");
+    assert_eq!(severity, Severity::Error);
+    assert!(message.contains("connections.toml") && message.contains("line 2"), "{message}");
+}
