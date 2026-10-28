@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     theme::Theme,
-    widgets::{dialog::TestState, history_view::printable, text_fit::truncate_with_ellipsis},
+    widgets::{dialog::TestState, history_view::joined_lines, text_fit::truncate_with_ellipsis},
 };
 
 const SEPARATOR: &str = " \u{b7} ";
@@ -38,7 +38,7 @@ pub fn format_elapsed(elapsed: Duration) -> String {
 }
 
 fn clean(text: &str) -> String {
-    printable(text.lines().next().unwrap_or("").trim())
+    joined_lines(text)
 }
 
 fn stage_phrase(stage: TestStage) -> &'static str {

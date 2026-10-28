@@ -124,7 +124,8 @@ fn connection_header(
     entry: &ConnectionEntry, context: &DetailsContext<'_>, width: usize, theme: &Theme,
 ) -> Line<'static> {
     let right = if let Some(failure) = context.failure {
-        let text = truncate_with_ellipsis(&printable(failure.lines().next().unwrap_or("")), width / 2);
+        let cause = failure.lines().map(str::trim).rfind(|line| !line.is_empty()).unwrap_or("");
+        let text = truncate_with_ellipsis(&printable(cause), width / 2);
         Some(Span::styled(format!("\u{2022} {text}"), theme.err_text()))
     } else if context.lost {
         Some(Span::styled("\u{2022} connection lost", theme.err_text()))

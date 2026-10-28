@@ -168,6 +168,17 @@ pub fn printable(text: &str) -> String {
     text.chars().map(|character| if is_unprintable(character) { '?' } else { character }).collect()
 }
 
+pub fn joined_lines(text: &str) -> String {
+    let mut joined = String::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if !joined.is_empty() {
+            joined.push_str(if joined.ends_with(':') { " " } else { " - " });
+        }
+        joined.push_str(line);
+    }
+    printable(&joined)
+}
+
 fn status_of(result: &HistoryResult, theme: &Theme) -> (String, Style) {
     match result {
         HistoryResult::Done => ("done".to_string(), theme.ok_text()),
