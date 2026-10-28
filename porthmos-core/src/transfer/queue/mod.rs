@@ -500,6 +500,13 @@ impl TransferQueue {
         count
     }
 
+    pub fn rebind_session(&mut self, id: u64, session_id: u64) {
+        self.update(id, |job| job.session_id = session_id);
+        if let Some(counters) = self.row_of.get(&id).and_then(|key| self.rows.get_mut(key)) {
+            counters.session_id = Some(session_id);
+        }
+    }
+
     pub fn remove_jobs(&mut self, ids: &[u64]) {
         let mut touched_batches: HashSet<u64> = HashSet::new();
         let mut removed_by_row: BTreeMap<u64, HashSet<u64>> = BTreeMap::new();

@@ -832,7 +832,119 @@ fn retry_on_a_disconnected_session_shows_one_warning_and_leaves_the_files() {
     let job = t.engine.transfers.get(failed).unwrap();
     assert_eq!((job.status.clone(), job.attempts), (JobStatus::Failed("boom".to_string()), 3));
     assert_eq!(t.engine.transfers.get(cancelled).unwrap().status, JobStatus::Cancelled);
-    assert_eq!(t.notices(), vec![(Severity::Warning, "Can't retry: session disconnected".to_string())]);
+    assert_eq!(t.notices(), vec![(Severity::Warning, "Can't retry: reconnect to unknown first".to_string())]);
+}
+
+fn failed_partial_upload(t: &mut TestEngine, session_id: u64, name: &str) -> u64 {
+    let id = enqueue_job(t, session_id, name, None);
+    let mut job = t.engine.transfers.get_mut(id).unwrap();
+    job.status = JobStatus::Failed("session closed".to_string());
+    job.transferred_bytes = 5;
+    id
+}
+
+#[tokio::test]
+async fn retry_moves_a_failed_job_onto_the_reconnected_session_and_resumes_it() {
+    let mut t = test_engine();
+    let (old_session, _) = t.add_session("alpha");
+    let failed = failed_partial_upload(&mut t, old_session, "big.bin");
+    t.engine.disconnect(old_session);
+    let (new_session, _) = t.add_session("alpha");
+    assert_ne!(old_session, new_session);
+
+    t.engine.retry_row(RowKind::Single(failed));
+
+    let job = t.engine.transfers.get(failed).unwrap();
+    assert_eq!(job.session_id, new_session);
+    assert!(job.resume);
+    assert!(matches!(job.status, JobStatus::Queued | JobStatus::InProgress), "{:?}", job.status);
+}
+
+#[test]
+fn retry_names_the_connection_to_reconnect_when_none_is_live() {
+    let mut t = test_engine();
+    let (old_session, _) = t.add_session("alpha");
+    let failed = failed_partial_upload(&mut t, old_session, "big.bin");
+    t.engine.disconnect(old_session);
+    t.drain();
+
+    t.engine.retry_row(RowKind::Single(failed));
+
+    assert_eq!(t.engine.transfers.get(failed).unwrap().status, JobStatus::Failed("session closed".to_string()));
+    let warnings: Vec<String> = t
+        .notices()
+        .into_iter()
+        .filter(|(severity, _)| *severity == Severity::Warning)
+        .map(|(_, message)| message)
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("alpha"), "{}", warnings[0]);
+}
+
+#[test]
+fn retry_does_not_reuse_a_session_that_is_still_listed_but_lost() {
+    let mut t = test_engine();
+    let (lost, _) = t.add_session("alpha");
+    let failed = failed_partial_upload(&mut t, lost, "big.bin");
+    t.engine.lost_sessions.insert(lost);
+    t.drain();
+
+    t.engine.retry_row(RowKind::Single(failed));
+
+    assert_eq!(t.engine.transfers.get(failed).unwrap().session_id, lost);
+    assert_eq!(t.engine.transfers.get(failed).unwrap().status, JobStatus::Failed("session closed".to_string()));
+    assert_eq!(t.notices(), vec![(Severity::Warning, "Can't retry: reconnect to alpha first".to_string())]);
+}
+
+#[tokio::test]
+async fn retry_moves_a_job_off_a_lost_session_onto_a_healthy_one_with_the_same_name() {
+    let mut t = test_engine();
+    let (lost, _) = t.add_session("alpha");
+    let failed = failed_partial_upload(&mut t, lost, "big.bin");
+    t.engine.lost_sessions.insert(lost);
+    let (healthy, _) = t.add_session("alpha");
+
+    t.engine.retry_row(RowKind::Single(failed));
+
+    assert_eq!(t.engine.transfers.get(failed).unwrap().session_id, healthy);
+}
+
+#[tokio::test]
+async fn retry_leaves_the_queue_and_the_row_route_consistent_after_moving_sessions() {
+    let mut t = test_engine();
+    let (old_session, _) = t.add_session("alpha");
+    let batch = t.engine.transfers.start_batch("photos".to_string());
+    let first = enqueue_job(&mut t, old_session, "a", Some(batch));
+    let second = enqueue_job(&mut t, old_session, "b", Some(batch));
+    for id in [first, second] {
+        t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed("session closed".to_string());
+    }
+    t.engine.disconnect(old_session);
+    let (new_session, _) = t.add_session("alpha");
+
+    t.engine.retry_row(RowKind::Batch(batch));
+
+    t.engine.transfers.assert_consistent();
+    let row = t.engine.transfers.row(RowKind::Batch(batch)).unwrap();
+    assert_eq!(row.session_id, Some(new_session));
+}
+
+#[tokio::test]
+async fn retry_points_a_move_batch_at_the_reconnected_session() {
+    let mut t = test_engine();
+    let (old_session, _) = t.add_session("alpha");
+    let batch = t.engine.transfers.start_batch("photos".to_string());
+    t.engine
+        .moves
+        .insert(batch, MoveBatch { session_id: old_session, direction: Direction::Upload, roots: Vec::new() });
+    let failed = enqueue_job(&mut t, old_session, "a", Some(batch));
+    t.engine.transfers.get_mut(failed).unwrap().status = JobStatus::Failed("session closed".to_string());
+    t.engine.disconnect(old_session);
+    let (new_session, _) = t.add_session("alpha");
+
+    t.engine.retry_row(RowKind::Batch(batch));
+
+    assert_eq!(t.engine.moves[&batch].session_id, new_session);
 }
 
 #[test]

@@ -54,8 +54,10 @@ impl Engine {
         };
         let name = live.name.clone();
         if healthy {
+            self.lost_sessions.remove(&session);
             self.info(format!("{name}: connection restored"));
         } else {
+            self.lost_sessions.insert(session);
             self.report(Severity::Warning, format!("{name}: connection lost"));
         }
         self.emit(Event::SessionHealth { session, healthy });

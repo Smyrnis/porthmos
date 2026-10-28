@@ -574,24 +574,49 @@ impl Engine {
     }
 
     pub(crate) fn retry_row(&mut self, kind: RowKind) {
-        let retryable: Vec<u64> = self
+        let retryable: Vec<(u64, u64, Option<u64>)> = self
             .transfers
             .jobs_of(kind)
             .iter()
             .filter(|job| matches!(job.status, JobStatus::Failed(_) | JobStatus::Cancelled))
-            .map(|job| job.id)
+            .map(|job| (job.id, job.session_id, job.batch_id))
             .collect();
-        let Some(session_id) = retryable.first().and_then(|id| self.transfers.get(*id)).map(|job| job.session_id)
-        else {
-            return;
-        };
-        if !self.sessions.contains_key(&session_id) {
-            self.report(Severity::Warning, "Can't retry: session disconnected");
-            return;
+        let mut ready: Vec<u64> = Vec::new();
+        let mut reconnect: Vec<String> = Vec::new();
+        for (id, session_id, batch_id) in retryable {
+            match self.usable_session_for(session_id) {
+                Some(target) => {
+                    if target != session_id {
+                        self.transfers.rebind_session(id, target);
+                        if let Some(moving) = batch_id.and_then(|batch_id| self.moves.get_mut(&batch_id)) {
+                            moving.session_id = target;
+                        }
+                    }
+                    ready.push(id);
+                }
+                None => {
+                    let name = self.session_name(session_id);
+                    if !reconnect.contains(&name) {
+                        reconnect.push(name);
+                    }
+                }
+            }
         }
-        if self.transfers.retry_jobs(&retryable) > 0 {
+        for name in reconnect {
+            self.report(Severity::Warning, format!("Can't retry: reconnect to {name} first"));
+        }
+        if self.transfers.retry_jobs(&ready) > 0 {
             self.fill_transfer_slots();
         }
+    }
+
+    fn usable_session_for(&self, session_id: u64) -> Option<u64> {
+        let usable = |id: &u64| self.sessions.contains_key(id) && !self.lost_sessions.contains(id);
+        if usable(&session_id) {
+            return Some(session_id);
+        }
+        let name = self.session_name(session_id);
+        self.sessions.iter().rev().find(|(id, live)| live.name == name && usable(id)).map(|(id, _)| *id)
     }
 
     pub(crate) fn clear_finished_rows(&mut self) {
