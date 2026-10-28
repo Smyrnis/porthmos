@@ -95,3 +95,49 @@ fn a_relative_windows_path_round_trips() {
 fn the_root_alone_has_no_drive_and_maps_to_the_backslash_root() {
     assert_eq!(to_os_path(&VfsPath::root()), PathBuf::from(r"\"));
 }
+
+mod validation {
+    use porthmos_vfs::VfsPath;
+
+    use crate::os_path::validation::path_problem;
+
+    #[test]
+    fn a_clean_drive_path_has_no_problem() {
+        assert_eq!(path_problem(&VfsPath::new("/C:/Users/me/a.txt")), None);
+        assert_eq!(path_problem(&VfsPath::new("/C:")), None);
+        assert_eq!(path_problem(&VfsPath::new("/C:/a/../b")), None);
+        assert_eq!(path_problem(&VfsPath::new("dir/file.txt")), None);
+    }
+
+    #[test]
+    fn hostile_segments_are_reported() {
+        let base = VfsPath::new("/C:/dir");
+        for name in ["a:b", "CON", "trail.", "what?", "a\\b", "..\\..\\x", "\\evil", "x:1.txt"] {
+            let problem = path_problem(&base.join(name));
+
+            assert!(problem.is_some_and(|message| message.contains("valid Windows file name")), "{name}");
+        }
+        assert!(path_problem(&VfsPath::new("x:1.txt")).is_some());
+    }
+
+    #[test]
+    fn a_path_without_a_drive_is_reported() {
+        let problem = path_problem(&VfsPath::new("/Users/me")).unwrap();
+
+        assert!(problem.contains("drive"), "{problem}");
+        assert!(path_problem(&VfsPath::root()).unwrap().contains("drive"));
+    }
+
+    #[test]
+    fn a_unc_prefix_counts_as_a_drive() {
+        let unc = VfsPath::from_segments(true, [r"\\server\share", "dir"]);
+
+        assert_eq!(path_problem(&unc), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_unix_style_name_with_a_colon_is_fine_to_a_unix_mapping() {
+        assert!(crate::os_path::checked_os_path(&VfsPath::new("/srv/a:b")).is_ok());
+    }
+}

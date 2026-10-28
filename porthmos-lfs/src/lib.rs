@@ -1,9 +1,13 @@
 mod attributes;
+mod in_use;
 mod os_path;
 #[cfg(unix)]
 mod ownership;
+mod roots;
 mod space;
 
+use in_use::explain;
+use os_path::checked_os_path;
 pub use os_path::{from_os_path, to_os_path};
 
 use std::{
@@ -14,18 +18,34 @@ use std::{
 };
 
 use porthmos_vfs::{
-    DirItem, Entry, FileKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath, Writer, async_trait,
+    DirItem, Entry, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, VfsPath, Writer, async_trait,
 };
 use tokio::io::AsyncSeekExt;
 
 pub struct LocalFs {
     home: PathBuf,
+    name_rules: NameRules,
 }
 
 impl LocalFs {
     pub fn new(home: PathBuf) -> Self {
-        Self { home }
+        Self { home, name_rules: platform_name_rules() }
     }
+
+    pub fn with_name_rules(mut self, rules: NameRules) -> Self {
+        self.name_rules = rules;
+        self
+    }
+}
+
+#[cfg(unix)]
+fn platform_name_rules() -> NameRules {
+    NameRules::Permissive
+}
+
+#[cfg(windows)]
+fn platform_name_rules() -> NameRules {
+    NameRules::Windows
 }
 
 fn metadata_from(metadata: &fs::Metadata) -> Metadata {
@@ -62,19 +82,27 @@ fn open_for_times(path: &Path) -> io::Result<fs::File> {
     fs::OpenOptions::new().access_mode(FILE_WRITE_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path)
 }
 
+fn mapped(path: &VfsPath) -> Result<PathBuf, ProtocolError> {
+    checked_os_path(path).map_err(ProtocolError::from)
+}
+
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> io::Result<T> + Send + 'static,
 ) -> Result<T, ProtocolError> {
     tokio::task::spawn_blocking(work)
         .await
         .map_err(|join_error| ProtocolError::from(anyhow::Error::from(join_error)))?
-        .map_err(Into::into)
+        .map_err(explain)
 }
 
 #[async_trait]
 impl FileSystem for LocalFs {
+    fn name_rules(&self) -> NameRules {
+        self.name_rules
+    }
+
     async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
-        let path = to_os_path(path);
+        let path = mapped(path)?;
         blocking(move || {
             let moment = UNIX_EPOCH.checked_add(Duration::from_secs(seconds)).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, format!("the modification time {seconds} is out of range"))
@@ -89,17 +117,28 @@ impl FileSystem for LocalFs {
     }
 
     async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
-        let dir = to_os_path(dir);
+        #[cfg(windows)]
+        if roots::lists_drives(dir) {
+            return Ok(roots::entries_for(&roots::present_drives()));
+        }
+        let dir = mapped(dir)?;
         blocking(move || list(&dir)).await
     }
 
     async fn free_space(&self, dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
-        let dir = to_os_path(dir);
+        if roots::lists_drives(dir) {
+            return Ok(None);
+        }
+        let dir = mapped(dir)?;
         blocking(move || space::free_space(&dir).map(Some)).await
     }
 
     async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
-        let dir = to_os_path(dir);
+        #[cfg(windows)]
+        if roots::lists_drives(dir) {
+            return Ok(roots::items_for(&roots::present_drives()));
+        }
+        let dir = mapped(dir)?;
         blocking(move || {
             let mut items = Vec::new();
             for dir_entry in fs::read_dir(&dir)? {
@@ -117,28 +156,32 @@ impl FileSystem for LocalFs {
     }
 
     async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
-        Ok(metadata_from(&tokio::fs::metadata(to_os_path(path)).await?))
+        #[cfg(windows)]
+        if roots::lists_drives(path) {
+            return Ok(roots::root_metadata());
+        }
+        Ok(metadata_from(&tokio::fs::metadata(mapped(path)?).await.map_err(explain)?))
     }
 
     async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
-        Ok(tokio::fs::create_dir(to_os_path(path)).await?)
+        tokio::fs::create_dir(mapped(path)?).await.map_err(explain)
     }
 
     async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
-        Ok(tokio::fs::rename(to_os_path(from), to_os_path(to)).await?)
+        tokio::fs::rename(mapped(from)?, mapped(to)?).await.map_err(explain)
     }
 
     async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
-        Ok(tokio::fs::remove_file(to_os_path(path)).await?)
+        tokio::fs::remove_file(mapped(path)?).await.map_err(explain)
     }
 
     async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
-        let path = to_os_path(path);
+        let path = mapped(path)?;
         blocking(move || delete(&path)).await
     }
 
     async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
-        let path = to_os_path(path);
+        let path = mapped(path)?;
         blocking(move || fs::remove_dir(&path)).await
     }
 
@@ -147,16 +190,21 @@ impl FileSystem for LocalFs {
     }
 
     async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
-        let mut file = tokio::fs::File::open(to_os_path(path)).await?;
-        file.seek(SeekFrom::Start(offset)).await?;
+        let mut file = tokio::fs::File::open(mapped(path)?).await.map_err(explain)?;
+        file.seek(SeekFrom::Start(offset)).await.map_err(explain)?;
         Ok(Box::new(file))
     }
 
     async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
-        let mut file =
-            tokio::fs::OpenOptions::new().create(true).write(true).truncate(false).open(to_os_path(path)).await?;
-        file.set_len(offset).await?;
-        file.seek(SeekFrom::Start(offset)).await?;
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(mapped(path)?)
+            .await
+            .map_err(explain)?;
+        file.set_len(offset).await.map_err(explain)?;
+        file.seek(SeekFrom::Start(offset)).await.map_err(explain)?;
         Ok(Writer { stream: Box::new(file), offset })
     }
 }
@@ -188,6 +236,7 @@ pub fn list(path: &Path) -> io::Result<Vec<Entry>> {
                 .map(|elapsed| elapsed.as_secs()),
             owner: attributes.owner,
             group: attributes.group,
+            hidden: attributes.hidden,
             link_target,
         });
     }

@@ -454,3 +454,22 @@ async fn set_modified_works_on_a_folder() {
         std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000)
     );
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn local_fs_refuses_a_hostile_name_with_a_clear_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let local = LocalFs::new(dir.path().into());
+    let hostile = from_os_path(dir.path()).join("a\\b");
+
+    for error in [
+        local.create_dir(&hostile).await.unwrap_err(),
+        local.rename(&hostile, &from_os_path(dir.path()).join("c")).await.unwrap_err(),
+        local.delete(&hostile).await.unwrap_err(),
+        local.remove_file(&hostile).await.unwrap_err(),
+        local.open_write(&hostile, 0).await.err().unwrap(),
+    ] {
+        assert!(error.to_string().contains("valid Windows file name"), "{error}");
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}

@@ -7,6 +7,17 @@ pub(crate) struct Attributes {
     pub(crate) permissions: Option<u32>,
     pub(crate) owner: Option<String>,
     pub(crate) group: Option<String>,
+    pub(crate) hidden: bool,
+}
+
+#[cfg(any(windows, test))]
+const HIDDEN_ATTRIBUTE: u32 = 0x2;
+#[cfg(any(windows, test))]
+const SYSTEM_ATTRIBUTE: u32 = 0x4;
+
+#[cfg(any(windows, test))]
+pub(crate) fn is_hidden_attribute(attributes: u32) -> bool {
+    attributes & (HIDDEN_ATTRIBUTE | SYSTEM_ATTRIBUTE) != 0
 }
 
 pub(crate) fn permissions_of(metadata: &fs::Metadata) -> Option<u32> {
@@ -42,6 +53,7 @@ impl AttributeResolver {
             permissions: permissions_of(metadata),
             owner: Some(self.users.name(metadata.uid())),
             group: Some(self.groups.name(metadata.gid())),
+            hidden: false,
         }
     }
 }
@@ -56,6 +68,16 @@ impl AttributeResolver {
     }
 
     pub(crate) fn of(&mut self, metadata: &fs::Metadata) -> Attributes {
-        Attributes { permissions: permissions_of(metadata), owner: None, group: None }
+        use std::os::windows::fs::MetadataExt;
+
+        Attributes {
+            permissions: permissions_of(metadata),
+            owner: None,
+            group: None,
+            hidden: is_hidden_attribute(metadata.file_attributes()),
+        }
     }
 }
+
+#[cfg(test)]
+mod tests;
