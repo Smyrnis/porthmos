@@ -116,3 +116,120 @@ fn hashing_tells_identical_and_different_files_apart() {
 fn printable_replaces_control_characters_only() {
     assert_eq!(printable("a\nb\u{1b}[0m\tc \u{fc}"), "a?b?[0m?c \u{fc}");
 }
+
+#[test]
+fn literal_mode_keeps_the_backslashes_of_an_unquoted_path() {
+    assert_eq!(split_command_as(r"C:\tools\ed.exe -w", Backslash::Literal).unwrap(), [r"C:\tools\ed.exe", "-w"]);
+}
+
+#[test]
+fn literal_mode_keeps_a_quoted_path_with_spaces_whole() {
+    assert_eq!(
+        split_command_as(r#""C:\Program Files\Notepad++\notepad++.exe" -multiInst"#, Backslash::Literal).unwrap(),
+        [r"C:\Program Files\Notepad++\notepad++.exe", "-multiInst"]
+    );
+}
+
+#[test]
+fn literal_mode_still_escapes_a_quote_inside_quotes() {
+    assert_eq!(split_command_as(r#"ed "a \"b\" c""#, Backslash::Literal).unwrap(), ["ed", r#"a "b" c"#]);
+}
+
+#[test]
+fn literal_mode_rejects_an_unterminated_quote() {
+    assert!(split_command_as(r#"ed "oops"#, Backslash::Literal).unwrap_err().contains("quote"));
+}
+
+#[test]
+fn escapes_mode_is_the_default_and_unchanged() {
+    assert_eq!(split_command_as(r"my\ editor -w", Backslash::Escapes).unwrap(), ["my editor", "-w"]);
+}
+
+fn windows_style_env(directory: &std::path::Path) -> Environment {
+    Environment {
+        path: Some(directory.as_os_str().to_owned()),
+        path_extensions: vec![".exe".to_string(), ".cmd".to_string()],
+        ..Environment::default()
+    }
+}
+
+#[test]
+fn a_windows_environment_resolves_a_shim() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("code.cmd"), b"").unwrap();
+
+    assert_eq!(
+        resolve_editor(Some("code --wait"), &windows_style_env(dir.path())).unwrap(),
+        EditorCommand {
+            program: dir.path().join("code.cmd").to_string_lossy().into_owned(),
+            args: vec!["--wait".to_string()]
+        }
+    );
+}
+
+#[test]
+fn a_windows_environment_keeps_the_backslashes_of_the_setting() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert_eq!(
+        resolve_editor(Some(r#""C:\Program Files\x\ed.exe" -w"#), &windows_style_env(dir.path())).unwrap(),
+        EditorCommand { program: r"C:\Program Files\x\ed.exe".to_string(), args: vec!["-w".to_string()] }
+    );
+    assert_eq!(
+        resolve_editor(Some(r"C:\tools\ed.exe"), &windows_style_env(dir.path())).unwrap().program,
+        r"C:\tools\ed.exe"
+    );
+}
+
+#[test]
+fn a_program_that_is_not_found_is_left_as_typed() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert_eq!(resolve_editor(Some("nosuch"), &windows_style_env(dir.path())).unwrap().program, "nosuch");
+}
+
+#[test]
+fn a_unix_environment_never_rewrites_the_program() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("vi"), b"").unwrap();
+    std::fs::write(dir.path().join("code"), b"").unwrap();
+    let env = Environment { path: Some(dir.path().as_os_str().to_owned()), ..Environment::default() };
+
+    assert_eq!(resolve_editor(Some("code --wait"), &env).unwrap().program, "code");
+    assert_eq!(resolve_editor(None, &env).unwrap().program, FALLBACK_PROGRAM);
+}
+
+#[test]
+fn an_unquoted_path_with_spaces_is_found_by_growing_the_program_word_by_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let editor = dir.path().join("My Editor").join("ed.exe");
+    std::fs::create_dir_all(editor.parent().unwrap()).unwrap();
+    std::fs::write(&editor, b"").unwrap();
+    let env = windows_style_env(dir.path());
+
+    assert_eq!(
+        resolve_editor(Some(&editor.to_string_lossy()), &env).unwrap(),
+        EditorCommand { program: editor.to_string_lossy().into_owned(), args: Vec::new() }
+    );
+    assert_eq!(
+        resolve_editor(Some(&format!("{} -w --new", editor.to_string_lossy())), &env).unwrap(),
+        EditorCommand {
+            program: editor.to_string_lossy().into_owned(),
+            args: vec!["-w".to_string(), "--new".to_string()]
+        }
+    );
+}
+
+#[test]
+fn growing_the_program_never_swallows_arguments_of_a_program_that_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let editor = dir.path().join("ed.exe");
+    std::fs::write(&editor, b"").unwrap();
+
+    assert_eq!(
+        resolve_editor(Some(&format!("{} a b", editor.to_string_lossy())), &windows_style_env(dir.path()))
+            .unwrap()
+            .args,
+        ["a", "b"]
+    );
+}
