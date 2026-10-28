@@ -4,6 +4,7 @@ use ratatui::{Frame, layout::Rect};
 use crate::{
     theme::Theme,
     widgets::{
+        dialog::types_text,
         form_fields::render_underline_value,
         history_view::printable,
         popup::{content_width, footer, footer_text, render_popup},
@@ -66,7 +67,7 @@ impl TextInputDialog {
                 }
                 TextInputOutcome::Pending
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char(c) if types_text(key.modifiers) => {
                 self.insert_char_at(self.cursor, c);
                 self.cursor += 1;
                 TextInputOutcome::Pending
