@@ -27,7 +27,7 @@ impl Folder {
     }
 
     fn destination(&self) -> std::path::PathBuf {
-        self.root.path().join("stage").join("porthmos")
+        self.root.path().join("stage").join(PROGRAM_FILE)
     }
 
     fn stage_listing(&self) -> Vec<String> {
@@ -62,7 +62,7 @@ fn the_binary_is_extracted_executable_and_the_license_is_ignored() {
 
     assert_eq!(fs::read(folder.destination()).unwrap(), stub_script("0.5.0"));
     assert_eq!(fs::metadata(folder.destination()).unwrap().permissions().mode() & 0o777, 0o755);
-    assert_eq!(folder.stage_listing(), ["porthmos"]);
+    assert_eq!(folder.stage_listing(), [PROGRAM_FILE]);
 }
 
 #[test]
@@ -72,12 +72,12 @@ fn a_member_with_a_path_traversal_name_is_never_written_outside() {
         ("../evil", b"bad"),
         ("/tmp/porthmos-evil-absolute", b"bad"),
         ("stage/../../evil2", b"bad"),
-        ("porthmos", b"#!/bin/sh\n"),
+        (PROGRAM_FILE, b"#!/bin/sh\n"),
     ]));
 
     extract_binary(&archive, &folder.destination(), CAP).unwrap();
 
-    assert_eq!(folder.stage_listing(), ["porthmos"]);
+    assert_eq!(folder.stage_listing(), [PROGRAM_FILE]);
     assert!(!folder.root.path().join("evil").exists());
     assert!(!folder.root.path().join("evil2").exists());
     assert!(!std::path::Path::new("/tmp/porthmos-evil-absolute").exists());
@@ -86,9 +86,10 @@ fn a_member_with_a_path_traversal_name_is_never_written_outside() {
 #[test]
 fn a_linked_or_directory_member_named_porthmos_is_not_accepted() {
     let folder = Folder::new();
+    let directory_name = format!("{PROGRAM_FILE}/");
     let members: [(&str, &[u8], tar::EntryType, u32); 2] = [
-        ("porthmos", b"/etc/passwd", tar::EntryType::Symlink, 0o777),
-        ("porthmos/", b"", tar::EntryType::Directory, 0o755),
+        (PROGRAM_FILE, b"/etc/passwd", tar::EntryType::Symlink, 0o777),
+        (directory_name.as_str(), b"", tar::EntryType::Directory, 0o755),
     ];
     let archive = folder.archive(&raw_archive(&members));
 
@@ -112,7 +113,7 @@ fn an_archive_without_the_binary_is_an_error_and_leaves_no_file() {
 #[test]
 fn a_member_over_the_size_cap_is_refused_and_removed() {
     let folder = Folder::new();
-    let archive = folder.archive(&archive_with(&[("porthmos", &[b'x'; 5000])]));
+    let archive = folder.archive(&archive_with(&[(PROGRAM_FILE, &[b'x'; 5000])]));
 
     assert!(extract_binary(&archive, &folder.destination(), 10).is_err());
     assert!(folder.stage_listing().is_empty());
@@ -122,7 +123,7 @@ fn a_member_over_the_size_cap_is_refused_and_removed() {
 fn a_decompression_bomb_before_the_binary_is_cut_off() {
     let folder = Folder::new();
     let bomb = vec![0u8; 20 * 1024 * 1024];
-    let archive = folder.archive(&archive_with(&[("padding", &bomb), ("porthmos", b"#!/bin/sh\n")]));
+    let archive = folder.archive(&archive_with(&[("padding", &bomb), (PROGRAM_FILE, b"#!/bin/sh\n")]));
 
     assert!(extract_binary(&archive, &folder.destination(), 1024).is_err());
     assert!(folder.stage_listing().is_empty());
@@ -211,10 +212,12 @@ fn a_missing_binary_fails() {
 #[test]
 fn only_the_member_named_exactly_porthmos_is_the_program() {
     let folder = Folder::new();
+    let in_subfolder = format!("bin/{PROGRAM_FILE}");
+    let outside = format!("../{PROGRAM_FILE}");
     let archive = folder.archive(&archive_with(&[
-        ("bin/porthmos", b"decoy in a subfolder"),
-        ("../porthmos", b"decoy outside"),
-        ("porthmos", b"the real one"),
+        (in_subfolder.as_str(), b"decoy in a subfolder"),
+        (outside.as_str(), b"decoy outside"),
+        (PROGRAM_FILE, b"the real one"),
     ]));
 
     extract_binary(&archive, &folder.destination(), CAP).unwrap();

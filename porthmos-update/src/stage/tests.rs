@@ -81,7 +81,7 @@ async fn staging_downloads_unpacks_checks_and_records() {
         .unwrap();
 
     assert_eq!(staged.version, version("0.5.0"));
-    assert_eq!(staged.binary, setup.dir().path().join("0.5.0").join("porthmos"));
+    assert_eq!(staged.binary, setup.dir().path().join("0.5.0").join(PROGRAM_FILE));
     assert_eq!(staged.size, fs::metadata(&staged.binary).unwrap().len());
     assert_eq!(staged.sha256, sha256_hex_of_file(&staged.binary).unwrap());
     assert_eq!(find_staged(&setup.dir(), &version("0.4.0")), Some(staged));
@@ -234,7 +234,7 @@ async fn a_leftover_staging_folder_from_a_crash_does_not_block_staging() {
     let setup = Setup::new();
     let leftover: PathBuf = setup.dir().path().join(format!("0.5.0.staging-{}", std::process::id()));
     fs::create_dir_all(&leftover).unwrap();
-    fs::write(leftover.join("porthmos"), b"junk").unwrap();
+    fs::write(leftover.join(PROGRAM_FILE), b"junk").unwrap();
     let archive = stub_archive("0.5.0", &[]);
     let server = TestServer::start(vec![("/p.tar.gz", Route::Body(archive.clone()))]).await;
     let update = update_for(&server, "/p.tar.gz", "0.5.0", &archive);

@@ -166,7 +166,7 @@ pub(crate) fn stub_script(version: &str) -> Vec<u8> {
 pub(crate) fn stub_archive(version: &str, extra_members: &[(&str, &[u8])]) -> Vec<u8> {
     let script = stub_script(version);
     let mut members: Vec<(&str, &[u8], tar::EntryType, u32)> =
-        vec![("porthmos", &script, tar::EntryType::Regular, 0o755)];
+        vec![(crate::unpack::PROGRAM_FILE, &script, tar::EntryType::Regular, 0o755)];
     members.extend(extra_members.iter().map(|(name, bytes)| (*name, *bytes, tar::EntryType::Regular, 0o644)));
     raw_archive(&members)
 }
