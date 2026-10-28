@@ -107,6 +107,7 @@ impl Engine {
             self.report(Severity::Warning, format!("Both can't be used with {name}: it can't keep modification times"));
             return;
         }
+        let (local_rules, remote_rules) = (local.name_rules(), remote.name_rules());
         let tolerance = local.time_resolution().max(remote.time_resolution());
         let target_keeps_times = match options.direction {
             SyncDirection::LocalToRemote => remote.can_set_modified(),
@@ -123,25 +124,41 @@ impl Engine {
             let scanned =
                 scan_both(local.as_ref(), &local_dir, remote.as_ref(), &remote_dir, options.subfolders, &cancel).await;
             let event = match scanned {
-                Ok(Some((local_scan, remote_scan))) => TransferEvent::SyncPlanReady {
-                    batch_id,
-                    plan: SyncPlan {
-                        sync_id: batch_id,
-                        session: session_id,
-                        local_root: local_dir,
-                        remote_root: remote_dir,
-                        options,
-                        items: sync::compare(
-                            &local_scan.tree,
-                            &remote_scan.tree,
+                Ok(Some((mut local_scan, mut remote_scan))) => {
+                    let mut case_clashes = 0;
+                    let mut unstorable = 0;
+                    if options.direction != SyncDirection::RemoteToLocal {
+                        unstorable += sync::drop_unstorable(&mut local_scan.tree, remote_rules);
+                        case_clashes +=
+                            sync::drop_case_clashes(&mut local_scan.tree, &mut remote_scan.tree, remote_rules);
+                    }
+                    if options.direction != SyncDirection::LocalToRemote {
+                        unstorable += sync::drop_unstorable(&mut remote_scan.tree, local_rules);
+                        case_clashes +=
+                            sync::drop_case_clashes(&mut remote_scan.tree, &mut local_scan.tree, local_rules);
+                    }
+                    TransferEvent::SyncPlanReady {
+                        batch_id,
+                        plan: SyncPlan {
+                            sync_id: batch_id,
+                            session: session_id,
+                            local_root: local_dir,
+                            remote_root: remote_dir,
                             options,
-                            tolerance,
-                            target_keeps_times,
-                        ),
-                        skipped_symlinks: local_scan.skipped_symlinks + remote_scan.skipped_symlinks,
-                        unreadable_folders: local_scan.unreadable,
-                    },
-                },
+                            items: sync::compare(
+                                &local_scan.tree,
+                                &remote_scan.tree,
+                                options,
+                                tolerance,
+                                target_keeps_times,
+                            ),
+                            skipped_symlinks: local_scan.skipped_symlinks + remote_scan.skipped_symlinks,
+                            unreadable_folders: local_scan.unreadable,
+                            case_clashes,
+                            unstorable,
+                        },
+                    }
+                }
                 Ok(None) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {
                     tracing::debug!("{err:?}");
@@ -167,6 +184,23 @@ impl Engine {
         if plan.skipped_symlinks > 0 {
             let plural = if plan.skipped_symlinks == 1 { "" } else { "s" };
             self.report(Severity::Warning, format!("Skipped {} symlink{plural}", plan.skipped_symlinks));
+        }
+        if plan.unstorable > 0 {
+            let plural = if plan.unstorable == 1 { "" } else { "s" };
+            self.report(
+                Severity::Warning,
+                format!("Skipped {} name{plural} the destination can't store", plan.unstorable),
+            );
+        }
+        if plan.case_clashes > 0 {
+            let plural = if plan.case_clashes == 1 { "" } else { "s" };
+            self.report(
+                Severity::Warning,
+                format!(
+                    "Skipped {} name{plural} that differ only in letter case from a file on the other side",
+                    plan.case_clashes
+                ),
+            );
         }
         if !plan.unreadable_folders.is_empty() {
             self.report(Severity::Warning, unreadable_folders_notice(&plan.unreadable_folders));
@@ -239,6 +273,7 @@ impl Engine {
             Direction::Upload => (live.fs.clone(), plan.remote_root.clone(), '\u{2191}'),
             Direction::Download => (self.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
         };
+        let rules = target_fs.name_rules();
         let display_name = format!("sync {arrow} {}", target_root);
         let batch_id = self.transfers.start_batch(display_name.clone());
         let session_id = plan.session;
@@ -252,7 +287,13 @@ impl Engine {
                     batch_id,
                     session_id,
                     direction,
-                    plan: DirectoryPlan { files, skipped_symlinks: 0, taken_names: HashMap::new() },
+                    plan: DirectoryPlan {
+                        files,
+                        skipped_symlinks: 0,
+                        taken_names: HashMap::new(),
+                        renamed: Vec::new(),
+                        name_rules: rules,
+                    },
                 },
                 Ok(false) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {

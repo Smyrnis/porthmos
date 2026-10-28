@@ -704,6 +704,35 @@ async fn downloading_copies_the_files_and_keeps_their_times() {
 }
 
 #[tokio::test]
+async fn a_sync_skips_a_download_the_local_side_cannot_store_and_touches_nothing_else() {
+    let mut t = test_engine();
+    t.engine.local_fs = Arc::new(
+        porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
+    );
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/a:b.txt", b"remote data", Some(5_000));
+    write_local(&t, "a_b.txt", b"mine", 1_000);
+    start(&mut t, session, options(SyncDirection::RemoteToLocal, SyncBy::Time));
+    t.run_internal().await;
+
+    let events = t.drain();
+
+    assert!(plan_of(events.clone()).is_none(), "{events:?}");
+    let warnings: Vec<String> = events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Notice { severity: crate::Severity::Warning, message } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        warnings.iter().any(|message| message.contains("Skipped 1 name the destination can't store")),
+        "{warnings:?}"
+    );
+    assert_eq!(std::fs::read(t.dir.path().join("work/a_b.txt")).unwrap(), b"mine");
+}
+
+#[tokio::test]
 async fn both_copies_in_each_direction_as_two_batches() {
     let mut t = test_engine();
     let (session, remote) = connect(&mut t, "prod");
@@ -1221,4 +1250,34 @@ async fn without_subfolders_a_real_nested_remote_folder_produces_only_depth_one_
     let paths: Vec<VfsPath> = plan.items.iter().map(|item| item.path.clone()).collect();
     assert_eq!(paths, vec![VfsPath::from("top.txt")]);
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn a_sync_skips_a_download_that_would_overwrite_a_file_differing_only_in_case() {
+    let mut t = test_engine();
+    t.engine.local_fs = Arc::new(
+        porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
+    );
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/Readme.md", b"remote", Some(1_000));
+    write_local(&t, "README.md", b"mine", 9_000);
+    start(&mut t, session, options(SyncDirection::RemoteToLocal, SyncBy::Time));
+    t.run_internal().await;
+
+    let events = t.drain();
+
+    let plan = plan_of(events.clone());
+    assert!(plan.is_none(), "{events:?}");
+    let warnings: Vec<String> = events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Notice { severity: crate::Severity::Warning, message } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        warnings.iter().any(|message| message.contains("Skipped 1 name that differ only in letter case")),
+        "{warnings:?}"
+    );
+    assert_eq!(std::fs::read(t.dir.path().join("work/README.md")).unwrap(), b"mine");
 }

@@ -299,6 +299,8 @@ fn plan_with_id(sync_id: u64, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
+        case_clashes: 0,
+        unstorable: 0,
     })
 }
 

@@ -2,7 +2,7 @@
 use std::os::unix::fs::symlink;
 
 use porthmos_lfs::{LocalFs, from_os_path};
-use porthmos_vfs::testing::FakeFs;
+use porthmos_vfs::{NameRules, testing::FakeFs};
 
 use super::*;
 
@@ -243,7 +243,7 @@ fn mark_conflicts_flags_files_whose_name_exists_at_the_destination() {
     let listings: HashMap<VfsPath, DestinationListing> =
         [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
-    mark_conflicts(&mut files, &listings);
+    mark_conflicts(&mut files, &listings, NameRules::Permissive);
 
     assert_eq!(files[0].existing, Some(existing(false)));
     assert_eq!(files[1].existing, None);
@@ -257,7 +257,7 @@ fn mark_conflicts_uses_the_local_side_for_downloads_and_treats_unlisted_folders_
     let listings: HashMap<VfsPath, DestinationListing> =
         [(VfsPath::from("/local/dest"), listing)].into_iter().collect();
 
-    mark_conflicts(&mut files, &listings);
+    mark_conflicts(&mut files, &listings, NameRules::Permissive);
 
     assert!(files[0].existing.is_some());
     assert!(files[1].existing.is_none());
@@ -284,7 +284,7 @@ fn taken_names_combine_existing_and_planned_names_per_folder() {
     let listings: HashMap<VfsPath, DestinationListing> =
         [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
-    let taken = taken_names(&files, &listings);
+    let taken = taken_names(&files, &listings, NameRules::Permissive);
 
     let names = &taken[&VfsPath::from("/remote/dest")];
     assert_eq!(names.len(), 3);
@@ -297,8 +297,9 @@ async fn list_local_destination_reports_files_and_folders_and_treats_missing_as_
     std::fs::write(dir.path().join("a.txt"), b"hello").unwrap();
     std::fs::create_dir(dir.path().join("sub")).unwrap();
 
-    let listing = list_destination(&local(), &from_os_path(dir.path()), &[]).await.unwrap();
-    let missing = list_destination(&local(), &from_os_path(&dir.path().join("nope")), &[]).await.unwrap();
+    let listing = list_destination(&local(), &from_os_path(dir.path()), &[], NameRules::Permissive).await.unwrap();
+    let missing =
+        list_destination(&local(), &from_os_path(&dir.path().join("nope")), &[], NameRules::Permissive).await.unwrap();
 
     assert_eq!(listing["a.txt"].size, 5);
     assert!(!listing["a.txt"].is_dir);
@@ -350,7 +351,7 @@ async fn list_local_destination_sees_through_symlinks_and_keeps_dangling_ones() 
     symlink(dir.path().join("real_folder"), dir.path().join("photos")).unwrap();
     symlink(dir.path().join("missing"), dir.path().join("dangling")).unwrap();
 
-    let listing = list_destination(&local(), &from_os_path(dir.path()), &[]).await.unwrap();
+    let listing = list_destination(&local(), &from_os_path(dir.path()), &[], NameRules::Permissive).await.unwrap();
 
     assert!(listing["photos"].is_dir);
     assert!(!listing["dangling"].is_dir);
@@ -373,7 +374,7 @@ fn mark_conflicts_finds_a_partial_beside_the_file_and_on_its_own() {
     let listings: HashMap<VfsPath, DestinationListing> =
         [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
-    mark_conflicts(&mut files, &listings);
+    mark_conflicts(&mut files, &listings, NameRules::Permissive);
 
     assert!(files[0].existing.is_some() && files[0].partial.is_some());
     assert!(files[1].existing.is_none() && files[1].partial.is_some());
@@ -389,7 +390,7 @@ fn a_folder_named_like_the_partial_is_not_a_partial() {
     let listings: HashMap<VfsPath, DestinationListing> =
         [(VfsPath::from("/remote/dest"), listing)].into_iter().collect();
 
-    mark_conflicts(&mut files, &listings);
+    mark_conflicts(&mut files, &listings, NameRules::Permissive);
 
     assert!(files[0].partial.is_none());
 }
@@ -555,4 +556,183 @@ async fn planning_that_starts_cancelled_reports_cancelled() {
             .unwrap();
 
     assert!(matches!(outcome, PlanOutcome::Cancelled));
+}
+
+fn windows_destination() -> FakeFs {
+    let destination = FakeFs::new().with_name_rules(NameRules::Windows);
+    destination.dir("/dst");
+    destination
+}
+
+fn destinations_of(plan: &DirectoryPlan) -> Vec<String> {
+    plan.files.iter().map(|file| file.destination.to_string_lossy().into_owned()).collect()
+}
+
+#[tokio::test]
+async fn names_the_destination_cannot_store_are_renamed_and_listed() {
+    let source = FakeFs::new();
+    let destination = windows_destination();
+    let entries: Vec<Entry> = ["a:b.txt", "CON", "report.", "fine.txt"]
+        .iter()
+        .map(|name| {
+            source.file(format!("/src/{name}"), b"x", Some(1));
+            file_entry(&format!("/src/{name}"), 1)
+        })
+        .collect();
+
+    let plan = ready(plan_copy(&source, &destination, entries, &VfsPath::new("/dst"), &AtomicBool::new(false)).await);
+
+    assert_eq!(destinations_of(&plan), ["/dst/a_b.txt", "/dst/_CON", "/dst/report", "/dst/fine.txt"]);
+    assert_eq!(
+        plan.files.iter().map(|file| file.display_name.as_str()).collect::<Vec<_>>(),
+        ["a:b.txt", "CON", "report.", "fine.txt"]
+    );
+    let pairs: Vec<(&str, &str)> = plan.renamed.iter().map(|r| (r.from.as_str(), r.to.as_str())).collect();
+    assert_eq!(pairs, [("a:b.txt", "a_b.txt"), ("CON", "_CON"), ("report.", "report")]);
+}
+
+#[tokio::test]
+async fn a_folder_with_a_forbidden_name_is_created_under_the_clean_name() {
+    let source = FakeFs::new();
+    source.file("/src/d:x/f?.txt", b"x", Some(1));
+    let destination = windows_destination();
+
+    let plan = ready(
+        plan_copy(&source, &destination, vec![dir_entry("/src/d:x")], &VfsPath::new("/dst"), &AtomicBool::new(false))
+            .await,
+    );
+
+    assert!(destination.exists("/dst/d_x"));
+    assert_eq!(destinations_of(&plan), ["/dst/d_x/f_.txt"]);
+    assert_eq!(plan.renamed.len(), 2);
+}
+
+#[tokio::test]
+async fn two_sources_that_clean_to_the_same_name_do_not_overwrite_each_other() {
+    let source = FakeFs::new();
+    source.file("/src/a:b.txt", b"1", Some(1)).file("/src/a_b.txt", b"2", Some(1));
+    let destination = windows_destination();
+    let entries = vec![file_entry("/src/a:b.txt", 1), file_entry("/src/a_b.txt", 1)];
+
+    let plan = ready(plan_copy(&source, &destination, entries, &VfsPath::new("/dst"), &AtomicBool::new(false)).await);
+
+    assert_eq!(destinations_of(&plan), ["/dst/a_b.txt", "/dst/a_b (1).txt"]);
+}
+
+#[tokio::test]
+async fn a_permissive_destination_keeps_every_name() {
+    let source = FakeFs::new();
+    let destination = FakeFs::new();
+    destination.dir("/dst");
+    let entries: Vec<Entry> = ["a:b.txt", "CON", "report."]
+        .iter()
+        .map(|name| {
+            source.file(format!("/src/{name}"), b"x", Some(1));
+            file_entry(&format!("/src/{name}"), 1)
+        })
+        .collect();
+
+    let plan = ready(plan_copy(&source, &destination, entries, &VfsPath::new("/dst"), &AtomicBool::new(false)).await);
+
+    assert_eq!(destinations_of(&plan), ["/dst/a:b.txt", "/dst/CON", "/dst/report."]);
+    assert!(plan.renamed.is_empty());
+}
+
+#[tokio::test]
+async fn a_name_that_differs_only_in_case_is_a_conflict_on_a_case_insensitive_destination() {
+    let source = FakeFs::new();
+    source.file("/src/Readme.md", b"new", Some(1));
+    let destination = windows_destination();
+    destination.file("/dst/README.md", b"old", Some(1));
+
+    let plan = ready(
+        plan_copy(
+            &source,
+            &destination,
+            vec![file_entry("/src/Readme.md", 3)],
+            &VfsPath::new("/dst"),
+            &AtomicBool::new(false),
+        )
+        .await,
+    );
+
+    assert!(plan.files[0].existing.is_some());
+    assert!(plan.files[0].is_conflict());
+    assert_eq!(plan.name_rules, NameRules::Windows);
+}
+
+#[tokio::test]
+async fn the_same_names_do_not_conflict_on_a_case_sensitive_destination() {
+    let source = FakeFs::new();
+    source.file("/src/Readme.md", b"new", Some(1));
+    let destination = FakeFs::new();
+    destination.file("/dst/README.md", b"old", Some(1));
+
+    let plan = ready(
+        plan_copy(
+            &source,
+            &destination,
+            vec![file_entry("/src/Readme.md", 3)],
+            &VfsPath::new("/dst"),
+            &AtomicBool::new(false),
+        )
+        .await,
+    );
+
+    assert!(plan.files[0].existing.is_none());
+    assert_eq!(plan.name_rules, NameRules::Permissive);
+}
+
+#[tokio::test]
+async fn a_partial_file_is_found_regardless_of_case() {
+    let source = FakeFs::new();
+    source.file("/src/README.md", b"new", Some(1));
+    let destination = windows_destination();
+    destination.file("/dst/readme.md.PART", b"ne", Some(1));
+
+    let plan = ready(
+        plan_copy(
+            &source,
+            &destination,
+            vec![file_entry("/src/README.md", 3)],
+            &VfsPath::new("/dst"),
+            &AtomicBool::new(false),
+        )
+        .await,
+    );
+
+    assert!(plan.files[0].partial.is_some());
+}
+
+#[tokio::test]
+async fn folders_differing_only_in_case_share_one_destination_folder() {
+    let source = FakeFs::new();
+    source.file("/src/p/Docs/a.txt", b"1", Some(1)).file("/src/p/docs/a.txt", b"2", Some(1));
+    let destination = windows_destination();
+
+    let plan = ready(
+        plan_copy(&source, &destination, vec![dir_entry("/src/p")], &VfsPath::new("/dst"), &AtomicBool::new(false))
+            .await,
+    );
+
+    let mut destinations = destinations_of(&plan);
+    destinations.sort();
+    assert_eq!(destinations, ["/dst/p/Docs/a (1).txt", "/dst/p/Docs/a.txt"]);
+    assert!(!destination.exists("/dst/p/docs"));
+}
+
+#[tokio::test]
+async fn a_file_and_a_folder_that_clean_to_the_same_name_are_kept_apart() {
+    let source = FakeFs::new();
+    source.file("/src/p/a:b/x.txt", b"1", Some(1)).file("/src/p/a_b", b"2", Some(1));
+    let destination = windows_destination();
+
+    let plan = ready(
+        plan_copy(&source, &destination, vec![dir_entry("/src/p")], &VfsPath::new("/dst"), &AtomicBool::new(false))
+            .await,
+    );
+
+    let mut destinations = destinations_of(&plan);
+    destinations.sort();
+    assert_eq!(destinations, ["/dst/p/a_b (1)", "/dst/p/a_b/x.txt"]);
 }

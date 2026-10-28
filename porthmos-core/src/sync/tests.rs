@@ -1,4 +1,4 @@
-use porthmos_vfs::VfsPath;
+use porthmos_vfs::{NameRules, VfsPath};
 
 use super::*;
 
@@ -473,4 +473,86 @@ fn a_symlink_on_one_side_only_produces_no_item() {
 #[test]
 fn symlinks_on_both_sides_produce_no_item() {
     assert!(run(&[("l", symlink())], &[("l", symlink())], options(Both, Time)).is_empty());
+}
+
+fn keys(tree: &Tree) -> Vec<String> {
+    tree.keys().map(|path| path.to_string()).collect()
+}
+
+#[test]
+fn drop_case_clashes_removes_both_spellings_on_a_case_insensitive_side() {
+    let mut from = tree(&[("Readme.md", file(1, Some(1))), ("keep.txt", file(1, Some(1)))]);
+    let mut onto = tree(&[("README.md", file(2, Some(2))), ("other.txt", file(1, Some(1)))]);
+
+    let dropped = drop_case_clashes(&mut from, &mut onto, NameRules::Windows);
+
+    assert_eq!(dropped, 1);
+    assert_eq!(keys(&from), ["keep.txt"]);
+    assert_eq!(keys(&onto), ["other.txt"]);
+}
+
+#[test]
+fn drop_case_clashes_does_nothing_on_a_case_sensitive_side() {
+    let mut from = tree(&[("Readme.md", file(1, Some(1)))]);
+    let mut onto = tree(&[("README.md", file(2, Some(2)))]);
+
+    let dropped = drop_case_clashes(&mut from, &mut onto, NameRules::Permissive);
+
+    assert_eq!(dropped, 0);
+    assert_eq!((keys(&from), keys(&onto)), (vec!["Readme.md".to_string()], vec!["README.md".to_string()]));
+}
+
+#[test]
+fn an_identical_key_is_not_a_clash() {
+    let mut from = tree(&[("a.txt", file(1, Some(1)))]);
+    let mut onto = tree(&[("a.txt", file(2, Some(2)))]);
+
+    assert_eq!(drop_case_clashes(&mut from, &mut onto, NameRules::Windows), 0);
+    assert_eq!((from.len(), onto.len()), (1, 1));
+}
+
+#[test]
+fn a_clashing_folder_takes_its_contents_with_it() {
+    let mut from = tree(&[("Docs", dir()), ("Docs/a.txt", file(1, Some(1)))]);
+    let mut onto = tree(&[("docs", dir()), ("docs/b.txt", file(1, Some(1)))]);
+
+    let dropped = drop_case_clashes(&mut from, &mut onto, NameRules::Windows);
+
+    assert_eq!(dropped, 1);
+    assert!(from.is_empty() && onto.is_empty());
+}
+
+#[test]
+fn drop_unstorable_removes_names_with_forbidden_characters_and_their_contents() {
+    let mut from = tree(&[
+        ("a:b.txt", file(1, Some(1))),
+        ("ok.txt", file(1, Some(1))),
+        ("bad?", dir()),
+        ("bad?/x.txt", file(1, Some(1))),
+    ]);
+
+    let dropped = drop_unstorable(&mut from, NameRules::Windows);
+
+    assert_eq!(dropped, 2);
+    assert_eq!(keys(&from), ["ok.txt"]);
+}
+
+#[test]
+fn drop_unstorable_keeps_everything_under_permissive_rules() {
+    let mut from =
+        tree(&[("a:b.txt", file(1, Some(1))), ("Readme.md", file(1, Some(1))), ("README.md", file(1, Some(1)))]);
+
+    assert_eq!(drop_unstorable(&mut from, NameRules::Permissive), 0);
+    assert_eq!(from.len(), 3);
+}
+
+#[test]
+fn drop_unstorable_removes_every_spelling_that_collides_within_the_tree() {
+    let mut from =
+        tree(&[("Readme.md", file(1, Some(1))), ("README.md", file(1, Some(1))), ("other.txt", file(1, Some(1)))]);
+
+    let dropped = drop_unstorable(&mut from, NameRules::Windows);
+
+    assert_eq!(dropped, 2);
+    assert_eq!(keys(&from), ["other.txt"]);
 }

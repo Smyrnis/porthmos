@@ -4,7 +4,7 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
-use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError, VfsPath};
+use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, PART_SUFFIX, ProtocolError, VfsPath};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExistingFile {
@@ -18,6 +18,9 @@ impl From<Metadata> for ExistingFile {
         Self { size: metadata.size, modified: metadata.modified, is_dir: metadata.is_dir() }
     }
 }
+
+pub use super::names::Renamed;
+use super::names::{Renames, dedupe_names};
 
 pub type DestinationListing = HashMap<String, ExistingFile>;
 
@@ -42,6 +45,8 @@ pub struct DirectoryPlan {
     pub files: Vec<PlannedFile>,
     pub skipped_symlinks: usize,
     pub taken_names: HashMap<VfsPath, HashSet<String>>,
+    pub renamed: Vec<Renamed>,
+    pub name_rules: NameRules,
 }
 
 pub enum PlanOutcome {
@@ -187,16 +192,21 @@ pub async fn plan_copy(
     source: &dyn FileSystem, destination: &dyn FileSystem, source_entries: Vec<Entry>, dest_dir: &VfsPath,
     cancel: &AtomicBool,
 ) -> Result<PlanOutcome, ProtocolError> {
+    let rules = destination.name_rules();
+    let mut renames = Renames::default();
     let mut files = Vec::new();
     let mut skipped_symlinks = 0;
     let mut created: HashSet<VfsPath> = HashSet::new();
+    let mut folders: Vec<VfsPath> = Vec::new();
 
     for entry in source_entries {
         if cancel.load(Ordering::Relaxed) {
             return Ok(PlanOutcome::Cancelled);
         }
         if !entry.is_dir {
-            files.push(planned_file_for_loose_entry(&entry, dest_dir));
+            let mut file = planned_file_for_loose_entry(&entry, dest_dir);
+            file.destination = renames.sanitize_under(dest_dir, &file.destination, rules);
+            files.push(file);
             continue;
         }
 
@@ -212,13 +222,20 @@ pub async fn plan_copy(
             if cancel.load(Ordering::Relaxed) {
                 return Ok(PlanOutcome::Cancelled);
             }
+            let directory = renames.sanitize_folder(dest_dir, &directory, rules);
+            folders.push(directory.clone());
             if ensure_directory(destination, &directory).await? {
                 created.insert(directory);
             }
         }
 
-        files.extend(planned_files_for_tree(&entry, &dest_root, &tree));
+        let mut tree_files = planned_files_for_tree(&entry, &dest_root, &tree);
+        for file in &mut tree_files {
+            file.destination = renames.sanitize_under(dest_dir, &file.destination, rules);
+        }
+        files.extend(tree_files);
     }
+    renames.push(dedupe_names(&mut files, &folders, rules));
 
     let names_by_parent = names_by_parent(&files);
     let mut listings = HashMap::new();
@@ -227,16 +244,22 @@ pub async fn plan_copy(
             return Ok(PlanOutcome::Cancelled);
         }
         let planned_names = names_by_parent.get(&parent).map(Vec::as_slice).unwrap_or_default();
-        let listing = list_destination(destination, &parent, planned_names).await?;
+        let listing = list_destination(destination, &parent, planned_names, rules).await?;
         listings.insert(parent, listing);
     }
-    mark_conflicts(&mut files, &listings);
+    mark_conflicts(&mut files, &listings, rules);
     for file in files.iter_mut().filter(|file| file.is_conflict() && file.source_modified.is_none()) {
         file.source_modified = source.stat(&file.source).await.ok().and_then(|metadata| metadata.modified);
     }
-    let taken_names = taken_names(&files, &listings);
+    let taken_names = taken_names(&files, &listings, rules);
 
-    Ok(PlanOutcome::Ready(DirectoryPlan { files, skipped_symlinks, taken_names }))
+    Ok(PlanOutcome::Ready(DirectoryPlan {
+        files,
+        skipped_symlinks,
+        taken_names,
+        renamed: renames.into_list(),
+        name_rules: rules,
+    }))
 }
 
 fn destination_parent_and_name(file: &PlannedFile) -> Option<(VfsPath, String)> {
@@ -263,35 +286,37 @@ fn names_by_parent(files: &[PlannedFile]) -> HashMap<VfsPath, Vec<String>> {
     names
 }
 
-pub(crate) fn mark_conflicts(files: &mut [PlannedFile], listings: &HashMap<VfsPath, DestinationListing>) {
+pub(crate) fn mark_conflicts(
+    files: &mut [PlannedFile], listings: &HashMap<VfsPath, DestinationListing>, rules: NameRules,
+) {
     for file in files.iter_mut() {
         let Some((parent, name)) = destination_parent_and_name(file) else {
             continue;
         };
-        file.existing = listings.get(&parent).and_then(|listing| listing.get(&name)).copied();
+        file.existing = listings.get(&parent).and_then(|listing| listing.get(&rules.fold(&name))).copied();
         file.partial = listings
             .get(&parent)
-            .and_then(|listing| listing.get(&format!("{name}{PART_SUFFIX}")))
+            .and_then(|listing| listing.get(&rules.fold(&format!("{name}{PART_SUFFIX}"))))
             .copied()
             .filter(|partial| !partial.is_dir);
     }
 }
 
 pub(crate) fn taken_names(
-    files: &[PlannedFile], listings: &HashMap<VfsPath, DestinationListing>,
+    files: &[PlannedFile], listings: &HashMap<VfsPath, DestinationListing>, rules: NameRules,
 ) -> HashMap<VfsPath, HashSet<String>> {
     let mut taken: HashMap<VfsPath, HashSet<String>> = HashMap::new();
     for (parent, listing) in listings {
         taken.entry(parent.clone()).or_default().extend(listing.keys().cloned());
     }
     for (parent, name) in files.iter().filter_map(destination_parent_and_name) {
-        taken.entry(parent).or_default().insert(name);
+        taken.entry(parent).or_default().insert(rules.fold(&name));
     }
     taken
 }
 
 pub(crate) async fn list_destination(
-    fs: &dyn FileSystem, dir: &VfsPath, planned_names: &[String],
+    fs: &dyn FileSystem, dir: &VfsPath, planned_names: &[String], rules: NameRules,
 ) -> Result<DestinationListing, ProtocolError> {
     let mut listing = HashMap::new();
     match fs.read_dir(dir).await {
@@ -302,14 +327,14 @@ pub(crate) async fn list_destination(
                 } else {
                     item.metadata
                 };
-                listing.insert(item.name, ExistingFile::from(existing));
+                listing.insert(rules.fold(&item.name), ExistingFile::from(existing));
             }
         }
         Err(_) if fs.stat(dir).await.is_err() => {}
         Err(_) => {
             for name in planned_names {
                 if let Ok(metadata) = fs.stat(&dir.join(name)).await {
-                    listing.insert(name.clone(), ExistingFile::from(metadata));
+                    listing.insert(rules.fold(name), ExistingFile::from(metadata));
                 }
             }
         }

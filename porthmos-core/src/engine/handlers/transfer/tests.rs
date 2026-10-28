@@ -41,7 +41,13 @@ fn plan(files: Vec<PlannedFile>) -> DirectoryPlan {
             taken.entry(parent).or_default().insert(name);
             taken
         });
-    DirectoryPlan { files, skipped_symlinks: 0, taken_names: names }
+    DirectoryPlan {
+        files,
+        skipped_symlinks: 0,
+        taken_names: names,
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    }
 }
 
 fn enqueue_job(t: &mut TestEngine, session_id: u64, name: &str, batch_id: Option<u64>) -> u64 {
@@ -163,6 +169,42 @@ async fn an_upload_is_planned_copied_and_announced_end_to_end() {
     );
 }
 
+#[tokio::test]
+async fn one_warning_summarises_the_renamed_names() {
+    let mut t = test_engine();
+    t.engine.local_fs = Arc::new(
+        porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
+    );
+    let (session, remote) = t.add_session("srv");
+    let mut entries = Vec::new();
+    for name in ["a:b.txt", "CON", "report."] {
+        remote.file(format!("/srv/{name}"), b"x", None);
+        entries.push(Entry {
+            name: name.to_string(),
+            path: VfsPath::from(format!("/srv/{name}")),
+            size: 1,
+            ..Default::default()
+        });
+    }
+
+    t.engine.copy(Location::Session(session), entries, Location::Local, from_os_path(t.dir.path()));
+    t.run_internal().await;
+    while t.engine.transfers.jobs().any(|job| job.status != JobStatus::Completed) {
+        t.run_internal().await;
+    }
+
+    let warnings: Vec<String> = t
+        .notices()
+        .into_iter()
+        .filter(|(severity, _)| *severity == Severity::Warning)
+        .map(|(_, message)| message)
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("Renamed 3 names"), "{}", warnings[0]);
+    assert!(warnings[0].contains("e.g. \"a:b.txt\" to \"a_b.txt\""), "{}", warnings[0]);
+    assert!(t.dir.path().join("a_b.txt").exists() && t.dir.path().join("_CON").exists());
+}
+
 #[test]
 fn plan_ready_enqueues_every_planned_file_under_the_batch_id() {
     let mut t = test_engine();
@@ -180,7 +222,13 @@ fn plan_ready_enqueues_every_planned_file_under_the_batch_id() {
 fn plan_ready_warns_once_about_skipped_symlinks() {
     let mut t = test_engine();
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
-    let plan = DirectoryPlan { files: Vec::new(), skipped_symlinks: 3, taken_names: HashMap::new() };
+    let plan = DirectoryPlan {
+        files: Vec::new(),
+        skipped_symlinks: 3,
+        taken_names: HashMap::new(),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    };
 
     t.engine.apply_plan_ready(batch_id, 1, Direction::Upload, plan, &[], false);
 

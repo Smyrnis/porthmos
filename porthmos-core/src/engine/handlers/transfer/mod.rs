@@ -380,10 +380,11 @@ impl Engine {
     }
 
     pub(crate) fn apply_plan_ready(
-        &mut self, batch_id: u64, session_id: u64, direction: Direction, plan: DirectoryPlan, answers: &[Resolution],
-        preserve_times: bool,
+        &mut self, batch_id: u64, session_id: u64, direction: Direction, mut plan: DirectoryPlan,
+        answers: &[Resolution], preserve_times: bool,
     ) {
         let skipped_symlinks = plan.skipped_symlinks;
+        let renamed = std::mem::take(&mut plan.renamed);
         let keeps_times = preserve_times || self.destination_can_set_modified(session_id, direction);
         let moving = self.moves.contains_key(&batch_id);
         let resolved = transfer::conflicts::resolve(plan, answers);
@@ -431,6 +432,9 @@ impl Engine {
         if skipped_symlinks > 0 {
             let plural = if skipped_symlinks == 1 { "" } else { "s" };
             self.report(Severity::Warning, format!("Skipped {skipped_symlinks} symlink{plural}"));
+        }
+        if !renamed.is_empty() {
+            self.report(Severity::Warning, transfer::names::renamed_notice(&renamed));
         }
         if resolved.skipped > 0 {
             let plural = if resolved.skipped == 1 { "" } else { "s" };

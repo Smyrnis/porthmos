@@ -108,7 +108,7 @@ async fn prepare(
     if let Err(err) = create_private_dir(&dir) {
         return Prepared::Failed(format!("Couldn't create a temporary folder for editing: {err}"));
     }
-    let file = dir.join(&name);
+    let file = dir.join(local.name_rules().sanitize(&name));
     match transfer::run(fs.as_ref(), &remote, local.as_ref(), &from_os_path(&file), &cancel, false, |_| {}).await {
         Ok(TransferOutcome::Completed) => {}
         Ok(TransferOutcome::Cancelled) => {

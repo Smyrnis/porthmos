@@ -388,6 +388,8 @@ fn disconnecting_drops_that_sessions_waiting_copies_and_counts_them() {
             files: vec![conflicting],
             skipped_symlinks: 0,
             taken_names: Default::default(),
+            renamed: Vec::new(),
+            name_rules: porthmos_vfs::NameRules::Permissive,
         },
     );
     t.drain();

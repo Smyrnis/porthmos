@@ -11,22 +11,22 @@ fn taken(names: &[&str]) -> HashSet<String> {
 
 #[test]
 fn unique_name_inserts_a_counter_before_the_extension() {
-    assert_eq!(unique_name("report.pdf", &taken(&["report.pdf"])), "report (1).pdf");
+    assert_eq!(unique_name("report.pdf", &taken(&["report.pdf"]), NameRules::Permissive), "report (1).pdf");
 }
 
 #[test]
 fn unique_name_skips_counters_that_are_already_taken() {
     assert_eq!(
-        unique_name("report.pdf", &taken(&["report.pdf", "report (1).pdf", "report (2).pdf"])),
+        unique_name("report.pdf", &taken(&["report.pdf", "report (1).pdf", "report (2).pdf"]), NameRules::Permissive),
         "report (3).pdf"
     );
 }
 
 #[test]
 fn unique_name_handles_names_without_an_extension_and_dotfiles() {
-    assert_eq!(unique_name("README", &taken(&["README"])), "README (1)");
-    assert_eq!(unique_name(".env", &taken(&[".env"])), ".env (1)");
-    assert_eq!(unique_name("backup.tar.gz", &taken(&["backup.tar.gz"])), "backup.tar (1).gz");
+    assert_eq!(unique_name("README", &taken(&["README"]), NameRules::Permissive), "README (1)");
+    assert_eq!(unique_name(".env", &taken(&[".env"]), NameRules::Permissive), ".env (1)");
+    assert_eq!(unique_name("backup.tar.gz", &taken(&["backup.tar.gz"]), NameRules::Permissive), "backup.tar (1).gz");
 }
 
 fn upload(name: &str, conflict: Option<bool>) -> PlannedFile {
@@ -45,7 +45,13 @@ fn upload(name: &str, conflict: Option<bool>) -> PlannedFile {
 fn plan(files: Vec<PlannedFile>) -> DirectoryPlan {
     let names: HashSet<String> =
         files.iter().map(|file| file.destination.file_name().unwrap().to_string_lossy().into_owned()).collect();
-    DirectoryPlan { files, skipped_symlinks: 0, taken_names: HashMap::from([(VfsPath::from("/remote/dest"), names)]) }
+    DirectoryPlan {
+        files,
+        skipped_symlinks: 0,
+        taken_names: HashMap::from([(VfsPath::from("/remote/dest"), names)]),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    }
 }
 
 #[test]
@@ -115,6 +121,8 @@ fn rename_rewrites_the_local_path_for_downloads() {
         files: vec![file],
         skipped_symlinks: 0,
         taken_names: HashMap::from([(VfsPath::from("/local/dest"), HashSet::from(["a.txt".to_string()]))]),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
     };
 
     let files = resolve(plan, &[Resolution::Rename]).files;
@@ -150,6 +158,8 @@ fn rename_rewrites_the_remote_path_and_display_name_of_a_nested_upload() {
         files: vec![file],
         skipped_symlinks: 0,
         taken_names: HashMap::from([(VfsPath::from("/remote/dest/photos/sub"), HashSet::from(["a.txt".to_string()]))]),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
     };
 
     let files = resolve(plan, &[Resolution::Rename]).files;
@@ -271,4 +281,27 @@ fn fits_the_rest_gives_the_same_answer_for_conflict_infos_as_for_planned_files()
             fits_the_rest(resolution, &partial, &complete)
         );
     }
+}
+
+#[test]
+fn unique_name_skips_candidates_taken_in_another_case() {
+    let taken = taken(&["readme.md", "readme (1).md"]);
+
+    assert_eq!(unique_name("README.md", &taken, NameRules::Windows), "README (2).md");
+}
+
+#[test]
+fn renaming_a_conflict_on_a_case_insensitive_destination_avoids_every_case_variant() {
+    let mut file = upload("Readme.md", Some(false));
+    file.destination = VfsPath::from("/remote/dest/Readme.md");
+    let mut plan = plan(vec![file]);
+    plan.name_rules = NameRules::Windows;
+    plan.taken_names = HashMap::from([(
+        VfsPath::from("/remote/dest"),
+        HashSet::from(["readme.md".to_string(), "readme (1).md".to_string()]),
+    )]);
+
+    let resolved = resolve(plan, &[Resolution::Rename]);
+
+    assert_eq!(resolved.files[0].destination, VfsPath::from("/remote/dest/Readme (2).md"));
 }

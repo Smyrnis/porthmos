@@ -4,7 +4,7 @@ use std::{
 };
 
 use porthmos_lfs::from_os_path;
-use porthmos_vfs::{FileSystem, VfsPath, testing::FakeFs};
+use porthmos_vfs::{FileSystem, NameRules, VfsPath, testing::FakeFs};
 
 use super::*;
 use crate::{
@@ -167,6 +167,20 @@ async fn a_remote_name_with_a_backslash_is_moved_as_one_file() {
     download(&mut t, session, &remote, &["/srv/a\\b.txt"]).await;
 
     assert_eq!(std::fs::read(local(&t, "a\\b.txt")).unwrap(), b"odd");
+    assert!(!remote.exists("/srv/a\\b.txt"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_name_with_a_backslash_is_moved_under_a_clean_name_when_the_local_side_cannot_store_it() {
+    let mut t = test_engine();
+    t.engine.local_fs =
+        Arc::new(porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(NameRules::Windows));
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a\\b.txt", b"odd", None);
+
+    download(&mut t, session, &remote, &["/srv/a\\b.txt"]).await;
+
+    assert_eq!(std::fs::read(local(&t, "a_b.txt")).unwrap(), b"odd");
     assert!(!remote.exists("/srv/a\\b.txt"));
 }
 
@@ -520,7 +534,13 @@ fn planned(source: &Path, destination: &str, size: u64) -> crate::transfer::plan
 }
 
 fn plan_of(files: Vec<crate::transfer::plan::PlannedFile>) -> crate::transfer::plan::DirectoryPlan {
-    crate::transfer::plan::DirectoryPlan { files, skipped_symlinks: 0, taken_names: std::collections::HashMap::new() }
+    crate::transfer::plan::DirectoryPlan {
+        files,
+        skipped_symlinks: 0,
+        taken_names: std::collections::HashMap::new(),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    }
 }
 
 fn move_batch(t: &mut TestEngine, session: u64, roots: Vec<VfsPath>) -> u64 {

@@ -36,6 +36,8 @@ fn plan(direction: SyncDirection, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
+        case_clashes: 0,
+        unstorable: 0,
     })
 }
 

@@ -918,3 +918,25 @@ async fn a_question_that_arrives_during_shutdown_is_not_asked() {
 
     assert!(question_of(&t.drain()).is_none());
 }
+
+#[tokio::test]
+async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_folder() {
+    let mut t = test_engine();
+    t.engine.local_fs = Arc::new(
+        porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
+    );
+    let (session, fs) = t.add_session("prod");
+    for name in ["..\\..\\x.txt", "C:\\evil.bat", "a:b.txt"] {
+        fs.file(format!("/home/user/{name}"), b"x", Some(1));
+    }
+
+    let mut files = Vec::new();
+    for name in ["..\\..\\x.txt", "C:\\evil.bat", "a:b.txt"] {
+        let events = open_remote(&mut t, session, &format!("/home/user/{name}")).await;
+        let (_, file, _) = find_ready(&events).expect("EditReady");
+        assert_eq!(file.parent().unwrap().parent().unwrap(), t.engine.paths.edit_dir(), "{file:?}");
+        files.push(file.file_name().unwrap().to_string_lossy().into_owned());
+    }
+
+    assert_eq!(files, [".._.._x.txt", "C__evil.bat", "a_b.txt"]);
+}
