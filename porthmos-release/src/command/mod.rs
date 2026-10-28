@@ -57,8 +57,9 @@ fn package_command(flags: &Flags) -> Result<String> {
         Path::new(flags.required("license")?),
         Path::new(out),
     )?;
+    let extension = if target.contains("windows") { "zip" } else { "tar.gz" };
     Ok(format!(
-        "wrote porthmos-{version}-{target}.tar.gz, porthmos-{target}.tar.gz and porthmos-{target}.tar.gz.sha256 to {out}"
+        "wrote porthmos-{version}-{target}.{extension}, porthmos-{target}.{extension} and porthmos-{target}.{extension}.sha256 to {out}"
     ))
 }
 

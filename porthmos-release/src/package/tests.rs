@@ -131,3 +131,80 @@ fn a_missing_binary_is_an_error_naming_the_path_and_leaves_no_archive_behind() {
     assert!(message.contains(fixture.binary().to_str().unwrap()), "{message}");
     assert_eq!(std::fs::read_dir(fixture.out()).unwrap().count(), 0);
 }
+
+const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
+
+fn windows_run(fixture: &Fixture, out: &Path) -> Result<()> {
+    package(WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), out)
+}
+
+fn zip_members(archive: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut archive = zip::ZipArchive::new(File::open(archive).unwrap()).unwrap();
+    (0..archive.len())
+        .map(|index| {
+            let mut member = archive.by_index(index).unwrap();
+            let mut bytes = Vec::new();
+            member.read_to_end(&mut bytes).unwrap();
+            (member.name().to_string(), bytes)
+        })
+        .collect()
+}
+
+#[test]
+fn a_windows_target_is_packaged_as_a_zip_with_the_exe_and_the_license() {
+    let fixture = Fixture::new();
+
+    windows_run(&fixture, &fixture.out()).unwrap();
+
+    let mut names: Vec<String> = std::fs::read_dir(fixture.out())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "porthmos-0.4.0-x86_64-pc-windows-msvc.zip",
+            "porthmos-x86_64-pc-windows-msvc.zip",
+            "porthmos-x86_64-pc-windows-msvc.zip.sha256",
+        ]
+    );
+    let members = zip_members(&fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip"));
+    assert_eq!(members, [("porthmos.exe".to_string(), BINARY.to_vec()), ("LICENSE".to_string(), LICENSE.to_vec())]);
+}
+
+#[test]
+fn a_windows_zip_is_byte_for_byte_reproducible() {
+    let fixture = Fixture::new();
+    let (first, second) = (fixture.out().join("first"), fixture.out().join("second"));
+
+    windows_run(&fixture, &first).unwrap();
+    windows_run(&fixture, &second).unwrap();
+
+    assert_eq!(
+        std::fs::read(first.join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap(),
+        std::fs::read(second.join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap()
+    );
+}
+
+#[test]
+fn the_windows_checksum_file_names_the_plain_zip() {
+    let fixture = Fixture::new();
+    windows_run(&fixture, &fixture.out()).unwrap();
+
+    let sidecar = std::fs::read_to_string(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip.sha256")).unwrap();
+
+    let archive = std::fs::read(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap();
+    assert_eq!(sidecar, format!("{}  porthmos-x86_64-pc-windows-msvc.zip\n", sha256_hex(&archive)));
+}
+
+#[test]
+fn the_versioned_and_version_less_windows_zips_are_identical() {
+    let fixture = Fixture::new();
+    windows_run(&fixture, &fixture.out()).unwrap();
+
+    assert_eq!(
+        std::fs::read(fixture.out().join("porthmos-0.4.0-x86_64-pc-windows-msvc.zip")).unwrap(),
+        std::fs::read(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap()
+    );
+}

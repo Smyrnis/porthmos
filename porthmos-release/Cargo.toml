@@ -14,6 +14,7 @@ porthmos-update.workspace = true
 semver = "1"
 tar = "0.4"
 flate2 = "1"
+zip.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -282,3 +282,32 @@ fn verify_without_a_public_key_uses_the_embedded_keys_and_refuses_a_stranger() {
 
     assert!(result.is_err());
 }
+
+#[test]
+fn the_package_command_reports_a_zip_for_windows() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("porthmos.exe"), b"binary").unwrap();
+    std::fs::write(directory.path().join("LICENSE"), b"license").unwrap();
+
+    let message = run(
+        &args(&[
+            "package",
+            "--target",
+            "x86_64-pc-windows-msvc",
+            "--version",
+            "0.4.0",
+            "--binary",
+            &path(&directory, "porthmos.exe"),
+            "--license",
+            &path(&directory, "LICENSE"),
+            "--out",
+            &path(&directory, "dist"),
+        ]),
+        &no_env,
+    )
+    .unwrap();
+
+    assert!(message.starts_with("wrote porthmos-0.4.0-x86_64-pc-windows-msvc.zip, "), "{message}");
+    assert!(message.contains("porthmos-x86_64-pc-windows-msvc.zip.sha256"), "{message}");
+    assert!(!message.contains("tar.gz"), "{message}");
+}

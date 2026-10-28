@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::Write,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
 };
 
@@ -10,6 +10,7 @@ use porthmos_update::sha256_hex;
 use semver::Version;
 
 const BINARY_NAME: &str = "porthmos";
+const WINDOWS_BINARY_NAME: &str = "porthmos.exe";
 const LICENSE_NAME: &str = "LICENSE";
 const EXECUTABLE_MODE: u32 = 0o755;
 const FILE_MODE: u32 = 0o644;
@@ -47,13 +48,31 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     result.with_context(|| format!("couldn't write {}", path.display()))
 }
 
+fn zip_of(binary: &[u8], license: &[u8]) -> Result<Vec<u8>> {
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .last_modified_time(zip::DateTime::default())
+        .unix_permissions(EXECUTABLE_MODE);
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    writer.start_file(WINDOWS_BINARY_NAME, options)?;
+    writer.write_all(binary)?;
+    writer.start_file(LICENSE_NAME, options.unix_permissions(FILE_MODE))?;
+    writer.write_all(license)?;
+    Ok(writer.finish()?.into_inner())
+}
+
 pub fn package(target: &str, version: &Version, binary: &Path, license: &Path, out: &Path) -> Result<()> {
-    let archive = archive_of(&read(binary)?, &read(license)?)?;
-    let plain_name = format!("{BINARY_NAME}-{target}.tar.gz");
+    let (binary, license) = (read(binary)?, read(license)?);
+    let (archive, extension) = if target.contains("windows") {
+        (zip_of(&binary, &license)?, "zip")
+    } else {
+        (archive_of(&binary, &license)?, "tar.gz")
+    };
+    let plain_name = format!("{BINARY_NAME}-{target}.{extension}");
     let checksum = format!("{}  {plain_name}\n", sha256_hex(&archive));
 
     fs::create_dir_all(out).with_context(|| format!("couldn't create {}", out.display()))?;
-    write_atomically(&out.join(format!("{BINARY_NAME}-{version}-{target}.tar.gz")), &archive)?;
+    write_atomically(&out.join(format!("{BINARY_NAME}-{version}-{target}.{extension}")), &archive)?;
     write_atomically(&out.join(&plain_name), &archive)?;
     write_atomically(&out.join(format!("{plain_name}.sha256")), checksum.as_bytes())
 }

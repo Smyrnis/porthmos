@@ -128,3 +128,20 @@ fn the_result_survives_manifest_parse() {
 
     assert_eq!(Manifest::parse(&manifest.to_json().unwrap()).unwrap(), manifest);
 }
+
+#[test]
+fn a_windows_zip_is_listed_under_its_target() {
+    let zip: &[u8] = b"windows zip";
+    let directory = artifacts(&[
+        ("porthmos-0.4.0-x86_64-pc-windows-msvc.zip", zip),
+        ("porthmos-0.4.0-x86_64-unknown-linux-gnu.tar.gz", b"linux"),
+        ("porthmos-x86_64-pc-windows-msvc.zip", zip),
+    ]);
+
+    let manifest = build(&Version::new(0, 4, 0), BASE, &directory).unwrap();
+
+    assert_eq!(manifest.targets.len(), 2);
+    let windows = &manifest.targets["x86_64-pc-windows-msvc"];
+    assert_eq!(windows.url, format!("{BASE}/porthmos-0.4.0-x86_64-pc-windows-msvc.zip"));
+    assert_eq!(windows.sha256, sha256_hex(zip));
+}
