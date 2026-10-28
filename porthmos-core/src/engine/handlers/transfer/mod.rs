@@ -213,6 +213,7 @@ impl Engine {
                 self.refresh_transfer_destination(id);
                 self.fill_transfer_slots();
                 self.finish_move_batch_of(id);
+                self.announce_batch_failures(id);
             }
             TransferEvent::SourceRemoved { id } => self.source_removed(id),
             TransferEvent::SourceRemovalFailed { id, message } => self.source_removal_failed(id, message),
@@ -236,10 +237,13 @@ impl Engine {
                 }
                 let retried = !cancelled && self.transfers.fail_or_retry(id, message.clone());
                 if !retried {
-                    if !cancelled && known {
-                        self.announce(Severity::Error, message);
-                    } else if !cancelled {
-                        self.report(Severity::Error, message);
+                    let summarised_by_batch = known && self.reports_with_its_batch(id);
+                    if !cancelled && !summarised_by_batch {
+                        if known {
+                            self.announce(Severity::Error, message);
+                        } else {
+                            self.report(Severity::Error, message);
+                        }
                     }
                     self.refresh_transfer_destination(id);
                 }
@@ -247,6 +251,7 @@ impl Engine {
                 if !retried {
                     self.finish_move_batch_of(id);
                 }
+                self.announce_batch_failures(id);
             }
             TransferEvent::PlanReady { batch_id, session_id, direction, plan } => {
                 self.clear_planning(batch_id);
@@ -571,6 +576,39 @@ impl Engine {
         if let RowKind::Batch(batch_id) = kind {
             self.finish_move_batch(batch_id);
         }
+    }
+
+    fn batch_row_of(&self, id: u64) -> Option<QueueRow> {
+        let batch_id = self.transfers.get(id)?.batch_id?;
+        self.transfers.row(RowKind::Batch(batch_id))
+    }
+
+    fn reports_with_its_batch(&self, id: u64) -> bool {
+        self.batch_row_of(id).is_some_and(|row| row.files_total > 1)
+    }
+
+    fn announce_batch_failures(&mut self, id: u64) {
+        let Some(row) = self.batch_row_of(id).filter(|row| row.files_total > 1 && row.is_finished()) else {
+            return;
+        };
+        let failed =
+            self.transfers.jobs_of(row.kind).iter().filter(|job| matches!(job.status, JobStatus::Failed(_))).count();
+        let Some(failure) = row.failure.filter(|_| failed > 0) else {
+            return;
+        };
+        let RowKind::Batch(batch_id) = row.kind else {
+            return;
+        };
+        let cause = failure.message.rsplit_once('\n').map_or(failure.message.as_str(), |(_, cause)| cause);
+        self.announce(
+            Severity::Error,
+            format!(
+                "{} of {} failed: {failed} of {} files \u{2014} {cause} (see Ctrl+T)",
+                self.verb_of(batch_id),
+                row.label,
+                row.files_total
+            ),
+        );
     }
 
     pub(crate) fn retry_row(&mut self, kind: RowKind) {

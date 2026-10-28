@@ -882,6 +882,35 @@ fn retry_names_the_connection_to_reconnect_when_none_is_live() {
 }
 
 #[test]
+fn a_batch_where_every_file_fails_raises_one_error_not_one_per_file() {
+    let mut t = test_engine();
+    let batch = t.engine.transfers.start_batch("many".to_string());
+    let ids: Vec<u64> = (0..200).map(|n| enqueue_job(&mut t, 999, &format!("f{n}.txt"), Some(batch))).collect();
+    for id in &ids {
+        mark_active(&mut t, *id);
+        t.engine.transfers.get_mut(*id).unwrap().attempts = 3;
+    }
+    t.drain();
+
+    for (n, id) in ids.iter().enumerate() {
+        t.engine.handle_transfer_event(TransferEvent::Failed {
+            id: *id,
+            message: format!("Transfer failed: f{n}.txt:\nPermission denied"),
+        });
+    }
+
+    let errors: Vec<String> = t
+        .notices()
+        .into_iter()
+        .filter(|(severity, _)| *severity == Severity::Error)
+        .map(|(_, message)| message)
+        .collect();
+    assert_eq!(errors.len(), 1, "{} errors were raised", errors.len());
+    assert!(errors[0].contains("200"), "{}", errors[0]);
+    assert!(errors[0].contains("Permission denied"), "{}", errors[0]);
+}
+
+#[test]
 fn retry_does_not_reuse_a_session_that_is_still_listed_but_lost() {
     let mut t = test_engine();
     let (lost, _) = t.add_session("alpha");
@@ -927,6 +956,30 @@ async fn retry_leaves_the_queue_and_the_row_route_consistent_after_moving_sessio
     t.engine.transfers.assert_consistent();
     let row = t.engine.transfers.row(RowKind::Batch(batch)).unwrap();
     assert_eq!(row.session_id, Some(new_session));
+}
+
+#[test]
+fn a_batch_that_was_a_move_says_so_in_its_failure_summary() {
+    let mut t = test_engine();
+    let batch = t.engine.transfers.start_batch("photos".to_string());
+    t.engine.moves.insert(batch, MoveBatch { session_id: 999, direction: Direction::Upload, roots: Vec::new() });
+    let ids: Vec<u64> = (0..2).map(|n| enqueue_job(&mut t, 999, &format!("f{n}.txt"), Some(batch))).collect();
+    for id in &ids {
+        mark_active(&mut t, *id);
+        t.engine.transfers.get_mut(*id).unwrap().attempts = 3;
+    }
+    t.drain();
+
+    for id in &ids {
+        t.engine.handle_transfer_event(TransferEvent::Failed {
+            id: *id,
+            message: "Transfer failed: f:\nDisk full".to_string(),
+        });
+    }
+
+    let notices = t.notices();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].1, "Move of photos failed: 2 of 2 files \u{2014} Disk full (see Ctrl+T)");
 }
 
 #[tokio::test]
