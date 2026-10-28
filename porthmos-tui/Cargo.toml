@@ -25,6 +25,7 @@ unicode-width.workspace = true
 
 [build-dependencies]
 embed-manifest.workspace = true
+winresource.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

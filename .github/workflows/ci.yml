@@ -73,6 +73,35 @@ jobs:
         run: |
           cargo build -p porthmos-tui
           if (-not (Select-String -Path target\debug\porthmos.exe -Pattern 'longPathAware' -SimpleMatch -Quiet)) { throw 'the manifest is not embedded' }
+      - name: Version resource and icon
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $info = (Get-Item target\debug\porthmos.exe).VersionInfo
+          if ($info.ProductName -ne 'Porthmos') { throw "ProductName is '$($info.ProductName)'" }
+          if ($info.ProductVersion -ne $version) { throw "ProductVersion is '$($info.ProductVersion)', expected $version" }
+          if ($info.FileVersion -ne $version) { throw "FileVersion is '$($info.FileVersion)', expected $version" }
+          $exe = (Resolve-Path target\debug\porthmos.exe).Path
+          Add-Type -Namespace Native -Name Resources -MemberDefinition '[DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryEx(string file, IntPtr handle, uint flags); [DllImport("kernel32", SetLastError=true)] public static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);'
+          $module = [Native.Resources]::LoadLibraryEx($exe, [IntPtr]::Zero, 2)
+          if ($module -eq [IntPtr]::Zero) { throw 'the program could not be loaded as a data file' }
+          $iconGroup = [Native.Resources]::FindResource($module, [IntPtr]1, [IntPtr]14)
+          if ($iconGroup -eq [IntPtr]::Zero) { throw 'the program has no icon resource' }
+      - name: Package and run the Windows zip
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $target = 'x86_64-pc-windows-msvc'
+          cargo run -p porthmos-release -- package --target $target --version $version --binary target\debug\porthmos.exe --license LICENSE --out dist
+          foreach ($name in "porthmos-$version-$target.zip", "porthmos-$target.zip", "porthmos-$target.zip.sha256") {
+            if (-not (Test-Path "dist\$name")) { throw "missing $name" }
+          }
+          $expected = (Get-Content "dist\porthmos-$target.zip.sha256").Split(' ')[0]
+          $actual = (Get-FileHash "dist\porthmos-$target.zip" -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "the checksum file says $expected but the zip is $actual" }
+          Expand-Archive "dist\porthmos-$version-$target.zip" -DestinationPath dist\unpacked
+          $reported = (& dist\unpacked\porthmos.exe --version)
+          if ($reported -ne "porthmos $version") { throw "the unpacked program reports '$reported'" }
       - name: Start OpenSSH Server
         shell: pwsh
         run: |

@@ -29,11 +29,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: macos-latest, target: aarch64-apple-darwin }
-          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: "" }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, exe: "" }
+          - { os: macos-latest, target: aarch64-apple-darwin, exe: "" }
+          - { os: macos-latest, target: x86_64-apple-darwin, exe: "" }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: ".exe" }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -44,14 +48,14 @@ jobs:
           key: ${{ matrix.target }}
       - name: Workspace version
         id: version
-        run: echo "value=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(tr -d '\r' < Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n 1)" >> "$GITHUB_OUTPUT"
       - run: cargo build --release --locked -p porthmos-tui --target ${{ matrix.target }}
       - name: The binary reports its version
         if: matrix.target != 'x86_64-apple-darwin'
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
-          [ "$(target/${{ matrix.target }}/release/porthmos --version)" = "porthmos $VERSION" ]
+          [ "$(target/${{ matrix.target }}/release/porthmos${{ matrix.exe }} --version)" = "porthmos $VERSION" ]
       - name: Package
         env:
           VERSION: ${{ steps.version.outputs.value }}
@@ -59,7 +63,7 @@ jobs:
           cargo run --release --locked -p porthmos-release -- package
           --target ${{ matrix.target }}
           --version "$VERSION"
-          --binary target/${{ matrix.target }}/release/porthmos
+          --binary target/${{ matrix.target }}/release/porthmos${{ matrix.exe }}
           --license LICENSE
           --out dist
       - uses: actions/upload-artifact@v4
