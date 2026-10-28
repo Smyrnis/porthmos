@@ -68,6 +68,32 @@ jobs:
       - run: cargo check --workspace --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --no-fail-fast
+      - name: Long path manifest
+        shell: pwsh
+        run: |
+          cargo build -p porthmos-tui
+          if (-not (Select-String -Path target\debug\porthmos.exe -Pattern 'longPathAware' -SimpleMatch -Quiet)) { throw 'the manifest is not embedded' }
+      - name: Start OpenSSH Server
+        shell: pwsh
+        run: |
+          if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+            Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+          }
+          $ssh = Join-Path $env:USERPROFILE '.ssh'
+          New-Item -ItemType Directory -Force -Path $ssh | Out-Null
+          $key = Join-Path $ssh 'porthmos_test'
+          Remove-Item -Force -ErrorAction SilentlyContinue $key, "$key.pub"
+          ssh-keygen -q -t ed25519 -N "" -f $key
+          New-Item -ItemType Directory -Force -Path 'C:\ProgramData\ssh' | Out-Null
+          $authorized = 'C:\ProgramData\ssh\administrators_authorized_keys'
+          Get-Content "$key.pub" | Set-Content -Encoding ascii $authorized
+          icacls $authorized /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
+          Start-Service sshd
+          "PORTHMOS_TEST_SSHD_PORT=22" >> $env:GITHUB_ENV
+          "PORTHMOS_TEST_SSHD_USER=$env:USERNAME" >> $env:GITHUB_ENV
+          "PORTHMOS_TEST_SSHD_KEY=$key" >> $env:GITHUB_ENV
+      - name: Copy, move, sync and resume against OpenSSH Server
+        run: cargo test -p porthmos-core --features sshd-tests --test real_transfers -- --test-threads=1
 
   macos:
     runs-on: macos-latest

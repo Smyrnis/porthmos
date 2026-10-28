@@ -1,4 +1,4 @@
-#![cfg(unix)]
+#![cfg(any(unix, feature = "sshd-tests"))]
 
 mod scp_rig;
 
@@ -226,6 +226,7 @@ async fn cancelling_everything_stops_the_copy_and_clearing_removes_partials() {
     assert!(left.is_empty(), "{left:?}");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_scp_session_runs_no_more_transfers_than_it_can_carry() {
     assert_eq!(upload_ten_files(16).await, 6);
@@ -337,7 +338,12 @@ async fn a_remote_file_changed_behind_our_back_asks_and_cancel_keeps_both() {
 }
 
 fn stamp(path: &std::path::Path, seconds: u64) {
-    std::fs::File::open(path).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds)).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds))
+        .unwrap();
 }
 
 fn modified_seconds(path: &std::path::Path) -> u64 {
@@ -359,7 +365,7 @@ fn make_tree(rig: &Rig) {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn syncing_up_twice_leaves_nothing_to_do() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -377,7 +383,7 @@ async fn syncing_up_twice_leaves_nothing_to_do() {
     assert!(rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.is_none());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn both_copies_each_way_and_then_settles() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -394,7 +400,7 @@ async fn both_copies_each_way_and_then_settles() {
     assert!(rig.scan_sync(sync_options(SyncDirection::Both)).await.is_none());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn downloading_settles_too() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -410,7 +416,7 @@ async fn downloading_settles_too() {
     assert!(rig.scan_sync(sync_options(SyncDirection::RemoteToLocal)).await.is_none());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_touched_after_a_sync_is_found_again() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;

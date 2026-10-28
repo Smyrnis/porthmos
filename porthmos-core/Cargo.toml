@@ -15,6 +15,7 @@ s3 = ["dep:porthmos-s3"]
 scp = ["dep:porthmos-scp"]
 update = ["dep:porthmos-update"]
 testing = ["porthmos-vfs/testing"]
+sshd-tests = []
 keyring = ["dep:keyring-core", "dep:zbus-secret-service-keyring-store", "dep:apple-native-keyring-store"]
 
 [dependencies]
