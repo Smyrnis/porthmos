@@ -53,13 +53,24 @@ fn open_store() -> keyring_core::Result<Arc<CredentialStore>> {
     Ok(apple_native_keyring_store::keychain::Store::new()?)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(target_os = "windows")]
+fn open_store() -> keyring_core::Result<Arc<CredentialStore>> {
+    Ok(windows_native_keyring_store::Store::new()?)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn open_store() -> keyring_core::Result<Arc<CredentialStore>> {
     Err(Error::NotSupportedByStore("no system keyring on this platform".into()))
 }
 
 fn backend_error(err: Error) -> SecretError {
-    SecretError::Backend(err.to_string())
+    match err {
+        Error::TooLong(attribute, limit) if attribute.contains("UTF-16") => {
+            SecretError::Backend(format!("too long; the keyring accepts at most {} characters", limit / 2))
+        }
+        Error::TooLong(attribute, limit) => SecretError::Backend(format!("{attribute} is too long (limit {limit})")),
+        other => SecretError::Backend(other.to_string()),
+    }
 }
 
 impl SecretBackend for KeyringBackend {
