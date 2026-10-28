@@ -22,6 +22,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         frontend: toml::Table::new(),
         transfers: TransferSettingsFile::default(),
         edit: EditSettingsFile::default(),
+        update: UpdateSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -39,6 +40,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         frontend: toml::Table::new(),
         transfers: TransferSettingsFile::default(),
         edit: EditSettingsFile::default(),
+        update: UpdateSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -214,4 +216,65 @@ fn a_blank_editor_setting_means_unset() {
 fn an_edit_setting_of_the_wrong_type_does_not_parse() {
     assert!(toml::from_str::<SettingsFile>("[edit]\nauto_upload = \"yes\"\n").is_err());
     assert!(toml::from_str::<SettingsFile>("[edit]\neditor = 3\n").is_err());
+}
+
+fn parsed(text: &str) -> (Settings, Vec<String>) {
+    settings_from_file(toml::from_str(text).unwrap())
+}
+
+#[test]
+fn a_file_without_an_update_table_gets_the_defaults_and_no_warning() {
+    let (settings, warnings) =
+        parsed("[panel]\nshow_hidden = true\n[transfers]\nmax_parallel = 2\n[edit]\nauto_upload = false\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(settings.update, UpdateSettings { mode: UpdateMode::Auto, interval_hours: 24 });
+}
+
+#[test]
+fn each_mode_is_read() {
+    for (text, expected) in [("auto", UpdateMode::Auto), ("notify", UpdateMode::Notify), ("off", UpdateMode::Off)] {
+        let (settings, warnings) = parsed(&format!("[update]\nmode = \"{text}\"\n"));
+
+        assert!(warnings.is_empty(), "{text}: {warnings:?}");
+        assert_eq!(settings.update.mode, expected, "{text}");
+    }
+}
+
+#[test]
+fn an_unknown_mode_warns_and_uses_auto() {
+    let (settings, warnings) = parsed("[update]\nmode = \"sometimes\"\n");
+
+    assert_eq!(settings.update.mode, UpdateMode::Auto);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("update.mode") && warnings[0].contains("sometimes"), "{warnings:?}");
+}
+
+#[test]
+fn the_interval_is_read_within_one_to_720() {
+    for hours in [1, 24, 168, 720] {
+        let (settings, warnings) = parsed(&format!("[update]\ninterval_hours = {hours}\n"));
+
+        assert!(warnings.is_empty(), "{hours}: {warnings:?}");
+        assert_eq!(settings.update.interval_hours, hours as u64);
+    }
+}
+
+#[test]
+fn an_interval_below_one_or_above_720_warns_and_uses_24() {
+    for hours in [-5, 0, 721, 100_000] {
+        let (settings, warnings) = parsed(&format!("[update]\ninterval_hours = {hours}\n"));
+
+        assert_eq!(settings.update.interval_hours, 24, "{hours}");
+        assert_eq!(warnings.len(), 1, "{hours}: {warnings:?}");
+        assert!(warnings[0].contains("update.interval_hours"), "{warnings:?}");
+    }
+}
+
+#[test]
+fn the_update_table_does_not_leak_into_the_frontend_settings() {
+    let (settings, _) = parsed("[update]\nmode = \"off\"\n[keys]\nquit = \"ctrl+q\"\n");
+
+    assert!(settings.frontend.contains_key("keys"));
+    assert!(!settings.frontend.contains_key("update"));
 }

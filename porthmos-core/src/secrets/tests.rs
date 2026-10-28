@@ -383,12 +383,13 @@ async fn overlapping_slow_calls_report_waiting_once_until_the_last_ends() {
 #[tokio::test]
 async fn a_timed_out_write_lands_before_a_later_delete() {
     let backend = Arc::new(TestBackend::new());
-    backend.block_next(Duration::from_millis(500));
-    let secrets = store_with_limit(&backend, Duration::from_millis(300));
+    backend.block_next(Duration::from_millis(900));
+    let secrets = store_with_limit(&backend, Duration::from_millis(600));
 
     assert_eq!(secrets.save("profile:web", "pw").await, Err(SecretError::TimedOut));
-    secrets.forget("profile:web", true).await.unwrap();
+    let forgotten = secrets.forget("profile:web", true).await;
 
+    assert_eq!(forgotten, Ok(()), "{:?}", backend.calls());
     assert!(backend.stored("profile:web").is_none());
     assert_eq!(backend.calls(), vec!["set profile:web", "delete profile:web"]);
 }

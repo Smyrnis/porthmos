@@ -13,7 +13,7 @@ use std::{
 
 pub use command::{Command, Location, RequestId, SessionId};
 pub use event::Event;
-use porthmos_vfs::{Environment, FileSystem, Protocol};
+use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
 pub(crate) use report::Reporter;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -97,6 +97,25 @@ pub(crate) enum Internal {
         scope: Scope,
         message: String,
     },
+    #[cfg(feature = "update")]
+    UpdateCheckDue,
+    #[cfg(feature = "update")]
+    UpdateProgress {
+        version: String,
+        downloaded: u64,
+        total: u64,
+    },
+    #[cfg(feature = "update")]
+    UpdateStaged {
+        manual: bool,
+        version: String,
+        result: Result<crate::update::Staged, crate::update::StageError>,
+    },
+    #[cfg(feature = "update")]
+    UpdateChecked {
+        manual: bool,
+        result: Result<crate::update::Outcome, crate::update::CheckError>,
+    },
 }
 
 pub(crate) struct PlanningScan {
@@ -161,7 +180,7 @@ pub(crate) struct Engine {
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     preview_busy: bool,
-    preview_next: Option<(u64, Location, PathBuf)>,
+    preview_next: Option<(u64, Location, VfsPath)>,
     pub(crate) pause_stops: std::collections::HashSet<u64>,
     pub(crate) source_removals: std::collections::HashSet<u64>,
     history: handlers::HistoryLog,
@@ -171,6 +190,8 @@ pub(crate) struct Engine {
     latest_keyring_job: HashMap<String, u64>,
     connecting: std::collections::HashSet<String>,
     sync: handlers::SyncState,
+    #[cfg_attr(not(feature = "update"), allow(dead_code))]
+    update: handlers::UpdateEngine,
 }
 
 pub(crate) struct EngineParts {
@@ -184,6 +205,11 @@ pub(crate) struct EngineParts {
     pub(crate) history: History,
     pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
+    pub(crate) update: crate::config::UpdateSettings,
+    pub(crate) update_record: crate::update::record::UpdateRecord,
+    pub(crate) updater: Option<crate::update::SharedUpdater>,
+    pub(crate) update_timing: crate::update::UpdateTiming,
+    pub(crate) executable: Option<PathBuf>,
     pub(crate) publish_interval: Duration,
     pub(crate) persist_interval: Duration,
 }
@@ -254,6 +280,13 @@ impl Engine {
             latest_keyring_job: HashMap::new(),
             connecting: std::collections::HashSet::new(),
             sync: handlers::SyncState::default(),
+            update: handlers::UpdateEngine::new(
+                parts.update,
+                parts.update_record,
+                parts.updater,
+                parts.update_timing,
+                parts.executable,
+            ),
         }
     }
 
@@ -325,7 +358,7 @@ impl Engine {
             Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
             Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
-            Command::PrepareShell { session } => self.prepare_shell(session),
+            Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
             Command::List { location, path } => self.list(location, path),
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),
@@ -343,6 +376,7 @@ impl Engine {
             Command::ReorderRow { kind, earlier } => self.reorder_row(kind, earlier),
             Command::RetryRow { kind } => self.retry_row(kind),
             Command::ClearFinished => self.clear_finished_rows(),
+            Command::CheckForUpdate { manual } => self.check_for_update(manual),
             Command::Search { location, root, pattern } => self.search(location, root, pattern),
             Command::CancelSearch => self.cancel_search(),
             Command::ListProfiles => self.list_profiles(),
@@ -384,6 +418,8 @@ impl Engine {
                 self.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: failed });
             }
             Scope::Edit(edit_id) if self.edit_in_progress(edit_id) => self.fail_edit(edit_id, &failed),
+            #[cfg(feature = "update")]
+            _ if matches!(name, "update-check" | "update-stage") => self.update_task_panicked(),
             _ => self.announce(Severity::Error, failed),
         }
     }
@@ -402,6 +438,16 @@ impl Engine {
             Internal::KeyringDone(done) => self.finish_keyring_job(done),
             Internal::PersistFailed { path, message, tag } => self.persist_failed(path, message, tag),
             Internal::TaskPanicked { name, scope, message } => self.recover_from_panic(name, scope, &message),
+            #[cfg(feature = "update")]
+            Internal::UpdateCheckDue => self.update_check_due(),
+            #[cfg(feature = "update")]
+            Internal::UpdateChecked { manual, result } => self.update_checked(manual, result),
+            #[cfg(feature = "update")]
+            Internal::UpdateProgress { version, downloaded, total } => {
+                self.emit(Event::Update(crate::update::UpdateState::Downloading { version, downloaded, total }))
+            }
+            #[cfg(feature = "update")]
+            Internal::UpdateStaged { manual, version, result } => self.update_staged(manual, version, result),
             Internal::Transfer(TransferEvent::Progress { id, transferred }) => {
                 if let Some(mut job) = self.transfers.get_mut(id) {
                     job.transferred_bytes = transferred;

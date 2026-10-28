@@ -765,3 +765,53 @@ fn preview_has_a_name_that_round_trips_and_is_listed_with_its_key() {
     assert!(ALL_ACTIONS.contains(&Action::Preview));
     assert_eq!(shown(Scope::Files, Action::Preview), ["p"]);
 }
+
+#[test]
+fn check_for_updates_round_trips_through_its_config_name() {
+    assert_eq!(Action::CheckForUpdates.name(), "check_for_updates");
+    assert_eq!(Action::from_name("check_for_updates"), Some(Action::CheckForUpdates));
+    assert!(ALL_ACTIONS.contains(&Action::CheckForUpdates));
+}
+
+#[test]
+fn check_for_updates_has_no_default_key() {
+    for scope in [Scope::Global, Scope::Files, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(KeyBindings::defaults().key_for(scope, Action::CheckForUpdates), None, "{scope:?}");
+    }
+}
+
+fn kept_by_windows_terminal(spec: KeySpec) -> bool {
+    let both = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
+    spec.modifiers.contains(both)
+        || (spec.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(spec.code, KeyCode::Char(character) if character.is_ascii_uppercase()))
+        || (spec.code == KeyCode::Enter && spec.modifiers.contains(KeyModifiers::ALT))
+        || (spec.code == KeyCode::F(4) && spec.modifiers.contains(KeyModifiers::ALT))
+        || spec.code == KeyCode::F(11)
+}
+
+#[test]
+fn no_default_binding_is_a_key_windows_terminal_keeps() {
+    for (scope, action, keys) in defaults_table() {
+        for spec in keys {
+            assert!(
+                !kept_by_windows_terminal(spec),
+                "{scope:?} {action:?} is bound to {}, which Windows Terminal keeps for itself",
+                format_key_spec(spec)
+            );
+        }
+    }
+}
+
+#[test]
+fn the_audit_recognises_every_key_windows_terminal_keeps() {
+    let with = |code, modifiers| KeySpec { code, modifiers };
+
+    assert!(kept_by_windows_terminal(with(KeyCode::Char('R'), KeyModifiers::CONTROL)));
+    assert!(kept_by_windows_terminal(with(KeyCode::Char('r'), KeyModifiers::CONTROL | KeyModifiers::SHIFT)));
+    assert!(kept_by_windows_terminal(with(KeyCode::Enter, KeyModifiers::ALT)));
+    assert!(kept_by_windows_terminal(with(KeyCode::F(4), KeyModifiers::ALT)));
+    assert!(kept_by_windows_terminal(with(KeyCode::F(11), KeyModifiers::NONE)));
+    assert!(!kept_by_windows_terminal(with(KeyCode::Char('r'), KeyModifiers::CONTROL)));
+    assert!(!kept_by_windows_terminal(with(KeyCode::F(4), KeyModifiers::NONE)));
+}

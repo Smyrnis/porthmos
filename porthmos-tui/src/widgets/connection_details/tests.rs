@@ -217,13 +217,14 @@ fn values_are_sanitised() {
 struct Draw<'a> {
     protocols: Vec<ProtocolInfo>,
     connected: bool,
+    lost: bool,
     failure: Option<&'a str>,
     last_used: Option<DateTime<Utc>>,
 }
 
 impl<'a> Draw<'a> {
     fn new() -> Self {
-        Self { protocols: protocols(), connected: false, failure: None, last_used: None }
+        Self { protocols: protocols(), connected: false, lost: false, failure: None, last_used: None }
     }
 
     fn selection(&self, selection: Option<Selection<'_>>, width: u16, height: u16) -> Terminal<TestBackend> {
@@ -231,6 +232,7 @@ impl<'a> Draw<'a> {
         let context = DetailsContext {
             protocols: &self.protocols,
             connected: self.connected,
+            lost: self.lost,
             failure: self.failure,
             last_used: self.last_used,
             now: now(),
@@ -303,7 +305,7 @@ fn keys_are_dim_and_values_are_in_the_text_colour() {
     assert_eq!(cell_fg(&terminal, key_x, key_y), theme.fg_dim);
     let (value_x, value_y) = find_text(&terminal, "s3.eu-central-1").unwrap();
     assert_eq!((value_y, cell_fg(&terminal, value_x, value_y)), (key_y, theme.fg));
-    assert_eq!(value_x - key_x, 12);
+    assert_eq!(value_x - key_x, 14);
 }
 
 #[test]
@@ -426,7 +428,8 @@ fn the_details_end_with_the_last_used_time_and_its_age() {
 
     let terminal = draw.entry(&sftp_entry(), 60, 10);
 
-    let expected = format!("last used   {} \u{b7} 3 h ago", at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M"));
+    let expected =
+        format!("last used     {} \u{b7} 3 h ago", at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M"));
     let text = screen(&terminal);
     assert!(text.lines().any(|line| line.trim_end() == expected), "{text}");
 }
@@ -436,7 +439,7 @@ fn a_connection_never_used_says_so_in_the_details() {
     let terminal = Draw::new().entry(&sftp_entry(), 60, 10);
 
     let text = screen(&terminal);
-    assert!(text.lines().any(|line| line.trim_end() == "last used   never"), "{text}");
+    assert!(text.lines().any(|line| line.trim_end() == "last used     never"), "{text}");
 }
 
 #[test]
@@ -476,4 +479,36 @@ fn a_hidden_ssh_label_row_has_no_last_used_row() {
 
         assert!(!text.contains("last used"), "{source:?}\n{text}");
     }
+}
+
+#[test]
+fn a_lost_session_is_flagged_in_err_instead_of_connected() {
+    let theme = indexed();
+    let mut draw = Draw::new();
+    draw.lost = true;
+
+    let terminal = draw.entry(&s3_entry(), 42, 14);
+
+    assert!(row(&terminal, 0).trim_end().ends_with("\u{2022} connection lost"), "{:?}", row(&terminal, 0));
+    let (x, y) = find_text(&terminal, "connection lost").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
+}
+
+#[test]
+fn the_longest_option_labels_are_not_cut_short() {
+    let mut form = ConnectionForm::standard(22);
+    form.options.push(OptionField {
+        key: "identity_file",
+        label: "Identity file",
+        required: false,
+        kind: OptionKind::Text { default: "" },
+    });
+    let mut draw = Draw::new();
+    draw.protocols = vec![ProtocolInfo { id: "sftp", display_name: "sftp", description: "", limits_note: None, form }];
+    let mut entry = sftp_entry();
+    entry.options.insert("identity_file".to_string(), "/home/user/.ssh/id_ed25519".to_string());
+
+    let terminal = draw.entry(&entry, 60, 14);
+
+    assert!(screen(&terminal).contains("identity file /home/user/.ssh/id_ed25519"), "{}", screen(&terminal));
 }

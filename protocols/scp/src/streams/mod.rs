@@ -1,13 +1,13 @@
 use std::{
     future::Future,
     io,
-    path::PathBuf,
     pin::Pin,
     task::{Context, Poll, ready},
     time::Duration,
 };
 
 use porthmos_ssh::{ExecChannel, Output};
+use porthmos_vfs::VfsPath;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf},
     sync::OwnedSemaphorePermit,
@@ -41,7 +41,7 @@ pub(crate) async fn within<T>(limit: Duration, work: impl Future<Output = io::Re
     tokio::time::timeout(limit, work).await.map_err(|_| timed_out())?
 }
 
-pub(crate) fn checked_exit(output: Output, path: &std::path::Path, command: &str) -> io::Result<()> {
+pub(crate) fn checked_exit(output: Output, path: &VfsPath, command: &str) -> io::Result<()> {
     if output.status == Some(0) {
         Ok(())
     } else {
@@ -60,7 +60,7 @@ pub(crate) async fn read_line(output: &mut DuplexStream) -> io::Result<Vec<u8>> 
     }
 }
 
-pub(crate) async fn read_reply(output: &mut DuplexStream, path: &std::path::Path) -> io::Result<()> {
+pub(crate) async fn read_reply(output: &mut DuplexStream, path: &VfsPath) -> io::Result<()> {
     let first = output.read_u8().await.map_err(|_| io::Error::other(EARLY_END))?;
     if first == 0 {
         return Ok(());
@@ -182,7 +182,7 @@ impl AsyncRead for ChannelReader {
 pub(crate) struct Pump {
     pub(crate) channel: ExecChannel,
     pub(crate) expected: Option<u64>,
-    pub(crate) path: PathBuf,
+    pub(crate) path: VfsPath,
     pub(crate) command: String,
     pub(crate) idle: Duration,
 }

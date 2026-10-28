@@ -1,8 +1,8 @@
 mod support;
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, Protocol};
+use porthmos_vfs::{FileSystem, Protocol, VfsPath};
 use porthmos_webdav::WebDav;
 use support::{Auth, Options, Quirk, Server, USER};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -20,14 +20,14 @@ async fn open(options: Options) -> (Server, Arc<dyn FileSystem>, tempfile::TempD
 }
 
 async fn read_all(fs: &dyn FileSystem, path: &str, offset: u64) -> Vec<u8> {
-    let mut reader = fs.open_read(Path::new(path), offset).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new(path), offset).await.unwrap();
     let mut data = Vec::new();
     reader.read_to_end(&mut data).await.unwrap();
     data
 }
 
 async fn write_all(fs: &dyn FileSystem, path: &str, offset: u64, data: &[u8]) -> std::io::Result<u64> {
-    let mut writer = fs.open_write(Path::new(path), offset).await.map_err(std::io::Error::other)?;
+    let mut writer = fs.open_write(&VfsPath::new(path), offset).await.map_err(std::io::Error::other)?;
     writer.stream.write_all(data).await?;
     writer.stream.shutdown().await?;
     Ok(writer.offset)
@@ -79,7 +79,7 @@ async fn a_resumed_write_restarts_from_zero_without_partial_updates() {
     let (server, fs, _dir) = open(Options { quirk: Quirk::NoPartialUpdate, ..Options::default() }).await;
     std::fs::write(server.root.path().join("f.part"), b"stale").unwrap();
 
-    let mut writer = fs.open_write(Path::new("/f.part"), 5).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/f.part"), 5).await.unwrap();
     assert_eq!(writer.offset, 0);
     writer.stream.write_all(b"fresh content").await.unwrap();
     writer.stream.shutdown().await.unwrap();
@@ -112,7 +112,7 @@ async fn a_rotating_digest_nonce_is_followed_silently() {
     std::fs::write(server.root.path().join("f"), b"x").unwrap();
 
     for _ in 0..10 {
-        assert_eq!(fs.read_dir(Path::new("/")).await.unwrap().len(), 1);
+        assert_eq!(fs.read_dir(&VfsPath::new("/")).await.unwrap().len(), 1);
     }
     assert_eq!(read_all(fs.as_ref(), "/f", 0).await, b"x");
 }
@@ -129,7 +129,7 @@ async fn parallel_transfers_run_while_listing() {
         });
     }
     for _ in 0..4 {
-        fs.read_dir(Path::new("/")).await.unwrap();
+        fs.read_dir(&VfsPath::new("/")).await.unwrap();
     }
     while let Some(result) = tasks.join_next().await {
         result.unwrap();
@@ -150,7 +150,7 @@ async fn an_upload_slower_than_the_timeout_completes() {
         .await
         .unwrap();
 
-    let mut writer = fs.open_write(Path::new("/slow"), 0).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/slow"), 0).await.unwrap();
     for _ in 0..4 {
         writer.stream.write_all(&[7u8; 1000]).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -185,6 +185,7 @@ async fn a_put_that_meets_a_stale_nonce_succeeds_when_retried() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn resumed_chunks_follow_a_rotating_digest_nonce() {
     let (server, fs, _dir) =

@@ -1,12 +1,9 @@
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::collections::HashSet;
 
 use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
 use porthmos_core::{
-    Entry,
+    Entry, VfsPath,
     listing::{Listing, SortKey, SortOrder, SortSpec},
 };
 use ratatui::{
@@ -46,20 +43,20 @@ impl ActivePanel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Anchor {
     Parent,
-    Entry(PathBuf),
+    Entry(VfsPath),
 }
 
 pub struct PanelView {
     listing: Listing,
     pub cursor: usize,
-    pub selected: HashSet<PathBuf>,
+    pub selected: HashSet<VfsPath>,
     editing_filter: bool,
     anchor: Option<(Anchor, usize)>,
     free_bytes: Option<u64>,
 }
 
 impl PanelView {
-    pub fn new(path: PathBuf, sort_spec: SortSpec, show_hidden: bool) -> Self {
+    pub fn new(path: VfsPath, sort_spec: SortSpec, show_hidden: bool) -> Self {
         Self {
             listing: Listing::new(path, Vec::new(), sort_spec, show_hidden),
             cursor: 0,
@@ -70,13 +67,13 @@ impl PanelView {
         }
     }
 
-    pub fn from_listing(path: PathBuf, entries: Vec<Entry>) -> Self {
-        let mut panel = Self::new(PathBuf::new(), SortSpec::default(), false);
+    pub fn from_listing(path: VfsPath, entries: Vec<Entry>) -> Self {
+        let mut panel = Self::new(VfsPath::default(), SortSpec::default(), false);
         panel.replace_listing(path, entries);
         panel
     }
 
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &VfsPath {
         self.listing.path()
     }
 
@@ -84,18 +81,28 @@ impl PanelView {
         self.listing.rows()
     }
 
-    pub fn replace_listing(&mut self, path: PathBuf, entries: Vec<Entry>) {
-        if path != self.path() {
+    pub fn replace_listing(&mut self, path: VfsPath, entries: Vec<Entry>) {
+        let same_folder = &path == self.path();
+        if !same_folder {
             self.editing_filter = false;
             self.free_bytes = None;
         }
+        let cursor_anchor = if same_folder { self.anchor_at_cursor() } else { None };
+        if same_folder {
+            let present: HashSet<&VfsPath> = entries.iter().map(|entry| &entry.path).collect();
+            self.selected.retain(|path| present.contains(path));
+        } else {
+            self.selected.clear();
+        }
         self.listing.replace(path, entries);
         self.anchor = None;
-        self.selected.clear();
+        if let Some(position) = cursor_anchor.and_then(|anchor| self.position_of(&anchor)) {
+            self.cursor = position;
+        }
         self.clamp_cursor();
     }
 
-    pub fn set_free_space(&mut self, path: &Path, bytes: Option<u64>) {
+    pub fn set_free_space(&mut self, path: &VfsPath, bytes: Option<u64>) {
         if path == self.path() {
             self.free_bytes = bytes;
         }
@@ -160,9 +167,9 @@ impl PanelView {
             .collect()
     }
 
-    pub fn target_path_for_open(&self) -> Option<PathBuf> {
+    pub fn target_path_for_open(&self) -> Option<VfsPath> {
         match self.rows().get(self.cursor) {
-            Some(Row::Parent) => self.path().parent().map(Path::to_path_buf),
+            Some(Row::Parent) => self.path().parent(),
             Some(Row::Entry(entry)) if entry.is_dir => Some(entry.path.clone()),
             _ => None,
         }
@@ -174,13 +181,6 @@ impl PanelView {
             if !self.selected.remove(&path) {
                 self.selected.insert(path);
             }
-        }
-    }
-
-    pub fn current_entry_name(&self) -> Option<&str> {
-        match self.rows().get(self.cursor) {
-            Some(Row::Entry(entry)) => Some(entry.name.as_str()),
-            _ => None,
         }
     }
 
@@ -206,7 +206,7 @@ impl PanelView {
         matches!(self.rows().get(self.cursor), Some(Row::Parent))
     }
 
-    pub fn targets(&self) -> Vec<PathBuf> {
+    pub fn targets(&self) -> Vec<VfsPath> {
         let selected = self.visible_selected();
         if !selected.is_empty() {
             return selected.into_iter().map(|entry| entry.path.clone()).collect();

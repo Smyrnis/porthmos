@@ -1,38 +1,36 @@
-use std::path::Path;
-
-use porthmos_vfs::ErrorKind;
+use porthmos_vfs::{ErrorKind, VfsPath};
 
 use super::*;
 
 #[test]
 fn listing_commands_use_utc_and_the_c_locale() {
     let env = "TZ=UTC0 LC_ALL=C QUOTING_STYLE=literal TIME_STYLE=+%s";
-    assert_eq!(list(Path::new("/srv/a b")), format!("{env} ls -lanL -- '/srv/a b/'"));
-    assert_eq!(list(Path::new("/")), format!("{env} ls -lanL -- '/'"));
-    assert_eq!(stat(Path::new("/it's")), format!(r"{env} ls -ldnL -- '/it'\''s'"));
+    assert_eq!(list(&VfsPath::new("/srv/a b")), format!("{env} ls -lanL -- '/srv/a b/'"));
+    assert_eq!(list(&VfsPath::new("/")), format!("{env} ls -lanL -- '/'"));
+    assert_eq!(stat(&VfsPath::new("/it's")), format!(r"{env} ls -ldnL -- '/it'\''s'"));
 }
 
 #[test]
 fn operations_quote_every_path_after_a_double_dash() {
-    assert_eq!(mkdir(Path::new("/-x")), "mkdir -- '/-x'");
-    assert_eq!(remove(Path::new("/$HOME")), "rm -- '/$HOME'");
-    assert_eq!(remove_tree(Path::new("/`id`")), "rm -rf -- '/`id`'");
-    assert_eq!(remove_dir(Path::new("/-d e")), "rmdir -- '/-d e'");
-    assert_eq!(rename(Path::new("/a"), Path::new("/b c")), "mv -f -- '/a' '/b c'");
+    assert_eq!(mkdir(&VfsPath::new("/-x")), "mkdir -- '/-x'");
+    assert_eq!(remove(&VfsPath::new("/$HOME")), "rm -- '/$HOME'");
+    assert_eq!(remove_tree(&VfsPath::new("/`id`")), "rm -rf -- '/`id`'");
+    assert_eq!(remove_dir(&VfsPath::new("/-d e")), "rmdir -- '/-d e'");
+    assert_eq!(rename(&VfsPath::new("/a"), &VfsPath::new("/b c")), "mv -f -- '/a' '/b c'");
 }
 
 #[test]
 fn transfer_commands() {
-    assert_eq!(read_from(Path::new("/f"), 0), "cat -- '/f'");
-    assert_eq!(read_from(Path::new("/f"), 10), "tail -c +11 -- '/f'");
-    assert_eq!(scp_source(Path::new("/f")), "scp -f -- '/f'");
-    assert_eq!(scp_sink(Path::new("/f")), ": > '/f' && scp -t -- '/f'");
-    assert_eq!(append(Path::new("/f")), "cat >> '/f'");
-    assert_eq!(create(Path::new("/f")), "cat > '/f'");
+    assert_eq!(read_from(&VfsPath::new("/f"), 0), "cat -- '/f'");
+    assert_eq!(read_from(&VfsPath::new("/f"), 10), "tail -c +11 -- '/f'");
+    assert_eq!(scp_source(&VfsPath::new("/f")), "scp -f -- '/f'");
+    assert_eq!(scp_sink(&VfsPath::new("/f")), ": > '/f' && scp -t -- '/f'");
+    assert_eq!(append(&VfsPath::new("/f")), "cat >> '/f'");
+    assert_eq!(create(&VfsPath::new("/f")), "cat > '/f'");
 }
 
 fn mapped(stderr: &str) -> (ErrorKind, String) {
-    let error = failure(stderr.as_bytes(), Some(1), Path::new("/x"), "ls");
+    let error = failure(stderr.as_bytes(), Some(1), &VfsPath::new("/x"), "ls");
     (error.kind(), error.to_string())
 }
 
@@ -64,12 +62,12 @@ fn the_probe_marks_a_working_shell() {
 fn touch_tests_for_the_file_then_stamps_it_without_creating_one() {
     let quoted = shell_quote("/srv/it's a $dir/file name");
 
-    let command = touch(Path::new("/srv/it's a $dir/file name"), 1_700_000_000);
+    let command = touch(&VfsPath::new("/srv/it's a $dir/file name"), 1_700_000_000);
 
     assert_eq!(command, format!("test -e {quoted} && touch -c -d @1700000000 -- {quoted}"));
 }
 
 #[test]
 fn free_space_asks_df_for_posix_kilobytes_in_the_c_locale() {
-    assert_eq!(free_space(Path::new("/srv/a b")), "LC_ALL=C df -Pk -- '/srv/a b'");
+    assert_eq!(free_space(&VfsPath::new("/srv/a b")), "LC_ALL=C df -Pk -- '/srv/a b'");
 }

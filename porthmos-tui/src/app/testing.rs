@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{Command, CoreHandle, Entry, Event, Location, config::settings::PanelSettings};
@@ -13,21 +13,19 @@ pub(crate) struct TestApp {
     pub(crate) commands: UnboundedReceiver<Command>,
 }
 
-pub(crate) fn test_app(path: &Path) -> TestApp {
+pub(crate) fn test_app(path: &VfsPath) -> TestApp {
     test_app_with_protocols(path, Vec::new())
 }
 
-pub(crate) fn test_app_with_protocols(path: &Path, protocols: Vec<porthmos_core::ProtocolInfo>) -> TestApp {
+pub(crate) fn test_app_with_protocols(path: &VfsPath, protocols: Vec<porthmos_core::ProtocolInfo>) -> TestApp {
     let (core, commands) = CoreHandle::detached_with(protocols);
-    let mut test = TestApp {
-        app: App::new(core, path.to_path_buf(), &PanelSettings::default(), KeyBindings::defaults()),
-        commands,
-    };
+    let mut test =
+        TestApp { app: App::new(core, path.clone(), &PanelSettings::default(), KeyBindings::defaults()), commands };
     test.sent();
     test
 }
 
-pub(crate) fn entry(dir: &Path, name: &str, is_dir: bool) -> Entry {
+pub(crate) fn entry(dir: &VfsPath, name: &str, is_dir: bool) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
@@ -39,13 +37,17 @@ pub(crate) fn entry(dir: &Path, name: &str, is_dir: bool) -> Entry {
     }
 }
 
+pub(crate) fn cursor_name(panel: &crate::widgets::panel_view::PanelView) -> Option<&str> {
+    panel.current_entry().map(|entry| entry.name.as_str())
+}
+
 impl TestApp {
     pub(crate) fn sent(&mut self) -> Vec<Command> {
         std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
     }
 
     pub(crate) fn list_local(&mut self, entries: Vec<Entry>) {
-        let path = self.app.local.path().to_path_buf();
+        let path = self.app.local.path().clone();
         self.app.apply_core_event(Event::Listed { location: Location::Local, path, entries });
     }
 
@@ -57,7 +59,7 @@ impl TestApp {
     pub(crate) fn list_remote(&mut self, session: u64, path: &str, entries: Vec<Entry>) {
         self.app.apply_core_event(Event::Listed {
             location: Location::Session(session),
-            path: PathBuf::from(path),
+            path: VfsPath::from(path),
             entries,
         });
     }

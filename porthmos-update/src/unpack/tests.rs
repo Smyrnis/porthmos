@@ -1,0 +1,362 @@
+use std::fs;
+
+use super::*;
+use crate::testing::{archive_with, raw_archive, stub_archive, zip_archive_with};
+
+const CAP: u64 = 1024 * 1024;
+
+fn version(text: &str) -> Version {
+    text.parse().unwrap()
+}
+
+struct Folder {
+    root: tempfile::TempDir,
+}
+
+impl Folder {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("stage")).unwrap();
+        Folder { root }
+    }
+
+    fn archive(&self, bytes: &[u8]) -> std::path::PathBuf {
+        let path = self.root.path().join("archive.tar.gz");
+        fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn destination(&self) -> std::path::PathBuf {
+        self.root.path().join("stage").join(PROGRAM_FILE)
+    }
+
+    fn stage_listing(&self) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(self.root.path().join("stage"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[cfg(unix)]
+    fn script(&self, name: &str, body: &str, mode: u32) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = self.root.path().join(name);
+        fs::write(&path, body).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        path
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn the_binary_is_extracted_executable_and_the_license_is_ignored() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::testing::stub_script;
+    let folder = Folder::new();
+    let archive = folder.archive(&stub_archive("0.5.0", &[("LICENSE", b"MIT")]));
+
+    extract_binary(&archive, &folder.destination(), CAP).unwrap();
+
+    assert_eq!(fs::read(folder.destination()).unwrap(), stub_script("0.5.0"));
+    assert_eq!(fs::metadata(folder.destination()).unwrap().permissions().mode() & 0o777, 0o755);
+    assert_eq!(folder.stage_listing(), [PROGRAM_FILE]);
+}
+
+#[test]
+fn a_member_with_a_path_traversal_name_is_never_written_outside() {
+    let folder = Folder::new();
+    let archive = folder.archive(&archive_with(&[
+        ("../evil", b"bad"),
+        ("/tmp/porthmos-evil-absolute", b"bad"),
+        ("stage/../../evil2", b"bad"),
+        (PROGRAM_FILE, b"#!/bin/sh\n"),
+    ]));
+
+    extract_binary(&archive, &folder.destination(), CAP).unwrap();
+
+    assert_eq!(folder.stage_listing(), [PROGRAM_FILE]);
+    assert!(!folder.root.path().join("evil").exists());
+    assert!(!folder.root.path().join("evil2").exists());
+    assert!(!std::path::Path::new("/tmp/porthmos-evil-absolute").exists());
+}
+
+#[test]
+fn a_linked_or_directory_member_named_porthmos_is_not_accepted() {
+    let folder = Folder::new();
+    let directory_name = format!("{PROGRAM_FILE}/");
+    let members: [(&str, &[u8], tar::EntryType, u32); 2] = [
+        (PROGRAM_FILE, b"/etc/passwd", tar::EntryType::Symlink, 0o777),
+        (directory_name.as_str(), b"", tar::EntryType::Directory, 0o755),
+    ];
+    let archive = folder.archive(&raw_archive(&members));
+
+    let result = extract_binary(&archive, &folder.destination(), CAP);
+
+    assert!(result.is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn an_archive_without_the_binary_is_an_error_and_leaves_no_file() {
+    let folder = Folder::new();
+    let archive = folder.archive(&archive_with(&[("LICENSE", b"MIT"), ("other", b"x")]));
+
+    let message = extract_binary(&archive, &folder.destination(), CAP).unwrap_err().to_string();
+
+    assert!(message.contains("porthmos"), "{message}");
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_member_over_the_size_cap_is_refused_and_removed() {
+    let folder = Folder::new();
+    let archive = folder.archive(&archive_with(&[(PROGRAM_FILE, &[b'x'; 5000])]));
+
+    assert!(extract_binary(&archive, &folder.destination(), 10).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_decompression_bomb_before_the_binary_is_cut_off() {
+    let folder = Folder::new();
+    let bomb = vec![0u8; 20 * 1024 * 1024];
+    let archive = folder.archive(&archive_with(&[("padding", &bomb), (PROGRAM_FILE, b"#!/bin/sh\n")]));
+
+    assert!(extract_binary(&archive, &folder.destination(), 1024).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_corrupt_archive_is_an_error_not_a_panic() {
+    let folder = Folder::new();
+    let good = stub_archive("0.5.0", &[]);
+
+    for bytes in [vec![1u8, 2, 3, 4, 5], good[..good.len() / 2].to_vec(), Vec::new()] {
+        let archive = folder.archive(&bytes);
+
+        assert!(extract_binary(&archive, &folder.destination(), CAP).is_err());
+        assert!(folder.stage_listing().is_empty());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_binary_that_prints_the_expected_version_passes() {
+    let folder = Folder::new();
+    let binary = folder.script("good", "#!/bin/sh\necho \"porthmos 0.5.0\"\n", 0o755);
+
+    assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_binary_that_prints_another_version_fails() {
+    let folder = Folder::new();
+    let binary = folder.script("other", "#!/bin/sh\necho \"porthmos 0.4.9\"\n", 0o755);
+
+    assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_binary_that_exits_non_zero_fails() {
+    let folder = Folder::new();
+    let binary = folder.script("bad", "#!/bin/sh\necho \"porthmos 0.5.0\"\nexit 3\n", 0o755);
+
+    assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_binary_that_hangs_is_killed_at_the_timeout() {
+    use std::time::Instant;
+
+    let folder = Folder::new();
+    let binary = folder.script("hang", "#!/bin/sh\nexec sleep 30\n", 0o755);
+    let started = Instant::now();
+
+    let result = health_check(&binary, &version("0.5.0"), Duration::from_millis(300));
+
+    assert!(result.is_err());
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_that_is_not_executable_fails() {
+    let folder = Folder::new();
+    let binary = folder.script("plain", "#!/bin/sh\necho \"porthmos 0.5.0\"\n", 0o644);
+
+    assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_binary_with_extra_output_fails() {
+    let folder = Folder::new();
+    let binary = folder.script("chatty", "#!/bin/sh\necho \"porthmos 0.5.0\"\necho more\n", 0o755);
+
+    assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
+}
+
+#[test]
+fn a_missing_binary_fails() {
+    let folder = Folder::new();
+
+    assert!(health_check(&folder.root.path().join("absent"), &version("0.5.0"), Duration::from_secs(1)).is_err());
+}
+
+#[test]
+fn only_the_member_named_exactly_porthmos_is_the_program() {
+    let folder = Folder::new();
+    let in_subfolder = format!("bin/{PROGRAM_FILE}");
+    let outside = format!("../{PROGRAM_FILE}");
+    let archive = folder.archive(&archive_with(&[
+        (in_subfolder.as_str(), b"decoy in a subfolder"),
+        (outside.as_str(), b"decoy outside"),
+        (PROGRAM_FILE, b"the real one"),
+    ]));
+
+    extract_binary(&archive, &folder.destination(), CAP).unwrap();
+
+    assert_eq!(fs::read(folder.destination()).unwrap(), b"the real one");
+}
+
+#[test]
+fn an_archive_with_only_look_alike_members_has_no_program() {
+    let folder = Folder::new();
+    let archive = folder.archive(&archive_with(&[("bin/porthmos", b"decoy"), ("../porthmos", b"decoy")]));
+
+    assert!(extract_binary(&archive, &folder.destination(), CAP).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_binary_that_is_still_being_closed_by_its_writer_is_retried() {
+    use std::{io::Write, os::unix::fs::PermissionsExt, thread, time::Duration};
+    let folder = Folder::new();
+    let path = folder.root.path().join("fresh");
+    let mut writer = fs::File::create(&path).unwrap();
+    writer.write_all(b"#!/bin/sh\necho \"porthmos 0.5.0\"\n").unwrap();
+    writer.set_permissions(fs::Permissions::from_mode(0o755)).unwrap();
+    let closer = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(150));
+        drop(writer);
+    });
+
+    let result = health_check(&path, &version("0.5.0"), Duration::from_secs(5));
+
+    closer.join().unwrap();
+    assert!(result.is_ok(), "{result:?}");
+}
+
+const WINDOWS_PROGRAM: &str = "porthmos.exe";
+
+impl Folder {
+    fn windows_destination(&self) -> std::path::PathBuf {
+        self.root.path().join("stage").join(WINDOWS_PROGRAM)
+    }
+}
+
+#[test]
+fn a_zip_member_is_extracted_to_the_destination() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[(WINDOWS_PROGRAM, b"MZ program"), ("LICENSE", b"MIT")]));
+
+    extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).unwrap();
+
+    assert_eq!(fs::read(folder.windows_destination()).unwrap(), b"MZ program");
+    assert_eq!(folder.stage_listing(), [WINDOWS_PROGRAM]);
+}
+
+#[test]
+fn a_tar_gz_is_still_extracted_by_the_named_function() {
+    let folder = Folder::new();
+    let archive = folder.archive(&archive_with(&[("porthmos", b"unix program")]));
+
+    extract_binary_named(&archive, &folder.destination(), CAP, "porthmos").unwrap();
+
+    assert_eq!(fs::read(folder.destination()).unwrap(), b"unix program");
+}
+
+#[test]
+fn a_file_that_is_neither_gzip_nor_zip_is_refused_with_a_clear_message() {
+    let folder = Folder::new();
+    let archive = folder.archive(b"just some text, not an archive");
+
+    let message = extract_binary_named(&archive, &folder.destination(), CAP, "porthmos").unwrap_err().to_string();
+
+    assert!(message.contains(".zip") && message.contains(".tar.gz"), "{message}");
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_zip_without_the_program_is_refused() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[("LICENSE", b"MIT"), ("other.exe", b"x")]));
+
+    let message =
+        extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).unwrap_err().to_string();
+
+    assert!(message.contains("porthmos"), "{message}");
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_zip_member_named_with_a_parent_folder_is_never_extracted() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[
+        ("../porthmos.exe", b"bad"),
+        ("sub/porthmos.exe", b"bad"),
+        ("..\\porthmos.exe", b"bad"),
+    ]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+    assert!(!folder.root.path().join("porthmos.exe").exists());
+}
+
+#[test]
+fn a_zip_member_that_is_a_folder_is_not_the_program() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[("porthmos.exe/", b"")]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_zip_member_over_the_size_cap_is_refused_and_removed() {
+    let folder = Folder::new();
+    let archive = folder.archive(&zip_archive_with(&[(WINDOWS_PROGRAM, &[b'x'; 5000])]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), 10, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_deflated_zip_member_that_inflates_past_the_cap_is_cut_off() {
+    let folder = Folder::new();
+    let bomb = vec![0u8; 20 * 1024 * 1024];
+    let archive = folder.archive(&zip_archive_with(&[(WINDOWS_PROGRAM, &bomb)]));
+
+    assert!(extract_binary_named(&archive, &folder.windows_destination(), 1024, WINDOWS_PROGRAM).is_err());
+    assert!(folder.stage_listing().is_empty());
+}
+
+#[test]
+fn a_truncated_or_corrupt_zip_is_an_error_not_a_panic() {
+    let folder = Folder::new();
+    let good = zip_archive_with(&[(WINDOWS_PROGRAM, b"MZ program")]);
+
+    for bytes in [good[..good.len() / 2].to_vec(), good[..4].to_vec(), b"PK\x03\x04 garbage".to_vec()] {
+        let archive = folder.archive(&bytes);
+
+        assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
+        assert!(folder.stage_listing().is_empty());
+    }
+}

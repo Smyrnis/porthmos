@@ -21,8 +21,11 @@ pub enum ConfigMigration {
 }
 
 const APP_DIR: &str = "porthmos";
+#[cfg(unix)]
 const LEGACY_APP_DIR: &str = "termconnect";
 const MISSING_HOME: &str = "HOME environment variable is not set";
+const MISSING_APP_DATA: &str = "APPDATA environment variable is not set";
+const MISSING_LOCAL_APP_DATA: &str = "LOCALAPPDATA environment variable is not set";
 
 fn resolve_dir(xdg: Option<OsString>, home: Option<&Path>, fallback: &[&str]) -> Result<PathBuf> {
     if let Some(xdg) = xdg {
@@ -33,8 +36,25 @@ fn resolve_dir(xdg: Option<OsString>, home: Option<&Path>, fallback: &[&str]) ->
 }
 
 impl Paths {
+    #[cfg(unix)]
     pub fn from_env(env: &Environment) -> Result<Self> {
         Self::resolve(std::env::var_os("XDG_CONFIG_HOME"), std::env::var_os("XDG_STATE_HOME"), env.home.as_deref())
+    }
+
+    #[cfg(windows)]
+    pub fn from_env(_env: &Environment) -> Result<Self> {
+        Self::resolve_windows(std::env::var_os("APPDATA"), std::env::var_os("LOCALAPPDATA"))
+    }
+
+    pub fn resolve_windows(app_data: Option<OsString>, local_app_data: Option<OsString>) -> Result<Self> {
+        let in_app_data = |value: Option<OsString>, missing: &'static str| {
+            let value = value.filter(|value| !value.is_empty()).context(missing)?;
+            Ok::<_, anyhow::Error>(PathBuf::from(value).join(APP_DIR))
+        };
+        Ok(Self {
+            config_dir: in_app_data(app_data, MISSING_APP_DATA)?,
+            state_dir: in_app_data(local_app_data, MISSING_LOCAL_APP_DATA)?,
+        })
     }
 
     pub fn resolve(xdg_config: Option<OsString>, xdg_state: Option<OsString>, home: Option<&Path>) -> Result<Self> {
@@ -76,6 +96,14 @@ impl Paths {
         self.state_dir.join("last_used.toml")
     }
 
+    pub fn update_state_file(&self) -> PathBuf {
+        self.state_dir.join("update.toml")
+    }
+
+    pub fn update_dir(&self) -> PathBuf {
+        self.state_dir.join("update")
+    }
+
     pub fn edit_dir(&self) -> PathBuf {
         self.state_dir.join("edit")
     }
@@ -84,6 +112,12 @@ impl Paths {
         self.state_dir.join("porthmos.log")
     }
 
+    #[cfg(windows)]
+    pub fn migrate_legacy_config(&self) -> ConfigMigration {
+        ConfigMigration::NothingToMigrate
+    }
+
+    #[cfg(unix)]
     pub fn migrate_legacy_config(&self) -> ConfigMigration {
         let Some(legacy) = self.config_dir.parent().map(|parent| parent.join(LEGACY_APP_DIR)) else {
             return ConfigMigration::NothingToMigrate;

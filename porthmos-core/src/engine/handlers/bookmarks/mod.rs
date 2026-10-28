@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use super::super::{Engine, Event, Location};
 use crate::{
@@ -28,7 +28,7 @@ impl Engine {
         self.emit(Event::Bookmarks(self.bookmarks.iter().cloned().collect()));
     }
 
-    pub(crate) fn add_bookmark(&mut self, label: String, location: Location, path: PathBuf) {
+    pub(crate) fn add_bookmark(&mut self, label: String, location: Location, path: VfsPath) {
         let host = match location {
             Location::Local => None,
             Location::Session(id) => match self.sessions.get(&id) {
@@ -43,7 +43,12 @@ impl Engine {
         if self.refuse_protected_bookmarks() {
             return;
         }
-        self.bookmarks.add(Bookmark { label, path, host });
+        let bookmark = Bookmark { label, path, host };
+        if self.bookmarks.iter().any(|existing| *existing == bookmark) {
+            self.info(format!("Already bookmarked as \"{}\"", bookmark.label));
+            return;
+        }
+        self.bookmarks.add(bookmark);
         self.save_bookmarks();
         self.publish_bookmarks();
     }

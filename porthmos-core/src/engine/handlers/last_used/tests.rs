@@ -99,6 +99,7 @@ async fn the_recorded_time_reaches_the_file() {
     assert_eq!(file_on_disk(&mut t).await.trim(), "[last_used]\nsrv = \"2026-10-22T09:00:00Z\"");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn the_file_is_private() {
     use std::os::unix::fs::PermissionsExt;
@@ -459,6 +460,7 @@ async fn a_history_write_failure_is_not_blamed_on_the_last_used_file() {
     assert!(notices.iter().all(|(_, message)| !message.contains("last-used")), "{notices:?}");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
     let mut t = engine_with_profile("srv");
@@ -479,6 +481,7 @@ async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
 }
 
+#[cfg(unix)]
 fn protected_store(t: &TestEngine) -> crate::last_used::LastUsed {
     use std::os::unix::fs::PermissionsExt;
     let paths = &t.engine.paths;

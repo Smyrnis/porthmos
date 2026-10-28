@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use super::*;
 use crate::transfer::{Direction, JobStatus, rows::RowState};
@@ -7,10 +7,10 @@ fn queue_with_jobs() -> (TransferQueue, u64, u64) {
     let mut queue = TransferQueue::new();
     let batch = queue.start_batch("photos".to_string());
     let running =
-        queue.enqueue(1, Direction::Upload, PathBuf::from("/l/a"), "/r/a".into(), "a".into(), 100, Some(batch));
+        queue.enqueue(1, Direction::Upload, VfsPath::from("/l/a"), "/r/a".into(), "a".into(), 100, Some(batch));
     queue.get_mut(running).unwrap().status = JobStatus::InProgress;
     queue.get_mut(running).unwrap().transferred_bytes = 50;
-    queue.enqueue(1, Direction::Upload, PathBuf::from("/l/b"), "/r/b".into(), "b".into(), 100, Some(batch));
+    queue.enqueue(1, Direction::Upload, VfsPath::from("/l/b"), "/r/b".into(), "b".into(), 100, Some(batch));
     (queue, batch, running)
 }
 

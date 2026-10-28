@@ -1,7 +1,6 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    path::PathBuf,
-};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+use porthmos_vfs::{NameRules, VfsPath};
 
 pub mod scan;
 
@@ -63,7 +62,7 @@ pub struct SyncFacts {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncItem {
     pub id: u32,
-    pub path: PathBuf,
+    pub path: VfsPath,
     pub local: Option<SyncFacts>,
     pub remote: Option<SyncFacts>,
     pub action: SyncAction,
@@ -110,11 +109,14 @@ impl SyncItem {
 pub struct SyncPlan {
     pub sync_id: u64,
     pub session: u64,
-    pub local_root: PathBuf,
-    pub remote_root: PathBuf,
+    pub local_root: VfsPath,
+    pub remote_root: VfsPath,
     pub options: SyncOptions,
     pub items: Vec<SyncItem>,
     pub skipped_symlinks: usize,
+    pub unreadable_folders: Vec<VfsPath>,
+    pub case_clashes: usize,
+    pub unstorable: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,7 +139,57 @@ impl TreeEntry {
     }
 }
 
-pub type Tree = BTreeMap<PathBuf, TreeEntry>;
+pub type Tree = BTreeMap<VfsPath, TreeEntry>;
+
+pub(crate) fn drop_unstorable(from: &mut Tree, rules: NameRules) -> usize {
+    let mut dropped: BTreeSet<VfsPath> = from
+        .keys()
+        .filter(|path| path.segments().any(|segment| rules.problem(&segment.to_string_lossy()).is_some()))
+        .cloned()
+        .collect();
+    if !rules.is_case_sensitive() {
+        let mut by_folded: BTreeMap<String, Vec<&VfsPath>> = BTreeMap::new();
+        for path in from.keys() {
+            by_folded.entry(rules.fold(&path.to_string_lossy())).or_default().push(path);
+        }
+        dropped.extend(by_folded.into_values().filter(|group| group.len() > 1).flatten().cloned());
+    }
+    let roots: BTreeSet<VfsPath> = dropped
+        .iter()
+        .filter(|path| !path.ancestors().skip(1).any(|ancestor| dropped.contains(&ancestor)))
+        .cloned()
+        .collect();
+    from.retain(|path, _| !path.ancestors().any(|ancestor| roots.contains(&ancestor)));
+    roots.len()
+}
+
+pub(crate) fn drop_case_clashes(from: &mut Tree, onto: &mut Tree, onto_rules: NameRules) -> usize {
+    if onto_rules.is_case_sensitive() {
+        return 0;
+    }
+    let mut onto_by_folded: BTreeMap<String, Vec<VfsPath>> = BTreeMap::new();
+    for path in onto.keys() {
+        onto_by_folded.entry(onto_rules.fold(&path.to_string_lossy())).or_default().push(path.clone());
+    }
+    let mut dropped: Vec<VfsPath> = Vec::new();
+    let mut clashes = 0;
+    for path in from.keys() {
+        let Some(others) = onto_by_folded.get(&onto_rules.fold(&path.to_string_lossy())) else {
+            continue;
+        };
+        let different: Vec<&VfsPath> = others.iter().filter(|other| *other != path).collect();
+        if different.is_empty() {
+            continue;
+        }
+        clashes += 1;
+        dropped.push(path.clone());
+        dropped.extend(different.into_iter().cloned());
+    }
+    for tree in [from, onto] {
+        tree.retain(|path, _| !dropped.iter().any(|gone| path.starts_with(gone)));
+    }
+    clashes
+}
 
 struct Verdict {
     action: SyncAction,
@@ -225,11 +277,11 @@ pub fn compare(
     if options.validate().is_err() {
         return Vec::new();
     }
-    let paths: BTreeSet<&PathBuf> = local.keys().chain(remote.keys()).collect();
-    let mut mismatched: HashSet<PathBuf> = HashSet::new();
+    let paths: BTreeSet<&VfsPath> = local.keys().chain(remote.keys()).collect();
+    let mut mismatched: HashSet<VfsPath> = HashSet::new();
     let mut items = Vec::new();
     for path in paths {
-        if path.ancestors().skip(1).any(|ancestor| mismatched.contains(ancestor)) {
+        if path.ancestors().skip(1).any(|ancestor| mismatched.contains(&ancestor)) {
             continue;
         }
         let verdict = match (local.get(path), remote.get(path)) {

@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, sync::Arc};
+
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 use porthmos_vfs::testing::FakeFs;
 
@@ -19,9 +22,9 @@ fn planning_scan(batch_id: u64, session_id: u64, name: &str) -> PlanningScan {
 
 fn planned(source: &str, destination: &str, size: u64) -> PlannedFile {
     PlannedFile {
-        source: PathBuf::from(source),
-        destination: PathBuf::from(destination),
-        display_name: PathBuf::from(destination).file_name().unwrap().to_string_lossy().into_owned(),
+        source: VfsPath::from(source),
+        destination: VfsPath::from(destination),
+        display_name: VfsPath::from(destination).file_name().unwrap().to_string_lossy().into_owned(),
         size,
         existing: None,
         source_modified: None,
@@ -33,21 +36,25 @@ fn planned(source: &str, destination: &str, size: u64) -> PlannedFile {
 fn plan(files: Vec<PlannedFile>) -> DirectoryPlan {
     let names = files
         .iter()
-        .filter_map(|file| {
-            Some((file.destination.parent()?.to_path_buf(), file.destination.file_name()?.to_string_lossy().into()))
-        })
-        .fold(HashMap::<PathBuf, HashSet<String>>::new(), |mut taken, (parent, name)| {
+        .filter_map(|file| Some((file.destination.parent()?, file.destination.file_name()?.to_string_lossy().into())))
+        .fold(HashMap::<VfsPath, HashSet<String>>::new(), |mut taken, (parent, name)| {
             taken.entry(parent).or_default().insert(name);
             taken
         });
-    DirectoryPlan { files, skipped_symlinks: 0, taken_names: names }
+    DirectoryPlan {
+        files,
+        skipped_symlinks: 0,
+        taken_names: names,
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    }
 }
 
 fn enqueue_job(t: &mut TestEngine, session_id: u64, name: &str, batch_id: Option<u64>) -> u64 {
     t.engine.transfers.enqueue(
         session_id,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -60,7 +67,7 @@ fn download_job(t: &mut TestEngine, session_id: u64, name: &str) -> u64 {
     t.engine.transfers.enqueue(
         session_id,
         Direction::Download,
-        local,
+        from_os_path(&local),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -80,7 +87,7 @@ fn local_entry(t: &TestEngine, name: &str, is_dir: bool) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: t.dir.path().join(name),
+        path: from_os_path(&t.dir.path().join(name)),
         is_dir,
         size: 1,
         permissions: None,
@@ -107,7 +114,7 @@ fn copying_a_directory_with_a_disconnected_session_fails_without_spawning() {
     std::fs::create_dir(t.dir.path().join("myfolder")).unwrap();
     let entry = local_entry(&t, "myfolder", true);
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(7), PathBuf::from("/remote"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(7), VfsPath::from("/remote"));
 
     assert!(t.engine.planning.is_empty());
     let (severity, message) = t.first_notice().unwrap();
@@ -122,7 +129,7 @@ fn copying_only_files_now_goes_through_the_scan() {
     std::fs::write(t.dir.path().join("a.txt"), b"x").unwrap();
     let entry = local_entry(&t, "a.txt", false);
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(7), PathBuf::from("/remote"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(7), VfsPath::from("/remote"));
 
     assert_eq!(t.first_notice().unwrap().1, "Copy failed: session disconnected");
     assert_eq!(t.engine.transfers.jobs().count(), 0);
@@ -132,7 +139,7 @@ fn copying_only_files_now_goes_through_the_scan() {
 fn copying_between_two_sessions_is_refused() {
     let mut t = test_engine();
 
-    t.engine.copy(Location::Session(1), vec![], Location::Session(2), PathBuf::from("/"));
+    t.engine.copy(Location::Session(1), vec![], Location::Session(2), VfsPath::from("/"));
 
     assert_eq!(
         t.first_notice(),
@@ -148,7 +155,7 @@ async fn an_upload_is_planned_copied_and_announced_end_to_end() {
     std::fs::write(t.dir.path().join("a.txt"), b"hello").unwrap();
     let entry = local_entry(&t, "a.txt", false);
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/upload"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(session), VfsPath::from("/upload"));
     t.run_internal().await;
     while t.engine.transfers.jobs().any(|job| job.status != JobStatus::Completed) {
         t.run_internal().await;
@@ -160,6 +167,42 @@ async fn an_upload_is_planned_copied_and_announced_end_to_end() {
             .iter()
             .any(|event| matches!(event, Event::LocationChanged { location: Location::Session(id) } if *id == session))
     );
+}
+
+#[tokio::test]
+async fn one_warning_summarises_the_renamed_names() {
+    let mut t = test_engine();
+    t.engine.local_fs = Arc::new(
+        porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
+    );
+    let (session, remote) = t.add_session("srv");
+    let mut entries = Vec::new();
+    for name in ["a:b.txt", "CON", "report."] {
+        remote.file(format!("/srv/{name}"), b"x", None);
+        entries.push(Entry {
+            name: name.to_string(),
+            path: VfsPath::from(format!("/srv/{name}")),
+            size: 1,
+            ..Default::default()
+        });
+    }
+
+    t.engine.copy(Location::Session(session), entries, Location::Local, from_os_path(t.dir.path()));
+    t.run_internal().await;
+    while t.engine.transfers.jobs().any(|job| job.status != JobStatus::Completed) {
+        t.run_internal().await;
+    }
+
+    let warnings: Vec<String> = t
+        .notices()
+        .into_iter()
+        .filter(|(severity, _)| *severity == Severity::Warning)
+        .map(|(_, message)| message)
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("Renamed 3 names"), "{}", warnings[0]);
+    assert!(warnings[0].contains("e.g. \"a:b.txt\" to \"a_b.txt\""), "{}", warnings[0]);
+    assert!(t.dir.path().join("a_b.txt").exists() && t.dir.path().join("_CON").exists());
 }
 
 #[test]
@@ -179,7 +222,13 @@ fn plan_ready_enqueues_every_planned_file_under_the_batch_id() {
 fn plan_ready_warns_once_about_skipped_symlinks() {
     let mut t = test_engine();
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
-    let plan = DirectoryPlan { files: Vec::new(), skipped_symlinks: 3, taken_names: HashMap::new() };
+    let plan = DirectoryPlan {
+        files: Vec::new(),
+        skipped_symlinks: 3,
+        taken_names: HashMap::new(),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    };
 
     t.engine.apply_plan_ready(batch_id, 1, Direction::Upload, plan, &[], false);
 
@@ -945,18 +994,47 @@ fn preserving_times_marks_every_job_with_its_source_time() {
     assert_eq!(jobs, vec![Some(77)]);
 }
 
-#[test]
-fn ordinary_copies_never_ask_for_times_to_be_kept() {
+fn kept_times(t: &TestEngine, batch_id: u64) -> Vec<Option<u64>> {
+    t.engine.transfers.jobs_of(RowKind::Batch(batch_id)).into_iter().map(|job| job.modified).collect()
+}
+
+#[tokio::test]
+async fn an_ordinary_upload_keeps_the_source_time_when_the_server_can_set_it() {
     let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
     let batch_id = t.engine.transfers.start_batch("copy".to_string());
     let mut file = planned("/local/a.txt", "/remote/a.txt", 5);
     file.source_modified = Some(77);
 
-    t.engine.apply_plan_ready(batch_id, 1, Direction::Upload, plan(vec![file]), &[], false);
+    t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan(vec![file]), &[], false);
 
-    let jobs: Vec<_> =
-        t.engine.transfers.jobs_of(RowKind::Batch(batch_id)).into_iter().map(|job| job.modified).collect();
-    assert_eq!(jobs, vec![None]);
+    assert_eq!(kept_times(&t, batch_id), vec![Some(77)]);
+}
+
+#[tokio::test]
+async fn an_ordinary_upload_leaves_times_alone_when_the_server_cannot_set_them() {
+    let mut t = test_engine();
+    let session = t.add_session_with("flat", Arc::new(FakeFs::new().with_time_support(false)));
+    let batch_id = t.engine.transfers.start_batch("copy".to_string());
+    let mut file = planned("/local/a.txt", "/remote/a.txt", 5);
+    file.source_modified = Some(77);
+
+    t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan(vec![file]), &[], false);
+
+    assert_eq!(kept_times(&t, batch_id), vec![None]);
+}
+
+#[tokio::test]
+async fn an_ordinary_download_keeps_the_source_time_on_this_computer() {
+    let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
+    let batch_id = t.engine.transfers.start_batch("copy".to_string());
+    let mut file = planned("/remote/a.txt", "/local/a.txt", 5);
+    file.source_modified = Some(77);
+
+    t.engine.apply_plan_ready(batch_id, session, Direction::Download, plan(vec![file]), &[], false);
+
+    assert_eq!(kept_times(&t, batch_id), vec![Some(77)]);
 }
 
 #[test]
@@ -1004,7 +1082,7 @@ fn a_time_warning_for_a_download_blames_this_computer_not_the_connection() {
     let id = t.engine.transfers.enqueue(
         session,
         Direction::Download,
-        local,
+        from_os_path(&local),
         "/remote/a.txt".to_string(),
         "a.txt".to_string(),
         10,
@@ -1038,9 +1116,11 @@ fn upload_two_files_preserving_times(t: &mut TestEngine, remote: &FakeFs, sessio
     std::fs::write(t.dir.path().join("a.txt"), b"alpha").unwrap();
     std::fs::write(t.dir.path().join("b.txt"), b"bravo").unwrap();
     let batch_id = t.engine.transfers.start_batch("sync".to_string());
-    let mut first = planned(t.dir.path().join("a.txt").to_str().unwrap(), "/upload/a.txt", 5);
+    let mut first = planned("/local/a.txt", "/upload/a.txt", 5);
+    first.source = from_os_path(&t.dir.path().join("a.txt"));
     first.source_modified = Some(1_000);
-    let mut second = planned(t.dir.path().join("b.txt").to_str().unwrap(), "/upload/b.txt", 5);
+    let mut second = planned("/local/b.txt", "/upload/b.txt", 5);
+    second.source = from_os_path(&t.dir.path().join("b.txt"));
     second.source_modified = Some(2_000);
 
     t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan(vec![first, second]), &[], true);

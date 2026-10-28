@@ -1,8 +1,6 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::AtomicBool,
-};
+use std::sync::atomic::AtomicBool;
 
+use porthmos_vfs::VfsPath;
 use porthmos_vfs::{ErrorKind, testing::FakeFs};
 
 use super::*;
@@ -18,12 +16,13 @@ fn fs_with_tree() -> FakeFs {
 }
 
 fn keys(scanned: &Scanned) -> Vec<(String, TreeKind)> {
-    scanned.tree.iter().map(|(path, entry)| (path.display().to_string(), entry.kind)).collect()
+    scanned.tree.iter().map(|(path, entry)| (path.to_string(), entry.kind)).collect()
 }
 
 #[tokio::test]
 async fn a_recursive_scan_records_files_and_folders_with_their_facts() {
-    let scanned = scan_tree(&fs_with_tree(), Path::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+    let scanned =
+        scan_tree(&fs_with_tree(), &VfsPath::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
 
     assert_eq!(
         keys(&scanned),
@@ -36,15 +35,15 @@ async fn a_recursive_scan_records_files_and_folders_with_their_facts() {
             ("sub/deep/c.txt".to_string(), TreeKind::File),
         ]
     );
-    let a = scanned.tree[&PathBuf::from("a.txt")];
+    let a = scanned.tree[&VfsPath::from("a.txt")];
     assert_eq!((a.size, a.modified), (5, Some(100)));
-    assert_eq!(scanned.tree[&PathBuf::from("sub/deep/c.txt")].modified, None);
+    assert_eq!(scanned.tree[&VfsPath::from("sub/deep/c.txt")].modified, None);
 }
 
 #[tokio::test]
 async fn without_subfolders_only_the_top_level_is_read() {
     let scanned =
-        scan_tree(&fs_with_tree(), Path::new("/root"), false, &AtomicBool::new(false)).await.unwrap().unwrap();
+        scan_tree(&fs_with_tree(), &VfsPath::new("/root"), false, &AtomicBool::new(false)).await.unwrap().unwrap();
 
     assert_eq!(
         keys(&scanned),
@@ -63,11 +62,11 @@ async fn symlinks_are_counted_and_recorded_as_symlinks_at_every_depth_and_whatev
     fs.symlink("/root/sub/nested_link", "/root/sub/b.txt");
     fs.symlink("/root/folder_link", "/root/sub");
 
-    let scanned = scan_tree(&fs, Path::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+    let scanned = scan_tree(&fs, &VfsPath::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
 
     assert_eq!(scanned.skipped_symlinks, 3);
     for linked in ["link", "sub/nested_link", "folder_link"] {
-        let entry = scanned.tree[&PathBuf::from(linked)];
+        let entry = scanned.tree[&VfsPath::from(linked)];
         assert_eq!((entry.kind, entry.size, entry.modified), (TreeKind::Symlink, 0, None), "{linked}");
     }
     assert_eq!(scanned.tree.values().filter(|entry| entry.kind != TreeKind::Symlink).count(), 6);
@@ -79,22 +78,23 @@ async fn a_symlink_without_subfolders_is_recorded_too() {
     let fs = fs_with_tree();
     fs.symlink("/root/link", "/root/a.txt");
 
-    let scanned = scan_tree(&fs, Path::new("/root"), false, &AtomicBool::new(false)).await.unwrap().unwrap();
+    let scanned = scan_tree(&fs, &VfsPath::new("/root"), false, &AtomicBool::new(false)).await.unwrap().unwrap();
 
-    assert_eq!(scanned.tree[&PathBuf::from("link")].kind, TreeKind::Symlink);
+    assert_eq!(scanned.tree[&VfsPath::from("link")].kind, TreeKind::Symlink);
     assert_eq!(scanned.skipped_symlinks, 1);
 }
 
 #[test]
 fn a_relative_path_of_plain_names_is_accepted() {
-    assert!(check_relative(Path::new("a/b/c.txt")).is_ok());
-    assert!(check_relative(Path::new("single")).is_ok());
+    assert!(check_relative(&VfsPath::new("a/b/c.txt")).is_ok());
+    assert!(check_relative(&VfsPath::new("single")).is_ok());
+    assert!(check_relative(&VfsPath::new("./a")).is_ok());
 }
 
 #[test]
 fn paths_that_could_leave_the_root_are_refused() {
-    for hostile in ["..", "../x", "a/../../x", "/etc/passwd", "./a", ""] {
-        let error = check_relative(Path::new(hostile)).err().unwrap_or_else(|| panic!("{hostile:?} was accepted"));
+    for hostile in ["..", "../x", "a/../../x", "/etc/passwd", ""] {
+        let error = check_relative(&VfsPath::new(hostile)).err().unwrap_or_else(|| panic!("{hostile:?} was accepted"));
         assert_eq!(error.kind(), ErrorKind::Other, "{hostile:?}");
         assert!(error.to_string().contains("outside"), "{error}");
     }
@@ -102,31 +102,91 @@ fn paths_that_could_leave_the_root_are_refused() {
 
 #[tokio::test]
 async fn a_cancelled_scan_returns_nothing() {
-    let outcome = scan_tree(&fs_with_tree(), Path::new("/root"), true, &AtomicBool::new(true)).await.unwrap();
+    let outcome = scan_tree(&fs_with_tree(), &VfsPath::new("/root"), true, &AtomicBool::new(true)).await.unwrap();
 
     assert!(outcome.is_none());
 }
 
 #[tokio::test]
-async fn an_unreadable_subfolder_fails_the_whole_scan() {
+async fn an_unreadable_subfolder_is_skipped_and_named() {
     let fs = fs_with_tree();
     fs.fail_read_dir("/root/sub/deep");
 
-    let error = scan_tree(&fs, Path::new("/root"), true, &AtomicBool::new(false)).await.err().unwrap();
+    let scanned = scan_tree(&fs, &VfsPath::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+
+    assert_eq!(scanned.unreadable, vec![VfsPath::from("sub/deep")]);
+    assert!(scanned.tree.contains_key(&VfsPath::new("sub/b.txt")));
+}
+
+#[tokio::test]
+async fn leftover_partial_files_of_the_app_are_not_part_of_the_scan() {
+    let fs = fs_with_tree();
+    fs.file("/root/sub/movie.mp4.part", b"", None).file("/root/c.part", b"1", None);
+
+    let scanned = scan_tree(&fs, &VfsPath::new("/root"), true, &AtomicBool::new(false)).await.unwrap().unwrap();
+
+    assert!(!scanned.tree.keys().any(|path| path.to_string_lossy().ends_with(".part")), "{:?}", keys(&scanned));
+    assert!(scanned.tree.contains_key(&VfsPath::new("sub/b.txt")));
+}
+
+#[tokio::test]
+async fn an_unreadable_root_fails_the_scan_and_names_the_folder() {
+    let fs = fs_with_tree();
+    fs.fail_read_dir("/root");
+
+    let error = scan_tree(&fs, &VfsPath::new("/root"), true, &AtomicBool::new(false)).await.err().unwrap();
 
     assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+    assert!(error.to_string().starts_with("/root: "), "{error}");
+}
+
+#[tokio::test]
+async fn a_folder_unreadable_on_one_side_is_left_out_on_both() {
+    let local = fs_with_tree();
+    let remote = fs_with_tree();
+    remote.fail_read_dir("/root/sub/deep");
+
+    let (left, right) =
+        scan_both(&local, &VfsPath::new("/root"), &remote, &VfsPath::new("/root"), true, &AtomicBool::new(false))
+            .await
+            .unwrap()
+            .unwrap();
+
+    for scanned in [&left, &right] {
+        assert!(!scanned.tree.keys().any(|path| path.starts_with(&VfsPath::new("sub/deep"))), "{:?}", keys(scanned));
+        assert!(scanned.tree.contains_key(&VfsPath::new("sub/b.txt")));
+        assert_eq!(scanned.unreadable, vec![VfsPath::from("sub/deep")]);
+    }
+}
+
+#[tokio::test]
+async fn a_folder_whose_name_only_starts_like_an_unreadable_one_is_kept() {
+    let local = fs_with_tree();
+    local.file("/root/sub/deeper/d.txt", b"1", None);
+    let remote = fs_with_tree();
+    remote.fail_read_dir("/root/sub/deep");
+
+    let (left, _) =
+        scan_both(&local, &VfsPath::new("/root"), &remote, &VfsPath::new("/root"), true, &AtomicBool::new(false))
+            .await
+            .unwrap()
+            .unwrap();
+
+    assert!(left.tree.contains_key(&VfsPath::new("sub/deeper/d.txt")));
 }
 
 #[tokio::test]
 async fn a_missing_root_is_an_error() {
-    let error = scan_tree(&FakeFs::new(), Path::new("/nowhere"), true, &AtomicBool::new(false)).await.err().unwrap();
+    let error =
+        scan_tree(&FakeFs::new(), &VfsPath::new("/nowhere"), true, &AtomicBool::new(false)).await.err().unwrap();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
 
 #[tokio::test]
 async fn a_missing_root_is_an_error_without_subfolders_too() {
-    let error = scan_tree(&FakeFs::new(), Path::new("/nowhere"), false, &AtomicBool::new(false)).await.err().unwrap();
+    let error =
+        scan_tree(&FakeFs::new(), &VfsPath::new("/nowhere"), false, &AtomicBool::new(false)).await.err().unwrap();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -136,7 +196,7 @@ async fn an_empty_root_scans_to_an_empty_tree_even_when_cancelled() {
     let fs = FakeFs::new();
     fs.dir("/empty_root");
 
-    let scanned = scan_tree(&fs, Path::new("/empty_root"), true, &AtomicBool::new(true)).await.unwrap().unwrap();
+    let scanned = scan_tree(&fs, &VfsPath::new("/empty_root"), true, &AtomicBool::new(true)).await.unwrap().unwrap();
 
     assert!(scanned.tree.is_empty());
 }
@@ -148,7 +208,7 @@ async fn both_sides_are_scanned_together() {
     remote.file("/srv/x.txt", b"1", Some(5));
 
     let (left, right) =
-        scan_both(&local, Path::new("/root"), &remote, Path::new("/srv"), true, &AtomicBool::new(false))
+        scan_both(&local, &VfsPath::new("/root"), &remote, &VfsPath::new("/srv"), true, &AtomicBool::new(false))
             .await
             .unwrap()
             .unwrap();
@@ -162,10 +222,11 @@ async fn if_the_remote_side_fails_the_pair_fails() {
     let local = fs_with_tree();
     let remote = FakeFs::new();
 
-    let error = scan_both(&local, Path::new("/root"), &remote, Path::new("/missing"), true, &AtomicBool::new(false))
-        .await
-        .err()
-        .unwrap();
+    let error =
+        scan_both(&local, &VfsPath::new("/root"), &remote, &VfsPath::new("/missing"), true, &AtomicBool::new(false))
+            .await
+            .err()
+            .unwrap();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -175,10 +236,11 @@ async fn if_the_local_side_fails_the_pair_fails() {
     let local = FakeFs::new();
     let remote = fs_with_tree();
 
-    let error = scan_both(&local, Path::new("/missing"), &remote, Path::new("/root"), true, &AtomicBool::new(false))
-        .await
-        .err()
-        .unwrap();
+    let error =
+        scan_both(&local, &VfsPath::new("/missing"), &remote, &VfsPath::new("/root"), true, &AtomicBool::new(false))
+            .await
+            .err()
+            .unwrap();
 
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
@@ -189,7 +251,9 @@ async fn if_either_side_is_cancelled_the_pair_is_cancelled() {
     let remote = fs_with_tree();
 
     let result =
-        scan_both(&local, Path::new("/root"), &remote, Path::new("/root"), true, &AtomicBool::new(true)).await.unwrap();
+        scan_both(&local, &VfsPath::new("/root"), &remote, &VfsPath::new("/root"), true, &AtomicBool::new(true))
+            .await
+            .unwrap();
 
     assert!(result.is_none());
 }
@@ -200,9 +264,10 @@ async fn if_only_the_local_side_is_cancelled_the_pair_is_cancelled() {
     let remote = FakeFs::new();
     remote.dir("/empty_root");
 
-    let result = scan_both(&local, Path::new("/root"), &remote, Path::new("/empty_root"), true, &AtomicBool::new(true))
-        .await
-        .unwrap();
+    let result =
+        scan_both(&local, &VfsPath::new("/root"), &remote, &VfsPath::new("/empty_root"), true, &AtomicBool::new(true))
+            .await
+            .unwrap();
 
     assert!(result.is_none());
 }
@@ -213,19 +278,21 @@ async fn if_only_the_remote_side_is_cancelled_the_pair_is_cancelled() {
     local.dir("/empty_root");
     let remote = fs_with_tree();
 
-    let result = scan_both(&local, Path::new("/empty_root"), &remote, Path::new("/root"), true, &AtomicBool::new(true))
-        .await
-        .unwrap();
+    let result =
+        scan_both(&local, &VfsPath::new("/empty_root"), &remote, &VfsPath::new("/root"), true, &AtomicBool::new(true))
+            .await
+            .unwrap();
 
     assert!(result.is_none());
 }
 
 fn found_with(directories: &[&str], files: &[&str], symlinks: &[&str]) -> crate::transfer::plan::DiscoveredTree {
     crate::transfer::plan::DiscoveredTree {
-        directories: directories.iter().map(PathBuf::from).collect(),
-        files: files.iter().map(|path| (PathBuf::from(path), 1, Some(1))).collect(),
+        directories: directories.iter().map(|path| VfsPath::new(path)).collect(),
+        files: files.iter().map(|path| (VfsPath::new(path), 1, Some(1))).collect(),
         skipped_symlinks: symlinks.len(),
-        symlinks: symlinks.iter().map(PathBuf::from).collect(),
+        unreadable: Vec::new(),
+        symlinks: symlinks.iter().map(|path| VfsPath::new(path)).collect(),
     }
 }
 
@@ -338,7 +405,7 @@ async fn a_real_nested_folder_is_not_entered_when_subfolders_is_off() {
     fs.file("/root/top.txt", b"1", Some(1));
     fs.file("/root/a/s/x.txt", b"2", Some(1));
 
-    let scanned = scan_tree(&fs, Path::new("/root"), false, &AtomicBool::new(false)).await.unwrap().unwrap();
+    let scanned = scan_tree(&fs, &VfsPath::new("/root"), false, &AtomicBool::new(false)).await.unwrap().unwrap();
 
     assert_eq!(keys(&scanned), vec![("a".to_string(), TreeKind::Dir), ("top.txt".to_string(), TreeKind::File)]);
 }

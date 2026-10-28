@@ -26,7 +26,7 @@ pub(crate) fn test_engine_with_secrets(backend: Arc<TestBackend>) -> TestEngine 
     let backend: Arc<dyn SecretBackend> = backend;
     engine_with(
         Secrets::new(Some(backend))
-            .with_timing(std::time::Duration::from_millis(500), std::time::Duration::from_millis(20)),
+            .with_timing(std::time::Duration::from_secs(10), std::time::Duration::from_millis(20)),
     )
 }
 
@@ -37,6 +37,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
     let paths = Paths::in_dir(dir.path());
     let history = crate::history::History::load(&paths).0;
     let last_used = crate::last_used::LastUsed::load(&paths).0;
+    let update_record = crate::update::record::UpdateRecord::load(&paths).0;
     let parts = EngineParts {
         paths,
         env: Environment::default(),
@@ -48,6 +49,11 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         history,
         last_used,
         edit: crate::config::settings::EditSettings::default(),
+        update: crate::config::UpdateSettings { mode: crate::config::UpdateMode::Off, ..Default::default() },
+        update_record,
+        updater: None,
+        update_timing: crate::update::UpdateTiming::for_settings(&crate::config::UpdateSettings::default()),
+        executable: None,
         publish_interval: std::time::Duration::ZERO,
         persist_interval: std::time::Duration::ZERO,
     };
@@ -119,10 +125,15 @@ impl TestEngine {
     }
 
     pub(crate) async fn settle(&mut self) {
-        while let Ok(Some(done)) =
-            tokio::time::timeout(std::time::Duration::from_millis(300), self.internal.recv()).await
-        {
-            self.engine.handle_internal(done);
+        const QUIET: std::time::Duration = std::time::Duration::from_millis(300);
+        const LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
+        let started = std::time::Instant::now();
+        loop {
+            match tokio::time::timeout(QUIET, self.internal.recv()).await {
+                Ok(Some(done)) => self.engine.handle_internal(done),
+                Err(_) if !self.engine.latest_keyring_job.is_empty() && started.elapsed() < LIMIT => {}
+                Ok(None) | Err(_) => break,
+            }
         }
     }
 
@@ -184,5 +195,73 @@ pub(crate) fn capture_logs(run: impl FnOnce()) -> String {
         .finish();
     tracing::subscriber::with_default(subscriber, run);
     let bytes = buffer.0.lock().unwrap().clone();
-    String::from_utf8(bytes).unwrap()
+    String::from_utf8(bytes).unwrap().replace('\\', "/")
+}
+
+#[cfg(feature = "update")]
+pub(crate) use fake_updater::FakeUpdater;
+
+#[cfg(feature = "update")]
+mod fake_updater {
+    use std::{
+        collections::VecDeque,
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
+
+    use porthmos_update::{CheckError, Outcome, StageError, Staged, UpdateInfo, Version};
+    use porthmos_vfs::async_trait;
+
+    use crate::update::Updater;
+
+    #[derive(Default)]
+    pub(crate) struct FakeUpdater {
+        pub(crate) checks: Mutex<VecDeque<Result<Outcome, CheckError>>>,
+        pub(crate) stages: Mutex<VecDeque<Result<Staged, StageError>>>,
+        pub(crate) progress: Mutex<Vec<(u64, u64)>>,
+        pub(crate) calls: Mutex<Vec<String>>,
+        pub(crate) gate: Option<Arc<tokio::sync::Notify>>,
+        pub(crate) stage_waits_for_cancel: bool,
+        pub(crate) saw_cancel: Arc<AtomicBool>,
+        pub(crate) panic_next_check: AtomicBool,
+        pub(crate) panic_next_stage: AtomicBool,
+    }
+
+    #[async_trait]
+    impl Updater for FakeUpdater {
+        async fn check(&self, current: &Version) -> Result<Outcome, CheckError> {
+            self.calls.lock().unwrap().push(format!("check {current}"));
+            if self.panic_next_check.swap(false, Ordering::Relaxed) {
+                panic!("scripted panic in check");
+            }
+            if let Some(gate) = &self.gate {
+                gate.notified().await;
+            }
+            self.checks.lock().unwrap().pop_front().unwrap_or(Ok(Outcome::UpToDate))
+        }
+
+        async fn stage(
+            &self, update: &UpdateInfo, cancel: &AtomicBool, progress: &mut (dyn FnMut(u64, u64) + Send),
+        ) -> Result<Staged, StageError> {
+            self.calls.lock().unwrap().push(format!("stage {}", update.version));
+            if self.panic_next_stage.swap(false, Ordering::Relaxed) {
+                panic!("scripted panic in stage");
+            }
+            let replay = self.progress.lock().unwrap().clone();
+            for (done, total) in replay {
+                progress(done, total);
+            }
+            if self.stage_waits_for_cancel {
+                while !cancel.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                self.saw_cancel.store(true, Ordering::Relaxed);
+                return Err(StageError::Cancelled);
+            }
+            self.stages.lock().unwrap().pop_front().unwrap_or(Err(StageError::Download("no answer queued".to_string())))
+        }
+    }
 }

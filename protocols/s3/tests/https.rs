@@ -1,9 +1,7 @@
 mod support;
 
-use std::path::Path;
-
 use porthmos_s3::S3;
-use porthmos_vfs::{Answer, ErrorKind, Protocol, Question, Target};
+use porthmos_vfs::{Answer, ErrorKind, Protocol, Question, Target, VfsPath};
 use support::{BUCKET, Options, SECRET};
 
 fn https_target(port: u16) -> Target {
@@ -25,7 +23,7 @@ async fn a_self_signed_certificate_is_asked_once_then_trusted_silently() {
     let mut second = support::answers(vec![]);
     let fs = S3::new(store).connect(&https_target(server.port), &mut second).await.unwrap();
     assert!(second.asked.is_empty());
-    assert_eq!(fs.read_dir(Path::new("/")).await.unwrap()[0].name, "secret.txt");
+    assert_eq!(fs.read_dir(&VfsPath::new("/")).await.unwrap()[0].name, "secret.txt");
 }
 
 #[tokio::test]

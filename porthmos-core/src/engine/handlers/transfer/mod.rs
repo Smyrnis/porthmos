@@ -1,10 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
     sync::Arc,
 };
 
-use porthmos_vfs::{Entry, FileSystem, PART_SUFFIX, ProtocolError, path_to_remote_string};
+use porthmos_lfs::to_os_path;
+use porthmos_vfs::{Entry, FileSystem, PART_SUFFIX, ProtocolError, VfsPath};
 
 use super::{
     super::{ConflictReview, Engine, Event, Internal, Location, PlanningScan, TransferEvent},
@@ -34,12 +34,12 @@ impl Engine {
         })
     }
 
-    pub(crate) fn copy(&mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf) {
+    pub(crate) fn copy(&mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: VfsPath) {
         self.copy_or_move(from, entries, to, dest_dir, false);
     }
 
     pub(crate) fn copy_or_move(
-        &mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: PathBuf, moving: bool,
+        &mut self, from: Location, entries: Vec<Entry>, to: Location, dest_dir: VfsPath, moving: bool,
     ) {
         let (session_id, direction) = match (from, to) {
             (Location::Local, Location::Session(session_id)) => (session_id, Direction::Upload),
@@ -59,7 +59,7 @@ impl Engine {
     }
 
     fn start_copy_plan(
-        &mut self, session_id: u64, direction: Direction, entries: Vec<Entry>, dest_dir: PathBuf, moving: bool,
+        &mut self, session_id: u64, direction: Direction, entries: Vec<Entry>, dest_dir: VfsPath, moving: bool,
     ) {
         let verb = if moving { "Move" } else { "Copy" };
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
@@ -372,11 +372,20 @@ impl Engine {
         dropped.len()
     }
 
+    fn destination_can_set_modified(&self, session_id: u64, direction: Direction) -> bool {
+        match direction {
+            Direction::Upload => self.sessions.get(&session_id).is_some_and(|session| session.fs.can_set_modified()),
+            Direction::Download => self.local_fs.can_set_modified(),
+        }
+    }
+
     pub(crate) fn apply_plan_ready(
-        &mut self, batch_id: u64, session_id: u64, direction: Direction, plan: DirectoryPlan, answers: &[Resolution],
-        preserve_times: bool,
+        &mut self, batch_id: u64, session_id: u64, direction: Direction, mut plan: DirectoryPlan,
+        answers: &[Resolution], preserve_times: bool,
     ) {
         let skipped_symlinks = plan.skipped_symlinks;
+        let renamed = std::mem::take(&mut plan.renamed);
+        let keeps_times = preserve_times || self.destination_can_set_modified(session_id, direction);
         let moving = self.moves.contains_key(&batch_id);
         let resolved = transfer::conflicts::resolve(plan, answers);
         let (files, kept_originals) = if moving {
@@ -394,7 +403,7 @@ impl Engine {
         for file in files {
             let resume = file.resume;
             let removes_source = moving && !kept_originals.contains(&file.destination);
-            let keep_modified = if preserve_times { file.source_modified } else { None };
+            let keep_modified = if keeps_times { file.source_modified } else { None };
             let (local_path, remote_path) = match direction {
                 Direction::Upload => (file.source, file.destination),
                 Direction::Download => (file.destination, file.source),
@@ -403,7 +412,7 @@ impl Engine {
                 session_id,
                 direction,
                 local_path,
-                path_to_remote_string(&remote_path),
+                remote_path.to_string_lossy().into_owned(),
                 file.display_name,
                 file.size,
                 Some(batch_id),
@@ -423,6 +432,9 @@ impl Engine {
         if skipped_symlinks > 0 {
             let plural = if skipped_symlinks == 1 { "" } else { "s" };
             self.report(Severity::Warning, format!("Skipped {skipped_symlinks} symlink{plural}"));
+        }
+        if !renamed.is_empty() {
+            self.report(Severity::Warning, transfer::names::renamed_notice(&renamed));
         }
         if resolved.skipped > 0 {
             let plural = if resolved.skipped == 1 { "" } else { "s" };
@@ -622,9 +634,8 @@ impl Engine {
         for job in interrupted {
             match job.direction {
                 Direction::Download => {
-                    let mut part = job.local_path.into_os_string();
-                    part.push(PART_SUFFIX);
-                    removed_local |= std::fs::remove_file(PathBuf::from(part)).is_ok();
+                    let part = to_os_path(&job.local_path.with_suffix(PART_SUFFIX));
+                    removed_local |= std::fs::remove_file(part).is_ok();
                 }
                 Direction::Upload => {
                     remote_parts.entry(job.session_id).or_default().push(format!("{}{PART_SUFFIX}", job.remote_path))
@@ -642,7 +653,7 @@ impl Engine {
             let internal = self.internal.clone();
             self.tasks.spawn("remove-partials", Scope::Background, move |_| async move {
                 for part in parts {
-                    let _ = fs.remove_file(Path::new(&part)).await;
+                    let _ = fs.remove_file(&VfsPath::new(&part)).await;
                 }
                 let _ = internal.send(Internal::Transfer(TransferEvent::PartialsRemoved { session_id }));
             });

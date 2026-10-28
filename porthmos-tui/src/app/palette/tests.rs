@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{
@@ -9,8 +9,8 @@ use porthmos_core::{
 use super::*;
 use crate::{
     app::testing::{
-        TYPED, TestApp, cell_fg, entry, find_text, has_unprintable_cell, render_app, screen_rows, test_app,
-        test_app_with_protocols,
+        TYPED, TestApp, cell_fg, cursor_name, entry, find_text, has_unprintable_cell, render_app, screen_rows,
+        test_app, test_app_with_protocols,
     },
     input::KeyBindings,
     palette::{Entry as PaletteEntry, Group, Target},
@@ -57,7 +57,7 @@ fn protocols() -> Vec<ProtocolInfo> {
 }
 
 fn on(screen: Screen) -> TestApp {
-    let mut test = test_app_with_protocols(Path::new("/d"), protocols());
+    let mut test = test_app_with_protocols(&VfsPath::new("/d"), protocols());
     test.app.screen = screen;
     test
 }
@@ -241,9 +241,9 @@ fn a_disconnect_entry_exists_only_for_a_connected_session() {
 #[test]
 fn file_entries_come_from_the_local_panel_and_the_active_remote_panel_with_a_slash_on_directories() {
     let mut test = on(Screen::Files);
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false), entry(Path::new("/d"), "docs", true)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false), entry(&VfsPath::new("/d"), "docs", true)]);
     test.connect(1, "prod");
-    test.list_remote(1, "/srv", vec![entry(Path::new("/srv"), "index.html", false)]);
+    test.list_remote(1, "/srv", vec![entry(&VfsPath::new("/srv"), "index.html", false)]);
 
     let entries = test.app.palette_entries();
 
@@ -261,9 +261,9 @@ fn file_entries_come_from_the_local_panel_and_the_active_remote_panel_with_a_sla
 fn only_the_active_session_contributes_files() {
     let mut test = on(Screen::Files);
     test.connect(1, "a");
-    test.list_remote(1, "/srv", vec![entry(Path::new("/srv"), "from_a", false)]);
+    test.list_remote(1, "/srv", vec![entry(&VfsPath::new("/srv"), "from_a", false)]);
     test.connect(2, "b");
-    test.list_remote(2, "/srv", vec![entry(Path::new("/srv"), "from_b", false)]);
+    test.list_remote(2, "/srv", vec![entry(&VfsPath::new("/srv"), "from_b", false)]);
 
     let entries = test.app.palette_entries();
 
@@ -273,7 +273,7 @@ fn only_the_active_session_contributes_files() {
 #[test]
 fn the_parent_row_is_not_an_entry() {
     let mut test = on(Screen::Files);
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
 
     let entries = test.app.palette_entries();
 
@@ -284,10 +284,10 @@ fn the_parent_row_is_not_an_entry() {
 fn hostile_names_are_sanitised_in_labels_and_hints_but_targets_keep_the_real_name() {
     let mut test = on(Screen::Files);
     let hostile = "a\u{1b}[2J\u{202e}b\nc";
-    test.list_local(vec![entry(Path::new("/d"), hostile, false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), hostile, false)]);
     test.app.connections.replace(vec![connection(hostile, "sftp", ConnectionSource::Profile)]);
     test.connect(1, hostile);
-    test.list_remote(1, "/srv", vec![entry(Path::new("/srv"), &"x".repeat(500), false)]);
+    test.list_remote(1, "/srv", vec![entry(&VfsPath::new("/srv"), &"x".repeat(500), false)]);
 
     let entries = test.app.palette_entries();
 
@@ -310,7 +310,7 @@ fn hostile_names_are_sanitised_in_labels_and_hints_but_targets_keep_the_real_nam
 
 #[test]
 fn entries_are_empty_for_missing_panels_without_panicking() {
-    let test = test_app(Path::new("/d"));
+    let test = test_app(&VfsPath::new("/d"));
 
     let entries = test.app.palette_entries();
 
@@ -370,7 +370,7 @@ fn ctrl_p_opens_the_palette_from_every_screen() {
 #[test]
 fn ctrl_p_opens_it_while_a_filter_is_being_typed_and_finishes_the_filter() {
     let mut test = on(Screen::Files);
-    test.list_local(vec![entry(Path::new("/d"), "alpha", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "alpha", false)]);
     press(&mut test, KeyCode::Char('/'));
     test.type_text("al");
     assert!(test.app.local.editing_filter());
@@ -437,7 +437,7 @@ fn ctrl_p_again_closes_it() {
 #[test]
 fn the_palette_is_drawn_over_the_screen_at_120x30() {
     let mut test = on(Screen::Files);
-    test.list_local(vec![entry(Path::new("/d"), "visible.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "visible.txt", false)]);
     test.app.theme =
         crate::theme::Theme::new(crate::theme::ColorDepth::Indexed, &crate::theme::ThemeSettings::default());
     open_with(&mut test, "new");
@@ -535,7 +535,7 @@ fn trace(test: &mut TestApp) -> Trace {
 fn esc_closes_and_leaves_no_trace() {
     for screen in SCREENS {
         let mut test = screen_of(screen);
-        test.list_local(vec![entry(Path::new("/d"), "a", false), entry(Path::new("/d"), "b", false)]);
+        test.list_local(vec![entry(&VfsPath::new("/d"), "a", false), entry(&VfsPath::new("/d"), "b", false)]);
         test.app.local.cursor = 1;
         test.app.connections.replace(vec![connection("prod", "sftp", ConnectionSource::Profile)]);
         let before = trace(&mut test);
@@ -607,7 +607,7 @@ fn every_listed_action_runs_on_its_screen_without_panicking() {
             .collect();
         for action in actions {
             let mut test = screen_of(screen);
-            test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+            test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
             test.app.apply_action(action);
         }
     }
@@ -681,25 +681,29 @@ fn enter_on_disconnect_sends_disconnect_for_that_session() {
 fn enter_on_a_file_focuses_its_panel_and_moves_the_cursor() {
     let mut local = on(Screen::Transfers);
     local.list_local(vec![
-        entry(Path::new("/d"), "a", false),
-        entry(Path::new("/d"), "b", false),
-        entry(Path::new("/d"), "c", false),
+        entry(&VfsPath::new("/d"), "a", false),
+        entry(&VfsPath::new("/d"), "b", false),
+        entry(&VfsPath::new("/d"), "c", false),
     ]);
     local.app.active_panel = ActivePanel::Remote;
     open_with(&mut local, "#c");
     press(&mut local, KeyCode::Enter);
     assert_eq!(local.app.screen, Screen::Files);
     assert_eq!(local.app.active_panel, ActivePanel::Local);
-    assert_eq!(local.app.local.current_entry_name(), Some("c"));
+    assert_eq!(cursor_name(&local.app.local), Some("c"));
 
     let mut remote = on(Screen::Files);
     remote.connect(1, "prod");
-    remote.list_remote(1, "/srv", vec![entry(Path::new("/srv"), "x", false), entry(Path::new("/srv"), "y", false)]);
+    remote.list_remote(
+        1,
+        "/srv",
+        vec![entry(&VfsPath::new("/srv"), "x", false), entry(&VfsPath::new("/srv"), "y", false)],
+    );
     remote.app.active_panel = ActivePanel::Local;
     open_with(&mut remote, "#y");
     press(&mut remote, KeyCode::Enter);
     assert_eq!(remote.app.active_panel, ActivePanel::Remote);
-    assert_eq!(remote.app.sessions.active().unwrap().panel.current_entry_name(), Some("y"));
+    assert_eq!(cursor_name(&remote.app.sessions.active().unwrap().panel), Some("y"));
 }
 
 #[test]
@@ -732,10 +736,10 @@ fn disconnecting_between_open_and_enter_runs_nothing() {
 #[test]
 fn a_file_that_disappeared_is_ignored() {
     let mut test = on(Screen::Transfers);
-    test.list_local(vec![entry(Path::new("/d"), "gone.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "gone.txt", false)]);
     test.app.active_panel = ActivePanel::Remote;
     open_with(&mut test, "#gone");
-    test.list_local(vec![entry(Path::new("/d"), "other.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "other.txt", false)]);
     test.sent();
 
     press(&mut test, KeyCode::Enter);
@@ -749,7 +753,7 @@ fn a_file_that_disappeared_is_ignored() {
 fn a_remote_file_of_a_session_that_disappeared_is_ignored() {
     let mut test = on(Screen::Files);
     test.connect(1, "prod");
-    test.list_remote(1, "/srv", vec![entry(Path::new("/srv"), "x", false)]);
+    test.list_remote(1, "/srv", vec![entry(&VfsPath::new("/srv"), "x", false)]);
     open_with(&mut test, "#x");
     test.app.apply_core_event(Event::Disconnected { session: 1, name: "prod".to_string() });
     test.sent();
@@ -808,4 +812,30 @@ fn the_speed_limit_is_offered_on_every_screen_with_its_key_on_the_transfers_scre
     assert_eq!(find(&transfers, "Set the speed limit").hint.as_deref(), Some("Ctrl+L"));
     let files = on(Screen::Files).app.palette_entries();
     assert_eq!(find(&files, "Set the speed limit").hint, None);
+}
+
+#[test]
+fn the_palette_lists_check_for_updates_on_every_screen() {
+    for screen in SCREENS {
+        let test = on(screen);
+
+        let entries = test.app.palette_entries();
+
+        assert!(
+            entries.iter().any(|entry| entry.label == "Check for updates" && entry.group == Group::Actions),
+            "{screen:?}"
+        );
+    }
+}
+
+#[test]
+fn choosing_check_for_updates_in_the_palette_sends_a_manual_check() {
+    let mut test = on(Screen::Files);
+    test.sent();
+    open_with(&mut test, "updates");
+
+    press(&mut test, KeyCode::Enter);
+
+    assert!(test.app.palette.is_none());
+    assert_eq!(test.sent(), [Command::CheckForUpdate { manual: true }]);
 }

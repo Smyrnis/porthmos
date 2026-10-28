@@ -22,15 +22,30 @@ on_conflict = "ask"
 # Porthmos asks first. A remote file that changed while you edited is always
 # asked about.
 auto_upload = true
-# Editor command; empty means $VISUAL, then $EDITOR, then "vi". The editor
-# must wait until you close the file ("code --wait", not "code").
+# Editor command; empty means $VISUAL, then $EDITOR, then "vi" ("notepad.exe"
+# on Windows). The editor must wait until you close the file ("code --wait",
+# not "code"). On Windows a program installed as a .cmd shim is found by its
+# plain name, and a path is written as a TOML single-quoted string so the
+# backslashes stay literal: editor = 'C:\Program Files\Notepad++\notepad++.exe'
 editor = ""
+
+[update]
+# What Porthmos does about new versions:
+#   "auto"   download new versions in the background and install them when you quit.
+#   "notify" only show a badge when a new version exists; download and install nothing.
+#   "off"    never check.
+# Checking sends one request to GitHub that carries only "porthmos/<version>" as its user agent.
+mode = "auto"
+# Hours between automatic checks, from 1 to 720.
+interval_hours = 24
 
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with
 # "ctrl+", "alt+" or "shift+". An action takes one key or a list of keys; an
-# empty list unbinds it. Leave an action out to keep its default.
+# empty list unbinds it. Leave an action out to keep its default. Windows
+# Terminal keeps "ctrl+shift+" keys, "alt+enter", "f11" and "alt+f4" for
+# itself, so binding them has no effect there.
 #
 # Keys belong to a screen. A key is looked up in the table of the current
 # screen first, then in [keys.global]. The same key may mean different things

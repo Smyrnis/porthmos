@@ -1,11 +1,11 @@
-use std::path::{Path, PathBuf};
+use crate::VfsPath;
 
 pub const PART_SUFFIX: &str = ".part";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
-    pub path: PathBuf,
+    pub path: VfsPath,
     pub is_dir: bool,
     pub size: u64,
     pub permissions: Option<u32>,
@@ -13,6 +13,13 @@ pub struct Entry {
     pub owner: Option<String>,
     pub group: Option<String>,
     pub link_target: Option<String>,
+    pub hidden: bool,
+}
+
+impl Entry {
+    pub fn is_hidden(&self) -> bool {
+        self.hidden || self.name.starts_with('.')
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,12 +46,8 @@ impl Metadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirItem {
     pub name: String,
-    pub path: PathBuf,
+    pub path: VfsPath,
     pub metadata: Metadata,
-}
-
-pub fn path_to_remote_string(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
 }
 
 pub fn join_remote(parent: &str, name: &str) -> String {

@@ -1,4 +1,6 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
+
+use porthmos_vfs::VfsPath;
 
 use tokio::sync::watch;
 
@@ -14,7 +16,7 @@ fn queue_job(t: &mut TestEngine, session: u64, name: &str) -> u64 {
     t.engine.transfers.enqueue(
         session,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         10,
@@ -472,6 +474,7 @@ async fn shutdown_without_an_upload_does_not_wait_for_the_upload_grace() {
     assert!(start.elapsed() < Duration::from_millis(1500));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_history_write_that_never_finishes_does_not_block_the_shutdown() {
     use std::os::unix::ffi::OsStrExt;
@@ -735,4 +738,14 @@ fn time_is_read_from_the_engine_clock_only() {
     visit(&engine, &mut offenders);
 
     assert!(offenders.is_empty(), "read the clock directly: {offenders:?}");
+}
+
+#[cfg(not(feature = "update"))]
+#[test]
+fn without_the_update_feature_a_manual_check_says_so() {
+    let mut t = testing::test_engine();
+
+    t.engine.handle_command(Command::CheckForUpdate { manual: true });
+
+    assert_eq!(t.notices(), [(Severity::Warning, "This build can't check for updates".to_string())]);
 }

@@ -50,6 +50,7 @@ impl App {
             Action::OpenTransfers => self.open_transfers_screen(),
             Action::OpenHistory => self.open_history_screen(),
             Action::OpenSync => self.open_sync(),
+            Action::CheckForUpdates => self.check_for_updates(),
             Action::CycleSession => {
                 if self.screen == Screen::Files {
                     self.sessions.cycle();
@@ -147,7 +148,7 @@ impl App {
                 return;
             }
             Action::Open => panel.target_path_for_open(),
-            Action::Refresh => Some(panel.path().to_path_buf()),
+            Action::Refresh => Some(panel.path().clone()),
             _ => return,
         };
 

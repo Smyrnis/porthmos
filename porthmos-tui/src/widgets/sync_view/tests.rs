@@ -1,5 +1,6 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
+use porthmos_core::VfsPath;
 use porthmos_core::sync::{SyncBy, SyncDirection, SyncFacts, SyncOptions};
 use ratatui::{Terminal, backend::TestBackend};
 
@@ -22,18 +23,21 @@ fn item(
             reason,
             SyncReason::TargetNewer | SyncReason::SameTimeDifferentSize | SyncReason::SizeDiffersTimeUnknown
         );
-    SyncItem { id, path: PathBuf::from(path), local, remote, action, reason, ticked, flippable }
+    SyncItem { id, path: VfsPath::from(path), local, remote, action, reason, ticked, flippable }
 }
 
 fn plan(direction: SyncDirection, items: Vec<SyncItem>) -> Arc<SyncPlan> {
     Arc::new(SyncPlan {
         sync_id: 11,
         session: 3,
-        local_root: PathBuf::from("/home/me/site"),
-        remote_root: PathBuf::from("/srv/site"),
+        local_root: VfsPath::from("/home/me/site"),
+        remote_root: VfsPath::from("/srv/site"),
         options: SyncOptions { direction, by: SyncBy::Time, subfolders: true },
         items,
         skipped_symlinks: 0,
+        unreadable_folders: Vec::new(),
+        case_clashes: 0,
+        unstorable: 0,
     })
 }
 

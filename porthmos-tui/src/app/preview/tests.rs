@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::preview::{Preview, PreviewContent};
@@ -8,8 +8,8 @@ use super::*;
 use crate::app::testing::{TestApp, entry, screen_rows, test_app};
 
 fn app_on_a_local_file() -> TestApp {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), "notes.txt", false), entry(Path::new("/d"), "sub", true)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "notes.txt", false), entry(&VfsPath::new("/d"), "sub", true)]);
     test
 }
 
@@ -69,11 +69,7 @@ fn p_on_a_local_file_asks_the_core_and_shows_a_loading_viewer() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::Preview {
-            request_id: 1,
-            location: Location::Local,
-            path: Path::new("/d/notes.txt").to_path_buf()
-        }]
+        vec![Command::Preview { request_id: 1, location: Location::Local, path: VfsPath::new("/d/notes.txt") }]
     );
     assert!(draw(&test)[0].contains("preview \u{b7} notes.txt"));
     assert!(draw(&test).iter().any(|row| row.contains("loading")));
@@ -81,9 +77,9 @@ fn p_on_a_local_file_asks_the_core_and_shows_a_loading_viewer() {
 
 #[test]
 fn p_on_the_remote_panel_previews_through_the_active_session() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(4, "srv");
-    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "a.log", false)]);
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "a.log", false)]);
     test.app.active_panel = ActivePanel::Remote;
     test.app.sessions.active_mut().unwrap().panel.cursor = 1;
 
@@ -94,7 +90,7 @@ fn p_on_the_remote_panel_previews_through_the_active_session() {
         vec![Command::Preview {
             request_id: 1,
             location: Location::Session(session),
-            path: Path::new("/srv/a.log").to_path_buf()
+            path: VfsPath::new("/srv/a.log")
         }]
     );
 }
@@ -118,7 +114,7 @@ fn p_on_a_folder_the_parent_row_or_an_empty_panel_does_not_open_a_viewer() {
     assert_eq!(test.notification().as_deref(), Some("Can't preview a folder"));
     test.app.local.cursor = 0;
     test.app.apply_action(Action::Preview);
-    let mut empty = test_app(Path::new("/e"));
+    let mut empty = test_app(&VfsPath::new("/e"));
     empty.app.apply_action(Action::Preview);
 
     assert!(test.sent().is_empty() && empty.sent().is_empty());

@@ -154,7 +154,7 @@ fn notice_events_are_only_built_in_the_reporter_and_the_info_helper() {
         let text = squeezed(&path);
         let built = text.matches("Event::Notice{").count() + text.matches("useEvent::Notice").count();
         if built > 0 {
-            counts.push((path.strip_prefix(&source).unwrap().display().to_string(), built));
+            counts.push((path.strip_prefix(&source).unwrap().display().to_string().replace('\\', "/"), built));
         }
     }
     counts.sort();

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use super::*;
 use crate::transfer::JobStatus;
@@ -7,7 +7,7 @@ fn job(queue: &mut TransferQueue, name: &str, batch_id: Option<u64>, status: Job
     let id = queue.enqueue(
         1,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         100,

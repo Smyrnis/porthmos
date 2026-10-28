@@ -121,6 +121,7 @@ async fn a_failed_write_is_reported_with_its_path() {
     assert!(failures[0].1.contains("blocker"), "{}", failures[0].1);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn private_files_stay_private() {
     use std::os::unix::fs::PermissionsExt;
@@ -271,6 +272,7 @@ async fn a_failed_inline_drain_is_reported() {
     assert_eq!(failures.lock().unwrap().len(), 1);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_flush_that_cannot_finish_can_be_given_up_on() {
     use std::os::unix::ffi::OsStrExt;

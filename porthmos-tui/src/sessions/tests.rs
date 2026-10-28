@@ -1,7 +1,6 @@
-use std::{
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use porthmos_core::VfsPath;
 
 use super::*;
 
@@ -13,7 +12,7 @@ fn add(sessions: &mut Sessions, name: &str) -> SessionId {
 }
 
 fn panel() -> PanelView {
-    PanelView::from_listing(PathBuf::from("/home/user"), Vec::new())
+    PanelView::from_listing(VfsPath::from("/home/user"), Vec::new())
 }
 
 #[test]

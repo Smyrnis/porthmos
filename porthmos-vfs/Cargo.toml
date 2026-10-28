@@ -12,10 +12,12 @@ testing = []
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+serde.workspace = true
 tokio = { workspace = true, features = ["sync", "io-util", "fs", "time", "rt"] }
 unicode-width.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
 tempfile.workspace = true
+toml.workspace = true
 porthmos-vfs = { path = ".", features = ["testing"] }

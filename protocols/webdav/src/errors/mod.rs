@@ -1,7 +1,7 @@
-use std::{error::Error as _, path::Path};
+use std::error::Error as _;
 
 use anyhow::anyhow;
-use porthmos_vfs::{ErrorKind, ProtocolError};
+use porthmos_vfs::{ErrorKind, ProtocolError, VfsPath};
 use reqwest::{
     StatusCode,
     header::{HeaderMap, LOCATION},
@@ -9,16 +9,15 @@ use reqwest::{
 
 use crate::idle::NO_RESPONSE;
 
-pub(crate) fn status_error(status: StatusCode, headers: &HeaderMap, path: &Path) -> ProtocolError {
+pub(crate) fn status_error(status: StatusCode, headers: &HeaderMap, path: &VfsPath) -> ProtocolError {
     if status.is_redirection() {
         return redirect_error(headers);
     }
-    let shown = path.display();
     match status.as_u16() {
         401 => ProtocolError::new(ErrorKind::Auth, anyhow!("authentication expired")),
-        403 => ProtocolError::new(ErrorKind::PermissionDenied, anyhow!("{shown}: permission denied")),
-        404 | 409 => ProtocolError::new(ErrorKind::NotFound, anyhow!("{shown} not found")),
-        423 => ProtocolError::new(ErrorKind::Other, anyhow!("{shown} is locked")),
+        403 => ProtocolError::new(ErrorKind::PermissionDenied, anyhow!("{path}: permission denied")),
+        404 | 409 => ProtocolError::new(ErrorKind::NotFound, anyhow!("{path} not found")),
+        423 => ProtocolError::new(ErrorKind::Other, anyhow!("{path} is locked")),
         507 => ProtocolError::new(ErrorKind::Other, anyhow!("insufficient storage on the server")),
         _ => ProtocolError::new(ErrorKind::Other, anyhow!("{status}")),
     }

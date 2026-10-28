@@ -1,6 +1,5 @@
 use std::{
     io::SeekFrom,
-    path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicBool},
 };
 
@@ -8,12 +7,12 @@ use futures_util::future::BoxFuture;
 use porthmos_ssh::Session;
 use porthmos_vfs::{
     DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, ProtocolError, Reader, SearchQuery, SearchSender,
-    Writer, async_trait, join_remote, path_to_remote_string,
+    VfsPath, Writer, async_trait, join_remote,
 };
 use russh_sftp::{
     client::{SftpSession, error::Error as SftpError, fs::Metadata as SftpMetadata},
     extensions::Statvfs,
-    protocol::{FileAttributes, OpenFlags, StatusCode},
+    protocol::{FileAttributes, OpenFlags, Status, StatusCode},
 };
 use tokio::io::AsyncSeekExt;
 
@@ -38,7 +37,16 @@ pub fn sftp_error(error: SftpError) -> ProtocolError {
         SftpError::Status(status) if status.status_code == StatusCode::PermissionDenied => ErrorKind::PermissionDenied,
         _ => ErrorKind::Other,
     };
-    ProtocolError::new(kind, error)
+    match &error {
+        SftpError::Status(status) => ProtocolError::new(kind, anyhow::anyhow!(status_text(status))),
+        _ => ProtocolError::new(kind, error),
+    }
+}
+
+fn status_text(status: &Status) -> String {
+    let code = status.status_code.to_string();
+    let message = status.error_message.trim();
+    if message.is_empty() || message.eq_ignore_ascii_case(&code) { code } else { format!("{code}: {message}") }
 }
 
 pub fn metadata_from_sftp(metadata: &SftpMetadata) -> Metadata {
@@ -71,8 +79,8 @@ fn available_bytes(stats: &Statvfs) -> u64 {
     stats.blocks_avail.saturating_mul(stats.fragment_size)
 }
 
-fn remote(path: &Path) -> String {
-    path_to_remote_string(path)
+fn remote(path: &VfsPath) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 async fn rename_overwriting(sftp: &SftpSession, from: &str, to: &str) -> Result<(), SftpError> {
@@ -122,12 +130,12 @@ impl FileSystem for SftpFs {
         Some(!self.session.is_closed())
     }
 
-    async fn free_space(&self, dir: &Path) -> Result<Option<u64>, ProtocolError> {
+    async fn free_space(&self, dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
         let stats = self.sftp.fs_info(remote(dir)).await.map_err(sftp_error)?;
         Ok(stats.as_ref().map(available_bytes))
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         let path = remote(dir);
         let mut entries = Vec::new();
 
@@ -150,7 +158,7 @@ impl FileSystem for SftpFs {
             let (owner, group) = ownership_of(&metadata);
 
             entries.push(Entry {
-                path: PathBuf::from(entry_path),
+                path: VfsPath::new(&entry_path),
                 name,
                 is_dir,
                 size: metadata.len(),
@@ -159,13 +167,14 @@ impl FileSystem for SftpFs {
                 owner,
                 group,
                 link_target,
+                hidden: false,
             });
         }
 
         Ok(entries)
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let path = remote(dir);
         Ok(self
             .sftp
@@ -175,7 +184,7 @@ impl FileSystem for SftpFs {
             .map(|dir_entry| {
                 let name = dir_entry.file_name();
                 DirItem {
-                    path: PathBuf::from(join_remote(&path, &name)),
+                    path: VfsPath::new(&join_remote(&path, &name)),
                     metadata: metadata_from_sftp(&dir_entry.metadata()),
                     name,
                 }
@@ -183,23 +192,23 @@ impl FileSystem for SftpFs {
             .collect())
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
         Ok(metadata_from_sftp(&self.sftp.metadata(remote(path)).await.map_err(sftp_error)?))
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.sftp.create_dir(remote(path)).await.map_err(sftp_error)
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
         rename_overwriting(&self.sftp, &remote(from), &remote(to)).await.map_err(sftp_error)
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.sftp.remove_file(remote(path)).await.map_err(sftp_error)
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let path = remote(path);
         let metadata = self.sftp.symlink_metadata(&path).await.map_err(sftp_error)?;
 
@@ -210,11 +219,11 @@ impl FileSystem for SftpFs {
         }
     }
 
-    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         self.sftp.remove_dir(remote(path)).await.map_err(sftp_error)
     }
 
-    async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
+    async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
         let stamp = sftp_time(seconds);
         let mut attributes = FileAttributes::empty();
         attributes.atime = Some(stamp);
@@ -226,17 +235,17 @@ impl FileSystem for SftpFs {
         true
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
-        Ok(PathBuf::from(self.sftp.canonicalize(".").await.map_err(sftp_error)?))
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
+        Ok(VfsPath::new(&self.sftp.canonicalize(".").await.map_err(sftp_error)?))
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
         let mut file = self.sftp.open(remote(path)).await.map_err(sftp_error)?;
         file.seek(SeekFrom::Start(offset)).await?;
         Ok(Box::new(file))
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
         let path = remote(path);
         if offset > 0
             && let Ok(mut file) = self.sftp.open_with_flags(&path, OpenFlags::WRITE | OpenFlags::CREATE).await

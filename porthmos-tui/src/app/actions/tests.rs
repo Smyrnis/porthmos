@@ -1,10 +1,10 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use super::*;
 use crate::app::testing::{TestApp, entry, test_app};
 
 fn app_in(dir: &str) -> TestApp {
-    test_app(Path::new(dir))
+    test_app(&VfsPath::new(dir))
 }
 
 fn connection(name: &str, source: ConnectionSource) -> ConnectionEntry {
@@ -58,7 +58,7 @@ fn noop_action_does_not_change_state() {
 #[test]
 fn panel_actions_are_ignored_when_remote_panel_has_no_listing_yet() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "child", true)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "child", true)]);
     test.app.apply_action(Action::SwitchPanel);
 
     let cursor_before = test.app.local.cursor;
@@ -72,7 +72,7 @@ fn panel_actions_are_ignored_when_remote_panel_has_no_listing_yet() {
 fn remote_panel_navigation_works_once_a_listing_exists() {
     let mut test = app_in("/d");
     let session = test.connect(1, "test");
-    test.list_remote(session, "/home/user", vec![entry(Path::new("/home/user"), "child", true)]);
+    test.list_remote(session, "/home/user", vec![entry(&VfsPath::new("/home/user"), "child", true)]);
     test.app.active_panel = ActivePanel::Remote;
 
     test.app.apply_action(Action::Down);
@@ -83,19 +83,19 @@ fn remote_panel_navigation_works_once_a_listing_exists() {
 #[test]
 fn opening_a_local_folder_asks_for_its_listing() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "child", true)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "child", true)]);
     test.app.local.cursor = 1;
 
     test.app.apply_action(Action::Open);
 
-    assert_eq!(test.sent(), vec![Command::List { location: Location::Local, path: Some(PathBuf::from("/d/child")) }]);
+    assert_eq!(test.sent(), vec![Command::List { location: Location::Local, path: Some(VfsPath::from("/d/child")) }]);
 }
 
 #[test]
 fn opening_a_remote_folder_asks_that_session_for_its_listing() {
     let mut test = app_in("/d");
     let session = test.connect(4, "test");
-    test.list_remote(session, "/home/user", vec![entry(Path::new("/home/user"), "child", true)]);
+    test.list_remote(session, "/home/user", vec![entry(&VfsPath::new("/home/user"), "child", true)]);
     test.app.active_panel = ActivePanel::Remote;
     test.app.sessions.active_mut().unwrap().panel.cursor = 1;
 
@@ -103,7 +103,7 @@ fn opening_a_remote_folder_asks_that_session_for_its_listing() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::List { location: Location::Session(session), path: Some(PathBuf::from("/home/user/child")) }]
+        vec![Command::List { location: Location::Session(session), path: Some(VfsPath::from("/home/user/child")) }]
     );
 }
 
@@ -113,19 +113,19 @@ fn refresh_relists_the_current_folder() {
 
     test.app.apply_action(Action::Refresh);
 
-    assert_eq!(test.sent(), vec![Command::List { location: Location::Local, path: Some(PathBuf::from("/d")) }]);
+    assert_eq!(test.sent(), vec![Command::List { location: Location::Local, path: Some(VfsPath::from("/d")) }]);
 }
 
 #[test]
 fn a_listing_of_a_new_local_folder_resets_the_cursor() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "a", false), entry(Path::new("/d"), "b", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a", false), entry(&VfsPath::new("/d"), "b", false)]);
     test.app.local.cursor = 2;
 
     test.app.apply_core_event(Event::Listed {
         location: Location::Local,
-        path: PathBuf::from("/d/sub"),
-        entries: vec![entry(Path::new("/d/sub"), "x", false), entry(Path::new("/d/sub"), "y", false)],
+        path: VfsPath::from("/d/sub"),
+        entries: vec![entry(&VfsPath::new("/d/sub"), "x", false), entry(&VfsPath::new("/d/sub"), "y", false)],
     });
 
     assert_eq!(test.app.local.cursor, 0);
@@ -134,7 +134,7 @@ fn a_listing_of_a_new_local_folder_resets_the_cursor() {
 #[test]
 fn a_failed_listing_leaves_the_panel_where_it_was() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "child", true)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "child", true)]);
     test.app.local.cursor = 1;
     test.app.apply_action(Action::Open);
 
@@ -143,7 +143,7 @@ fn a_failed_listing_leaves_the_panel_where_it_was() {
         message: "Permission denied (os error 13)".to_string(),
     });
 
-    assert_eq!(test.app.local.path(), Path::new("/d"));
+    assert_eq!(test.app.local.path(), &VfsPath::new("/d"));
     assert_eq!(test.notification().as_deref(), Some("Permission denied (os error 13)"));
 }
 
@@ -210,7 +210,7 @@ fn disconnect_on_the_connections_screen_disconnects_the_selected_session() {
 #[test]
 fn delete_on_the_files_screen_still_opens_the_delete_dialog() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "doomed.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "doomed.txt", false)]);
     test.app.local.cursor = 1;
 
     test.app.apply_action(Action::Delete);
@@ -221,7 +221,7 @@ fn delete_on_the_files_screen_still_opens_the_delete_dialog() {
 #[test]
 fn toggle_hidden_action_reveals_dotfiles_in_the_local_panel() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), ".secret", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), ".secret", false)]);
     let before = test.app.local.rows().len();
 
     test.app.apply_action(Action::ToggleHidden);
@@ -315,7 +315,21 @@ fn f4_on_a_connection_with_a_shell_asks_the_core_for_it() {
 
     test.app.apply_action(Action::OpenTerminal);
 
-    assert_eq!(test.sent(), vec![Command::PrepareShell { session }]);
+    assert_eq!(test.sent(), vec![Command::PrepareShell { session, directory: Some(VfsPath::from("/")) }]);
+}
+
+#[test]
+fn f4_opens_the_shell_in_the_folder_shown_on_the_remote_panel() {
+    let mut test = app_in("/d");
+    let session = test.connect(8, "srv");
+    test.list_remote(session, "/home/tester/docs", Vec::new());
+
+    test.app.apply_action(Action::OpenTerminal);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::PrepareShell { session, directory: Some(VfsPath::from("/home/tester/docs")) }]
+    );
 }
 
 #[test]
@@ -487,7 +501,7 @@ fn outcome(test: &mut TestApp) -> (&'static str, Vec<Command>, Option<String>, S
 
 fn with_a_local_file() -> TestApp {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "a.txt", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false)]);
     test.app.local.cursor = 1;
     test.sent();
     test
@@ -548,7 +562,7 @@ fn the_question_mark_opens_the_help_with_and_without_shift() {
 #[test]
 fn j_and_k_move_the_cursor() {
     let mut test = app_in("/d");
-    test.list_local(vec![entry(Path::new("/d"), "a", false), entry(Path::new("/d"), "b", false)]);
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a", false), entry(&VfsPath::new("/d"), "b", false)]);
     test.app.local.cursor = 0;
 
     letter_key(&mut test, 'j');

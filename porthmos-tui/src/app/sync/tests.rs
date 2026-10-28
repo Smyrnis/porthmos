@@ -1,9 +1,7 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use porthmos_core::VfsPath;
 use porthmos_core::sync::{SyncAction, SyncFacts, SyncItem, SyncReason};
 
 use super::*;
@@ -13,7 +11,7 @@ use crate::{
 };
 
 fn connected_without_listing(preserves_times: bool) -> TestApp {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_core_event(Event::Connected { session: 3, name: "prod".to_string(), shell_available: false });
     test.app.apply_core_event(Event::SessionCapabilities { session: 3, preserves_times });
     test
@@ -23,7 +21,7 @@ fn connected(preserves_times: bool) -> TestApp {
     let mut test = connected_without_listing(preserves_times);
     test.app.apply_core_event(Event::Listed {
         location: Location::Session(3),
-        path: PathBuf::from("/srv"),
+        path: VfsPath::from("/srv"),
         entries: Vec::new(),
     });
     test.sent();
@@ -54,7 +52,7 @@ fn choice_values(form: &FormDialog, key: &str) -> Vec<String> {
 
 #[test]
 fn without_a_connected_remote_the_key_only_warns() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     open(&mut test);
 
@@ -97,8 +95,8 @@ fn enter_with_the_defaults_starts_a_local_to_remote_sync_of_the_two_panel_folder
         test.sent(),
         vec![Command::StartSync {
             session: 3,
-            local_dir: PathBuf::from("/d"),
-            remote_dir: PathBuf::from("/srv"),
+            local_dir: VfsPath::from("/d"),
+            remote_dir: VfsPath::from("/srv"),
             options: SyncOptions { direction: SyncDirection::LocalToRemote, by: SyncBy::Time, subfolders: true },
         }]
     );
@@ -120,8 +118,8 @@ fn every_field_can_be_changed_with_left_and_right() {
         test.sent(),
         vec![Command::StartSync {
             session: 3,
-            local_dir: PathBuf::from("/d"),
-            remote_dir: PathBuf::from("/srv"),
+            local_dir: VfsPath::from("/d"),
+            remote_dir: VfsPath::from("/srv"),
             options: SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Size, subfolders: false },
         }]
     );
@@ -202,7 +200,7 @@ fn before_the_first_listing_arrives_the_key_warns_instead_of_syncing_the_placeho
 
     test.app.apply_core_event(Event::Listed {
         location: Location::Session(3),
-        path: PathBuf::from("/srv"),
+        path: VfsPath::from("/srv"),
         entries: Vec::new(),
     });
     open(&mut test);
@@ -253,7 +251,7 @@ fn the_active_session_is_the_one_that_gets_synced() {
     press(&mut test, KeyCode::Enter);
 
     assert!(
-        matches!(test.sent().as_slice(), [Command::StartSync { session: 4, remote_dir, .. }] if remote_dir == Path::new("/other"))
+        matches!(test.sent().as_slice(), [Command::StartSync { session: 4, remote_dir, .. }] if remote_dir == &VfsPath::new("/other"))
     );
 
     test.app.sessions.activate(3);
@@ -261,7 +259,7 @@ fn the_active_session_is_the_one_that_gets_synced() {
     press(&mut test, KeyCode::Enter);
 
     assert!(
-        matches!(test.sent().as_slice(), [Command::StartSync { session: 3, remote_dir, .. }] if remote_dir == Path::new("/srv"))
+        matches!(test.sent().as_slice(), [Command::StartSync { session: 3, remote_dir, .. }] if remote_dir == &VfsPath::new("/srv"))
     );
 }
 
@@ -280,8 +278,8 @@ fn shift_tab_moves_back_to_the_previous_field() {
         test.sent(),
         vec![Command::StartSync {
             session: 3,
-            local_dir: PathBuf::from("/d"),
-            remote_dir: PathBuf::from("/srv"),
+            local_dir: VfsPath::from("/d"),
+            remote_dir: VfsPath::from("/srv"),
             options: SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Size, subfolders: true },
         }]
     );
@@ -295,18 +293,21 @@ fn plan_with_id(sync_id: u64, items: Vec<SyncItem>) -> Arc<SyncPlan> {
     Arc::new(SyncPlan {
         sync_id,
         session: 3,
-        local_root: PathBuf::from("/d"),
-        remote_root: PathBuf::from("/srv"),
+        local_root: VfsPath::from("/d"),
+        remote_root: VfsPath::from("/srv"),
         options: SyncOptions { direction: SyncDirection::LocalToRemote, by: SyncBy::Time, subfolders: true },
         items,
         skipped_symlinks: 0,
+        unreadable_folders: Vec::new(),
+        case_clashes: 0,
+        unstorable: 0,
     })
 }
 
 fn upload(id: u32, path: &str) -> SyncItem {
     SyncItem {
         id,
-        path: PathBuf::from(path),
+        path: VfsPath::from(path),
         local: Some(SyncFacts { size: 5, modified: Some(10) }),
         remote: None,
         action: SyncAction::Upload,
@@ -319,7 +320,7 @@ fn upload(id: u32, path: &str) -> SyncItem {
 fn newer_on_target(id: u32, path: &str) -> SyncItem {
     SyncItem {
         id,
-        path: PathBuf::from(path),
+        path: VfsPath::from(path),
         local: Some(SyncFacts { size: 5, modified: Some(10) }),
         remote: Some(SyncFacts { size: 5, modified: Some(90) }),
         action: SyncAction::Skip,

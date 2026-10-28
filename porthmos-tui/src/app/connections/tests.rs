@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
 use crossterm::event::KeyEventState;
 use porthmos_core::{Answer, ConnectionForm, OptionField, OptionKind, ProtocolInfo, profiles::ProfileDraft};
@@ -13,7 +13,7 @@ use crate::{
 };
 
 fn app() -> TestApp {
-    test_app(Path::new("/d"))
+    test_app(&VfsPath::new("/d"))
 }
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -58,7 +58,7 @@ fn sample_protocols() -> Vec<ProtocolInfo> {
 }
 
 fn screen_with(protocols: Vec<ProtocolInfo>, entries: Vec<ConnectionEntry>) -> TestApp {
-    let mut test = test_app_with_protocols(Path::new("/d"), protocols);
+    let mut test = test_app_with_protocols(&VfsPath::new("/d"), protocols);
     test.app.screen = Screen::Connections;
     test.app.connections.replace(entries);
     test.app.connections.cursor = 0;
@@ -153,7 +153,7 @@ fn panel_event_listed_updates_the_matching_sessions_panel() {
 
     test.list_remote(id, "/home/user", Vec::new());
 
-    assert_eq!(test.app.sessions.active().unwrap().panel.path(), Path::new("/home/user"));
+    assert_eq!(test.app.sessions.active().unwrap().panel.path(), &VfsPath::new("/home/user"));
 }
 
 #[test]
@@ -1673,4 +1673,64 @@ fn a_test_question_with_no_form_open_is_ignored() {
 
     assert!(test.app.dialog.is_none());
     assert!(test.app.stashed_form.is_none());
+}
+
+#[test]
+fn enter_on_a_connected_session_just_switches_to_it() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.sent();
+
+    test.app.apply_action(Action::Open);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn enter_on_a_lost_session_drops_it_and_connects_again() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.app.apply_core_event(Event::SessionHealth { session: 2, healthy: false });
+    test.sent();
+
+    test.app.apply_action(Action::Open);
+
+    assert_eq!(test.sent(), vec![Command::Disconnect { session: 2 }, Command::Connect { profile: "prod".to_string() }]);
+}
+
+#[test]
+fn a_restored_session_is_switched_to_again_not_reconnected() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.app.apply_core_event(Event::SessionHealth { session: 2, healthy: false });
+    test.app.apply_core_event(Event::SessionHealth { session: 2, healthy: true });
+    test.sent();
+
+    test.app.apply_action(Action::Open);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_missing_ssh_on_windows_points_at_the_optional_feature() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    assert_eq!(
+        ssh_launch_failure(&error, true),
+        "ssh.exe was not found. Install the OpenSSH Client under Settings > Apps > Optional features, then try again."
+    );
+}
+
+#[test]
+fn a_missing_ssh_elsewhere_keeps_the_plain_message() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    assert_eq!(ssh_launch_failure(&error, false), format!("Failed to launch ssh: {error}"));
+}
+
+#[test]
+fn another_launch_error_on_windows_keeps_the_plain_message() {
+    let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+
+    assert_eq!(ssh_launch_failure(&error, true), format!("Failed to launch ssh: {error}"));
 }

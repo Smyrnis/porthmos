@@ -1,13 +1,11 @@
-use std::{
-    io,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{io, sync::Arc};
 
 use anyhow::anyhow;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
-use porthmos_vfs::{DirItem, Entry, ErrorKind, FileSystem, Metadata, ProtocolError, Reader, Writer, async_trait};
+use porthmos_vfs::{
+    DirItem, Entry, ErrorKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath, Writer, async_trait,
+};
 use reqwest::{
     Body, Method, RequestBuilder, Response, StatusCode,
     header::{CONTENT_TYPE, RANGE},
@@ -42,7 +40,7 @@ fn body_reader(client: &DavClient, response: Response) -> IdleReader<impl AsyncR
 }
 
 pub(crate) async fn propfind(
-    client: &DavClient, path: &Path, collection: bool, depth: &'static str,
+    client: &DavClient, path: &VfsPath, collection: bool, depth: &'static str,
 ) -> Result<Response, Failure> {
     let href = client.locator().href(path, collection);
     client
@@ -52,7 +50,7 @@ pub(crate) async fn propfind(
         .await
 }
 
-async fn multistatus(client: &DavClient, response: Response, path: &Path) -> Result<Vec<Resource>, ProtocolError> {
+async fn multistatus(client: &DavClient, response: Response, path: &VfsPath) -> Result<Vec<Resource>, ProtocolError> {
     if response.status() != StatusCode::MULTI_STATUS {
         return Err(status_error(response.status(), response.headers(), path));
     }
@@ -61,7 +59,7 @@ async fn multistatus(client: &DavClient, response: Response, path: &Path) -> Res
     parse_multistatus(&String::from_utf8_lossy(&body))
 }
 
-async fn stat_resource(client: &DavClient, path: &Path) -> Result<Resource, ProtocolError> {
+async fn stat_resource(client: &DavClient, path: &VfsPath) -> Result<Resource, ProtocolError> {
     let mut response = propfind(client, path, false, "0").await.map_err(other)?;
     if response.status().is_redirection() {
         response = propfind(client, path, true, "0").await.map_err(other)?;
@@ -70,14 +68,14 @@ async fn stat_resource(client: &DavClient, path: &Path) -> Result<Resource, Prot
         .await?
         .into_iter()
         .next()
-        .ok_or_else(|| ProtocolError::new(ErrorKind::NotFound, anyhow!("{} not found", path.display())))
+        .ok_or_else(|| ProtocolError::new(ErrorKind::NotFound, anyhow!("{} not found", path)))
 }
 
-fn expect_success(response: &Response, path: &Path) -> Result<(), ProtocolError> {
+fn expect_success(response: &Response, path: &VfsPath) -> Result<(), ProtocolError> {
     if response.status().is_success() { Ok(()) } else { Err(status_error(response.status(), response.headers(), path)) }
 }
 
-async fn finish_put(client: Arc<DavClient>, request: RequestBuilder, path: PathBuf) -> io::Result<()> {
+async fn finish_put(client: Arc<DavClient>, request: RequestBuilder, path: VfsPath) -> io::Result<()> {
     let response = request.send().await.map_err(|err| io::Error::other(request_error(ErrorKind::Other, err)))?;
     if response.status() == StatusCode::UNAUTHORIZED {
         client.refresh(&response);
@@ -91,7 +89,7 @@ impl WebDavFs {
     }
 
     async fn move_to(
-        &self, from: &Path, to: &Path, collection: bool, overwrite: bool,
+        &self, from: &VfsPath, to: &VfsPath, collection: bool, overwrite: bool,
     ) -> Result<Response, ProtocolError> {
         let locator = self.client.locator();
         let destination = locator.url(&locator.href(to, collection));
@@ -104,7 +102,7 @@ impl WebDavFs {
             .map_err(other)
     }
 
-    async fn completed(&self, response: Response, path: &Path, action: &str) -> Result<(), ProtocolError> {
+    async fn completed(&self, response: Response, path: &VfsPath, action: &str) -> Result<(), ProtocolError> {
         if response.status() != StatusCode::MULTI_STATUS {
             return expect_success(&response, path);
         }
@@ -115,24 +113,19 @@ impl WebDavFs {
         match failed {
             Some(resource) => {
                 let shown =
-                    self.client.locator().path_of_href(&resource.href).unwrap_or_else(|| PathBuf::from(&resource.href));
+                    self.client.locator().path_of_href(&resource.href).unwrap_or_else(|| VfsPath::new(&resource.href));
                 Err(ProtocolError::new(
                     ErrorKind::Other,
-                    anyhow!(
-                        "{}: could not {action} {} ({})",
-                        path.display(),
-                        shown.display(),
-                        resource.status.unwrap_or_default()
-                    ),
+                    anyhow!("{}: could not {action} {} ({})", path, shown, resource.status.unwrap_or_default()),
                 ))
             }
             None => Ok(()),
         }
     }
 
-    fn verifier(&self, path: &Path) -> Verify {
+    fn verifier(&self, path: &VfsPath) -> Verify {
         let client = self.client.clone();
-        let path = path.to_path_buf();
+        let path = path.clone();
         Box::new(move |written| {
             Box::pin(async move {
                 let resource = stat_resource(&client, &path).await.map_err(io::Error::other)?;
@@ -146,10 +139,10 @@ impl WebDavFs {
         })
     }
 
-    fn patch_sender(&self, path: &Path) -> SendChunk {
+    fn patch_sender(&self, path: &VfsPath) -> SendChunk {
         let client = self.client.clone();
         let href = client.locator().href(path, false);
-        let path = path.to_path_buf();
+        let path = path.clone();
         Arc::new(move |start, data: Bytes| {
             let client = client.clone();
             let href = href.clone();
@@ -177,7 +170,7 @@ impl FileSystem for WebDavFs {
         self.info.clone()
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         Ok(self
             .read_dir(dir)
             .await?
@@ -194,11 +187,11 @@ impl FileSystem for WebDavFs {
             .collect())
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let dir = normalize(dir);
         let response = propfind(&self.client, &dir, true, "1").await.map_err(other)?;
         let resources = multistatus(&self.client, response, &dir).await?;
-        let located: Vec<(PathBuf, Resource)> = resources
+        let located: Vec<(VfsPath, Resource)> = resources
             .into_iter()
             .filter_map(|resource| Some((self.client.locator().path_of_href(&resource.href)?, resource)))
             .collect();
@@ -218,50 +211,50 @@ impl FileSystem for WebDavFs {
             .collect())
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
         Ok(stat_resource(&self.client, path).await?.metadata())
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let href = self.client.locator().href(path, true);
         let response = self.client.send(method("MKCOL"), &href, |builder| builder).await.map_err(other)?;
         if response.status() == StatusCode::METHOD_NOT_ALLOWED {
-            return Err(ProtocolError::new(ErrorKind::Other, anyhow!("{} already exists", path.display())));
+            return Err(ProtocolError::new(ErrorKind::Other, anyhow!("{} already exists", path)));
         }
         expect_success(&response, path)
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
         let collection = stat_resource(&self.client, from).await?.collection;
         let response = self.move_to(from, to, collection, false).await?;
         if response.status() != StatusCode::PRECONDITION_FAILED {
             return self.completed(response, from, "move").await;
         }
         if collection || stat_resource(&self.client, to).await?.collection {
-            return Err(ProtocolError::new(ErrorKind::Other, anyhow!("{} already exists", to.display())));
+            return Err(ProtocolError::new(ErrorKind::Other, anyhow!("{} already exists", to)));
         }
         let response = self.move_to(from, to, collection, true).await?;
         self.completed(response, from, "move").await
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let href = self.client.locator().href(path, false);
         let response = self.client.send(Method::DELETE, &href, |builder| builder).await.map_err(other)?;
         self.completed(response, path, "delete").await
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let collection = stat_resource(&self.client, path).await?.collection;
         let href = self.client.locator().href(path, collection);
         let response = self.client.send(Method::DELETE, &href, |builder| builder).await.map_err(other)?;
         self.completed(response, path, "delete").await
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
-        Ok(PathBuf::from("/"))
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
+        Ok(VfsPath::root())
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
         let href = self.client.locator().href(path, false);
         let response = self
             .client
@@ -288,7 +281,7 @@ impl FileSystem for WebDavFs {
         Ok(Box::new(reader))
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
         if offset > 0 && self.partial_update {
             let upload = PatchUpload::new(self.patch_sender(path), offset, PATCH_CHUNK);
             return Ok(Writer { stream: Box::new(upload), offset });
@@ -299,7 +292,7 @@ impl FileSystem for WebDavFs {
         }
         let (pipe, body) = tokio::io::duplex(PIPE_CAPACITY);
         let request = self.client.request(Method::PUT, &href).body(Body::wrap_stream(ReaderStream::new(body)));
-        let task = tokio::spawn(finish_put(self.client.clone(), request, path.to_path_buf()));
+        let task = tokio::spawn(finish_put(self.client.clone(), request, path.clone()));
         let waits = Waits { idle: self.client.timeout(), reply: self.client.long_wait() };
         Ok(Writer { stream: Box::new(PutUpload::new(pipe, task, self.verifier(path), waits)), offset: 0 })
     }

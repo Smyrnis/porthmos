@@ -3,6 +3,7 @@ mod support;
 use std::path::PathBuf;
 
 use porthmos_core::{Answer, Command, Entry, Event, Location, Question, transfer::rows::RowState};
+use porthmos_lfs::from_os_path;
 use porthmos_vfs::testing::FakeProtocol;
 
 #[tokio::test]
@@ -79,14 +80,14 @@ async fn a_download_lands_on_the_local_side_and_reports_progress() {
         entries: vec![Entry {
             modified: None,
             name: "report.pdf".into(),
-            path: PathBuf::from("/home/user/report.pdf"),
+            path: from_os_path(&PathBuf::from("/home/user/report.pdf")),
             is_dir: false,
             size: 8,
             permissions: None,
             ..Default::default()
         }],
         to: Location::Local,
-        dest_dir: harness.local.path().to_path_buf(),
+        dest_dir: from_os_path(harness.local.path()),
     });
     let mut done = false;
     let mut local_changed = false;
@@ -183,7 +184,7 @@ async fn a_big_copy_publishes_far_fewer_snapshots_than_files_and_ends_on_the_fin
         entries.push(Entry {
             modified: None,
             name: format!("f{index}.bin"),
-            path: PathBuf::from(path),
+            path: from_os_path(&PathBuf::from(path)),
             is_dir: false,
             size: 4,
             permissions: None,
@@ -196,7 +197,7 @@ async fn a_big_copy_publishes_far_fewer_snapshots_than_files_and_ends_on_the_fin
         from: Location::Session(session),
         entries,
         to: Location::Local,
-        dest_dir: harness.local.path().to_path_buf(),
+        dest_dir: from_os_path(harness.local.path()),
     });
     let started = std::time::Instant::now();
     let mut snapshots = 0;

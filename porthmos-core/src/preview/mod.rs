@@ -1,10 +1,9 @@
 use std::{
-    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-use porthmos_vfs::{ErrorKind, FileSystem, Metadata, ProtocolError, Reader};
+use porthmos_vfs::{ErrorKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath};
 use tokio::{io::AsyncReadExt, time::Instant};
 
 pub const PREVIEW_LIMIT: usize = 256 * 1024;
@@ -66,12 +65,12 @@ fn cancelled() -> ProtocolError {
     ProtocolError::new(ErrorKind::Cancelled, anyhow::anyhow!("cancelled"))
 }
 
-fn check_readable(path: &Path, metadata: &Metadata) -> Result<(), ProtocolError> {
+fn check_readable(path: &VfsPath, metadata: &Metadata) -> Result<(), ProtocolError> {
     if metadata.is_dir() {
-        return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is a folder", path.display())));
+        return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is a folder", path)));
     }
     if metadata.permissions.is_some_and(is_special) {
-        return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not a regular file", path.display())));
+        return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not a regular file", path)));
     }
     Ok(())
 }
@@ -96,7 +95,7 @@ async fn read_some(reader: &mut Reader, buffer: &mut [u8], cancel: &AtomicBool) 
 }
 
 pub async fn read_preview(
-    fs: &dyn FileSystem, path: &Path, limit: usize, cancel: &AtomicBool,
+    fs: &dyn FileSystem, path: &VfsPath, limit: usize, cancel: &AtomicBool,
 ) -> Result<Preview, ProtocolError> {
     if cancel.load(Ordering::Relaxed) {
         return Err(cancelled());

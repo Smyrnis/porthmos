@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io,
-    path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
@@ -10,45 +9,48 @@ use std::{
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::{DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, ProtocolError, Reader, Writer};
+use crate::{
+    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, VfsPath, Writer,
+};
 
 #[derive(Debug, Clone)]
 enum Node {
     File { data: Vec<u8>, modified: Option<u64> },
     Dir,
-    Symlink(PathBuf),
+    Symlink(VfsPath),
 }
 
 #[derive(Default)]
 struct Tree {
-    nodes: BTreeMap<PathBuf, Node>,
-    failing_read_dirs: BTreeSet<PathBuf>,
-    failing_reads: BTreeSet<PathBuf>,
-    hanging_reads: BTreeMap<PathBuf, usize>,
+    nodes: BTreeMap<VfsPath, Node>,
+    failing_read_dirs: BTreeSet<VfsPath>,
+    failing_reads: BTreeSet<VfsPath>,
+    unopenable: BTreeSet<VfsPath>,
+    hanging_reads: BTreeMap<VfsPath, usize>,
     failing_home: bool,
     free_space: Option<u64>,
     failing_free_space: bool,
     hanging_free_space: bool,
     connection_lost: bool,
-    owners: BTreeMap<PathBuf, (String, String)>,
-    denied_stats: BTreeSet<PathBuf>,
-    hanging_stats: BTreeSet<PathBuf>,
+    owners: BTreeMap<VfsPath, (String, String)>,
+    denied_stats: BTreeSet<VfsPath>,
+    hanging_stats: BTreeSet<VfsPath>,
     server_info: Option<String>,
-    failing_shutdowns: BTreeSet<PathBuf>,
-    written_sizes: Vec<(PathBuf, u64)>,
+    failing_shutdowns: BTreeSet<VfsPath>,
+    written_sizes: Vec<(VfsPath, u64)>,
 }
 
 const MAX_SYMLINK_HOPS: usize = 8;
 
 impl Tree {
-    fn insert_ancestors(&mut self, path: &Path) {
+    fn insert_ancestors(&mut self, path: &VfsPath) {
         for ancestor in path.ancestors().skip(1) {
-            self.nodes.entry(ancestor.to_path_buf()).or_insert(Node::Dir);
+            self.nodes.entry(ancestor.clone()).or_insert(Node::Dir);
         }
     }
 
-    fn resolve(&self, path: &Path) -> Option<&Node> {
-        let mut current = path.to_path_buf();
+    fn resolve(&self, path: &VfsPath) -> Option<&Node> {
+        let mut current = path.clone();
         for _ in 0..MAX_SYMLINK_HOPS {
             match self.nodes.get(&current)? {
                 Node::Symlink(target) => current = target.clone(),
@@ -58,15 +60,15 @@ impl Tree {
         None
     }
 
-    fn children(&self, dir: &Path) -> Vec<(PathBuf, &Node)> {
+    fn children(&self, dir: &VfsPath) -> Vec<(VfsPath, &Node)> {
         self.nodes
             .iter()
-            .filter(|(path, _)| path.parent() == Some(dir))
+            .filter(|(path, _)| path.parent().as_ref() == Some(dir))
             .map(|(path, node)| (path.clone(), node))
             .collect()
     }
 
-    fn is_dir(&self, path: &Path) -> bool {
+    fn is_dir(&self, path: &VfsPath) -> bool {
         matches!(self.nodes.get(path), Some(Node::Dir))
     }
 }
@@ -81,11 +83,11 @@ fn metadata_of(node: &Node) -> Metadata {
     }
 }
 
-fn not_found(path: &Path) -> ProtocolError {
-    ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("No such file: {}", path.display()))
+fn not_found(path: &VfsPath) -> ProtocolError {
+    ProtocolError::new(ErrorKind::NotFound, anyhow::anyhow!("No such file: {}", path))
 }
 
-fn name_of(path: &Path) -> String {
+fn name_of(path: &VfsPath) -> String {
     path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
@@ -93,10 +95,11 @@ fn name_of(path: &Path) -> String {
 pub struct FakeFs {
     tree: Arc<Mutex<Tree>>,
     resume_backoff: u64,
-    home: PathBuf,
+    home: VfsPath,
     time_support: bool,
     time_resolution: u64,
     holds_connection: bool,
+    name_rules: NameRules,
 }
 
 impl Default for FakeFs {
@@ -110,22 +113,23 @@ impl FakeFs {
         let fs = Self {
             tree: Arc::default(),
             resume_backoff: 0,
-            home: PathBuf::from("/home/user"),
+            home: VfsPath::new("/home/user"),
             time_support: true,
             time_resolution: 2,
             holds_connection: false,
+            name_rules: NameRules::Permissive,
         };
         fs.dir("/home/user");
         fs
     }
 
-    pub fn denying_stat(&self, path: impl AsRef<Path>) -> &Self {
-        self.tree.lock().unwrap().denied_stats.insert(path.as_ref().to_path_buf());
+    pub fn denying_stat(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().denied_stats.insert(path.into());
         self
     }
 
-    pub fn hanging_stat(&self, path: impl AsRef<Path>) -> &Self {
-        self.tree.lock().unwrap().hanging_stats.insert(path.as_ref().to_path_buf());
+    pub fn hanging_stat(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().hanging_stats.insert(path.into());
         self
     }
 
@@ -168,53 +172,61 @@ impl FakeFs {
         self
     }
 
-    pub fn with_owner(&self, path: impl AsRef<Path>, owner: &str, group: &str) -> &Self {
-        self.tree.lock().unwrap().owners.insert(path.as_ref().to_path_buf(), (owner.to_string(), group.to_string()));
+    pub fn with_owner(&self, path: impl Into<VfsPath>, owner: &str, group: &str) -> &Self {
+        self.tree.lock().unwrap().owners.insert(path.into(), (owner.to_string(), group.to_string()));
         self
     }
 
-    pub fn dir(&self, path: impl AsRef<Path>) -> &Self {
+    pub fn dir(&self, path: impl Into<VfsPath>) -> &Self {
+        let path = path.into();
         let mut tree = self.tree.lock().unwrap();
-        tree.insert_ancestors(path.as_ref());
-        tree.nodes.insert(path.as_ref().to_path_buf(), Node::Dir);
+        tree.insert_ancestors(&path);
+        tree.nodes.insert(path, Node::Dir);
         self
     }
 
-    pub fn file(&self, path: impl AsRef<Path>, data: &[u8], modified: Option<u64>) -> &Self {
+    pub fn file(&self, path: impl Into<VfsPath>, data: &[u8], modified: Option<u64>) -> &Self {
+        let path = path.into();
         let mut tree = self.tree.lock().unwrap();
-        tree.insert_ancestors(path.as_ref());
-        tree.nodes.insert(path.as_ref().to_path_buf(), Node::File { data: data.to_vec(), modified });
+        tree.insert_ancestors(&path);
+        tree.nodes.insert(path, Node::File { data: data.to_vec(), modified });
         self
     }
 
-    pub fn symlink(&self, path: impl AsRef<Path>, target: impl AsRef<Path>) -> &Self {
+    pub fn symlink(&self, path: impl Into<VfsPath>, target: impl Into<VfsPath>) -> &Self {
+        let path = path.into();
         let mut tree = self.tree.lock().unwrap();
-        tree.insert_ancestors(path.as_ref());
-        tree.nodes.insert(path.as_ref().to_path_buf(), Node::Symlink(target.as_ref().to_path_buf()));
+        tree.insert_ancestors(&path);
+        tree.nodes.insert(path, Node::Symlink(target.into()));
         self
     }
 
-    pub fn fail_read_dir(&self, path: impl AsRef<Path>) -> &Self {
-        self.tree.lock().unwrap().failing_read_dirs.insert(path.as_ref().to_path_buf());
+    pub fn fail_read_dir(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().failing_read_dirs.insert(path.into());
         self
     }
 
-    pub fn hanging_reads(&self, path: impl AsRef<Path>, after: usize) -> &Self {
-        self.tree.lock().unwrap().hanging_reads.insert(path.as_ref().to_path_buf(), after);
+    pub fn hanging_reads(&self, path: impl Into<VfsPath>, after: usize) -> &Self {
+        self.tree.lock().unwrap().hanging_reads.insert(path.into(), after);
         self
     }
 
-    pub fn fail_reads(&self, path: impl AsRef<Path>) -> &Self {
-        self.tree.lock().unwrap().failing_reads.insert(path.as_ref().to_path_buf());
+    pub fn deny_open(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().unopenable.insert(path.into());
         self
     }
 
-    pub fn written_sizes(&self) -> Vec<(PathBuf, u64)> {
+    pub fn fail_reads(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().failing_reads.insert(path.into());
+        self
+    }
+
+    pub fn written_sizes(&self) -> Vec<(VfsPath, u64)> {
         self.tree.lock().unwrap().written_sizes.clone()
     }
 
-    pub fn fail_shutdown(&self, path: impl AsRef<Path>) -> &Self {
-        self.tree.lock().unwrap().failing_shutdowns.insert(path.as_ref().to_path_buf());
+    pub fn fail_shutdown(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().failing_shutdowns.insert(path.into());
         self
     }
 
@@ -228,6 +240,11 @@ impl FakeFs {
         self
     }
 
+    pub fn with_name_rules(mut self, rules: NameRules) -> Self {
+        self.name_rules = rules;
+        self
+    }
+
     pub fn with_time_support(mut self, supported: bool) -> Self {
         self.time_support = supported;
         self
@@ -238,28 +255,29 @@ impl FakeFs {
         self
     }
 
-    pub fn modified_of(&self, path: impl AsRef<Path>) -> Option<u64> {
-        match self.tree.lock().unwrap().nodes.get(path.as_ref()) {
+    pub fn modified_of(&self, path: impl Into<VfsPath>) -> Option<u64> {
+        match self.tree.lock().unwrap().nodes.get(&path.into() as &VfsPath) {
             Some(Node::File { modified, .. }) => *modified,
             _ => None,
         }
     }
 
-    pub fn with_home(mut self, home: impl AsRef<Path>) -> Self {
-        self.dir(home.as_ref());
-        self.home = home.as_ref().to_path_buf();
+    pub fn with_home(mut self, home: impl Into<VfsPath>) -> Self {
+        let home = home.into();
+        self.dir(&home);
+        self.home = home;
         self
     }
 
-    pub fn contents(&self, path: impl AsRef<Path>) -> Option<Vec<u8>> {
-        match self.tree.lock().unwrap().nodes.get(path.as_ref()) {
+    pub fn contents(&self, path: impl Into<VfsPath>) -> Option<Vec<u8>> {
+        match self.tree.lock().unwrap().nodes.get(&path.into() as &VfsPath) {
             Some(Node::File { data, .. }) => Some(data.clone()),
             _ => None,
         }
     }
 
-    pub fn exists(&self, path: impl AsRef<Path>) -> bool {
-        self.tree.lock().unwrap().nodes.contains_key(path.as_ref())
+    pub fn exists(&self, path: impl Into<VfsPath>) -> bool {
+        self.tree.lock().unwrap().nodes.contains_key(&path.into() as &VfsPath)
     }
 }
 
@@ -286,7 +304,7 @@ impl AsyncRead for FailingReader {
 
 struct FakeWriter {
     tree: Arc<Mutex<Tree>>,
-    path: PathBuf,
+    path: VfsPath,
 }
 
 impl AsyncWrite for FakeWriter {
@@ -315,7 +333,7 @@ impl AsyncWrite for FakeWriter {
 
 #[async_trait]
 impl FileSystem for FakeFs {
-    async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
+    async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
         if !self.time_support {
             return Err(ProtocolError::new(
                 ErrorKind::Unsupported,
@@ -336,6 +354,10 @@ impl FileSystem for FakeFs {
         self.time_support
     }
 
+    fn name_rules(&self) -> NameRules {
+        self.name_rules
+    }
+
     fn server_info(&self) -> Option<String> {
         self.tree.lock().unwrap().server_info.clone()
     }
@@ -344,7 +366,7 @@ impl FileSystem for FakeFs {
         self.time_resolution
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         let tree = self.tree.lock().unwrap();
         if !matches!(tree.resolve(dir), Some(Node::Dir)) {
             return Err(not_found(dir));
@@ -372,12 +394,13 @@ impl FileSystem for FakeFs {
                     owner,
                     group,
                     link_target,
+                    hidden: false,
                 }
             })
             .collect())
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let tree = self.tree.lock().unwrap();
         if tree.failing_read_dirs.contains(dir) {
             return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("Permission denied")));
@@ -392,7 +415,7 @@ impl FileSystem for FakeFs {
             .collect())
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
         let hangs = self.tree.lock().unwrap().hanging_stats.contains(path);
         if hangs {
             std::future::pending::<()>().await;
@@ -404,35 +427,35 @@ impl FileSystem for FakeFs {
         tree.resolve(path).map(metadata_of).ok_or_else(|| not_found(path))
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
-        if !path.parent().is_some_and(|parent| tree.is_dir(parent)) {
+        if !path.parent().is_some_and(|parent| tree.is_dir(&parent)) {
             return Err(not_found(path));
         }
         if tree.nodes.contains_key(path) {
             return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("File exists")));
         }
-        tree.nodes.insert(path.to_path_buf(), Node::Dir);
+        tree.nodes.insert(path.clone(), Node::Dir);
         Ok(())
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
         if !tree.nodes.contains_key(from) {
             return Err(not_found(from));
         }
-        let moved: Vec<(PathBuf, Node)> = tree
+        let moved: Vec<(VfsPath, Node)> = tree
             .nodes
             .iter()
             .filter(|(path, _)| path.starts_with(from))
-            .map(|(path, node)| (to.join(path.strip_prefix(from).unwrap_or(path)), node.clone()))
+            .map(|(path, node)| (to.join(path.strip_prefix(from).unwrap_or_else(|| path.clone())), node.clone()))
             .collect();
         tree.nodes.retain(|path, _| !path.starts_with(from) && !path.starts_with(to));
         tree.nodes.extend(moved);
         Ok(())
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
         match tree.nodes.get(path) {
             Some(Node::File { .. } | Node::Symlink(_)) => {
@@ -444,22 +467,22 @@ impl FileSystem for FakeFs {
         }
     }
 
-    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
         match tree.nodes.get(path) {
             None => Err(not_found(path)),
             Some(Node::Dir) if !tree.children(path).is_empty() => {
-                Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not empty", path.display())))
+                Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not empty", path)))
             }
             Some(Node::Dir) => {
                 tree.nodes.remove(path);
                 Ok(())
             }
-            Some(_) => Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not a folder", path.display()))),
+            Some(_) => Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("{} is not a folder", path))),
         }
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
         if !tree.nodes.contains_key(path) {
             return Err(not_found(path));
@@ -472,7 +495,7 @@ impl FileSystem for FakeFs {
         self.holds_connection.then(|| !self.tree.lock().unwrap().connection_lost)
     }
 
-    async fn free_space(&self, _dir: &Path) -> Result<Option<u64>, ProtocolError> {
+    async fn free_space(&self, _dir: &VfsPath) -> Result<Option<u64>, ProtocolError> {
         let hangs = self.tree.lock().unwrap().hanging_free_space;
         if hangs {
             std::future::pending::<()>().await;
@@ -484,15 +507,18 @@ impl FileSystem for FakeFs {
         Ok(tree.free_space)
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
         if self.tree.lock().unwrap().failing_home {
             return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("Permission denied")));
         }
         Ok(self.home.clone())
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
         let tree = self.tree.lock().unwrap();
+        if tree.unopenable.contains(path) {
+            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("Permission denied")));
+        }
         if tree.failing_reads.contains(path) {
             return Ok(Box::new(FailingReader));
         }
@@ -509,14 +535,14 @@ impl FileSystem for FakeFs {
         }
     }
 
-    async fn open_write_sized(&self, path: &Path, offset: u64, size: u64) -> Result<Writer, ProtocolError> {
-        self.tree.lock().unwrap().written_sizes.push((path.to_path_buf(), size));
+    async fn open_write_sized(&self, path: &VfsPath, offset: u64, size: u64) -> Result<Writer, ProtocolError> {
+        self.tree.lock().unwrap().written_sizes.push((path.clone(), size));
         self.open_write(path, offset).await
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
         let mut tree = self.tree.lock().unwrap();
-        if !path.parent().is_some_and(|parent| tree.is_dir(parent)) {
+        if !path.parent().is_some_and(|parent| tree.is_dir(&parent)) {
             return Err(not_found(path));
         }
         let start = match tree.nodes.get_mut(path) {
@@ -525,11 +551,11 @@ impl FileSystem for FakeFs {
                 offset
             }
             _ => {
-                tree.nodes.insert(path.to_path_buf(), Node::File { data: Vec::new(), modified: None });
+                tree.nodes.insert(path.clone(), Node::File { data: Vec::new(), modified: None });
                 0
             }
         };
-        Ok(Writer { stream: Box::new(FakeWriter { tree: self.tree.clone(), path: path.to_path_buf() }), offset: start })
+        Ok(Writer { stream: Box::new(FakeWriter { tree: self.tree.clone(), path: path.clone() }), offset: start })
     }
 
     fn resume_backoff(&self) -> u64 {

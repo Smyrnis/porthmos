@@ -8,6 +8,7 @@ use crate::{
         rows::{RowKind, RowState},
     },
 };
+use porthmos_lfs::from_os_path;
 
 fn three_waiting_rows() -> (TestEngine, Vec<RowKind>) {
     let mut t = test_engine();
@@ -20,7 +21,7 @@ fn three_waiting_rows() -> (TestEngine, Vec<RowKind>) {
             t.engine.transfers.enqueue(
                 session,
                 Direction::Upload,
-                t.dir.path().join(name),
+                from_os_path(&t.dir.path().join(name)),
                 format!("/up/{name}"),
                 name.to_string(),
                 10,

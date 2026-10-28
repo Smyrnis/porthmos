@@ -1,4 +1,7 @@
-use std::{path::Path, process::ExitStatus};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitStatus,
+};
 
 use porthmos_core::edit::{EditorCommand, EditorExit};
 
@@ -11,6 +14,11 @@ pub(super) struct EditPrompt {
     pub(super) name: String,
     pub(super) kind: EditQuestionKind,
 }
+
+const EDIT_QUIT_QUESTION: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left \
+                                  incomplete; your copy stays in the state folder.";
+const TRANSFER_QUIT_QUESTION: &str =
+    "Some transfers are still running or queued. Quit anyway? Unfinished transfers can be resumed next time.";
 
 pub(super) fn editor_process(editor: &EditorCommand, file: &Path) -> std::process::Command {
     let mut command = std::process::Command::new(&editor.program);
@@ -100,14 +108,19 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
-        if !self.edits_busy {
-            self.should_quit = true;
-            return;
-        }
-        let message = "An edit is still being saved to the server. Quit anyway? The remote file may be left \
-                       incomplete; your copy stays in the state folder.";
+        let transfers_running =
+            !self.transfers.active.is_empty() || self.transfers.queued > 0 || !self.transfers.scanning.is_empty();
+        let message = match (self.edits_busy, transfers_running) {
+            (false, false) => {
+                self.should_quit = true;
+                return;
+            }
+            (true, false) => EDIT_QUIT_QUESTION.to_string(),
+            (false, true) => TRANSFER_QUIT_QUESTION.to_string(),
+            (true, true) => format!("{EDIT_QUIT_QUESTION}\n\n{TRANSFER_QUIT_QUESTION}"),
+        };
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
-        self.pending_action = Some(PendingAction::QuitWhileSaving);
+        self.pending_action = Some(PendingAction::ConfirmQuit);
     }
 
     pub(super) fn answer_edit_conflict(&mut self, edit_id: u64, index: usize) {

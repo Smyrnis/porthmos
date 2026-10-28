@@ -45,6 +45,36 @@ fn sftp_status_codes_map_to_shared_error_kinds() {
     assert_eq!(sftp_error(status(StatusCode::Failure)).kind(), ErrorKind::Other);
 }
 
+fn status_with_message(code: StatusCode, message: &str) -> russh_sftp::client::error::Error {
+    russh_sftp::client::error::Error::Status(Status {
+        id: 0,
+        status_code: code,
+        error_message: message.to_string(),
+        language_tag: "en".to_string(),
+    })
+}
+
+#[test]
+fn a_server_message_that_repeats_the_status_is_shown_once() {
+    let error = sftp_error(status_with_message(StatusCode::PermissionDenied, "Permission denied"));
+
+    assert_eq!(error.to_string(), "Permission denied");
+}
+
+#[test]
+fn an_empty_server_message_shows_just_the_status() {
+    let error = sftp_error(status_with_message(StatusCode::NoSuchFile, ""));
+
+    assert_eq!(error.to_string(), "No such file");
+}
+
+#[test]
+fn a_server_message_that_adds_something_follows_the_status() {
+    let error = sftp_error(status_with_message(StatusCode::Failure, "quota exceeded"));
+
+    assert_eq!(error.to_string(), "Failure: quota exceeded");
+}
+
 #[test]
 fn the_server_supplied_names_are_used_for_owner_and_group() {
     let mut attributes = FileAttributes::empty();
@@ -103,4 +133,19 @@ fn free_space_counts_the_blocks_an_ordinary_user_may_use() {
 #[test]
 fn free_space_does_not_overflow() {
     assert_eq!(available_bytes(&statvfs(u64::MAX, 2, 2)), u64::MAX);
+}
+
+#[test]
+fn names_that_look_like_windows_paths_are_sent_to_the_server_verbatim() {
+    let folder = VfsPath::new("/srv");
+
+    for name in ["x:1.txt", "a\\b", "con", "name.", "C:", "\\\\server\\share"] {
+        assert_eq!(remote(&folder.join(name)), format!("/srv/{name}"), "{name}");
+    }
+}
+
+#[test]
+fn the_remote_text_of_a_path_has_no_trailing_slash_except_for_the_root() {
+    assert_eq!(remote(&VfsPath::new("/srv/")), "/srv");
+    assert_eq!(remote(&VfsPath::root()), "/");
 }

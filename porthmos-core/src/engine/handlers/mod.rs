@@ -17,6 +17,7 @@ mod sync;
 mod test_connection;
 mod transfer;
 mod ui_state;
+mod update;
 
 use std::fmt::Display;
 
@@ -28,6 +29,7 @@ pub(crate) use moves::{MoveBatch, without_symlinks};
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};
 pub(crate) use sync::SyncState;
+pub(crate) use update::UpdateEngine;
 
 use super::Location;
 use crate::user_message;

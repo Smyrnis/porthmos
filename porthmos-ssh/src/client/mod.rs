@@ -1,7 +1,5 @@
 use std::{
     fmt,
-    fs::DirBuilder,
-    os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex},
@@ -17,7 +15,10 @@ use russh::{
     keys,
     keys::{
         HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate,
-        agent::{AgentIdentity, client::AgentClient},
+        agent::{
+            AgentIdentity,
+            client::{AgentClient, AgentStream},
+        },
     },
 };
 use tokio::{
@@ -55,9 +56,21 @@ fn line_in_file(known_hosts: &Path, uncommented_line: usize) -> Option<usize> {
         .map(|(index, _)| index + 1)
 }
 
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
 pub fn trust_host_key(known_hosts: &Path, host: &str, port: u16, key: &PublicKey) -> Result<()> {
     if let Some(ssh_dir) = known_hosts.parent() {
-        DirBuilder::new().recursive(true).mode(0o700).create(ssh_dir)?;
+        create_private_dir(ssh_dir)?;
     }
     keys::known_hosts::learn_known_hosts_path(host, port, key, known_hosts)?;
     Ok(())
@@ -278,18 +291,41 @@ pub async fn authenticate_non_interactive(
     Ok(false)
 }
 
+#[cfg(any(windows, test))]
+const AGENT_PIPE_PREFIX: &str = r"\\.\pipe\";
+#[cfg(any(windows, test))]
+const DEFAULT_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+
+#[cfg(any(windows, test))]
+fn agent_pipe_path(auth_sock: Option<&std::ffi::OsStr>) -> std::ffi::OsString {
+    match auth_sock {
+        Some(path) if path.to_str().is_some_and(|text| text.starts_with(AGENT_PIPE_PREFIX)) => path.to_os_string(),
+        _ => std::ffi::OsString::from(DEFAULT_AGENT_PIPE),
+    }
+}
+
 async fn authenticate_with_agent(handle: &mut Handle<PorthmosHandler>, username: &str) -> Result<bool> {
-    let Ok(mut agent) = AgentClient::connect_env().await else {
+    #[cfg(unix)]
+    let connected = AgentClient::connect_env().await;
+    #[cfg(windows)]
+    let connected =
+        AgentClient::connect_named_pipe(agent_pipe_path(std::env::var_os("SSH_AUTH_SOCK").as_deref())).await;
+    let Ok(mut agent) = connected else {
         return Ok(false);
     };
+    authenticate_with_agent_client(handle, username, &mut agent).await
+}
 
+async fn authenticate_with_agent_client<S: AgentStream + Unpin + Send>(
+    handle: &mut Handle<PorthmosHandler>, username: &str, agent: &mut AgentClient<S>,
+) -> Result<bool> {
     let Ok(identities) = agent.request_identities().await else {
         return Ok(false);
     };
 
     for identity in identities {
         let public_key = identity.public_key().into_owned();
-        let mut signer = AgentSigner(&mut agent);
+        let mut signer = AgentSigner(&mut *agent);
 
         let result = handle.authenticate_publickey_with(username, public_key, None, &mut signer).await;
 
@@ -329,9 +365,9 @@ pub async fn authenticate_password(
     }
 }
 
-struct AgentSigner<'a>(&'a mut AgentClient<tokio::net::UnixStream>);
+struct AgentSigner<'a, S: AgentStream>(&'a mut AgentClient<S>);
 
-impl Signer for AgentSigner<'_> {
+impl<S: AgentStream + Unpin + Send> Signer for AgentSigner<'_, S> {
     type Error = anyhow::Error;
 
     async fn auth_sign(

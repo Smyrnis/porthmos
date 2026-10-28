@@ -8,6 +8,15 @@ use crate::widgets::dialog::{FormDialog, FormField, FormLayout, TestState};
 
 const NO_KEYRING_HINT: &str = "Passwords are not saved: no system keyring. They are kept until Porthmos quits.";
 
+fn ssh_launch_failure(error: &std::io::Error, windows: bool) -> String {
+    if windows && error.kind() == std::io::ErrorKind::NotFound {
+        "ssh.exe was not found. Install the OpenSSH Client under Settings > Apps > Optional features, then try again."
+            .to_string()
+    } else {
+        format!("Failed to launch ssh: {error}")
+    }
+}
+
 impl App {
     pub(super) fn request_shell(&mut self) {
         let Some(session) = self.sessions.active() else {
@@ -18,7 +27,8 @@ impl App {
             self.notifications.push(Severity::Warning, "This connection doesn't support a terminal session");
             return;
         }
-        self.core.send(Command::PrepareShell { session: session.id });
+        let directory = Some(session.panel.path().clone());
+        self.core.send(Command::PrepareShell { session: session.id, directory });
     }
 
     pub(super) async fn launch_shell(
@@ -36,7 +46,7 @@ impl App {
             }
             Ok(Ok(_)) => {}
             Ok(Err(io_err)) => {
-                self.error(format!("Failed to launch ssh: {io_err}"));
+                self.error(ssh_launch_failure(&io_err, cfg!(windows)));
             }
             Err(join_err) => {
                 self.error(format!("ssh task failed: {join_err}"));
@@ -333,9 +343,13 @@ impl App {
             self.notifications.push(Severity::Warning, "That connection no longer exists");
             return false;
         }
-        if let Some(session) = self.sessions.by_name(name).map(|session| session.id) {
-            self.sessions.activate(session);
-            return true;
+        if let Some(session) = self.sessions.by_name(name) {
+            let (id, healthy) = (session.id, session.healthy);
+            if healthy {
+                self.sessions.activate(id);
+                return true;
+            }
+            self.core.send(Command::Disconnect { session: id });
         }
         self.core.send(Command::Connect { profile: name.to_string() });
         true
@@ -359,7 +373,7 @@ impl App {
         if self.sessions.activate(session) {
             return;
         }
-        let placeholder_panel = PanelView::from_listing(PathBuf::from("/"), Vec::new());
+        let placeholder_panel = PanelView::from_listing(VfsPath::root(), Vec::new());
         self.sessions.insert(session, name, shell_available, placeholder_panel);
     }
 }

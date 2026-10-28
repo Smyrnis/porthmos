@@ -585,10 +585,11 @@ async fn a_late_secret_result_for_a_renamed_profile_lands_on_the_new_name() {
     t.settle().await;
 
     let names: Vec<String> = saved(&t).into_iter().map(|profile| profile.name).collect();
+    let errors = error_notices(&t.drain());
     assert_eq!(names, vec!["site"]);
-    assert_eq!(markers_of(&t, "site"), vec!["password"]);
+    assert_eq!(markers_of(&t, "site"), vec!["password"], "calls {:?}, errors {errors:?}", backend.calls());
     assert_eq!(backend.stored("profile:site").as_deref(), Some("pw"));
-    assert!(backend.stored("profile:web").is_none());
+    assert!(backend.stored("profile:web").is_none(), "{:?}", backend.calls());
     assert_eq!(t.engine.secrets.cached("profile:site").as_deref().map(String::as_str), Some("pw"));
     assert!(t.engine.secrets.cached("profile:web").is_none());
 }
@@ -896,8 +897,8 @@ async fn reusing_a_name_after_a_rename_keeps_both_passwords_apart() {
     t.engine.handle_command(Command::SaveProfile { original: None, draft: Box::new(again) });
     t.settle().await;
 
-    assert_eq!(backend.stored("profile:site").as_deref(), Some("pw-web"));
-    assert_eq!(backend.stored("profile:web").as_deref(), Some("pw-new"));
+    assert_eq!(backend.stored("profile:site").as_deref(), Some("pw-web"), "{:?}", backend.calls());
+    assert_eq!(backend.stored("profile:web").as_deref(), Some("pw-new"), "{:?}", backend.calls());
     assert_eq!(markers_of(&t, "site"), vec!["password"]);
     assert_eq!(markers_of(&t, "web"), vec!["password"]);
 }
@@ -961,7 +962,7 @@ async fn renaming_there_and_back_quickly_keeps_the_password() {
         t.settle().await;
 
         assert_eq!(backend.stored("profile:a").as_deref(), Some("pw"));
-        assert!(backend.stored("profile:b").is_none());
+        assert!(backend.stored("profile:b").is_none(), "{:?}", backend.calls());
         assert_eq!(markers_of(&t, "a"), vec!["password"]);
     }
 }
@@ -1013,4 +1014,17 @@ async fn keeping_a_password_whose_keyring_entry_was_deleted_by_hand_is_quiet() {
     assert!(error_notices(&t.drain()).is_empty());
     assert_eq!(markers_of(&t, "web"), vec!["password"]);
     assert!(backend.stored("profile:web").is_none());
+}
+
+#[tokio::test]
+async fn settle_waits_for_a_keyring_job_that_outlasts_the_quiet_period() {
+    let backend = std::sync::Arc::new(TestBackend::new());
+    backend.block_for(std::time::Duration::from_millis(400));
+    let mut t = engine_with_sftp_and(&backend);
+
+    t.engine.handle_command(Command::SaveProfile { original: None, draft: with_password("web", "pw") });
+    t.settle().await;
+
+    assert_eq!(backend.stored("profile:web").as_deref(), Some("pw"));
+    assert!(t.engine.latest_keyring_job.is_empty());
 }

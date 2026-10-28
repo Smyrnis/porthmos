@@ -3,8 +3,9 @@ use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet},
     hash::Hash,
     ops::{Deref, DerefMut},
-    path::PathBuf,
 };
+
+use porthmos_vfs::VfsPath;
 
 use super::{
     job::{Destination, Direction, JobStatus, TransferJob},
@@ -206,7 +207,7 @@ impl TransferQueue {
 
     #[allow(clippy::too_many_arguments)]
     pub fn enqueue(
-        &mut self, session_id: u64, direction: Direction, local_path: PathBuf, remote_path: String,
+        &mut self, session_id: u64, direction: Direction, local_path: VfsPath, remote_path: String,
         display_name: String, total_bytes: u64, batch_id: Option<u64>,
     ) -> u64 {
         let id = self.next_id;

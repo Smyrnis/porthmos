@@ -1,4 +1,12 @@
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::PathBuf, time::Duration};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::{ffi::OsStr, path::Path};
+use std::{path::PathBuf, time::Duration};
+
+#[cfg(unix)]
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 use super::*;
 use crate::{
@@ -74,7 +82,7 @@ fn job(t: &mut TestEngine, session_id: u64, name: &str, batch_id: Option<u64>, s
     let id = t.engine.transfers.enqueue(
         session_id,
         Direction::Upload,
-        PathBuf::from(format!("/local/{name}")),
+        VfsPath::from(format!("/local/{name}")),
         format!("/remote/{name}"),
         name.to_string(),
         100,
@@ -245,12 +253,14 @@ fn nothing_is_published_when_nothing_was_recorded() {
     assert!(!t.drain().iter().any(|event| matches!(event, Event::History(_))));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_name_that_is_not_utf8_is_recorded_lossily() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
     let id = job(&mut t, session, "a", None, JobStatus::Completed);
-    t.engine.transfers.get_mut(id).unwrap().local_path = PathBuf::from(OsStr::from_bytes(b"/local/caf\xe9.txt"));
+    t.engine.transfers.get_mut(id).unwrap().local_path =
+        from_os_path(Path::new(OsStr::from_bytes(b"/local/caf\xe9.txt")));
 
     t.engine.publish_transfers();
 
@@ -678,7 +688,7 @@ fn finishing_a_huge_batch_costs_the_same_per_event_as_a_small_one() {
                 t.engine.transfers.enqueue(
                     session,
                     Direction::Upload,
-                    PathBuf::from(format!("/local/f{index}")),
+                    VfsPath::from(format!("/local/f{index}")),
                     format!("/remote/f{index}"),
                     format!("f{index}"),
                     10,

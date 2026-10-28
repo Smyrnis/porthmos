@@ -1,9 +1,7 @@
 mod support;
 
-use std::path::Path;
-
 use porthmos_s3::S3;
-use porthmos_vfs::{Answer, ErrorKind, Protocol, Question, Target};
+use porthmos_vfs::{Answer, ErrorKind, Protocol, Question, Target, VfsPath};
 use support::{ACCESS_KEY, BUCKET, Options, Quirk, SECRET};
 
 fn s3(dir: &tempfile::TempDir) -> S3 {
@@ -26,13 +24,13 @@ async fn without_a_bucket_the_root_lists_buckets() {
         .await
         .unwrap();
 
-    let mut items = fs.read_dir(Path::new("/")).await.unwrap();
+    let mut items = fs.read_dir(&VfsPath::new("/")).await.unwrap();
     items.sort_by(|left, right| left.name.cmp(&right.name));
     assert_eq!(
         items.iter().map(|item| (item.name.as_str(), item.metadata.is_dir())).collect::<Vec<_>>(),
         vec![("bkt", true), ("other", true)]
     );
-    assert_eq!(items[0].path, Path::new("/bkt"));
+    assert_eq!(items[0].path, VfsPath::new("/bkt"));
 }
 
 #[tokio::test]
@@ -46,9 +44,9 @@ async fn a_configured_bucket_is_the_root() {
         .await
         .unwrap();
 
-    assert_eq!(fs.home().await.unwrap(), Path::new("/"));
-    let items = fs.read_dir(Path::new("/")).await.unwrap();
-    assert_eq!(items.iter().map(|item| item.path.as_path()).collect::<Vec<_>>(), vec![Path::new("/hello.txt")]);
+    assert_eq!(fs.home().await.unwrap(), VfsPath::new("/"));
+    let items = fs.read_dir(&VfsPath::new("/")).await.unwrap();
+    assert_eq!(items.iter().map(|item| &item.path).collect::<Vec<_>>(), vec![&VfsPath::new("/hello.txt")]);
 }
 
 #[tokio::test]
@@ -121,7 +119,7 @@ async fn a_region_redirect_is_followed_once() {
         .await
         .unwrap();
 
-    assert_eq!(fs.read_dir(Path::new("/")).await.unwrap().len(), 1);
+    assert_eq!(fs.read_dir(&VfsPath::new("/")).await.unwrap().len(), 1);
 }
 
 #[tokio::test]

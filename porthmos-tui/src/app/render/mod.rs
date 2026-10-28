@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -23,6 +21,7 @@ use crate::widgets::{
     text_fit::truncate_with_ellipsis,
     toast::render_toast,
     transfer_line::{line_data, paused_summary, render_transfer_line},
+    update_badge,
 };
 
 const DETAILS_POPUP_WIDTH: u16 = 60;
@@ -66,7 +65,18 @@ impl App {
         }
 
         if let Some(notification) = self.notifications.current() {
-            render_toast(frame, area, notification.severity, &notification.message, &self.theme);
+            let dismiss_key = (notification.severity == Severity::Error)
+                .then(|| self.key_bindings.key_for(input::Scope::Global, Action::Back))
+                .flatten()
+                .map(input::format_key_spec);
+            render_toast(
+                frame,
+                area,
+                notification.severity,
+                &notification.message,
+                dismiss_key.as_deref(),
+                &self.theme,
+            );
         }
 
         if let Some(palette) = &self.palette {
@@ -113,7 +123,8 @@ impl App {
                 Span::styled(" / ", theme.dim()),
                 Span::styled(label, theme.bright()),
             ]);
-            top_bar(frame, area, left, Line::default());
+            let room = usize::from(area.width.saturating_sub(left.width() as u16 + GAP));
+            top_bar(frame, area, left, self.top_bar_right(room, room));
             return;
         }
         let tabs = if self.screen == Screen::Files { self.tab_views() } else { Vec::new() };
@@ -125,7 +136,16 @@ impl App {
             Screen::Files => name_width + GAP + TABS_FLOOR.min(area.width.saturating_sub(name_width + GAP)),
             _ => name_width + " / ".len() as u16 + self.screen_title().len() as u16 + tail_width,
         };
-        let status = self.connection_status_line(usize::from(area.width.saturating_sub(left_minimum + GAP)));
+        let left_natural = match self.screen {
+            Screen::Files if !tabs.is_empty() => {
+                name_width + GAP + tabs_line(&tabs, u16::MAX, theme).line.width() as u16
+            }
+            _ => left_minimum,
+        };
+        let status = self.top_bar_right(
+            usize::from(area.width.saturating_sub(left_minimum + GAP)),
+            usize::from(area.width.saturating_sub(left_natural + GAP)),
+        );
         let status_width = status.width() as u16;
 
         let mut left = Line::from(name);
@@ -149,6 +169,26 @@ impl App {
             }
         }
         top_bar(frame, area, left, status);
+    }
+
+    fn top_bar_right(&self, status_room: usize, badge_room: usize) -> Line<'static> {
+        let status = self.connection_status_line(status_room);
+        let Some(badge) = self.update_badge() else { return status };
+        let fit = badge.fit(badge_room, status.width());
+        if fit.badge.is_none() {
+            return status;
+        }
+        let status =
+            if fit.status_budget < status.width() { self.connection_status_line(fit.status_budget) } else { status };
+        let separated = status.width() > 0;
+        let mut spans = status.spans;
+        if let Some(text) = fit.badge {
+            if separated {
+                spans.push(Span::raw(" ".repeat(update_badge::GAP)));
+            }
+            spans.push(Span::styled(text, self.theme.accent_text()));
+        }
+        Line::from(spans)
     }
 
     fn screen_tail(&self) -> Option<String> {
@@ -256,10 +296,9 @@ impl App {
         let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
 
         if !single || local_active {
-            let home = std::env::var_os("HOME").map(PathBuf::from);
             let context = PanelContext {
                 protocol: "local",
-                location: abbreviate_home(self.local.path(), home.as_deref()),
+                location: abbreviate_home(self.local.path(), self.home.as_ref()),
                 active: local_active,
                 show_modified,
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
@@ -317,7 +356,7 @@ impl App {
     }
 
     fn remote_header(&self, session: &crate::sessions::Session) -> (String, String) {
-        let path = session.panel.path().display();
+        let path = session.panel.path();
         let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
         match saved {
             Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
@@ -338,10 +377,17 @@ impl App {
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
-        let connected_names: std::collections::HashSet<&str> =
-            self.sessions.iter().map(|session| session.name.as_str()).collect();
+        let name_set = |healthy: bool| -> std::collections::HashSet<&str> {
+            self.sessions
+                .iter()
+                .filter(|session| session.healthy == healthy)
+                .map(|session| session.name.as_str())
+                .collect()
+        };
+        let (connected_names, lost_names) = (name_set(true), name_set(false));
         let context = connections_list::ConnectionsContext {
             connected: &connected_names,
+            lost: &lost_names,
             failures: &self.last_failure,
             protocols: self.core.protocols(),
             last_used: &self.last_used,
@@ -363,11 +409,12 @@ impl App {
             Some(porthmos_core::connections_tree::TreeRow::Group { count, .. }) => *count,
             _ => 0,
         };
-        let (connected, failure) = match &selection {
-            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
-                (self.sessions.by_name(&entry.name).is_some(), self.last_failure.get(&entry.name).map(String::as_str))
-            }
-            _ => (false, None),
+        let (session_health, failure) = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => (
+                self.sessions.by_name(&entry.name).map(|session| session.healthy),
+                self.last_failure.get(&entry.name).map(String::as_str),
+            ),
+            _ => (None, None),
         };
         let last_used = match &selection {
             Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
@@ -377,7 +424,8 @@ impl App {
         };
         let context = connection_details::DetailsContext {
             protocols: self.core.protocols(),
-            connected,
+            connected: session_health == Some(true),
+            lost: session_health == Some(false),
             failure,
             last_used,
             now: self.clock.now().with_timezone(&chrono::Utc),
@@ -392,7 +440,8 @@ impl App {
     }
 
     fn connections_summary(&self) -> String {
-        let connected = self.sessions.iter().count();
+        let connected = self.sessions.iter().filter(|session| session.healthy).count();
+        let lost = self.sessions.iter().count() - connected;
         let errors = self.last_failure.len();
         let mut parts = Vec::new();
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
@@ -400,6 +449,9 @@ impl App {
         }
         if connected > 0 {
             parts.push(format!("{connected} connected"));
+        }
+        if lost > 0 {
+            parts.push(format!("{lost} lost"));
         }
         if errors > 0 {
             parts.push(format!("{errors} {}", if errors == 1 { "error" } else { "errors" }));
@@ -490,12 +542,12 @@ impl App {
     }
 }
 
-fn abbreviate_home(path: &Path, home: Option<&Path>) -> String {
-    let usable_home = home.filter(|home| !home.as_os_str().is_empty() && *home != Path::new("/"));
-    match usable_home.and_then(|home| path.strip_prefix(home).ok()) {
-        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Some(rest) => format!("~/{}", rest.display()),
-        None => path.display().to_string(),
+fn abbreviate_home(path: &VfsPath, home: Option<&VfsPath>) -> String {
+    let usable_home = home.filter(|home| !home.is_empty() && !home.is_root());
+    match usable_home.and_then(|home| path.strip_prefix(home)) {
+        Some(rest) if rest.is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{rest}"),
+        None => path.to_string(),
     }
 }
 

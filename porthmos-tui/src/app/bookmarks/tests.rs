@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
@@ -10,13 +10,13 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn app_with(bookmarks: Vec<Bookmark>) -> TestApp {
-    let mut test = test_app(Path::new("/data/projects"));
+    let mut test = test_app(&VfsPath::new("/data/projects"));
     test.app.apply_core_event(Event::Bookmarks(bookmarks));
     test
 }
 
 fn bookmark(label: &str, path: &str, host: Option<&str>) -> Bookmark {
-    Bookmark { label: label.to_string(), path: PathBuf::from(path), host: host.map(str::to_string) }
+    Bookmark { label: label.to_string(), path: VfsPath::from(path), host: host.map(str::to_string) }
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn submitting_the_bookmark_dialog_adds_a_local_bookmark() {
         vec![Command::AddBookmark {
             label: "x".to_string(),
             location: Location::Local,
-            path: PathBuf::from("/data/projects"),
+            path: VfsPath::from("/data/projects"),
         }]
     );
 }
@@ -83,7 +83,7 @@ fn selecting_a_local_bookmark_navigates_the_local_panel() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::List { location: Location::Local, path: Some(PathBuf::from("/data/child")) }]
+        vec![Command::List { location: Location::Local, path: Some(VfsPath::from("/data/child")) }]
     );
     assert_eq!(test.app.active_panel, ActivePanel::Local);
 }
@@ -101,7 +101,7 @@ fn selecting_a_remote_bookmark_switches_to_that_session() {
     assert_eq!(test.app.active_panel, ActivePanel::Remote);
     assert_eq!(
         test.sent(),
-        vec![Command::List { location: Location::Session(production), path: Some(PathBuf::from("/etc")) }]
+        vec![Command::List { location: Location::Session(production), path: Some(VfsPath::from("/etc")) }]
     );
 }
 

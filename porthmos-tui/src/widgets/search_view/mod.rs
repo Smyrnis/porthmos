@@ -133,7 +133,7 @@ impl Default for SearchView {
 fn result_line(entry: &Entry, focused: bool, width: usize, theme: &Theme) -> Line<'static> {
     let marker = if focused { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
     let budget = width.saturating_sub(MARKER_WIDTH);
-    let full = printable(&entry.path.display().to_string());
+    let full = printable(&entry.path.to_string());
     let split = full.rfind('/').map_or(0, |index| index + 1);
     let (directory, name) = full.split_at(split);
     let (directory, name) = if name.width() >= budget {

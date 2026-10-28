@@ -1,14 +1,11 @@
-use std::{
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use porthmos_ssh::{Session, shell_quote};
 pub use porthmos_vfs::SearchEvent;
-use porthmos_vfs::{Entry, SearchQuery, glob_match, join_remote, path_to_remote_string};
+use porthmos_vfs::{Entry, SearchQuery, VfsPath, glob_match, join_remote};
 use russh::ChannelMsg;
 use russh_sftp::client::SftpSession;
 use tokio::sync::mpsc;
@@ -19,7 +16,7 @@ pub async fn search_remote(
     session: &Session, sftp: &SftpSession, query: SearchQuery, tx: mpsc::UnboundedSender<SearchEvent>,
     cancel: Arc<AtomicBool>,
 ) {
-    let root = path_to_remote_string(&query.root);
+    let root = query.root.to_string_lossy().into_owned();
     let SearchQuery { pattern, max_depth, max_results, .. } = query;
     match run_find(session, &root, &pattern, max_depth, &cancel).await {
         Some(paths) => {
@@ -40,7 +37,7 @@ pub async fn search_remote(
                     let (owner, group) = ownership_of(&metadata);
                     let _ = tx.send(SearchEvent::Found(Entry {
                         name,
-                        path: PathBuf::from(&path),
+                        path: VfsPath::new(&path),
                         is_dir: metadata.is_dir(),
                         size: metadata.len(),
                         permissions: metadata.permissions,
@@ -136,7 +133,7 @@ async fn search_remote_walk(
                 let (owner, group) = ownership_of(&metadata);
                 let _ = tx.send(SearchEvent::Found(Entry {
                     name: name.clone(),
-                    path: PathBuf::from(&path),
+                    path: VfsPath::new(&path),
                     is_dir: metadata.is_dir(),
                     size: metadata.len(),
                     permissions: metadata.permissions,

@@ -70,16 +70,19 @@ pub fn toast_lines(message: &str, width: usize, max_lines: usize) -> Vec<String>
     lines
 }
 
-pub fn render_toast(frame: &mut Frame, area: Rect, severity: Severity, message: &str, theme: &Theme) {
+pub fn render_toast(
+    frame: &mut Frame, area: Rect, severity: Severity, message: &str, dismiss_key: Option<&str>, theme: &Theme,
+) {
     let outer_budget = area.width.saturating_sub(2 * SIDE_PADDING).min(MAX_OUTER_WIDTH);
     let text_budget = usize::from(outer_budget.saturating_sub(BORDER_AND_PADDING_AND_DOT));
     let lines = toast_lines(message, text_budget, MAX_LINES);
     if lines.is_empty() {
         return;
     }
-    let text_width = lines.iter().map(|line| line.width()).max().unwrap_or(0).max(1) as u16;
-    let outer_width = text_width + BORDER_AND_PADDING_AND_DOT;
-    let height = lines.len() as u16 + 2;
+    let hint = dismiss_key.map(|key| take_width(&format!("{key} to dismiss"), text_budget));
+    let text_width = lines.iter().map(|line| line.width()).chain(hint.as_ref().map(|hint| hint.width())).max();
+    let outer_width = text_width.unwrap_or(0).max(1) as u16 + BORDER_AND_PADDING_AND_DOT;
+    let height = lines.len() as u16 + u16::from(hint.is_some()) + 2;
     if area.y + TOP_OFFSET + height > area.bottom() {
         return;
     }
@@ -90,7 +93,7 @@ pub fn render_toast(frame: &mut Frame, area: Rect, severity: Severity, message: 
         Severity::Warning => theme.warning_text(),
         Severity::Error => theme.err_text(),
     };
-    let rows: Vec<Line> = lines
+    let mut rows: Vec<Line> = lines
         .into_iter()
         .enumerate()
         .map(|(index, text)| {
@@ -98,6 +101,9 @@ pub fn render_toast(frame: &mut Frame, area: Rect, severity: Severity, message: 
             Line::from(vec![lead, Span::raw(" "), Span::styled(text, theme.text())])
         })
         .collect();
+    if let Some(hint) = hint {
+        rows.push(Line::from(vec![Span::raw("  "), Span::styled(hint, theme.dim())]));
+    }
 
     let block = Block::new()
         .borders(Borders::ALL)

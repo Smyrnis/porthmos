@@ -1,10 +1,9 @@
 use std::{
-    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-use porthmos_vfs::{FileSystem, PART_SUFFIX, ProtocolError};
+use porthmos_vfs::{FileSystem, PART_SUFFIX, ProtocolError, VfsPath};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     time::Instant,
@@ -28,7 +27,7 @@ pub struct Executed {
 }
 
 pub async fn execute(
-    source: &dyn FileSystem, source_path: &Path, destination: &dyn FileSystem, destination_path: &Path,
+    source: &dyn FileSystem, source_path: &VfsPath, destination: &dyn FileSystem, destination_path: &VfsPath,
     cancel: &AtomicBool, resume: bool, on_progress: impl FnMut(u64) + Send,
 ) -> Result<TransferOutcome, ProtocolError> {
     execute_preserving(
@@ -48,7 +47,7 @@ pub async fn execute(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_preserving(
-    source: &dyn FileSystem, source_path: &Path, destination: &dyn FileSystem, destination_path: &Path,
+    source: &dyn FileSystem, source_path: &VfsPath, destination: &dyn FileSystem, destination_path: &VfsPath,
     cancel: &AtomicBool, resume: bool, keep_modified: Option<u64>, limit: &SpeedLimit,
     on_progress: impl FnMut(u64) + Send,
 ) -> Result<Executed, ProtocolError> {
@@ -70,7 +69,14 @@ pub async fn execute_preserving(
         0
     };
     let mut writer = destination.open_write_sized(&part, offset, source_metadata.size).await?;
-    let mut reader = source.open_read(source_path, writer.offset).await?;
+    let mut reader = match source.open_read(source_path, writer.offset).await {
+        Ok(reader) => reader,
+        Err(err) => {
+            let _ = writer.stream.shutdown().await;
+            discard_empty_part(destination, &part).await;
+            return Err(err);
+        }
+    };
     let result = copy_with_progress(&mut reader, &mut writer.stream, writer.offset, cancel, limit, on_progress).await;
     let shutdown = writer.stream.shutdown().await;
     let result = match (result, shutdown) {
@@ -85,6 +91,12 @@ pub async fn execute_preserving(
         }
     }
     result.map(|outcome| Executed { outcome, times_kept })
+}
+
+async fn discard_empty_part(destination: &dyn FileSystem, part: &VfsPath) {
+    if destination.stat(part).await.is_ok_and(|metadata| metadata.size == 0) {
+        let _ = destination.remove_file(part).await;
+    }
 }
 
 pub(crate) fn resume_offset(
@@ -143,10 +155,8 @@ where
     Ok(TransferOutcome::Completed)
 }
 
-pub fn part_path(path: &Path) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(PART_SUFFIX);
-    PathBuf::from(name)
+pub fn part_path(path: &VfsPath) -> VfsPath {
+    path.with_suffix(PART_SUFFIX)
 }
 
 #[cfg(test)]

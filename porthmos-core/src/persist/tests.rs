@@ -1,10 +1,10 @@
-use std::{
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use super::*;
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -19,6 +19,7 @@ fn number(text: &str) -> Result<u32, std::num::ParseIntError> {
     text.trim().parse()
 }
 
+#[cfg(unix)]
 #[test]
 fn write_atomic_creates_the_parent_and_a_file_with_the_requested_mode() {
     let dir = tempfile::tempdir().unwrap();
@@ -31,6 +32,7 @@ fn write_atomic_creates_the_parent_and_a_file_with_the_requested_mode() {
     assert!(!dir.path().join("deep/er/file.toml.tmp").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn write_atomic_replaces_a_file_and_keeps_it_private() {
     let dir = tempfile::tempdir().unwrap();
@@ -43,6 +45,7 @@ fn write_atomic_replaces_a_file_and_keeps_it_private() {
     assert_eq!(mode(&path), 0o600);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_leftover_temporary_file_with_a_looser_mode_does_not_leak_its_mode() {
     let dir = tempfile::tempdir().unwrap();
@@ -184,6 +187,7 @@ fn a_file_that_is_not_utf8_says_so() {
     assert!(warning.contains("UTF-8"), "{warning}");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_that_cannot_be_read_is_moved_aside_with_the_reason() {
     let dir = tempfile::tempdir().unwrap();
@@ -205,6 +209,7 @@ fn a_file_that_cannot_be_read_is_moved_aside_with_the_reason() {
     assert_eq!(std::fs::read(broken(&path)).unwrap(), b"7");
 }
 
+#[cfg(unix)]
 #[test]
 fn when_the_file_cannot_be_moved_it_is_protected_and_left_alone() {
     let dir = tempfile::tempdir().unwrap();
@@ -372,4 +377,95 @@ fn a_position_inside_a_multibyte_character_is_not_a_position() {
     assert_eq!(position_of("h\u{e9}llo", 3), Some((1, 3)));
     assert_eq!(position_of("a\nb\u{e9}c", 3), Some((2, 2)));
     assert_eq!(position_of("abc", 99), None);
+}
+
+#[test]
+fn a_private_file_can_be_created_and_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secret");
+
+    let mut handle = private_file_options(0o600).open(&path).unwrap();
+    handle.write_all(b"hello").unwrap();
+    drop(handle);
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+}
+
+#[test]
+fn restricting_a_file_to_its_owner_leaves_it_readable_by_the_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secret");
+    std::fs::write(&path, b"hello").unwrap();
+
+    restrict_to_owner(&path, 0o600).unwrap();
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+}
+
+#[test]
+fn restricting_a_missing_file_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let error = restrict_to_owner(&dir.path().join("missing"), 0o600).unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+}
+
+#[test]
+fn a_private_directory_is_created_with_its_missing_parents() {
+    let dir = tempfile::tempdir().unwrap();
+    let nested = dir.path().join("a").join("b");
+
+    create_private_dir(&nested).unwrap();
+
+    assert!(nested.is_dir());
+}
+
+#[test]
+fn a_private_directory_that_already_exists_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let error = create_private_dir(dir.path()).unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+}
+
+#[test]
+fn replacing_an_existing_file_keeps_only_the_new_contents() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("file");
+    std::fs::write(&path, b"a much longer first version").unwrap();
+
+    write_atomic(&path, b"two", 0o600).unwrap();
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"two");
+    assert!(!with_suffix(&path, ".tmp").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn private_files_and_directories_are_owner_only_on_unix() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("secret");
+    let folder = dir.path().join("nested").join("private");
+
+    drop(private_file_options(0o600).open(&file).unwrap());
+    create_private_dir(&folder).unwrap();
+
+    assert_eq!(mode(&file), 0o600);
+    assert_eq!(mode(&folder), 0o700);
+    assert_eq!(mode(folder.parent().unwrap()), 0o700);
+}
+
+#[cfg(unix)]
+#[test]
+fn restricting_a_file_applies_the_mode_on_unix() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secret");
+    std::fs::write(&path, b"x").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+
+    restrict_to_owner(&path, 0o600).unwrap();
+
+    assert_eq!(mode(&path), 0o600);
 }

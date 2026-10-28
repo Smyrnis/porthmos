@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 mod certificates;
 mod trust;
 

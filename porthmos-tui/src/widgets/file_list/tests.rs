@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_core::VfsPath;
 
 use chrono::{DateTime, Local, TimeZone};
 use porthmos_core::Entry;
@@ -29,7 +29,7 @@ fn indexed() -> Theme {
 fn file(name: &str, size: u64) -> Entry {
     Entry {
         name: name.to_string(),
-        path: PathBuf::from("/d").join(name),
+        path: VfsPath::from("/d").join(name),
         is_dir: false,
         size,
         permissions: Some(0o100644),
@@ -43,7 +43,7 @@ fn directory(name: &str) -> Entry {
 }
 
 fn panel_of(entries: Vec<Entry>) -> PanelView {
-    PanelView::from_listing(PathBuf::from("/d"), entries)
+    PanelView::from_listing(VfsPath::from("/d"), entries)
 }
 
 fn cursor_on(panel: &mut PanelView, name: &str) {
@@ -132,7 +132,7 @@ fn the_parent_row_is_dim_when_it_is_not_focused() {
 fn a_selected_row_has_an_accent_plus_marker_and_unchanged_name_colour() {
     let theme = indexed();
     let mut panel = panel_of(vec![file("a.txt", 5)]);
-    panel.selected.insert(PathBuf::from("/d/a.txt"));
+    panel.selected.insert(VfsPath::from("/d/a.txt"));
 
     let terminal = draw(&panel, 60, 6, true, true, &theme);
 
@@ -191,7 +191,7 @@ fn inactive_panel_rows_use_the_inactive_file_and_directory_colours() {
 fn a_focused_and_selected_row_shows_the_chevron() {
     let theme = indexed();
     let mut panel = panel_of(vec![file("a.txt", 5)]);
-    panel.selected.insert(PathBuf::from("/d/a.txt"));
+    panel.selected.insert(VfsPath::from("/d/a.txt"));
     cursor_on(&mut panel, "a.txt");
 
     let terminal = draw(&panel, 60, 6, true, true, &theme);
@@ -345,7 +345,7 @@ fn control_and_bidi_characters_in_names_are_replaced() {
 
 #[test]
 fn an_empty_listing_draws_only_the_column_header() {
-    let panel = PanelView::new(PathBuf::from("/"), Default::default(), false);
+    let panel = PanelView::new(VfsPath::from("/"), Default::default(), false);
 
     let terminal = draw(&panel, 40, 5, true, true, &indexed());
 

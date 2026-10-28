@@ -60,14 +60,14 @@ impl App {
                 return;
             }
         };
-        let remote_dir = self.sessions.by_id(session).map(|live| live.panel.path().to_path_buf());
+        let remote_dir = self.sessions.by_id(session).map(|live| live.panel.path().clone());
         self.dialog = None;
         self.pending_action = None;
         let Some(remote_dir) = remote_dir else {
             self.notifications.push(Severity::Warning, "That connection is no longer available");
             return;
         };
-        self.core.send(Command::StartSync { session, local_dir: self.local.path().to_path_buf(), remote_dir, options });
+        self.core.send(Command::StartSync { session, local_dir: self.local.path().clone(), remote_dir, options });
     }
 
     pub(super) fn apply_sync_plan(&mut self, plan: Arc<SyncPlan>) {

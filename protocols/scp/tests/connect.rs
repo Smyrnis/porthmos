@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use porthmos_scp::Scp;
 use porthmos_ssh::testing::{self, Options, SshServer};
 use porthmos_vfs::{Answer, ErrorKind, Protocol, Question};
@@ -14,7 +16,7 @@ async fn connects_asking_once_for_the_host_key_and_starts_at_home() {
         .unwrap();
 
     assert!(matches!(prompter.asked.as_slice(), [Question::TrustHostKey { .. }]));
-    assert_eq!(fs.home().await.unwrap(), server.root.path());
+    assert_eq!(fs.home().await.unwrap(), porthmos_lfs::from_os_path(server.root.path()));
 }
 
 #[tokio::test]

@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use porthmos_core::VfsPath;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::edit::{EditChoice, EditQuestionKind, EditorCommand, EditorExit};
 
@@ -7,8 +9,8 @@ use super::*;
 use crate::app::testing::{TestApp, entry, test_app};
 
 fn app_on_a_local_file() -> TestApp {
-    let mut test = test_app(Path::new("/d"));
-    test.list_local(vec![entry(Path::new("/d"), "notes.txt", false), entry(Path::new("/d"), "sub", true)]);
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "notes.txt", false), entry(&VfsPath::new("/d"), "sub", true)]);
     test
 }
 
@@ -30,10 +32,7 @@ fn f3_on_a_local_file_asks_the_core_to_edit_it() {
 
     test.app.apply_action(Action::Edit);
 
-    assert_eq!(
-        test.sent(),
-        vec![Command::EditFile { location: Location::Local, path: Path::new("/d/notes.txt").to_path_buf() }]
-    );
+    assert_eq!(test.sent(), vec![Command::EditFile { location: Location::Local, path: VfsPath::new("/d/notes.txt") }]);
 }
 
 #[test]
@@ -61,7 +60,7 @@ fn f3_on_the_parent_row_warns_and_sends_nothing() {
 
 #[test]
 fn f3_in_an_empty_folder_does_nothing() {
-    let mut test = test_app(Path::new("/"));
+    let mut test = test_app(&VfsPath::new("/"));
     test.list_local(Vec::new());
 
     test.app.apply_action(Action::Edit);
@@ -82,9 +81,9 @@ fn f3_on_the_remote_panel_without_a_session_warns() {
 
 #[test]
 fn f3_on_a_remote_file_names_the_session_and_path() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "prod");
-    test.list_remote(session, "/srv", vec![entry(Path::new("/srv"), "app.conf", false)]);
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "app.conf", false)]);
     test.sent();
     test.app.active_panel = ActivePanel::Remote;
     let remote = test.app.sessions.active_mut().unwrap();
@@ -96,7 +95,7 @@ fn f3_on_a_remote_file_names_the_session_and_path() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::EditFile { location: Location::Session(3), path: Path::new("/srv/app.conf").to_path_buf() }]
+        vec![Command::EditFile { location: Location::Session(3), path: VfsPath::new("/srv/app.conf") }]
     );
 }
 
@@ -135,10 +134,19 @@ fn the_file_is_the_last_argument_and_nothing_goes_through_a_shell() {
     assert_eq!(args, ["--wait", "-n", "/tmp/-weird name; rm -rf.txt"]);
 }
 
+#[cfg(unix)]
+const SHELL: &str = "sh";
+#[cfg(windows)]
+const SHELL: &str = "cmd";
+#[cfg(unix)]
+const SHELL_FLAG: &str = "-c";
+#[cfg(windows)]
+const SHELL_FLAG: &str = "/c";
+
 #[test]
 fn the_exit_status_maps_to_the_editor_outcome() {
-    let ok = std::process::Command::new("sh").args(["-c", "exit 0"]).status();
-    let failed = std::process::Command::new("sh").args(["-c", "exit 3"]).status();
+    let ok = std::process::Command::new(SHELL).args([SHELL_FLAG, "exit 0"]).status();
+    let failed = std::process::Command::new(SHELL).args([SHELL_FLAG, "exit 3"]).status();
     let missing = std::process::Command::new("/nonexistent/editor").status();
 
     assert_eq!(editor_exit(ok), EditorExit::Success);
@@ -146,6 +154,7 @@ fn the_exit_status_maps_to_the_editor_outcome() {
     assert!(matches!(editor_exit(missing), EditorExit::LaunchFailed(message) if !message.is_empty()));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_process_killed_by_a_signal_is_a_failed_status() {
     let killed = std::process::Command::new("sh").args(["-c", "kill -9 $$"]).status();
@@ -155,11 +164,11 @@ fn a_process_killed_by_a_signal_is_a_failed_status() {
 
 #[test]
 fn an_edit_ready_event_outside_the_run_loop_changes_nothing() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     test.app.apply_core_event(Event::EditReady {
         edit_id: 1,
-        file: Path::new("/tmp/x").to_path_buf(),
+        file: PathBuf::from("/tmp/x"),
         editor: EditorCommand { program: "vi".to_string(), args: Vec::new() },
     });
 
@@ -177,7 +186,7 @@ fn ask(test: &mut TestApp, name: &str, kind: EditQuestionKind) {
 
 #[test]
 fn the_upload_question_is_a_confirm_dialog_and_yes_uploads() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     ask(&mut test, "app.conf", EditQuestionKind::Upload);
 
@@ -192,7 +201,7 @@ fn the_upload_question_is_a_confirm_dialog_and_yes_uploads() {
 
 #[test]
 fn no_and_escape_cancel_the_upload_question() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     ask(&mut test, "a", EditQuestionKind::Upload);
     press(&mut test, KeyCode::Char('n'));
@@ -205,7 +214,7 @@ fn no_and_escape_cancel_the_upload_question() {
 
 #[test]
 fn the_conflict_question_lists_three_choices() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     ask(&mut test, "app.conf", EditQuestionKind::Conflict);
 
@@ -226,7 +235,7 @@ fn the_conflict_list_starts_on_the_safe_choice_and_every_choice_sends_the_matchi
         (vec![KeyCode::Down], EditChoice::Cancel),
     ];
     for (moves, choice) in expected {
-        let mut test = test_app(Path::new("/d"));
+        let mut test = test_app(&VfsPath::new("/d"));
         ask(&mut test, "a", EditQuestionKind::Conflict);
         for code in moves {
             press(&mut test, code);
@@ -241,7 +250,7 @@ fn the_conflict_list_starts_on_the_safe_choice_and_every_choice_sends_the_matchi
 
 #[test]
 fn escape_cancels_the_conflict_question() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     ask(&mut test, "a", EditQuestionKind::Conflict);
 
     press(&mut test, KeyCode::Esc);
@@ -251,7 +260,7 @@ fn escape_cancels_the_conflict_question() {
 
 #[test]
 fn control_characters_in_the_name_never_reach_the_dialogs() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     ask(&mut test, "evil\u{1b}[31m\nname", EditQuestionKind::Upload);
     match &test.app.dialog {
@@ -275,7 +284,7 @@ fn ask_for(test: &mut TestApp, edit_id: u64, name: &str, kind: EditQuestionKind)
 
 #[test]
 fn two_questions_are_asked_one_after_the_other_and_none_is_lost() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
 
     ask_for(&mut test, 1, "first", EditQuestionKind::Upload);
     ask_for(&mut test, 2, "second", EditQuestionKind::Upload);
@@ -302,7 +311,7 @@ fn two_questions_are_asked_one_after_the_other_and_none_is_lost() {
 
 #[test]
 fn a_question_waits_for_a_dialog_that_is_already_open() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::Mkdir);
     assert!(matches!(test.app.dialog, Some(Dialog::TextInput(_))));
 
@@ -317,7 +326,7 @@ fn a_question_waits_for_a_dialog_that_is_already_open() {
 
 #[test]
 fn a_password_prompt_does_not_strand_an_open_edit_question() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     ask_for(&mut test, 1, "a", EditQuestionKind::Upload);
 
     test.app.apply_core_event(Event::Question {
@@ -336,7 +345,7 @@ fn a_password_prompt_does_not_strand_an_open_edit_question() {
 
 #[test]
 fn quitting_while_an_edit_is_being_saved_asks_first() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_core_event(Event::EditsBusy(true));
 
     test.app.apply_action(Action::Quit);
@@ -357,7 +366,7 @@ fn quitting_while_an_edit_is_being_saved_asks_first() {
 
 #[test]
 fn quitting_when_no_edit_is_being_saved_quits_at_once() {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_core_event(Event::EditsBusy(true));
     test.app.apply_core_event(Event::EditsBusy(false));
 
@@ -365,4 +374,82 @@ fn quitting_when_no_edit_is_being_saved_quits_at_once() {
 
     assert!(test.app.should_quit);
     assert!(test.app.dialog.is_none());
+}
+
+fn quit_with(snapshot: porthmos_core::transfer::TransferSnapshot) -> TestApp {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::TransfersChanged(snapshot));
+    test.app.apply_action(Action::Quit);
+    test
+}
+
+fn running_job() -> porthmos_core::transfer::ActiveJob {
+    porthmos_core::transfer::ActiveJob {
+        id: 1,
+        display_name: "aaa.bin".to_string(),
+        direction: porthmos_core::transfer::Direction::Upload,
+        batch_id: None,
+        transferred_bytes: 10,
+        total_bytes: 100,
+        percent: 10,
+    }
+}
+
+#[test]
+fn quitting_during_a_transfer_asks_first() {
+    let mut test =
+        quit_with(porthmos_core::transfer::TransferSnapshot { active: vec![running_job()], ..Default::default() });
+
+    assert!(!test.app.should_quit);
+    match &test.app.dialog {
+        Some(Dialog::Confirm(dialog)) => assert!(dialog.message.contains("transfers"), "{}", dialog.message),
+        _ => panic!("expected a confirm dialog"),
+    }
+    press(&mut test, KeyCode::Char('n'));
+    assert!(!test.app.should_quit);
+
+    test.app.apply_action(Action::Quit);
+    press(&mut test, KeyCode::Char('y'));
+    assert!(test.app.should_quit);
+}
+
+#[test]
+fn quitting_with_queued_or_scanning_transfers_asks_first() {
+    let queued = quit_with(porthmos_core::transfer::TransferSnapshot { queued: 2, ..Default::default() });
+    let scanning = quit_with(porthmos_core::transfer::TransferSnapshot {
+        scanning: vec!["docs".to_string()],
+        ..Default::default()
+    });
+
+    for test in [queued, scanning] {
+        assert!(!test.app.should_quit);
+        assert!(matches!(test.app.dialog, Some(Dialog::Confirm(_))));
+    }
+}
+
+#[test]
+fn quitting_with_an_idle_queue_quits_at_once() {
+    let test = quit_with(porthmos_core::transfer::TransferSnapshot::default());
+
+    assert!(test.app.should_quit);
+}
+
+#[test]
+fn the_quit_question_names_both_reasons_when_both_apply() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::EditsBusy(true));
+    test.app.apply_core_event(Event::TransfersChanged(porthmos_core::transfer::TransferSnapshot {
+        queued: 1,
+        ..Default::default()
+    }));
+
+    test.app.apply_action(Action::Quit);
+
+    match &test.app.dialog {
+        Some(Dialog::Confirm(dialog)) => {
+            assert!(dialog.message.contains("still being saved"), "{}", dialog.message);
+            assert!(dialog.message.contains("transfers"), "{}", dialog.message);
+        }
+        _ => panic!("expected a confirm dialog"),
+    }
 }

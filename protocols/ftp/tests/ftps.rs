@@ -1,9 +1,7 @@
 mod support;
 
-use std::path::Path;
-
 use porthmos_ftp::Ftp;
-use porthmos_vfs::{Answer, ErrorKind, Protocol, Question};
+use porthmos_vfs::{Answer, ErrorKind, Protocol, Question, VfsPath};
 use tokio::io::AsyncReadExt;
 
 #[tokio::test]
@@ -24,7 +22,7 @@ async fn explicit_ftps_asks_once_then_trusts_silently_and_transfers_over_tls() {
     let fs = Ftp::new(support::store_path(dir.path())).connect(&target, &mut second).await.unwrap();
     assert!(second.asked.is_empty());
 
-    let mut reader = fs.open_read(Path::new("/secret.txt"), 0).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new("/secret.txt"), 0).await.unwrap();
     let mut data = Vec::new();
     reader.read_to_end(&mut data).await.unwrap();
     assert_eq!(data, b"over tls");
@@ -95,5 +93,5 @@ async fn implicit_ftps_asks_to_trust_and_logs_in() {
         .unwrap();
 
     assert!(matches!(prompter.asked.as_slice(), [Question::TrustCertificate { .. }]));
-    assert_eq!(fs.home().await.unwrap(), Path::new("/"));
+    assert_eq!(fs.home().await.unwrap(), VfsPath::new("/"));
 }

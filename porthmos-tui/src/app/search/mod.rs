@@ -52,7 +52,7 @@ impl App {
             return;
         }
 
-        let root = self.panel(location).map(|panel| panel.path().to_path_buf()).unwrap_or_default();
+        let root = self.panel(location).map(|panel| panel.path().clone()).unwrap_or_default();
         self.core.send(Command::Search { location, root, pattern: format!("*{pattern}*") });
     }
 
@@ -64,7 +64,7 @@ impl App {
             return;
         };
         let location = session.location;
-        let parent = entry.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| entry.path.clone());
+        let parent = entry.path.parent().unwrap_or_else(|| entry.path.clone());
 
         self.search = None;
         self.core.send(Command::CancelSearch);

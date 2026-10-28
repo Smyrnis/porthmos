@@ -1,9 +1,12 @@
-use std::{
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use chrono::Utc;
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 use porthmos_vfs::{FileSystem, testing::FakeFs};
 
 use super::*;
@@ -46,7 +49,7 @@ fn a_local_file_is_edited_in_place_without_a_temporary_copy() {
     let mut t = test_engine();
     let path = local_file(&t, "l.txt");
 
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path: path.clone() });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path.clone()) });
 
     let events = t.drain();
     let (_, file, _) = find_ready(&events).expect("EditReady");
@@ -54,13 +57,29 @@ fn a_local_file_is_edited_in_place_without_a_temporary_copy() {
     assert!(!t.engine.paths.edit_dir().exists());
 }
 
+#[cfg(windows)]
+#[test]
+fn a_local_path_without_a_drive_is_refused_and_opens_no_editor() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: VfsPath::from("/Users/me/x.txt") });
+
+    let events = t.drain();
+    assert!(find_ready(&events).is_none());
+    assert!(
+        notices_of(&events)
+            .iter()
+            .any(|(severity, message)| { *severity == Severity::Error && message.contains("start with a drive") })
+    );
+}
+
 #[test]
 fn each_edit_gets_its_own_id() {
     let mut t = test_engine();
     let path = local_file(&t, "l.txt");
 
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path: path.clone() });
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path.clone()) });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path) });
 
     let ids: Vec<u64> = t
         .drain()
@@ -78,7 +97,7 @@ fn each_edit_gets_its_own_id() {
 fn a_folder_is_refused() {
     let mut t = test_engine();
 
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path: t.dir.path().to_path_buf() });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(t.dir.path()) });
 
     let events = t.drain();
     assert!(find_ready(&events).is_none());
@@ -91,10 +110,10 @@ fn the_editor_comes_from_the_setting_then_the_environment() {
     let path = local_file(&t, "l.txt");
     t.engine.env.editor = Some("nano -w".to_string());
 
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path: path.clone() });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path.clone()) });
     let (_, _, from_env) = find_ready(&t.drain()).unwrap();
     t.engine.edit.settings.editor = Some("code --wait".to_string());
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path) });
     let (_, _, from_setting) = find_ready(&t.drain()).unwrap();
 
     assert_eq!(from_env, EditorCommand { program: "nano".to_string(), args: vec!["-w".to_string()] });
@@ -107,7 +126,7 @@ fn an_unusable_editor_command_is_reported_and_nothing_starts() {
     let path = local_file(&t, "l.txt");
     t.engine.edit.settings.editor = Some("ed \"oops".to_string());
 
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path) });
 
     let events = t.drain();
     assert!(find_ready(&events).is_none());
@@ -124,7 +143,7 @@ fn an_unusable_editor_command_is_reported_and_nothing_starts() {
 fn finishing_a_local_edit_refreshes_the_local_panel() {
     let mut t = test_engine();
     let path = local_file(&t, "l.txt");
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path) });
     let (edit_id, _, _) = find_ready(&t.drain()).unwrap();
 
     t.engine.handle_command(Command::FinishEdit { edit_id, exit: EditorExit::Success });
@@ -137,7 +156,7 @@ fn finishing_a_local_edit_refreshes_the_local_panel() {
 fn a_failing_local_editor_only_notifies_and_still_refreshes() {
     let mut t = test_engine();
     let path = local_file(&t, "l.txt");
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path) });
     let (edit_id, _, _) = find_ready(&t.drain()).unwrap();
 
     t.engine.handle_command(Command::FinishEdit { edit_id, exit: EditorExit::Status(2) });
@@ -151,7 +170,7 @@ fn a_failing_local_editor_only_notifies_and_still_refreshes() {
 fn a_local_editor_that_could_not_start_is_an_error() {
     let mut t = test_engine();
     let path = local_file(&t, "l.txt");
-    t.engine.handle_command(Command::EditFile { location: Location::Local, path });
+    t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path) });
     let (edit_id, _, _) = find_ready(&t.drain()).unwrap();
 
     t.engine.handle_command(Command::FinishEdit { edit_id, exit: EditorExit::LaunchFailed("not found".to_string()) });
@@ -183,11 +202,12 @@ fn remote_session(t: &mut TestEngine) -> (u64, FakeFs) {
 }
 
 async fn open_remote(t: &mut TestEngine, session: u64, path: &str) -> Vec<Event> {
-    t.engine.handle_command(Command::EditFile { location: Location::Session(session), path: PathBuf::from(path) });
+    t.engine.handle_command(Command::EditFile { location: Location::Session(session), path: VfsPath::from(path) });
     t.run_internal().await;
     t.drain()
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -200,6 +220,7 @@ fn error_notices(events: &[Event]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_remote_file_is_downloaded_to_a_private_temporary_copy() {
     let mut t = test_engine();
@@ -310,7 +331,7 @@ async fn a_remote_file_that_cannot_be_read_leaves_no_temporary_copy() {
 async fn a_disconnected_session_cannot_be_edited() {
     let mut t = test_engine();
 
-    t.engine.handle_command(Command::EditFile { location: Location::Session(77), path: PathBuf::from(REMOTE) });
+    t.engine.handle_command(Command::EditFile { location: Location::Session(77), path: VfsPath::from(REMOTE) });
 
     assert!(error_notices(&t.drain()).iter().any(|message| message == "Edit failed: session disconnected"));
 }
@@ -320,7 +341,7 @@ async fn cancelling_everything_during_the_download_removes_the_temporary_copy() 
     let mut t = test_engine();
     let (session, _fs) = remote_session(&mut t);
 
-    t.engine.handle_command(Command::EditFile { location: Location::Session(session), path: PathBuf::from(REMOTE) });
+    t.engine.handle_command(Command::EditFile { location: Location::Session(session), path: VfsPath::from(REMOTE) });
     t.engine.handle_command(Command::CancelAllTransfers);
     t.run_internal().await;
 
@@ -406,7 +427,7 @@ async fn a_changed_file_is_uploaded_in_place_and_the_copy_removed() {
 
     let events = t.drain();
     assert_eq!(fs.contents(REMOTE).unwrap(), b"new content!");
-    assert_eq!(fs.written_sizes(), vec![(PathBuf::from(REMOTE), 12)]);
+    assert_eq!(fs.written_sizes(), vec![(VfsPath::from(REMOTE), 12)]);
     assert!(notices_of(&events).contains(&(Severity::Info, "Uploaded a.txt".to_string())));
     assert!(
         events
@@ -524,7 +545,7 @@ async fn a_remote_file_that_was_deleted_is_a_conflict() {
     let mut t = test_engine();
     let (session, fs) = remote_session(&mut t);
     let (edit_id, _) = edit_to(&mut t, session, b"mine").await;
-    fs.delete(Path::new(REMOTE)).await.unwrap();
+    fs.delete(&VfsPath::new(REMOTE)).await.unwrap();
 
     finish(&mut t, edit_id).await;
     t.run_internal().await;
@@ -573,7 +594,7 @@ async fn keeping_a_copy_leaves_the_remote_file_and_uploads_beside_it() {
 
     assert_eq!(fs.contents(REMOTE).unwrap(), b"someone else was here");
     let names: Vec<String> =
-        fs.list(Path::new("/home/user")).await.unwrap().into_iter().map(|entry| entry.name).collect();
+        fs.list(&VfsPath::new("/home/user")).await.unwrap().into_iter().map(|entry| entry.name).collect();
     let copy =
         names.iter().find(|name| name.starts_with("a.conflict-") && name.ends_with(".txt")).expect("a conflict copy");
     assert_eq!(fs.contents(format!("/home/user/{copy}")).unwrap(), b"mine");
@@ -728,6 +749,7 @@ async fn an_upload_failure_is_one_line_that_ends_with_where_the_copy_is() {
     assert!(errors[0].ends_with(&format!("your changes are kept in {}", file.display())), "{:?}", errors[0]);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_name_with_a_newline_never_splits_a_notice() {
     let mut t = test_engine();
@@ -783,7 +805,7 @@ async fn a_second_finish_is_ignored_and_never_deletes_the_copy_being_saved() {
 async fn finishing_before_the_editor_was_ever_started_is_ignored() {
     let mut t = test_engine();
     let (session, _fs) = remote_session(&mut t);
-    t.engine.handle_command(Command::EditFile { location: Location::Session(session), path: PathBuf::from(REMOTE) });
+    t.engine.handle_command(Command::EditFile { location: Location::Session(session), path: VfsPath::from(REMOTE) });
 
     t.engine.handle_command(Command::FinishEdit { edit_id: 0, exit: EditorExit::Success });
 
@@ -813,7 +835,7 @@ async fn a_download_that_finished_just_before_cancelling_does_not_open_the_edito
     let (session, _fs) = remote_session(&mut t);
     let edit_id = t.engine.new_edit_session(
         Location::Session(session),
-        PathBuf::from(REMOTE),
+        VfsPath::from(REMOTE),
         EditorCommand { program: "vi".to_string(), args: Vec::new() },
     );
     let dir = t.engine.paths.edit_dir().join("finished-download");
@@ -911,4 +933,26 @@ async fn a_question_that_arrives_during_shutdown_is_not_asked() {
     t.engine.apply_late_result(Internal::Edit(EditEvent::Conflict { edit_id }));
 
     assert!(question_of(&t.drain()).is_none());
+}
+
+#[tokio::test]
+async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_folder() {
+    let mut t = test_engine();
+    t.engine.local_fs = Arc::new(
+        porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
+    );
+    let (session, fs) = t.add_session("prod");
+    for name in ["..\\..\\x.txt", "C:\\evil.bat", "a:b.txt"] {
+        fs.file(format!("/home/user/{name}"), b"x", Some(1));
+    }
+
+    let mut files = Vec::new();
+    for name in ["..\\..\\x.txt", "C:\\evil.bat", "a:b.txt"] {
+        let events = open_remote(&mut t, session, &format!("/home/user/{name}")).await;
+        let (_, file, _) = find_ready(&events).expect("EditReady");
+        assert_eq!(file.parent().unwrap().parent().unwrap(), t.engine.paths.edit_dir(), "{file:?}");
+        files.push(file.file_name().unwrap().to_string_lossy().into_owned());
+    }
+
+    assert_eq!(files, [".._.._x.txt", "C__evil.bat", "a_b.txt"]);
 }

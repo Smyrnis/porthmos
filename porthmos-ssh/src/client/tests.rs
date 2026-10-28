@@ -1,4 +1,4 @@
-use std::os::unix::fs::PermissionsExt;
+use std::ffi::{OsStr, OsString};
 
 use russh::keys::PublicKey;
 use tokio::sync::mpsc;
@@ -76,7 +76,21 @@ fn trusting_a_key_makes_it_known_on_a_non_default_port() {
 }
 
 #[test]
-fn trusting_a_key_creates_a_private_ssh_directory() {
+fn trusting_a_key_creates_the_ssh_directory_and_the_known_hosts_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(".ssh/known_hosts");
+
+    trust_host_key(&path, "example.com", 22, &key(SERVER_KEY)).unwrap();
+
+    assert!(dir.path().join(".ssh").is_dir());
+    assert_eq!(host_key_status(&path, "example.com", 22, &key(SERVER_KEY)).unwrap(), HostKeyStatus::Known);
+}
+
+#[cfg(unix)]
+#[test]
+fn trusting_a_key_creates_a_private_ssh_directory_on_unix() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(".ssh/known_hosts");
 
@@ -84,7 +98,6 @@ fn trusting_a_key_creates_a_private_ssh_directory() {
 
     let mode = std::fs::metadata(dir.path().join(".ssh")).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o700);
-    assert_eq!(host_key_status(&path, "example.com", 22, &key(SERVER_KEY)).unwrap(), HostKeyStatus::Known);
 }
 
 fn check_for(known_hosts: Option<PathBuf>) -> (HostKeyCheck, mpsc::Receiver<HostKeyQuestion>) {
@@ -263,4 +276,26 @@ fn the_client_pings_a_silent_server_and_gives_up_after_a_few_misses() {
 #[test]
 fn a_dead_connection_is_noticed_within_a_minute() {
     assert!(KEEPALIVE_INTERVAL * (KEEPALIVE_MAX as u32 + 1) <= std::time::Duration::from_secs(60));
+}
+
+#[test]
+fn without_an_auth_socket_the_agent_is_the_default_openssh_pipe() {
+    assert_eq!(agent_pipe_path(None), OsString::from(r"\\.\pipe\openssh-ssh-agent"));
+}
+
+#[test]
+fn an_auth_socket_that_is_a_pipe_is_used_as_it_is() {
+    let custom = OsString::from(r"\\.\pipe\custom-agent");
+
+    assert_eq!(agent_pipe_path(Some(custom.as_os_str())), custom);
+}
+
+#[test]
+fn an_auth_socket_that_is_not_a_pipe_falls_back_to_the_default_pipe() {
+    assert_eq!(agent_pipe_path(Some(OsStr::new("/tmp/ssh-agent.sock"))), OsString::from(r"\\.\pipe\openssh-ssh-agent"));
+}
+
+#[test]
+fn an_empty_auth_socket_falls_back_to_the_default_pipe() {
+    assert_eq!(agent_pipe_path(Some(OsStr::new(""))), OsString::from(r"\\.\pipe\openssh-ssh-agent"));
 }

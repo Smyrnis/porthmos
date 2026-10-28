@@ -1,4 +1,4 @@
-use std::path::Path;
+use porthmos_core::VfsPath;
 
 use chrono::TimeZone;
 use porthmos_core::{
@@ -17,7 +17,7 @@ use crate::{
 };
 
 fn app_in_temp_dir() -> ((), App) {
-    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let TestApp { app, .. } = test_app(&VfsPath::new("/d"));
     ((), app)
 }
 
@@ -80,7 +80,7 @@ fn indexed_theme() -> Theme {
 }
 
 fn themed_app() -> (App, Theme) {
-    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let TestApp { app, .. } = test_app(&VfsPath::new("/d"));
     let theme = indexed_theme();
     (app.with_theme(theme.clone()), theme)
 }
@@ -122,7 +122,7 @@ fn the_whole_screen_is_painted_with_the_theme_background() {
 
 #[test]
 fn the_terminal_background_setting_leaves_cells_unpainted() {
-    let TestApp { app, .. } = test_app(Path::new("/d"));
+    let TestApp { app, .. } = test_app(&VfsPath::new("/d"));
     let settings = ThemeSettings { terminal_background: true, ..ThemeSettings::default() };
     let app = app.with_theme(Theme::new(ColorDepth::Indexed, &settings));
 
@@ -183,7 +183,7 @@ fn a_dialog_is_drawn_on_the_themed_background() {
 }
 
 fn add_session(app: &mut App, id: u64, name: &str) {
-    app.sessions.insert(id, name.to_string(), true, PanelView::from_listing(PathBuf::from("/"), Vec::new()));
+    app.sessions.insert(id, name.to_string(), true, PanelView::from_listing(VfsPath::from("/"), Vec::new()));
 }
 
 fn saved_connection(name: &str, protocol: &str) -> ConnectionEntry {
@@ -589,7 +589,7 @@ fn with_clock_replaces_the_time_source() {
 }
 
 fn listed_app(entries: Vec<Entry>) -> (App, Theme) {
-    let mut test = test_app(Path::new("/d"));
+    let mut test = test_app(&VfsPath::new("/d"));
     test.list_local(entries);
     let theme = indexed_theme();
     let moment = chrono::Local.with_ymd_and_hms(2026, 10, 20, 12, 0, 0).unwrap();
@@ -599,7 +599,7 @@ fn listed_app(entries: Vec<Entry>) -> (App, Theme) {
 fn deploy_script() -> Entry {
     Entry {
         name: "deploy.sh".to_string(),
-        path: PathBuf::from("/d/deploy.sh"),
+        path: VfsPath::from("/d/deploy.sh"),
         is_dir: false,
         size: 2457,
         permissions: Some(0o100755),
@@ -619,6 +619,26 @@ fn the_files_screen_shows_the_local_header_rule_column_header_and_footer() {
     assert!(row_symbols(&terminal, 4).contains("name"));
     assert!(row_symbols(&terminal, 19).contains("1 item"));
     assert!(find_text(&terminal, "not connected").is_some());
+}
+
+#[test]
+fn the_local_header_shortens_the_home_folder_the_app_was_given() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+    let app = app.with_home(Some(VfsPath::new("/d")));
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("local  ~"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
+fn the_local_header_shows_the_full_path_without_a_home_folder() {
+    let (app, _) = listed_app(vec![deploy_script()]);
+    let app = app.with_home(None);
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("local  /d"), "{:?}", row_symbols(&terminal, 2));
 }
 
 #[test]
@@ -725,16 +745,27 @@ fn connecting_shows_the_target_name_in_the_remote_panel() {
 
 #[test]
 fn the_home_directory_is_shown_as_a_tilde() {
-    let home = Path::new("/home/me");
+    let home = &VfsPath::new("/home/me");
 
-    assert_eq!(abbreviate_home(Path::new("/home/me/projects"), Some(home)), "~/projects");
-    assert_eq!(abbreviate_home(Path::new("/home/me"), Some(home)), "~");
-    assert_eq!(abbreviate_home(Path::new("/home/mex"), Some(home)), "/home/mex");
-    assert_eq!(abbreviate_home(Path::new("/etc"), Some(home)), "/etc");
-    assert_eq!(abbreviate_home(Path::new("/home/me/x"), None), "/home/me/x");
-    assert_eq!(abbreviate_home(Path::new("/etc"), Some(Path::new("/"))), "/etc");
-    assert_eq!(abbreviate_home(Path::new("/"), Some(Path::new("/"))), "/");
-    assert_eq!(abbreviate_home(Path::new("/etc"), Some(Path::new(""))), "/etc");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/projects"), Some(home)), "~/projects");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me"), Some(home)), "~");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/mex"), Some(home)), "/home/mex");
+    assert_eq!(abbreviate_home(&VfsPath::new("/etc"), Some(home)), "/etc");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/x"), None), "/home/me/x");
+    assert_eq!(abbreviate_home(&VfsPath::new("/etc"), Some(&VfsPath::new("/"))), "/etc");
+    assert_eq!(abbreviate_home(&VfsPath::new("/"), Some(&VfsPath::new("/"))), "/");
+    assert_eq!(abbreviate_home(&VfsPath::new("/etc"), Some(&VfsPath::new(""))), "/etc");
+}
+
+#[test]
+fn the_panel_header_shortens_the_home_folder_for_a_vfs_path() {
+    let home = &VfsPath::new("/home/me");
+    let drive_home = &VfsPath::new("/C:/Users/me");
+
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/a\\b"), Some(home)), "~/a\\b");
+    assert_eq!(abbreviate_home(&VfsPath::new("/C:/Users/me/docs"), Some(drive_home)), "~/docs");
+    assert_eq!(abbreviate_home(&VfsPath::new("/C:/Users/other"), Some(drive_home)), "/C:/Users/other");
+    assert_eq!(abbreviate_home(&VfsPath::new("/home/me/"), Some(home)), "~");
 }
 
 #[test]
@@ -852,7 +883,7 @@ fn running_snapshot(session: u64, label: &str) -> porthmos_core::transfer::Trans
     let id = queue.enqueue(
         session,
         Direction::Upload,
-        PathBuf::from(format!("/local/{label}")),
+        VfsPath::from(format!("/local/{label}")),
         format!("/remote/{label}"),
         label.to_string(),
         100,
@@ -936,7 +967,7 @@ fn transfer_rows_snapshot() -> porthmos_core::transfer::TransferSnapshot {
         let id = queue.enqueue(
             1,
             Direction::Download,
-            PathBuf::from(format!("/local/{name}")),
+            VfsPath::from(format!("/local/{name}")),
             format!("/remote/{name}"),
             name.to_string(),
             100,
@@ -1325,7 +1356,7 @@ fn form_protocols() -> Vec<porthmos_core::ProtocolInfo> {
 }
 
 fn form_app() -> (App, tokio::sync::mpsc::UnboundedReceiver<porthmos_core::Command>) {
-    let TestApp { app, commands } = crate::app::testing::test_app_with_protocols(Path::new("/d"), form_protocols());
+    let TestApp { app, commands } = crate::app::testing::test_app_with_protocols(&VfsPath::new("/d"), form_protocols());
     let mut app = app.with_theme(indexed_theme());
     app.connections.replace(vec![saved_connection("prod", "sftp"), saved_connection("backup", "sftp")]);
     app.screen = Screen::Connections;
@@ -1586,7 +1617,7 @@ fn the_files_screen_reminds_you_of_paused_transfers_when_nothing_else_is_running
     let id = queue.enqueue(
         1,
         porthmos_core::transfer::Direction::Upload,
-        std::path::PathBuf::from("/l/a"),
+        VfsPath::from("/l/a"),
         "/r/a".to_string(),
         "a".to_string(),
         10,
@@ -1599,4 +1630,176 @@ fn the_files_screen_reminds_you_of_paused_transfers_when_nothing_else_is_running
 
     let bottom = (0..24).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
     assert!(bottom.contains("1 paused"), "{bottom}");
+}
+
+#[test]
+fn the_connections_summary_counts_lost_sessions_apart_from_connected_ones() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    add_session(&mut app, 2, "backup");
+    app.apply_core_event(Event::SessionHealth { session: 2, healthy: false });
+
+    let top = row_symbols(&render_app(&app, 120, 24), 0);
+
+    assert!(top.trim_end().ends_with("1 connected \u{b7} 1 lost"), "{top:?}");
+}
+
+#[test]
+fn an_error_toast_says_how_to_dismiss_it() {
+    let (_dir, mut app) = app_in_temp_dir();
+    app.notifications.push(Severity::Error, "boom");
+
+    let terminal = render_app(&app, 100, 24);
+
+    assert!(find_text(&terminal, "Esc to dismiss").is_some());
+}
+
+#[test]
+fn warnings_and_info_toasts_have_no_dismiss_hint() {
+    for severity in [Severity::Warning, Severity::Info] {
+        let (_dir, mut app) = app_in_temp_dir();
+        app.notifications.push(severity, "careful");
+
+        let terminal = render_app(&app, 100, 24);
+
+        assert!(find_text(&terminal, "careful").is_some());
+        assert!(find_text(&terminal, "dismiss").is_none(), "{severity:?}");
+    }
+}
+
+fn with_ready_update(app: &mut App, version: &str) {
+    app.apply_core_event(Event::Update(porthmos_core::UpdateState::Ready { version: version.to_string() }));
+    app.notifications.dismiss_current();
+}
+
+#[test]
+fn a_ready_update_shows_the_badge_at_the_far_right_of_the_top_bar() {
+    let (mut app, theme) = themed_app();
+    with_ready_update(&mut app, "0.4.0");
+
+    let terminal = render_app(&app, 80, 12);
+
+    let top = row_symbols(&terminal, 0);
+    assert!(top.trim_end().ends_with("\u{2191} 0.4.0 installs on quit"), "{top:?}");
+    let (x, y) = find_text(&terminal, "\u{2191}").expect("the arrow is drawn");
+    assert_eq!(cell_fg(&terminal, x, y), theme.accent);
+}
+
+#[test]
+fn the_badge_sits_to_the_right_of_the_connection_status() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    with_ready_update(&mut app, "0.4.0");
+
+    let terminal = render_app(&app, 120, 24);
+
+    let top = row_symbols(&terminal, 0);
+    let status = top.find("1 connected").expect("status is drawn");
+    let badge = top.find("\u{2191} 0.4.0").expect("badge is drawn");
+    assert!(status + "1 connected".len() < badge, "{top:?}");
+    assert!(top.trim_end().ends_with("installs on quit"), "{top:?}");
+}
+
+#[test]
+fn the_badge_steps_down_as_the_terminal_narrows() {
+    let (mut app, _) = themed_app();
+    add_session(&mut app, 1, "prod");
+    with_ready_update(&mut app, "0.4.0");
+
+    let tail = |width: u16| row_symbols(&render_app(&app, width, 12), 0).trim_end().to_string();
+
+    assert!(tail(52).ends_with("\u{2191} 0.4.0 installs on quit"), "{:?}", tail(52));
+    assert!(tail(36).ends_with("\u{2191} 0.4.0") && !tail(36).contains("installs"), "{:?}", tail(36));
+    assert!(tail(28).ends_with("\u{2191}") && !tail(28).contains("0.4.0"), "{:?}", tail(28));
+    assert!(!tail(22).contains('\u{2191}'), "{:?}", tail(22));
+}
+
+#[test]
+fn the_badge_never_overwrites_the_name_or_the_tab_floor() {
+    let (mut app, _) = themed_app();
+    add_session(&mut app, 1, "alpha");
+    add_session(&mut app, 2, "beta");
+    with_ready_update(&mut app, "0.4.0-rc.1");
+    let left_floor = "porthmos".len() + 3 + 16;
+
+    for width in 20..=200u16 {
+        let top = row_symbols(&render_app(&app, width, 12), 0);
+
+        assert!(top.trim_start().starts_with("porthmos"), "width {width}: {top:?}");
+        if let Some(position) = top.find('\u{2191}') {
+            let column = top[..position].chars().count();
+            assert!(column >= left_floor, "width {width}: {top:?}");
+        }
+    }
+}
+
+#[test]
+fn no_badge_without_an_update_and_in_auto_mode_while_downloading() {
+    let (mut app, _) = themed_app();
+    assert!(!row_symbols(&render_app(&app, 80, 12), 0).contains('\u{2191}'));
+
+    app.apply_core_event(Event::Update(porthmos_core::UpdateState::Available { version: "0.4.0".to_string() }));
+    app.apply_core_event(Event::Update(porthmos_core::UpdateState::Downloading {
+        version: "0.4.0".to_string(),
+        downloaded: 1,
+        total: 2,
+    }));
+
+    assert!(!row_symbols(&render_app(&app, 80, 12), 0).contains('\u{2191}'));
+}
+
+#[test]
+fn the_badge_shows_on_the_connections_screen_and_the_screen_form() {
+    let (mut app, _) = connections_app();
+    with_ready_update(&mut app, "0.4.0");
+    assert!(row_symbols(&render_app(&app, 120, 24), 0).contains("\u{2191} 0.4.0"));
+
+    let (mut app, _) = form_app();
+    with_ready_update(&mut app, "0.4.0");
+    app.apply_action(Action::AddConnection);
+    assert!(app.form_breadcrumb().is_some());
+
+    let top = row_symbols(&render_app(&app, 120, 24), 0);
+    assert!(top.contains("porthmos / connections / new") && top.trim_end().ends_with("installs on quit"), "{top:?}");
+}
+
+#[test]
+fn the_top_bar_never_panics_with_a_badge_at_any_size() {
+    let (mut app, _) = connections_app();
+    add_session(&mut app, 1, "prod");
+    with_ready_update(&mut app, "0.4.0-rc.1");
+
+    for screen in [Screen::Files, Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync] {
+        app.screen = screen;
+        for width in 0..=60 {
+            for height in 0..=6 {
+                render_app(&app, width, height);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_badge_never_squeezes_the_tabs() {
+    let names = ["alpha-server", "beta-server", "gamma-server", "delta-server"];
+    let (mut plain, _) = themed_app();
+    let (mut badged, _) = themed_app();
+    for (index, name) in names.iter().enumerate() {
+        add_session(&mut plain, index as u64 + 1, name);
+        add_session(&mut badged, index as u64 + 1, name);
+    }
+    with_ready_update(&mut badged, "0.4.0");
+
+    let mut seen = 0;
+    for width in 30..=200u16 {
+        let without = row_symbols(&render_app(&plain, width, 12), 0);
+        let with = row_symbols(&render_app(&badged, width, 12), 0);
+        let Some(position) = with.find('\u{2191}') else { continue };
+        seen += 1;
+        let column = with[..position].chars().count();
+        let left: String = without.chars().take(column).collect();
+        let kept: String = with.chars().take(column).collect();
+        assert_eq!(left.trim_end(), kept.trim_end(), "width {width}");
+    }
+    assert!(seen > 20, "the badge was almost never shown ({seen})");
 }

@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use super::*;
@@ -43,6 +44,7 @@ fn unknown_keys_are_ignored() {
     assert!(load(&paths).state.save_passwords_in_keyring);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_state_file_is_private_and_holds_only_the_choice() {
     let (_dir, paths) = paths();
@@ -90,6 +92,7 @@ fn a_missing_state_file_loads_quietly() {
     assert!(!paths.state_file().exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn a_state_file_that_cannot_be_moved_aside_is_protected() {
     let (_dir, paths) = paths();

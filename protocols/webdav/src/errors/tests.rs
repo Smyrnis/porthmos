@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use porthmos_vfs::ErrorKind;
+use porthmos_vfs::{ErrorKind, VfsPath};
 use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue, LOCATION},
@@ -9,7 +7,7 @@ use reqwest::{
 use super::*;
 
 fn mapped(code: u16) -> (ErrorKind, String) {
-    let error = status_error(StatusCode::from_u16(code).unwrap(), &HeaderMap::new(), Path::new("/docs/a.txt"));
+    let error = status_error(StatusCode::from_u16(code).unwrap(), &HeaderMap::new(), &VfsPath::new("/docs/a.txt"));
     (error.kind(), error.to_string())
 }
 
@@ -29,7 +27,7 @@ fn redirects_name_the_location() {
     let mut headers = HeaderMap::new();
     headers.insert(LOCATION, HeaderValue::from_static("https://nas.local/dav/"));
 
-    let error = status_error(StatusCode::MOVED_PERMANENTLY, &headers, Path::new("/"));
+    let error = status_error(StatusCode::MOVED_PERMANENTLY, &headers, &VfsPath::new("/"));
 
     assert_eq!(error.kind(), ErrorKind::Connect);
     assert_eq!(

@@ -20,3 +20,12 @@ fn partial_transfers_are_named_with_the_part_suffix() {
     assert_eq!(PART_SUFFIX, ".part");
     assert_eq!(format!("a.txt{PART_SUFFIX}"), "a.txt.part");
 }
+
+#[test]
+fn an_entry_is_hidden_by_its_flag_or_a_leading_dot() {
+    let named = |name: &str, hidden: bool| Entry { name: name.to_string(), hidden, ..Default::default() };
+
+    assert!(named("secret", true).is_hidden());
+    assert!(named(".profile", false).is_hidden());
+    assert!(!named("visible", false).is_hidden());
+}

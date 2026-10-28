@@ -1,7 +1,8 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     ffi::OsString,
     fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
 
@@ -53,6 +54,7 @@ fn paths_with_config_home(config_home: &Path) -> Paths {
         .unwrap()
 }
 
+#[cfg(unix)]
 fn saved_connections(dir: &Path) -> PathBuf {
     fs::create_dir_all(dir).unwrap();
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
@@ -62,10 +64,12 @@ fn saved_connections(dir: &Path) -> PathBuf {
     file
 }
 
+#[cfg(unix)]
 fn mode_of(path: &Path) -> u32 {
     fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
 
+#[cfg(unix)]
 #[test]
 fn the_old_config_folder_moves_to_the_new_one_with_its_permissions() {
     let home = tempfile::tempdir().unwrap();
@@ -82,6 +86,7 @@ fn the_old_config_folder_moves_to_the_new_one_with_its_permissions() {
     assert_eq!(mode_of(&paths.config_dir), 0o700);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_old_folder_is_found_under_home_when_xdg_is_unset() {
     let home = tempfile::tempdir().unwrap();
@@ -95,6 +100,7 @@ fn the_old_folder_is_found_under_home_when_xdg_is_unset() {
     assert!(paths.connections_file().exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn when_both_folders_exist_both_are_left_alone() {
     let home = tempfile::tempdir().unwrap();
@@ -123,6 +129,7 @@ fn without_an_old_folder_nothing_happens() {
     assert_eq!(paths.migrate_legacy_config(), ConfigMigration::NothingToMigrate);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_move_is_reported_and_leaves_an_empty_new_config() {
     let home = tempfile::tempdir().unwrap();
@@ -150,4 +157,45 @@ fn a_failed_move_is_reported_and_leaves_an_empty_new_config() {
 fn the_state_file_lives_in_the_state_folder() {
     let root = Path::new("/r");
     assert_eq!(Paths::in_dir(root).state_file(), root.join("state").join("state.toml"));
+}
+
+#[test]
+fn the_update_paths_sit_in_the_state_folder() {
+    let root = Path::new("/r");
+    let paths = Paths::in_dir(root);
+
+    assert_eq!(paths.update_state_file(), root.join("state").join("update.toml"));
+    assert_eq!(paths.update_dir(), root.join("state").join("update"));
+}
+
+#[test]
+fn windows_paths_use_app_data_for_config_and_local_app_data_for_state() {
+    let app_data = OsString::from(r"C:\Users\me\AppData\Roaming");
+    let local_app_data = OsString::from(r"C:\Users\me\AppData\Local");
+
+    let paths = Paths::resolve_windows(Some(app_data.clone()), Some(local_app_data.clone())).unwrap();
+
+    assert_eq!(paths.config_dir, PathBuf::from(app_data).join("porthmos"));
+    assert_eq!(paths.state_dir, PathBuf::from(local_app_data).join("porthmos"));
+}
+
+#[test]
+fn windows_paths_without_app_data_fail_naming_the_variable() {
+    let error = Paths::resolve_windows(None, Some(OsString::from(r"C:\Local"))).unwrap_err();
+
+    assert_eq!(error.to_string(), "APPDATA environment variable is not set");
+}
+
+#[test]
+fn windows_paths_without_local_app_data_fail_naming_the_variable() {
+    let error = Paths::resolve_windows(Some(OsString::from(r"C:\Roaming")), None).unwrap_err();
+
+    assert_eq!(error.to_string(), "LOCALAPPDATA environment variable is not set");
+}
+
+#[test]
+fn windows_paths_with_an_empty_app_data_fail_naming_the_variable() {
+    let error = Paths::resolve_windows(Some(OsString::new()), Some(OsString::from(r"C:\Local"))).unwrap_err();
+
+    assert_eq!(error.to_string(), "APPDATA environment variable is not set");
 }

@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 pub mod config;
 pub mod connections_tree;
 pub mod edit;
@@ -21,21 +18,25 @@ pub mod sync;
 pub mod tasks;
 mod test_connection;
 pub mod transfer;
+pub mod update;
 
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
+pub use config::{UpdateMode, UpdateSettings};
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, user_message};
 pub use paths::{ConfigMigration, Paths};
+pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{
     Answer, Choice, CommonField, ConnectionForm, DirItem, Entry, Environment, ErrorKind, FileKind, FileSystem,
     Metadata, OptionField, OptionKind, PortField, Protocol, ProtocolError, Question, SearchEvent, SearchQuery,
-    ShellInvocation, Target, glob_match, path_to_remote_string,
+    ShellInvocation, Target, VfsPath, glob_match,
 };
 pub use protocol_info::ProtocolInfo;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+pub use update::{ApplyOutcome, HeadlessUpdate, UpdateState, apply_staged_update, run_update};
 
 use crate::{
     config::Settings,
@@ -132,6 +133,10 @@ impl CoreHandle {
     }
 }
 
+#[cfg(windows)]
+pub fn disable_core_dumps() {}
+
+#[cfg(unix)]
 pub fn disable_core_dumps() {
     let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     unsafe {
@@ -147,6 +152,23 @@ impl Core {
     }
 }
 
+#[cfg(feature = "update")]
+fn choose_updater(
+    injected: Option<Arc<dyn update::Updater>>, release_updates: bool, mode: config::UpdateMode, paths: &Paths,
+) -> (Option<update::SharedUpdater>, Option<String>) {
+    if let Some(updater) = injected {
+        return (Some(updater), None);
+    }
+    if !release_updates || mode == config::UpdateMode::Off {
+        return (None, None);
+    }
+    let user_agent = format!("porthmos/{}", env!("CARGO_PKG_VERSION"));
+    match update::ReleaseUpdater::new(paths.update_dir(), &user_agent) {
+        Ok(updater) => (Some(Arc::new(updater)), None),
+        Err(err) => (None, Some(format!("Couldn't prepare update checks: {err:#}"))),
+    }
+}
+
 #[derive(Default)]
 pub struct CoreBuilder {
     paths: Option<Paths>,
@@ -155,6 +177,10 @@ pub struct CoreBuilder {
     protocols: Option<Vec<Arc<dyn Protocol>>>,
     local_home: Option<PathBuf>,
     secrets: Option<secrets::Secrets>,
+    #[cfg(feature = "update")]
+    updater: Option<Arc<dyn update::Updater>>,
+    #[cfg(feature = "update")]
+    release_updates: bool,
 }
 
 impl CoreBuilder {
@@ -188,6 +214,18 @@ impl CoreBuilder {
         self
     }
 
+    #[cfg(feature = "update")]
+    pub fn release_updates(mut self) -> Self {
+        self.release_updates = true;
+        self
+    }
+
+    #[cfg(feature = "update")]
+    pub fn updater(mut self, updater: Arc<dyn update::Updater>) -> Self {
+        self.updater = Some(updater);
+        self
+    }
+
     pub fn without_keyring(self) -> Self {
         self.secrets(secrets::Secrets::new(None))
     }
@@ -196,7 +234,13 @@ impl CoreBuilder {
         let paths = self.paths.context("the core needs its configuration paths")?;
         let (history, history_warning) = history::History::load(&paths);
         let (last_used, last_used_warning) = last_used::LastUsed::load(&paths);
+        let (update_record, update_warning) = update::record::UpdateRecord::load(&paths);
         let (bookmarks, bookmark_warnings) = config::bookmarks::load(&paths)?;
+        #[cfg(feature = "update")]
+        let (updater, updater_warning) =
+            choose_updater(self.updater, self.release_updates, self.settings.update.mode, &paths);
+        #[cfg(not(feature = "update"))]
+        let (updater, updater_warning): (Option<update::SharedUpdater>, Option<String>) = (None, None);
         let local_home = self.local_home.or_else(|| self.env.home.clone()).unwrap_or_else(|| PathBuf::from("/"));
         let protocols = self.protocols.unwrap_or_else(|| builtin_protocols(&paths));
         let infos: Arc<[ProtocolInfo]> =
@@ -212,6 +256,11 @@ impl CoreBuilder {
             history,
             last_used,
             edit: self.settings.edit,
+            update_timing: update::UpdateTiming::for_settings(&self.settings.update),
+            update: self.settings.update,
+            update_record,
+            updater,
+            executable: std::env::current_exe().ok(),
             publish_interval: engine::PROGRESS_SNAPSHOT_INTERVAL,
             persist_interval: engine::PERSIST_INTERVAL,
         };
@@ -228,6 +277,9 @@ impl CoreBuilder {
         if let Some(warning) = last_used_warning {
             engine.report(Severity::Warning, warning);
         }
+        for warning in update_warning.into_iter().chain(updater_warning) {
+            engine.report(Severity::Warning, warning);
+        }
         for warning in bookmark_warnings {
             engine.report(Severity::Warning, warning.0);
         }
@@ -235,6 +287,7 @@ impl CoreBuilder {
         engine.publish_last_used();
         engine.load_ui_state();
         engine.start_keyring_probe();
+        engine.start_updates();
         tokio::spawn(engine.run(command_receiver, internal_receiver));
         Ok((CoreHandle { commands, protocols: infos, finished }, event_receiver))
     }

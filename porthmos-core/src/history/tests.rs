@@ -1,7 +1,6 @@
-use std::{
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use super::{
     testing::{SaveNow, sample},
@@ -23,6 +22,7 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -139,6 +139,7 @@ fn loading_a_file_with_too_many_entries_keeps_the_newest() {
     assert_eq!(history.entries().last().unwrap().label, format!("e{}", MAX_ENTRIES + 4));
 }
 
+#[cfg(unix)]
 #[test]
 fn the_file_is_private_and_no_temporary_file_is_left() {
     let (_dir, paths) = paths();
@@ -251,6 +252,7 @@ fn optional_fields_may_be_missing_from_an_older_file() {
     assert!(history.entries()[0].failed_files.is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unreadable_location_warns_and_starts_empty() {
     let (_dir, paths) = paths();
@@ -356,10 +358,12 @@ fn an_empty_or_blank_filter_matches_everything() {
     assert!(matches(&entry, "   "));
 }
 
+#[cfg(unix)]
 fn can_still_read(path: &Path) -> bool {
     std::fs::read(path).is_ok()
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_that_cannot_be_read_is_set_aside_untouched_and_not_overwritten() {
     let (_dir, paths) = paths();
@@ -380,6 +384,7 @@ fn a_file_that_cannot_be_read_is_set_aside_untouched_and_not_overwritten() {
     assert_eq!(labels(&History::load(&paths).0), ["new"]);
 }
 
+#[cfg(unix)]
 #[test]
 fn when_the_file_cannot_be_set_aside_nothing_is_ever_written_over_it() {
     let (_dir, paths) = paths();
@@ -427,6 +432,7 @@ fn clear_memory_empties_the_entries_without_writing() {
     assert!(read(&paths.history_file()).contains("label = \"a\""));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_protected_history_reports_it_cannot_be_written() {
     let (_dir, paths) = paths();

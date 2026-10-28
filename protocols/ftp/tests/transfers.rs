@@ -1,9 +1,11 @@
 mod support;
 
-use std::{os::unix::fs::PermissionsExt, path::Path, sync::Arc};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::sync::Arc;
 
 use porthmos_ftp::Ftp;
-use porthmos_vfs::{FileSystem, Protocol};
+use porthmos_vfs::{FileSystem, Protocol, VfsPath};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 async fn connect_to(server: &support::Server) -> Arc<dyn FileSystem> {
@@ -15,7 +17,7 @@ async fn connect_to(server: &support::Server) -> Arc<dyn FileSystem> {
 }
 
 async fn read_all(fs: &Arc<dyn FileSystem>, path: &str, offset: u64) -> Vec<u8> {
-    let mut reader = fs.open_read(Path::new(path), offset).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new(path), offset).await.unwrap();
     let mut data = Vec::new();
     reader.read_to_end(&mut data).await.unwrap();
     data
@@ -44,7 +46,7 @@ async fn writes_a_new_file() {
     let server = support::start(Some("pw"), None).await;
     let fs = connect_to(&server).await;
 
-    let mut writer = fs.open_write(Path::new("/new.bin"), 0).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/new.bin"), 0).await.unwrap();
     writer.stream.write_all(b"payload").await.unwrap();
     writer.stream.shutdown().await.unwrap();
 
@@ -58,7 +60,7 @@ async fn writing_at_an_offset_resumes_the_file() {
     std::fs::write(server.root.path().join("part.bin"), b"hello ").unwrap();
     let fs = connect_to(&server).await;
 
-    let mut writer = fs.open_write(Path::new("/part.bin"), 6).await.unwrap();
+    let mut writer = fs.open_write(&VfsPath::new("/part.bin"), 6).await.unwrap();
     writer.stream.write_all(b"world").await.unwrap();
     writer.stream.shutdown().await.unwrap();
 
@@ -66,6 +68,7 @@ async fn writing_at_an_offset_resumes_the_file() {
     assert_eq!(std::fs::read(server.root.path().join("part.bin")).unwrap(), b"hello world");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_write_the_server_rejects_is_an_error() {
     let server = support::start(Some("pw"), None).await;
@@ -74,7 +77,7 @@ async fn a_write_the_server_rejects_is_an_error() {
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
     let fs = connect_to(&server).await;
 
-    let outcome = match fs.open_write(Path::new("/locked/f.bin"), 0).await {
+    let outcome = match fs.open_write(&VfsPath::new("/locked/f.bin"), 0).await {
         Err(_) => Err(()),
         Ok(mut writer) => {
             let _ = writer.stream.write_all(b"data").await;
@@ -93,7 +96,7 @@ async fn a_cancelled_download_does_not_poison_the_next_transfer() {
     std::fs::write(server.root.path().join("small.txt"), b"small").unwrap();
     let fs = connect_to(&server).await;
 
-    let mut reader = fs.open_read(Path::new("/big.bin"), 0).await.unwrap();
+    let mut reader = fs.open_read(&VfsPath::new("/big.bin"), 0).await.unwrap();
     let mut chunk = vec![0u8; 64 * 1024];
     reader.read_exact(&mut chunk).await.unwrap();
     drop(reader);
@@ -110,12 +113,13 @@ async fn several_transfers_run_while_listing() {
     }
     let fs = connect_to(&server).await;
 
+    let root = VfsPath::new("/");
     let (a, b, c, d, listing) = tokio::join!(
         read_all(&fs, "/f0.bin", 0),
         read_all(&fs, "/f1.bin", 0),
         read_all(&fs, "/f2.bin", 0),
         read_all(&fs, "/f3.bin", 0),
-        fs.list(Path::new("/")),
+        fs.list(&root),
     );
 
     assert_eq!([a.len(), b.len(), c.len(), d.len()], [256 * 1024; 4]);

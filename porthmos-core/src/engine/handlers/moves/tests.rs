@@ -3,7 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use porthmos_vfs::{FileSystem, testing::FakeFs};
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::{FileSystem, NameRules, VfsPath, testing::FakeFs};
 
 use super::*;
 use crate::{
@@ -21,7 +22,7 @@ fn local_entry(t: &TestEngine, name: &str) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path,
+        path: from_os_path(&path),
         is_dir: metadata.is_dir(),
         size: metadata.len(),
         permissions: None,
@@ -30,7 +31,7 @@ fn local_entry(t: &TestEngine, name: &str) -> Entry {
 }
 
 async fn remote_entry(remote: &FakeFs, path: &str) -> Entry {
-    let path = PathBuf::from(path);
+    let path = VfsPath::from(path);
     let metadata = remote.stat(&path).await.unwrap();
     Entry {
         modified: None,
@@ -49,7 +50,7 @@ fn local(t: &TestEngine, name: &str) -> PathBuf {
 
 async fn upload(t: &mut TestEngine, session: u64, names: &[&str], dest: &str) {
     let entries = names.iter().map(|name| local_entry(t, name)).collect();
-    t.engine.move_entries(Location::Local, entries, Location::Session(session), PathBuf::from(dest));
+    t.engine.move_entries(Location::Local, entries, Location::Session(session), VfsPath::from(dest));
     t.settle().await;
 }
 
@@ -58,7 +59,7 @@ async fn download(t: &mut TestEngine, session: u64, remote: &FakeFs, paths: &[&s
     for path in paths {
         entries.push(remote_entry(remote, path).await);
     }
-    t.engine.move_entries(Location::Session(session), entries, Location::Local, t.dir.path().to_path_buf());
+    t.engine.move_entries(Location::Session(session), entries, Location::Local, from_os_path(t.dir.path()));
     t.settle().await;
 }
 
@@ -72,6 +73,7 @@ fn only_row(t: &TestEngine) -> crate::transfer::rows::QueueRow {
     rows.into_iter().next().unwrap()
 }
 
+#[cfg(unix)]
 fn is_root() -> bool {
     let probe = tempfile::tempdir().unwrap();
     let locked = probe.path().join("locked");
@@ -142,6 +144,47 @@ async fn a_downloaded_folder_is_removed_from_the_server_when_it_is_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn moving_a_folder_leaves_a_sibling_with_the_same_prefix_alone() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a/one.txt", b"1", None).file("/srv/ab/two.txt", b"2", None);
+
+    download(&mut t, session, &remote, &["/srv/a"]).await;
+
+    assert_eq!(std::fs::read(local(&t, "a/one.txt")).unwrap(), b"1");
+    assert!(!remote.exists("/srv/a"));
+    assert_eq!(remote.contents("/srv/ab/two.txt").unwrap(), b"2");
+    assert!(!local(&t, "ab").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_name_with_a_backslash_is_moved_as_one_file() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a\\b.txt", b"odd", None);
+
+    download(&mut t, session, &remote, &["/srv/a\\b.txt"]).await;
+
+    assert_eq!(std::fs::read(local(&t, "a\\b.txt")).unwrap(), b"odd");
+    assert!(!remote.exists("/srv/a\\b.txt"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_name_with_a_backslash_is_moved_under_a_clean_name_when_the_local_side_cannot_store_it() {
+    let mut t = test_engine();
+    t.engine.local_fs =
+        Arc::new(porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(NameRules::Windows));
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a\\b.txt", b"odd", None);
+
+    download(&mut t, session, &remote, &["/srv/a\\b.txt"]).await;
+
+    assert_eq!(std::fs::read(local(&t, "a_b.txt")).unwrap(), b"odd");
+    assert!(!remote.exists("/srv/a\\b.txt"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_file_skipped_because_it_already_exists_stays_and_keeps_its_folder() {
     let mut t = test_engine();
     t.engine.on_conflict = ConflictPolicy::Skip;
@@ -202,6 +245,7 @@ async fn a_failed_file_keeps_its_folder_while_the_others_are_moved() {
     assert_eq!(remote.contents("/up/tree/good.txt").unwrap(), b"g");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_symlink_inside_a_folder_is_never_moved_and_keeps_the_folder() {
     let mut t = test_engine();
@@ -217,6 +261,7 @@ async fn a_symlink_inside_a_folder_is_never_moved_and_keeps_the_folder() {
     assert!(local(&t, "tree/link").symlink_metadata().is_ok());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_source_that_cannot_be_removed_fails_the_job_and_keeps_the_copy() {
     if is_root() {
@@ -231,14 +276,14 @@ async fn a_source_that_cannot_be_removed_fails_the_job_and_keeps_the_copy() {
     let entry = Entry {
         modified: None,
         name: "a.txt".to_string(),
-        path: local(&t, "sealed/a.txt"),
+        path: from_os_path(&local(&t, "sealed/a.txt")),
         is_dir: false,
         size: 5,
         permissions: None,
         ..Default::default()
     };
 
-    t.engine.move_entries(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/up"));
+    t.engine.move_entries(Location::Local, vec![entry], Location::Session(session), VfsPath::from("/up"));
     t.settle().await;
     std::fs::set_permissions(local(&t, "sealed"), std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
 
@@ -293,7 +338,7 @@ async fn a_plain_copy_still_keeps_the_original() {
     std::fs::write(local(&t, "a.txt"), b"a").unwrap();
     let entry = local_entry(&t, "a.txt");
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/up"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(session), VfsPath::from("/up"));
     t.settle().await;
 
     assert!(local(&t, "a.txt").exists());
@@ -304,7 +349,7 @@ async fn a_plain_copy_still_keeps_the_original() {
 fn moving_between_two_sessions_is_refused() {
     let mut t = test_engine();
 
-    t.engine.move_entries(Location::Session(1), vec![], Location::Session(2), PathBuf::from("/"));
+    t.engine.move_entries(Location::Session(1), vec![], Location::Session(2), VfsPath::from("/"));
 
     assert_eq!(
         t.first_notice(),
@@ -317,7 +362,7 @@ fn moving_nothing_does_nothing() {
     let mut t = test_engine();
     let (session, _remote) = t.add_session("srv");
 
-    t.engine.move_entries(Location::Local, vec![], Location::Session(session), PathBuf::from("/up"));
+    t.engine.move_entries(Location::Local, vec![], Location::Session(session), VfsPath::from("/up"));
 
     assert!(t.engine.planning.is_empty());
     assert!(t.drain().is_empty());
@@ -329,7 +374,7 @@ fn moving_to_a_disconnected_session_reports_it() {
     std::fs::write(local(&t, "a.txt"), b"a").unwrap();
     let entry = local_entry(&t, "a.txt");
 
-    t.engine.move_entries(Location::Local, vec![entry], Location::Session(9), PathBuf::from("/up"));
+    t.engine.move_entries(Location::Local, vec![entry], Location::Session(9), VfsPath::from("/up"));
 
     assert_eq!(t.first_notice(), Some((Severity::Error, "Move failed: session disconnected".to_string())));
     assert!(local(&t, "a.txt").exists());
@@ -356,7 +401,7 @@ async fn the_source_is_removed_only_when_the_copy_matches() {
     source.file("/s/a.txt", b"hello", None);
     destination.file("/d/a.txt", b"hello", None);
 
-    remove_copied_source(&source, Path::new("/s/a.txt"), &destination, Path::new("/d/a.txt")).await.unwrap();
+    remove_copied_source(&source, &VfsPath::new("/s/a.txt"), &destination, &VfsPath::new("/d/a.txt")).await.unwrap();
 
     assert!(!source.exists("/s/a.txt"));
     assert!(destination.exists("/d/a.txt"));
@@ -369,8 +414,9 @@ async fn a_copy_of_another_size_keeps_the_source() {
     source.file("/s/a.txt", b"hello world", None);
     destination.file("/d/a.txt", b"hello", None);
 
-    let error =
-        remove_copied_source(&source, Path::new("/s/a.txt"), &destination, Path::new("/d/a.txt")).await.unwrap_err();
+    let error = remove_copied_source(&source, &VfsPath::new("/s/a.txt"), &destination, &VfsPath::new("/d/a.txt"))
+        .await
+        .unwrap_err();
 
     assert!(error.contains("doesn't match"), "{error}");
     assert!(source.exists("/s/a.txt"));
@@ -382,7 +428,11 @@ async fn a_missing_copy_keeps_the_source() {
     let destination = FakeFs::new();
     source.file("/s/a.txt", b"hello", None);
 
-    assert!(remove_copied_source(&source, Path::new("/s/a.txt"), &destination, Path::new("/d/a.txt")).await.is_err());
+    assert!(
+        remove_copied_source(&source, &VfsPath::new("/s/a.txt"), &destination, &VfsPath::new("/d/a.txt"))
+            .await
+            .is_err()
+    );
 
     assert!(source.exists("/s/a.txt"));
 }
@@ -393,7 +443,7 @@ async fn a_source_that_is_already_gone_counts_as_removed() {
     let destination = FakeFs::new();
     destination.file("/d/a.txt", b"hello", None);
 
-    remove_copied_source(&source, Path::new("/s/a.txt"), &destination, Path::new("/d/a.txt")).await.unwrap();
+    remove_copied_source(&source, &VfsPath::new("/s/a.txt"), &destination, &VfsPath::new("/d/a.txt")).await.unwrap();
 }
 
 #[tokio::test]
@@ -401,7 +451,7 @@ async fn emptied_folders_are_removed_deepest_first_and_only_when_empty() {
     let fs = FakeFs::new();
     fs.dir("/r/a/b").dir("/r/a/c").file("/r/keep/x.txt", b"x", None).dir("/r/keep/empty");
 
-    let removed = remove_emptied_directories(&fs, &[PathBuf::from("/r/a"), PathBuf::from("/r/keep")]).await;
+    let removed = remove_emptied_directories(&fs, &[VfsPath::from("/r/a"), VfsPath::from("/r/keep")]).await;
 
     assert_eq!(removed, 4);
     assert!(!fs.exists("/r/a"));
@@ -413,7 +463,7 @@ async fn emptied_folders_are_removed_deepest_first_and_only_when_empty() {
 async fn a_root_that_is_gone_is_not_an_error() {
     let fs = FakeFs::new();
 
-    assert_eq!(remove_emptied_directories(&fs, &[PathBuf::from("/nope")]).await, 0);
+    assert_eq!(remove_emptied_directories(&fs, &[VfsPath::from("/nope")]).await, 0);
 }
 
 #[test]
@@ -472,9 +522,9 @@ fn now_seconds() -> u64 {
 
 fn planned(source: &Path, destination: &str, size: u64) -> crate::transfer::plan::PlannedFile {
     crate::transfer::plan::PlannedFile {
-        source: source.to_path_buf(),
-        destination: PathBuf::from(destination),
-        display_name: PathBuf::from(destination).file_name().unwrap().to_string_lossy().into_owned(),
+        source: from_os_path(source),
+        destination: VfsPath::from(destination),
+        display_name: VfsPath::from(destination).file_name().unwrap().to_string_lossy().into_owned(),
         size,
         existing: None,
         source_modified: None,
@@ -484,10 +534,16 @@ fn planned(source: &Path, destination: &str, size: u64) -> crate::transfer::plan
 }
 
 fn plan_of(files: Vec<crate::transfer::plan::PlannedFile>) -> crate::transfer::plan::DirectoryPlan {
-    crate::transfer::plan::DirectoryPlan { files, skipped_symlinks: 0, taken_names: std::collections::HashMap::new() }
+    crate::transfer::plan::DirectoryPlan {
+        files,
+        skipped_symlinks: 0,
+        taken_names: std::collections::HashMap::new(),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    }
 }
 
-fn move_batch(t: &mut TestEngine, session: u64, roots: Vec<PathBuf>) -> u64 {
+fn move_batch(t: &mut TestEngine, session: u64, roots: Vec<VfsPath>) -> u64 {
     let batch_id = t.engine.transfers.start_batch("batch (move)".to_string());
     t.engine.moves.insert(batch_id, MoveBatch { session_id: session, direction: Direction::Upload, roots });
     batch_id
@@ -519,7 +575,7 @@ async fn a_retried_move_starts_the_copy_again_from_the_beginning() {
     let id = t.engine.transfers.enqueue(
         session,
         Direction::Upload,
-        local(&t, "a.txt"),
+        from_os_path(&local(&t, "a.txt")),
         "/up/a.txt".to_string(),
         "a.txt".to_string(),
         5,
@@ -557,7 +613,7 @@ async fn a_file_is_never_moved_onto_itself_through_a_loopback_session() {
     t.engine.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
     std::fs::write(local(&t, "a.txt"), b"precious").unwrap();
 
-    let dest = t.dir.path().to_str().unwrap().to_string();
+    let dest = from_os_path(t.dir.path()).to_string_lossy().into_owned();
     upload(&mut t, session, &["a.txt"], &dest).await;
 
     assert_eq!(std::fs::read(local(&t, "a.txt")).unwrap(), b"precious");
@@ -578,7 +634,7 @@ async fn a_loopback_session_still_moves_files_to_a_different_place() {
     t.engine.sessions.get_mut(&session).unwrap().entry.host = "127.0.0.1".to_string();
     std::fs::write(local(&t, "a.txt"), b"hello").unwrap();
 
-    upload(&mut t, session, &["a.txt"], elsewhere.path().to_str().unwrap()).await;
+    upload(&mut t, session, &["a.txt"], &from_os_path(elsewhere.path()).to_string_lossy()).await;
 
     assert_eq!(std::fs::read(elsewhere.path().join("a.txt")).unwrap(), b"hello");
     assert!(!local(&t, "a.txt").exists());
@@ -637,14 +693,14 @@ async fn a_symlink_selected_directly_is_never_followed_or_moved() {
     let entry = Entry {
         modified: None,
         name: "www".to_string(),
-        path: PathBuf::from("/srv/www"),
+        path: VfsPath::from("/srv/www"),
         is_dir: true,
         size: 0,
         permissions: None,
         ..Default::default()
     };
 
-    t.engine.move_entries(Location::Session(session), vec![entry], Location::Local, t.dir.path().to_path_buf());
+    t.engine.move_entries(Location::Session(session), vec![entry], Location::Local, from_os_path(t.dir.path()));
     t.settle().await;
 
     assert!(remote.exists("/var/www/index.html"));
@@ -676,7 +732,7 @@ async fn cancelling_the_only_queued_files_still_cleans_up_what_was_emptied() {
     std::fs::write(local(&t, "tree/big.bin"), b"queued").unwrap();
     t.engine.max_parallel = 0;
     let root = local(&t, "tree");
-    let batch_id = move_batch(&mut t, session, vec![root]);
+    let batch_id = move_batch(&mut t, session, vec![from_os_path(&root)]);
     let plan = plan_of(vec![planned(&local(&t, "tree/big.bin"), "/up/tree/big.bin", 6)]);
     t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan, &[], false);
     t.drain();
@@ -695,7 +751,7 @@ async fn an_upload_batch_is_cleaned_up_even_after_its_session_is_gone() {
     let (session, _remote) = t.add_session("srv");
     std::fs::create_dir_all(local(&t, "tree/hollow")).unwrap();
     let root = local(&t, "tree");
-    let batch_id = move_batch(&mut t, session, vec![root]);
+    let batch_id = move_batch(&mut t, session, vec![from_os_path(&root)]);
     t.engine.sessions.clear();
 
     t.engine.finish_move_batch(batch_id);
@@ -719,6 +775,7 @@ async fn renaming_on_conflict_moves_the_file_under_the_new_name_and_leaves_the_o
     assert!(!local(&t, "a.txt").exists());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn retrying_after_the_original_could_not_be_removed_moves_it_once_it_can_be() {
     if is_root() {
@@ -733,13 +790,13 @@ async fn retrying_after_the_original_could_not_be_removed_moves_it_once_it_can_b
     let entry = Entry {
         modified: None,
         name: "a.txt".to_string(),
-        path: local(&t, "sealed/a.txt"),
+        path: from_os_path(&local(&t, "sealed/a.txt")),
         is_dir: false,
         size: 5,
         permissions: None,
         ..Default::default()
     };
-    t.engine.move_entries(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/up"));
+    t.engine.move_entries(Location::Local, vec![entry], Location::Session(session), VfsPath::from("/up"));
     t.settle().await;
     assert!(matches!(t.engine.transfers.jobs().next().unwrap().status, JobStatus::Failed(_)));
     std::fs::set_permissions(local(&t, "sealed"), std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
@@ -762,7 +819,7 @@ async fn a_session_lost_before_the_original_is_removed_fails_the_job_and_keeps_b
     let id = t.engine.transfers.enqueue(
         session,
         Direction::Upload,
-        local(&t, "a.txt"),
+        from_os_path(&local(&t, "a.txt")),
         "/up/a.txt".to_string(),
         "a.txt".to_string(),
         5,
@@ -792,7 +849,7 @@ async fn cancelling_while_the_original_is_about_to_be_removed_keeps_it_and_marks
     let id = t.engine.transfers.enqueue(
         session,
         Direction::Upload,
-        local(&t, "a.txt"),
+        from_os_path(&local(&t, "a.txt")),
         "/up/a.txt".to_string(),
         "a.txt".to_string(),
         5,

@@ -1,4 +1,6 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
+
+use porthmos_vfs::VfsPath;
 
 use super::*;
 use crate::transfer::plan::{DirectoryPlan, ExistingFile, PlannedFile};
@@ -9,28 +11,28 @@ fn taken(names: &[&str]) -> HashSet<String> {
 
 #[test]
 fn unique_name_inserts_a_counter_before_the_extension() {
-    assert_eq!(unique_name("report.pdf", &taken(&["report.pdf"])), "report (1).pdf");
+    assert_eq!(unique_name("report.pdf", &taken(&["report.pdf"]), NameRules::Permissive), "report (1).pdf");
 }
 
 #[test]
 fn unique_name_skips_counters_that_are_already_taken() {
     assert_eq!(
-        unique_name("report.pdf", &taken(&["report.pdf", "report (1).pdf", "report (2).pdf"])),
+        unique_name("report.pdf", &taken(&["report.pdf", "report (1).pdf", "report (2).pdf"]), NameRules::Permissive),
         "report (3).pdf"
     );
 }
 
 #[test]
 fn unique_name_handles_names_without_an_extension_and_dotfiles() {
-    assert_eq!(unique_name("README", &taken(&["README"])), "README (1)");
-    assert_eq!(unique_name(".env", &taken(&[".env"])), ".env (1)");
-    assert_eq!(unique_name("backup.tar.gz", &taken(&["backup.tar.gz"])), "backup.tar (1).gz");
+    assert_eq!(unique_name("README", &taken(&["README"]), NameRules::Permissive), "README (1)");
+    assert_eq!(unique_name(".env", &taken(&[".env"]), NameRules::Permissive), ".env (1)");
+    assert_eq!(unique_name("backup.tar.gz", &taken(&["backup.tar.gz"]), NameRules::Permissive), "backup.tar (1).gz");
 }
 
 fn upload(name: &str, conflict: Option<bool>) -> PlannedFile {
     PlannedFile {
-        source: PathBuf::from(format!("/local/{name}")),
-        destination: PathBuf::from(format!("/remote/dest/{name}")),
+        source: VfsPath::from(format!("/local/{name}")),
+        destination: VfsPath::from(format!("/remote/dest/{name}")),
         display_name: format!("sub/{name}"),
         size: 1,
         existing: conflict.map(|is_dir| ExistingFile { size: 2, modified: None, is_dir }),
@@ -43,7 +45,13 @@ fn upload(name: &str, conflict: Option<bool>) -> PlannedFile {
 fn plan(files: Vec<PlannedFile>) -> DirectoryPlan {
     let names: HashSet<String> =
         files.iter().map(|file| file.destination.file_name().unwrap().to_string_lossy().into_owned()).collect();
-    DirectoryPlan { files, skipped_symlinks: 0, taken_names: HashMap::from([(PathBuf::from("/remote/dest"), names)]) }
+    DirectoryPlan {
+        files,
+        skipped_symlinks: 0,
+        taken_names: HashMap::from([(VfsPath::from("/remote/dest"), names)]),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
+    }
 }
 
 #[test]
@@ -64,7 +72,7 @@ fn resolve_applies_each_answer_in_order_and_passes_other_files_through() {
 
     let files = resolve(plan, &[Resolution::Overwrite, Resolution::Skip, Resolution::Rename]).files;
 
-    let remote: Vec<&str> = files.iter().map(|file| file.destination.to_str().unwrap()).collect();
+    let remote: Vec<String> = files.iter().map(|file| file.destination.to_string_lossy().into_owned()).collect();
     assert_eq!(remote, vec!["/remote/dest/a.txt", "/remote/dest/b.txt", "/remote/dest/d (1).txt"]);
     assert_eq!(files[2].display_name, "sub/d (1).txt");
 }
@@ -73,14 +81,14 @@ fn resolve_applies_each_answer_in_order_and_passes_other_files_through() {
 fn two_renames_in_one_folder_get_different_names() {
     let mut first = upload("a.txt", Some(false));
     let mut second = upload("a.txt", Some(false));
-    second.source = PathBuf::from("/local/other/a.txt");
+    second.source = VfsPath::from("/local/other/a.txt");
     first.display_name = "a.txt".to_string();
     second.display_name = "other/a.txt".to_string();
 
     let files = resolve(plan(vec![first, second]), &[Resolution::Rename, Resolution::Rename]).files;
 
-    assert_eq!(files[0].destination, PathBuf::from("/remote/dest/a (1).txt"));
-    assert_eq!(files[1].destination, PathBuf::from("/remote/dest/a (2).txt"));
+    assert_eq!(files[0].destination, VfsPath::from("/remote/dest/a (1).txt"));
+    assert_eq!(files[1].destination, VfsPath::from("/remote/dest/a (2).txt"));
 }
 
 #[test]
@@ -100,8 +108,8 @@ fn a_missing_answer_skips_the_file() {
 #[test]
 fn rename_rewrites_the_local_path_for_downloads() {
     let file = PlannedFile {
-        source: PathBuf::from("/remote/a.txt"),
-        destination: PathBuf::from("/local/dest/a.txt"),
+        source: VfsPath::from("/remote/a.txt"),
+        destination: VfsPath::from("/local/dest/a.txt"),
         display_name: "a.txt".to_string(),
         size: 1,
         existing: Some(ExistingFile { size: 2, modified: None, is_dir: false }),
@@ -112,13 +120,15 @@ fn rename_rewrites_the_local_path_for_downloads() {
     let plan = DirectoryPlan {
         files: vec![file],
         skipped_symlinks: 0,
-        taken_names: HashMap::from([(PathBuf::from("/local/dest"), HashSet::from(["a.txt".to_string()]))]),
+        taken_names: HashMap::from([(VfsPath::from("/local/dest"), HashSet::from(["a.txt".to_string()]))]),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
     };
 
     let files = resolve(plan, &[Resolution::Rename]).files;
 
-    assert_eq!(files[0].destination, PathBuf::from("/local/dest/a (1).txt"));
-    assert_eq!(files[0].source, PathBuf::from("/remote/a.txt"));
+    assert_eq!(files[0].destination, VfsPath::from("/local/dest/a (1).txt"));
+    assert_eq!(files[0].source, VfsPath::from("/remote/a.txt"));
 }
 
 #[test]
@@ -135,8 +145,8 @@ fn resolve_counts_skipped_files_and_files_blocked_by_a_folder() {
 #[test]
 fn rename_rewrites_the_remote_path_and_display_name_of_a_nested_upload() {
     let file = PlannedFile {
-        source: PathBuf::from("/local/photos/sub/a.txt"),
-        destination: PathBuf::from("/remote/dest/photos/sub/a.txt"),
+        source: VfsPath::from("/local/photos/sub/a.txt"),
+        destination: VfsPath::from("/remote/dest/photos/sub/a.txt"),
         display_name: "sub/a.txt".to_string(),
         size: 1,
         existing: Some(ExistingFile { size: 2, modified: None, is_dir: false }),
@@ -147,14 +157,16 @@ fn rename_rewrites_the_remote_path_and_display_name_of_a_nested_upload() {
     let plan = DirectoryPlan {
         files: vec![file],
         skipped_symlinks: 0,
-        taken_names: HashMap::from([(PathBuf::from("/remote/dest/photos/sub"), HashSet::from(["a.txt".to_string()]))]),
+        taken_names: HashMap::from([(VfsPath::from("/remote/dest/photos/sub"), HashSet::from(["a.txt".to_string()]))]),
+        renamed: Vec::new(),
+        name_rules: porthmos_vfs::NameRules::Permissive,
     };
 
     let files = resolve(plan, &[Resolution::Rename]).files;
 
-    assert_eq!(files[0].destination, PathBuf::from("/remote/dest/photos/sub/a (1).txt"));
+    assert_eq!(files[0].destination, VfsPath::from("/remote/dest/photos/sub/a (1).txt"));
     assert_eq!(files[0].display_name, "sub/a (1).txt");
-    assert_eq!(files[0].source, PathBuf::from("/local/photos/sub/a.txt"));
+    assert_eq!(files[0].source, VfsPath::from("/local/photos/sub/a.txt"));
 }
 
 #[test]
@@ -207,7 +219,7 @@ fn a_folder_blocks_resume() {
 fn rename_on_a_partial_only_file_resumes() {
     let files = resolve(plan(vec![with(None, true)]), &[Resolution::Rename]).files;
 
-    assert_eq!(files[0].destination, PathBuf::from("/remote/dest/a.iso"));
+    assert_eq!(files[0].destination, VfsPath::from("/remote/dest/a.iso"));
     assert!(files[0].resume);
 }
 
@@ -269,4 +281,27 @@ fn fits_the_rest_gives_the_same_answer_for_conflict_infos_as_for_planned_files()
             fits_the_rest(resolution, &partial, &complete)
         );
     }
+}
+
+#[test]
+fn unique_name_skips_candidates_taken_in_another_case() {
+    let taken = taken(&["readme.md", "readme (1).md"]);
+
+    assert_eq!(unique_name("README.md", &taken, NameRules::Windows), "README (2).md");
+}
+
+#[test]
+fn renaming_a_conflict_on_a_case_insensitive_destination_avoids_every_case_variant() {
+    let mut file = upload("Readme.md", Some(false));
+    file.destination = VfsPath::from("/remote/dest/Readme.md");
+    let mut plan = plan(vec![file]);
+    plan.name_rules = NameRules::Windows;
+    plan.taken_names = HashMap::from([(
+        VfsPath::from("/remote/dest"),
+        HashSet::from(["readme.md".to_string(), "readme (1).md".to_string()]),
+    )]);
+
+    let resolved = resolve(plan, &[Resolution::Rename]);
+
+    assert_eq!(resolved.files[0].destination, VfsPath::from("/remote/dest/Readme (2).md"));
 }

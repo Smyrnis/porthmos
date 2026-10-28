@@ -1,6 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
+use porthmos_vfs::VfsPath;
 use serde::{Deserialize, Serialize};
 
 use crate::persist::{Loaded, read_or_set_aside, toml_problem, write_atomic};
@@ -8,7 +9,7 @@ use crate::persist::{Loaded, read_or_set_aside, toml_problem, write_atomic};
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Bookmark {
     pub label: String,
-    pub path: PathBuf,
+    pub path: VfsPath,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
 }

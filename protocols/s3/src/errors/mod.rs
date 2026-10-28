@@ -1,7 +1,7 @@
-use std::{error::Error as _, path::Path};
+use std::error::Error as _;
 
 use anyhow::anyhow;
-use porthmos_vfs::{ErrorKind, ProtocolError};
+use porthmos_vfs::{ErrorKind, ProtocolError, VfsPath};
 use reqwest::StatusCode;
 
 pub(crate) const NO_RESPONSE: &str = "the server did not respond in time";
@@ -26,19 +26,18 @@ impl S3Error {
     }
 }
 
-pub(crate) fn to_protocol(error: &S3Error, path: &Path) -> ProtocolError {
-    let shown = path.display();
+pub(crate) fn to_protocol(error: &S3Error, path: &VfsPath) -> ProtocolError {
     match (error.code.as_str(), error.status) {
         ("NoSuchKey" | "NoSuchBucket" | "NoSuchUpload", _) | ("", 404) => {
-            ProtocolError::new(ErrorKind::NotFound, anyhow!("{shown} not found"))
+            ProtocolError::new(ErrorKind::NotFound, anyhow!("{path} not found"))
         }
         ("AccessDenied", _) | ("", 403) => {
-            ProtocolError::new(ErrorKind::PermissionDenied, anyhow!("{shown}: permission denied"))
+            ProtocolError::new(ErrorKind::PermissionDenied, anyhow!("{path}: permission denied"))
         }
         ("SlowDown", _) | ("", 503) => {
             ProtocolError::new(ErrorKind::Other, anyhow!("the server is busy (SlowDown) \u{2014} try again"))
         }
-        ("EntityTooLarge", _) => ProtocolError::new(ErrorKind::Other, anyhow!("{shown} is too large for this server")),
+        ("EntityTooLarge", _) => ProtocolError::new(ErrorKind::Other, anyhow!("{path} is too large for this server")),
         _ => ProtocolError::new(ErrorKind::Other, anyhow!(error.describe())),
     }
 }

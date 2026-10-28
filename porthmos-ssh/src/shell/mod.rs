@@ -1,6 +1,5 @@
 use std::{
     ffi::{OsStr, OsString},
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
 };
 
@@ -37,11 +36,19 @@ pub fn invocation_for(target: &Target, ssh_config_alias: Option<&str>, sshpass: 
     ShellInvocation { program, args, env }
 }
 
+#[cfg(unix)]
 pub fn find_sshpass_in(path_var: &OsStr) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
     std::env::split_paths(path_var).map(|dir| dir.join("sshpass")).find(|candidate| {
         candidate.is_file()
             && candidate.metadata().map(|metadata| metadata.permissions().mode() & 0o111 != 0).unwrap_or(false)
     })
+}
+
+#[cfg(windows)]
+pub fn find_sshpass_in(_path_var: &OsStr) -> Option<PathBuf> {
+    None
 }
 
 #[cfg(test)]

@@ -1,13 +1,12 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
 
-use porthmos_vfs::{FileSystem, ProtocolError};
+use porthmos_vfs::{FileSystem, ProtocolError, VfsPath};
 
 use super::super::{Engine, Event, Internal, PlanningScan, TransferEvent};
 use crate::{
@@ -22,6 +21,16 @@ use crate::{
     },
     user_message,
 };
+
+const NAMED_UNREADABLE_FOLDERS: usize = 3;
+
+fn unreadable_folders_notice(folders: &[VfsPath]) -> String {
+    let plural = if folders.len() == 1 { "" } else { "s" };
+    let named: Vec<String> = folders.iter().take(NAMED_UNREADABLE_FOLDERS).map(|folder| folder.to_string()).collect();
+    let more = folders.len().saturating_sub(NAMED_UNREADABLE_FOLDERS);
+    let tail = if more > 0 { format!(" and {more} more") } else { String::new() };
+    format!("Skipped {} unreadable folder{plural}: {}{tail}", folders.len(), named.join(", "))
+}
 
 #[derive(Default)]
 pub(crate) struct SyncState {
@@ -55,21 +64,21 @@ fn planned_file(plan: &SyncPlan, item: &SyncItem, action: SyncAction) -> Option<
     })
 }
 
-fn missing_folders(files: &[PlannedFile], root: &Path) -> BTreeSet<PathBuf> {
+fn missing_folders(files: &[PlannedFile], root: &VfsPath) -> BTreeSet<VfsPath> {
     let mut folders = BTreeSet::new();
     for file in files {
         for ancestor in file.destination.ancestors().skip(1) {
-            if ancestor == root || !ancestor.starts_with(root) {
+            if ancestor == *root || !ancestor.starts_with(root) {
                 break;
             }
-            folders.insert(ancestor.to_path_buf());
+            folders.insert(ancestor);
         }
     }
     folders
 }
 
 async fn create_folders(
-    fs: &dyn FileSystem, folders: &BTreeSet<PathBuf>, cancel: &AtomicBool,
+    fs: &dyn FileSystem, folders: &BTreeSet<VfsPath>, cancel: &AtomicBool,
 ) -> Result<bool, ProtocolError> {
     for folder in folders {
         if cancel.load(Ordering::Relaxed) {
@@ -82,7 +91,7 @@ async fn create_folders(
 
 impl Engine {
     pub(crate) fn start_sync(
-        &mut self, session_id: u64, local_dir: PathBuf, remote_dir: PathBuf, options: SyncOptions,
+        &mut self, session_id: u64, local_dir: VfsPath, remote_dir: VfsPath, options: SyncOptions,
     ) {
         if let Err(message) = options.validate() {
             self.report(Severity::Warning, message);
@@ -98,13 +107,14 @@ impl Engine {
             self.report(Severity::Warning, format!("Both can't be used with {name}: it can't keep modification times"));
             return;
         }
+        let (local_rules, remote_rules) = (local.name_rules(), remote.name_rules());
         let tolerance = local.time_resolution().max(remote.time_resolution());
         let target_keeps_times = match options.direction {
             SyncDirection::LocalToRemote => remote.can_set_modified(),
             SyncDirection::RemoteToLocal => local.can_set_modified(),
             SyncDirection::Both => true,
         };
-        let display_name = format!("sync {}", local_dir.display());
+        let display_name = format!("sync {}", local_dir);
         let batch_id = self.transfers.start_batch(display_name.clone());
         self.planning.push(PlanningScan { batch_id, session_id, direction: Direction::Upload, display_name });
         self.sync.scanning.insert(batch_id);
@@ -114,24 +124,41 @@ impl Engine {
             let scanned =
                 scan_both(local.as_ref(), &local_dir, remote.as_ref(), &remote_dir, options.subfolders, &cancel).await;
             let event = match scanned {
-                Ok(Some((local_scan, remote_scan))) => TransferEvent::SyncPlanReady {
-                    batch_id,
-                    plan: SyncPlan {
-                        sync_id: batch_id,
-                        session: session_id,
-                        local_root: local_dir,
-                        remote_root: remote_dir,
-                        options,
-                        items: sync::compare(
-                            &local_scan.tree,
-                            &remote_scan.tree,
+                Ok(Some((mut local_scan, mut remote_scan))) => {
+                    let mut case_clashes = 0;
+                    let mut unstorable = 0;
+                    if options.direction != SyncDirection::RemoteToLocal {
+                        unstorable += sync::drop_unstorable(&mut local_scan.tree, remote_rules);
+                        case_clashes +=
+                            sync::drop_case_clashes(&mut local_scan.tree, &mut remote_scan.tree, remote_rules);
+                    }
+                    if options.direction != SyncDirection::LocalToRemote {
+                        unstorable += sync::drop_unstorable(&mut remote_scan.tree, local_rules);
+                        case_clashes +=
+                            sync::drop_case_clashes(&mut remote_scan.tree, &mut local_scan.tree, local_rules);
+                    }
+                    TransferEvent::SyncPlanReady {
+                        batch_id,
+                        plan: SyncPlan {
+                            sync_id: batch_id,
+                            session: session_id,
+                            local_root: local_dir,
+                            remote_root: remote_dir,
                             options,
-                            tolerance,
-                            target_keeps_times,
-                        ),
-                        skipped_symlinks: local_scan.skipped_symlinks + remote_scan.skipped_symlinks,
-                    },
-                },
+                            items: sync::compare(
+                                &local_scan.tree,
+                                &remote_scan.tree,
+                                options,
+                                tolerance,
+                                target_keeps_times,
+                            ),
+                            skipped_symlinks: local_scan.skipped_symlinks + remote_scan.skipped_symlinks,
+                            unreadable_folders: local_scan.unreadable,
+                            case_clashes,
+                            unstorable,
+                        },
+                    }
+                }
                 Ok(None) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {
                     tracing::debug!("{err:?}");
@@ -157,6 +184,26 @@ impl Engine {
         if plan.skipped_symlinks > 0 {
             let plural = if plan.skipped_symlinks == 1 { "" } else { "s" };
             self.report(Severity::Warning, format!("Skipped {} symlink{plural}", plan.skipped_symlinks));
+        }
+        if plan.unstorable > 0 {
+            let plural = if plan.unstorable == 1 { "" } else { "s" };
+            self.report(
+                Severity::Warning,
+                format!("Skipped {} name{plural} the destination can't store", plan.unstorable),
+            );
+        }
+        if plan.case_clashes > 0 {
+            let plural = if plan.case_clashes == 1 { "" } else { "s" };
+            self.report(
+                Severity::Warning,
+                format!(
+                    "Skipped {} name{plural} that differ only in letter case from a file on the other side",
+                    plan.case_clashes
+                ),
+            );
+        }
+        if !plan.unreadable_folders.is_empty() {
+            self.report(Severity::Warning, unreadable_folders_notice(&plan.unreadable_folders));
         }
         if plan.items.is_empty() {
             self.info("Folders are in sync");
@@ -226,7 +273,8 @@ impl Engine {
             Direction::Upload => (live.fs.clone(), plan.remote_root.clone(), '\u{2191}'),
             Direction::Download => (self.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
         };
-        let display_name = format!("sync {arrow} {}", target_root.display());
+        let rules = target_fs.name_rules();
+        let display_name = format!("sync {arrow} {}", target_root);
         let batch_id = self.transfers.start_batch(display_name.clone());
         let session_id = plan.session;
         self.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
@@ -239,7 +287,13 @@ impl Engine {
                     batch_id,
                     session_id,
                     direction,
-                    plan: DirectoryPlan { files, skipped_symlinks: 0, taken_names: HashMap::new() },
+                    plan: DirectoryPlan {
+                        files,
+                        skipped_symlinks: 0,
+                        taken_names: HashMap::new(),
+                        renamed: Vec::new(),
+                        name_rules: rules,
+                    },
                 },
                 Ok(false) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {

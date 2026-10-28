@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use porthmos_vfs::VfsPath;
 
 use porthmos_vfs::Entry;
 
@@ -8,7 +8,7 @@ fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: PathBuf::from(format!("/{name}")),
+        path: VfsPath::from(format!("/{name}")),
         is_dir,
         size,
         permissions: None,

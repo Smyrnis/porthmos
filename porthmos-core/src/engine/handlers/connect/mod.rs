@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, OptionKind, Protocol, Target};
+use porthmos_vfs::{FileSystem, OptionKind, Protocol, Target, VfsPath};
 
 use super::{
     super::{
@@ -193,7 +193,7 @@ impl Engine {
         self.emit(Event::Disconnected { session, name: live.name });
     }
 
-    pub(crate) fn prepare_shell(&mut self, session: SessionId) {
+    pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<VfsPath>) {
         let Some(live) = self.sessions.get(&session) else {
             self.report(Severity::Warning, "Connect to a server first");
             return;
@@ -202,7 +202,13 @@ impl Engine {
             return;
         };
         match live.protocol.shell_command(&target, &self.env) {
-            Some(invocation) => self.emit(Event::ShellReady { session, invocation }),
+            Some(invocation) => {
+                let invocation = match directory {
+                    Some(directory) => invocation.starting_in(&directory),
+                    None => invocation,
+                };
+                self.emit(Event::ShellReady { session, invocation });
+            }
             None => self.report(Severity::Warning, "This connection doesn't support a terminal session"),
         }
     }

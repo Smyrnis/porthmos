@@ -30,6 +30,14 @@ fn a_missing_folder_is_an_error() {
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
 }
 
+#[cfg(windows)]
+#[test]
+fn an_empty_path_is_invalid_input() {
+    let error = free_space(Path::new("")).unwrap_err();
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+}
+
 #[test]
 fn a_path_with_a_nul_byte_is_an_error() {
     let error = free_space(Path::new("a\0b")).unwrap_err();
@@ -37,11 +45,13 @@ fn a_path_with_a_nul_byte_is_an_error() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
 }
 
+#[cfg(unix)]
 #[test]
 fn available_bytes_multiplies_blocks_by_their_size() {
     assert_eq!(available_bytes(100, 4096), 409_600);
 }
 
+#[cfg(unix)]
 #[test]
 fn available_bytes_cannot_overflow() {
     assert_eq!(available_bytes(u64::MAX, 2), u64::MAX);

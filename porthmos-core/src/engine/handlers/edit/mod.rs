@@ -1,12 +1,12 @@
 use std::{
     collections::HashMap,
-    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicBool},
 };
 
 use chrono::{DateTime, Utc};
-use porthmos_vfs::{ErrorKind, FileSystem, ProtocolError};
+use porthmos_lfs::{checked_os_path, from_os_path};
+use porthmos_vfs::{ErrorKind, FileSystem, ProtocolError, VfsPath};
 use tokio::io::AsyncWriteExt;
 
 use super::super::{Engine, Event, Internal, Location};
@@ -17,6 +17,7 @@ use crate::{
         EditChoice, EditQuestionKind, EditorCommand, EditorExit, MAX_EDIT_BYTES, conflict_copy_name, hash_file,
         printable, resolve_editor,
     },
+    persist::{create_private_dir, restrict_to_owner},
     tasks::Scope,
     transfer::{self, TransferOutcome},
     user_message,
@@ -37,7 +38,7 @@ pub(crate) struct Baseline {
 
 pub(crate) struct EditSession {
     location: Location,
-    remote_path: PathBuf,
+    remote_path: VfsPath,
     name: String,
     editor: EditorCommand,
     temp: Option<TempCopy>,
@@ -84,19 +85,12 @@ fn editor_failure(message: &str) -> String {
     format!("Couldn't start the editor ({message}). Set $EDITOR or [edit] editor")
 }
 
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
-    if let Some(parent) = dir.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
-    }
-    std::fs::DirBuilder::new().mode(0o700).create(dir)
-}
-
 fn remove_dir(dir: &Path) {
     let _ = std::fs::remove_dir_all(dir);
 }
 
 async fn prepare(
-    fs: Arc<dyn FileSystem>, local: Arc<dyn FileSystem>, remote: PathBuf, dir: PathBuf, name: String,
+    fs: Arc<dyn FileSystem>, local: Arc<dyn FileSystem>, remote: VfsPath, dir: PathBuf, name: String,
     cancel: Arc<AtomicBool>,
 ) -> Prepared {
     let shown = printable(&name);
@@ -114,8 +108,8 @@ async fn prepare(
     if let Err(err) = create_private_dir(&dir) {
         return Prepared::Failed(format!("Couldn't create a temporary folder for editing: {err}"));
     }
-    let file = dir.join(&name);
-    match transfer::run(fs.as_ref(), &remote, local.as_ref(), &file, &cancel, false, |_| {}).await {
+    let file = dir.join(local.name_rules().sanitize(&name));
+    match transfer::run(fs.as_ref(), &remote, local.as_ref(), &from_os_path(&file), &cancel, false, |_| {}).await {
         Ok(TransferOutcome::Completed) => {}
         Ok(TransferOutcome::Cancelled) => {
             remove_dir(&dir);
@@ -126,7 +120,7 @@ async fn prepare(
             return failed(&err);
         }
     }
-    if let Err(err) = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)) {
+    if let Err(err) = restrict_to_owner(&file, 0o600) {
         remove_dir(&dir);
         return failed(&err);
     }
@@ -149,10 +143,11 @@ async fn prepare(
 }
 
 async fn write_in_place(
-    remote: &dyn FileSystem, local: &dyn FileSystem, file: &Path, target: &Path,
+    remote: &dyn FileSystem, local: &dyn FileSystem, file: &Path, target: &VfsPath,
 ) -> Result<(), ProtocolError> {
-    let size = local.stat(file).await?.size;
-    let mut reader = local.open_read(file, 0).await?;
+    let file = from_os_path(file);
+    let size = local.stat(&file).await?.size;
+    let mut reader = local.open_read(&file, 0).await?;
     let mut writer = remote.open_write_sized(target, 0, size).await?;
     tokio::io::copy(&mut reader, &mut writer.stream).await?;
     writer.stream.shutdown().await?;
@@ -161,7 +156,7 @@ async fn write_in_place(
 
 struct UploadJob {
     edit_id: u64,
-    remote: PathBuf,
+    remote: VfsPath,
     file: PathBuf,
     baseline: Baseline,
     name: String,
@@ -186,11 +181,11 @@ async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSyst
         }
     }
     let target = match mode {
-        UploadMode::Copy => remote.with_file_name(conflict_copy_name(&name, at)),
+        UploadMode::Copy => remote.with_file_name(&conflict_copy_name(&name, at)),
         UploadMode::Checked | UploadMode::Forced => remote,
     };
     if mode == UploadMode::Copy && fs.stat(&target).await.is_ok() {
-        return failed(&format!("{} already exists", target.display()));
+        return failed(&format!("{} already exists", target));
     }
     match write_in_place(fs.as_ref(), local.as_ref(), &file, &target).await {
         Ok(()) => EditEvent::Uploaded {
@@ -202,7 +197,7 @@ async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSyst
 }
 
 impl Engine {
-    pub(crate) fn edit_file(&mut self, location: Location, path: PathBuf) {
+    pub(crate) fn edit_file(&mut self, location: Location, path: VfsPath) {
         let editor = match resolve_editor(self.edit.settings.editor.as_deref(), &self.env) {
             Ok(editor) => editor,
             Err(message) => {
@@ -216,7 +211,7 @@ impl Engine {
         }
     }
 
-    fn new_edit_session(&mut self, location: Location, path: PathBuf, editor: EditorCommand) -> u64 {
+    fn new_edit_session(&mut self, location: Location, path: VfsPath, editor: EditorCommand) -> u64 {
         let edit_id = self.edit.next_id;
         self.edit.next_id += 1;
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
@@ -237,8 +232,15 @@ impl Engine {
         edit_id
     }
 
-    fn edit_local_file(&mut self, path: PathBuf, editor: EditorCommand) {
-        if path.is_dir() {
+    fn edit_local_file(&mut self, path: VfsPath, editor: EditorCommand) {
+        let os_path = match checked_os_path(&path) {
+            Ok(os_path) => os_path,
+            Err(err) => {
+                self.report(Severity::Error, err.to_string());
+                return;
+            }
+        };
+        if os_path.is_dir() {
             self.report(Severity::Warning, "Can't edit a folder");
             return;
         }
@@ -246,10 +248,10 @@ impl Engine {
         if let Some(session) = self.edit.sessions.get_mut(&edit_id) {
             session.awaiting_editor = true;
         }
-        self.emit(Event::EditReady { edit_id, file: path, editor });
+        self.emit(Event::EditReady { edit_id, file: os_path, editor });
     }
 
-    fn edit_remote_file(&mut self, session_id: u64, path: PathBuf, editor: EditorCommand) {
+    fn edit_remote_file(&mut self, session_id: u64, path: VfsPath, editor: EditorCommand) {
         let Some(fs) = self.fs_for(Location::Session(session_id)) else {
             self.report(Severity::Error, "Edit failed: session disconnected");
             return;

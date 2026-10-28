@@ -19,6 +19,7 @@ fn without_protocol_features_no_protocol_is_built_in() {
     assert!(builtin_protocols(&Paths::in_dir(Path::new("/tmp/t"))).is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn core_dumps_can_be_switched_off() {
     disable_core_dumps();

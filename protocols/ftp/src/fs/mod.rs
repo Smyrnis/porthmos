@@ -1,15 +1,11 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use chrono::Datelike;
 use futures_util::future::BoxFuture;
 use porthmos_vfs::{
-    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, ProtocolError, Reader, Writer, async_trait, join_remote,
-    path_to_remote_string,
+    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath, Writer, async_trait,
+    join_remote,
 };
 use suppaftp::{FtpError, FtpResult, Status, types::Response};
 use tokio::io::AsyncBufReadExt;
@@ -24,7 +20,7 @@ use crate::{
 
 pub(crate) struct FtpFs {
     pool: Arc<Pool>,
-    home: PathBuf,
+    home: VfsPath,
     mfmt: bool,
     greeting: Option<String>,
 }
@@ -45,6 +41,10 @@ pub(crate) fn mfmt_stamp(seconds: u64) -> Result<String, ProtocolError> {
             )
         })?;
     Ok(moment.format("%Y%m%d%H%M%S").to_string())
+}
+
+fn remote(path: &VfsPath) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn lists_mfmt(feature_reply: &[u8]) -> bool {
@@ -124,7 +124,7 @@ fn already_done(command: SimpleCommand, exists_now: bool) -> bool {
 
 impl FtpFs {
     pub(crate) async fn new(pool: Pool, greeting: Option<String>) -> Result<Self, ProtocolError> {
-        let home = PathBuf::from(pool.run(|connection| Box::pin(connection.pwd())).await?);
+        let home = VfsPath::new(&pool.run(|connection| Box::pin(connection.pwd())).await?);
         let mfmt = advertises_mfmt(&pool).await;
         Ok(Self { pool: Arc::new(pool), home, mfmt, greeting })
     }
@@ -149,8 +149,8 @@ impl FtpFs {
         }
     }
 
-    async fn items(&self, dir: &Path) -> Result<Vec<ListedItem>, ProtocolError> {
-        let path = path_to_remote_string(dir);
+    async fn items(&self, dir: &VfsPath) -> Result<Vec<ListedItem>, ProtocolError> {
+        let path = remote(dir);
         if self.pool.supports_mlst()
             && let Some(items) = self.mlsd(&path).await?
         {
@@ -305,8 +305,8 @@ impl FtpFs {
 
     fn delete_tree<'a>(&'a self, path: String) -> BoxFuture<'a, Result<(), ProtocolError>> {
         Box::pin(async move {
-            for child in self.read_dir(Path::new(&path)).await? {
-                let child_path = path_to_remote_string(&child.path);
+            for child in self.read_dir(&VfsPath::new(&path)).await? {
+                let child_path = remote(&child.path);
                 match child.metadata.kind {
                     FileKind::File => self.simple(&child_path, SimpleCommand::RemoveFile).await?,
                     FileKind::Dir | FileKind::Symlink => self.remove_path(child_path).await?,
@@ -327,8 +327,8 @@ impl FileSystem for FtpFs {
         Some(self.pool.check().await)
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
-        let parent = path_to_remote_string(dir);
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
+        let parent = remote(dir);
         let mut entries = Vec::new();
         for item in self.items(dir).await? {
             let path = join_remote(&parent, &item.name);
@@ -338,7 +338,7 @@ impl FileSystem for FtpFs {
                 FileKind::File => false,
             };
             entries.push(Entry {
-                path: PathBuf::from(path),
+                path: VfsPath::new(&path),
                 is_dir,
                 size: item.metadata.size,
                 permissions: item.metadata.permissions,
@@ -347,35 +347,36 @@ impl FileSystem for FtpFs {
                 owner: item.owner,
                 group: item.group,
                 link_target: item.link_target,
+                hidden: false,
             });
         }
         Ok(entries)
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
-        let parent = path_to_remote_string(dir);
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
+        let parent = remote(dir);
         Ok(self
             .items(dir)
             .await?
             .into_iter()
             .map(|item| DirItem {
-                path: PathBuf::from(join_remote(&parent, &item.name)),
+                path: VfsPath::new(&join_remote(&parent, &item.name)),
                 metadata: item.metadata,
                 name: item.name,
             })
             .collect())
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
-        self.stat_remote(&path_to_remote_string(path)).await
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
+        self.stat_remote(&remote(path)).await
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
-        self.simple(&path_to_remote_string(path), SimpleCommand::MakeDir).await
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        self.simple(&remote(path), SimpleCommand::MakeDir).await
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
-        let (from, to) = (path_to_remote_string(from), path_to_remote_string(to));
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
+        let (from, to) = (remote(from), remote(to));
         let refused = match self.rename_raw(&from, &to).await? {
             Ok(()) => return Ok(()),
             Err(err) => err,
@@ -397,26 +398,26 @@ impl FileSystem for FtpFs {
         }
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
-        self.simple(&path_to_remote_string(path), SimpleCommand::RemoveFile).await
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        self.simple(&remote(path), SimpleCommand::RemoveFile).await
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
-        self.remove_path(path_to_remote_string(path)).await
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        self.remove_path(remote(path)).await
     }
 
-    async fn remove_dir(&self, path: &Path) -> Result<(), ProtocolError> {
-        self.simple(&path_to_remote_string(path), SimpleCommand::RemoveDir).await
+    async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        self.simple(&remote(path), SimpleCommand::RemoveDir).await
     }
 
-    async fn set_modified(&self, path: &Path, seconds: u64) -> Result<(), ProtocolError> {
+    async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
         if !self.mfmt {
             return Err(ProtocolError::new(
                 ErrorKind::Unsupported,
                 anyhow!("this server doesn't support setting modification times (MFMT)"),
             ));
         }
-        let command = format!("MFMT {} {}", mfmt_stamp(seconds)?, path_to_remote_string(path));
+        let command = format!("MFMT {} {}", mfmt_stamp(seconds)?, remote(path));
         self.pool
             .run(|connection| {
                 let command = command.clone();
@@ -433,12 +434,12 @@ impl FileSystem for FtpFs {
         60
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
         Ok(self.home.clone())
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
-        let path = path_to_remote_string(path);
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
+        let path = remote(path);
         let mut connection = self.pool.borrow().await?;
         if offset > 0 {
             connection.resume_transfer(offset as usize).await.map_err(ftp_error)?;
@@ -447,8 +448,8 @@ impl FileSystem for FtpFs {
         Ok(Box::new(FtpReader::new(stream, connection, self.pool.clone())))
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
-        let path = path_to_remote_string(path);
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
+        let path = remote(path);
         let mut connection = self.pool.borrow().await?;
         let mut start = first_write_start(offset);
         loop {

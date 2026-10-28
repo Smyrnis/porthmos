@@ -1,3 +1,5 @@
+#![cfg(any(unix, feature = "sshd-tests"))]
+
 mod scp_rig;
 
 use std::{
@@ -16,6 +18,7 @@ use porthmos_core::{
         rows::RowState,
     },
 };
+use porthmos_lfs::from_os_path;
 use scp_rig::{Rig, data, rig};
 
 fn no_conflicts(_: &[ConflictInfo]) -> Option<Vec<Resolution>> {
@@ -224,6 +227,7 @@ async fn cancelling_everything_stops_the_copy_and_clearing_removes_partials() {
     assert!(left.is_empty(), "{left:?}");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_scp_session_runs_no_more_transfers_than_it_can_carry() {
     assert_eq!(upload_ten_files(16).await, 6);
@@ -244,7 +248,7 @@ async fn a_finished_upload_is_kept_in_the_history_file() {
     assert_eq!(listed[0].direction, Direction::Upload);
     assert_eq!(listed[0].result, HistoryResult::Done);
     assert_eq!((listed[0].files_done, listed[0].files_total, listed[0].bytes), (1, 1, 1000));
-    assert_eq!(listed[0].local_path, rig.local("a.txt").to_string_lossy());
+    assert_eq!(listed[0].local_path, from_os_path(&rig.local("a.txt")).to_string());
     assert!(listed[0].remote_path.ends_with("/a.txt"), "{}", listed[0].remote_path);
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     let stored = loop {
@@ -257,6 +261,7 @@ async fn a_finished_upload_is_kept_in_the_history_file() {
     assert_eq!(stored.entries(), listed.as_slice());
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_that_cannot_be_read_is_kept_as_partly_failed() {
     use std::os::unix::fs::PermissionsExt;
@@ -288,6 +293,7 @@ async fn a_file_that_cannot_be_read_is_kept_as_partly_failed() {
     assert!(!text.to_lowercase().contains("permission denied"), "{text}");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edited_remote_file_is_uploaded_in_place() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -333,7 +339,12 @@ async fn a_remote_file_changed_behind_our_back_asks_and_cancel_keeps_both() {
 }
 
 fn stamp(path: &std::path::Path, seconds: u64) {
-    std::fs::File::open(path).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds)).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds))
+        .unwrap();
 }
 
 fn modified_seconds(path: &std::path::Path) -> u64 {
@@ -355,6 +366,7 @@ fn make_tree(rig: &Rig) {
     }
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn syncing_up_twice_leaves_nothing_to_do() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -372,6 +384,7 @@ async fn syncing_up_twice_leaves_nothing_to_do() {
     assert!(rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.is_none());
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn both_copies_each_way_and_then_settles() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -388,6 +401,7 @@ async fn both_copies_each_way_and_then_settles() {
     assert!(rig.scan_sync(sync_options(SyncDirection::Both)).await.is_none());
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn downloading_settles_too() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -403,6 +417,7 @@ async fn downloading_settles_too() {
     assert!(rig.scan_sync(sync_options(SyncDirection::RemoteToLocal)).await.is_none());
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_touched_after_a_sync_is_found_again() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;
@@ -414,7 +429,7 @@ async fn a_file_touched_after_a_sync_is_found_again() {
     let plan = rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.expect("a plan");
 
     let found: Vec<(String, SyncReason, bool)> =
-        plan.items.iter().map(|item| (item.path.display().to_string(), item.reason, item.ticked)).collect();
+        plan.items.iter().map(|item| (item.path.to_string(), item.reason, item.ticked)).collect();
     assert_eq!(found, vec![("deep/b.txt".to_string(), SyncReason::LocalNewer, true)]);
 }
 
@@ -426,7 +441,7 @@ async fn a_newer_remote_file_is_listed_unticked_and_left_alone_by_a_one_way_uplo
     stamp(&rig.remote("tree/a.txt"), 1_900_000_000);
     let plan = rig.scan_sync(sync_options(SyncDirection::LocalToRemote)).await.expect("a plan");
 
-    let a = plan.items.iter().find(|item| item.path.ends_with("a.txt")).unwrap();
+    let a = plan.items.iter().find(|item| item.path.file_name().is_some_and(|name| name == "a.txt")).unwrap();
     assert_eq!((a.reason, a.ticked, a.action), (SyncReason::TargetNewer, false, SyncAction::Skip));
     rig.run_sync(&plan).await;
 
@@ -454,6 +469,7 @@ async fn a_sync_with_nothing_ticked_finishes_promptly_and_changes_nothing() {
     assert_eq!(modified_seconds(&rig.remote("tree/a.txt")), 1_900_000_000);
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn awkward_file_names_survive_the_copy_and_the_time_change() {
     let mut rig = rig(4, ConflictPolicy::Ask).await;

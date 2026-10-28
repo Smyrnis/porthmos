@@ -1,7 +1,6 @@
 use std::{
     collections::BTreeMap,
     io,
-    path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
 };
 
@@ -10,7 +9,8 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use bytes::Bytes;
 use md5::{Digest, Md5};
 use porthmos_vfs::{
-    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError, Reader, Writer, async_trait,
+    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, PART_SUFFIX, ProtocolError, Reader, VfsPath, Writer,
+    async_trait,
 };
 use reqwest::{
     Method, Response, StatusCode,
@@ -71,8 +71,8 @@ fn buckets_refused() -> ProtocolError {
     ProtocolError::new(ErrorKind::PermissionDenied, anyhow!("buckets can't be created or removed here"))
 }
 
-fn already_exists(path: &Path) -> ProtocolError {
-    ProtocolError::new(ErrorKind::Other, anyhow!("{} already exists", path.display()))
+fn already_exists(path: &VfsPath) -> ProtocolError {
+    ProtocolError::new(ErrorKind::Other, anyhow!("{} already exists", path))
 }
 
 fn folder() -> Metadata {
@@ -94,13 +94,11 @@ pub(crate) fn copy_ranges(size: u64, part: u64) -> Vec<(u64, u64)> {
     ranges
 }
 
-fn panel_path(path: &Path) -> PathBuf {
-    let mut normal = PathBuf::from("/");
-    normal.extend(segments(path));
-    normal
+fn panel_path(path: &VfsPath) -> VfsPath {
+    VfsPath::from_segments(true, segments(path))
 }
 
-async fn checked(client: &S3Client, response: Response, path: &Path) -> Result<Response, ProtocolError> {
+async fn checked(client: &S3Client, response: Response, path: &VfsPath) -> Result<Response, ProtocolError> {
     if response.status().is_success() { Ok(response) } else { Err(to_protocol(&client.error(response).await, path)) }
 }
 
@@ -139,7 +137,7 @@ impl S3Fs {
         self.started().iter().rev().find(|upload| upload.bucket == bucket && upload.key == key).cloned()
     }
 
-    async fn known_parts(&self, bucket: &str, key: &str, id: &str, path: &Path) -> Result<Vec<Part>, ProtocolError> {
+    async fn known_parts(&self, bucket: &str, key: &str, id: &str, path: &VfsPath) -> Result<Vec<Part>, ProtocolError> {
         match self.parts(bucket, key, id, path).await {
             Err(err) if err.kind() == ErrorKind::PermissionDenied => {
                 Ok(self.started().iter().find(|upload| upload.id == id).map(Started::parts).unwrap_or_default())
@@ -148,17 +146,17 @@ impl S3Fs {
         }
     }
 
-    fn locate(&self, path: &Path) -> Location {
+    fn locate(&self, path: &VfsPath) -> Location {
         locate(path, self.bucket.as_deref())
     }
 
-    async fn send(&self, call: Call<'_>, path: &Path) -> Result<Response, ProtocolError> {
+    async fn send(&self, call: Call<'_>, path: &VfsPath) -> Result<Response, ProtocolError> {
         let response = self.client.send(call).await.map_err(other)?;
         checked(&self.client, response, path).await
     }
 
     async fn listing(
-        &self, bucket: &str, prefix: &str, folders: bool, path: &Path,
+        &self, bucket: &str, prefix: &str, folders: bool, path: &VfsPath,
     ) -> Result<xml::Listing, ProtocolError> {
         let mut all = xml::Listing::default();
         let mut cursor: Option<Cursor> = None;
@@ -189,7 +187,7 @@ impl S3Fs {
     }
 
     async fn uploads(
-        &self, bucket: &str, prefix: &str, folders: bool, path: &Path,
+        &self, bucket: &str, prefix: &str, folders: bool, path: &VfsPath,
     ) -> Result<Vec<Upload>, ProtocolError> {
         let mut all = Vec::new();
         let mut markers: Option<(String, String)> = None;
@@ -215,7 +213,7 @@ impl S3Fs {
         }
     }
 
-    async fn parts(&self, bucket: &str, key: &str, id: &str, path: &Path) -> Result<Vec<Part>, ProtocolError> {
+    async fn parts(&self, bucket: &str, key: &str, id: &str, path: &VfsPath) -> Result<Vec<Part>, ProtocolError> {
         let mut all = Vec::new();
         let mut marker: Option<u32> = None;
         loop {
@@ -234,7 +232,7 @@ impl S3Fs {
     }
 
     async fn pending(
-        &self, bucket: &str, key: &str, path: &Path,
+        &self, bucket: &str, key: &str, path: &VfsPath,
     ) -> Result<Option<(Upload, Progress, Vec<Part>)>, ProtocolError> {
         let uploads = self.uploads(bucket, key, false, path).await?;
         let upload = match newest(&uploads, key).cloned() {
@@ -249,13 +247,13 @@ impl S3Fs {
         Ok(Some((upload, progress, parts)))
     }
 
-    async fn abort(&self, bucket: &str, upload: &Upload, path: &Path) -> Result<(), ProtocolError> {
+    async fn abort(&self, bucket: &str, upload: &Upload, path: &VfsPath) -> Result<(), ProtocolError> {
         self.send(Call::new(Method::DELETE, Some(bucket), &upload.key).query("uploadId", &upload.id), path).await?;
         self.forget(&upload.id);
         Ok(())
     }
 
-    async fn abort_all(&self, bucket: &str, key: &str, path: &Path) -> Result<(), ProtocolError> {
+    async fn abort_all(&self, bucket: &str, key: &str, path: &VfsPath) -> Result<(), ProtocolError> {
         let mut uploads: Vec<Upload> =
             self.uploads(bucket, key, false, path).await?.into_iter().filter(|upload| upload.key == key).collect();
         let started: Vec<Upload> = self
@@ -275,20 +273,20 @@ impl S3Fs {
         Ok(())
     }
 
-    async fn create_upload(&self, bucket: &str, key: &str, path: &Path) -> Result<String, ProtocolError> {
+    async fn create_upload(&self, bucket: &str, key: &str, path: &VfsPath) -> Result<String, ProtocolError> {
         let response = self.send(Call::new(Method::POST, Some(bucket), key).query("uploads", ""), path).await?;
         let id = xml::upload_id(&self.client.text(response).await?)?;
         self.remember(bucket, key, &id);
         Ok(id)
     }
 
-    async fn complete(&self, bucket: &str, key: &str, id: &str, path: &Path) -> Result<(), ProtocolError> {
+    async fn complete(&self, bucket: &str, key: &str, id: &str, path: &VfsPath) -> Result<(), ProtocolError> {
         let parts = completed(&self.known_parts(bucket, key, id, path).await?);
         self.complete_with(bucket, key, id, &parts, path).await
     }
 
     async fn complete_with(
-        &self, bucket: &str, key: &str, id: &str, parts: &[(u32, String)], path: &Path,
+        &self, bucket: &str, key: &str, id: &str, parts: &[(u32, String)], path: &VfsPath,
     ) -> Result<(), ProtocolError> {
         let call = Call::new(Method::POST, Some(bucket), key)
             .query("uploadId", id)
@@ -304,10 +302,10 @@ impl S3Fs {
         }
     }
 
-    fn part_sender(&self, bucket: &str, key: &str, id: &str, path: &Path) -> SendPart {
+    fn part_sender(&self, bucket: &str, key: &str, id: &str, path: &VfsPath) -> SendPart {
         let client = self.client.clone();
         let started = self.started.clone();
-        let (bucket, key, id, path) = (bucket.to_string(), key.to_string(), id.to_string(), path.to_path_buf());
+        let (bucket, key, id, path) = (bucket.to_string(), key.to_string(), id.to_string(), path.clone());
         Arc::new(move |number, data: Bytes| {
             let (client, started) = (client.clone(), started.clone());
             let (bucket, key, id, path) = (bucket.clone(), key.clone(), id.clone(), path.clone());
@@ -330,15 +328,15 @@ impl S3Fs {
         })
     }
 
-    fn completion(&self, bucket: &str, key: &str, id: &str, path: &Path) -> Finish {
+    fn completion(&self, bucket: &str, key: &str, id: &str, path: &VfsPath) -> Finish {
         let fs = self.clone();
-        let (bucket, key, id, path) = (bucket.to_string(), key.to_string(), id.to_string(), path.to_path_buf());
+        let (bucket, key, id, path) = (bucket.to_string(), key.to_string(), id.to_string(), path.clone());
         Box::new(move || {
             Box::pin(async move { fs.complete(&bucket, &key, &id, &path).await.map_err(io::Error::other) })
         })
     }
 
-    async fn delete_keys(&self, bucket: &str, keys: &[String], path: &Path) -> Result<(), ProtocolError> {
+    async fn delete_keys(&self, bucket: &str, keys: &[String], path: &VfsPath) -> Result<(), ProtocolError> {
         for batch in keys.chunks(DELETE_BATCH) {
             let body = xml::delete_body(batch);
             let digest = STANDARD.encode(Md5::digest(body.as_bytes()));
@@ -358,14 +356,14 @@ impl S3Fs {
             if let Some(failure) = xml::delete_failures(&self.client.text(response).await?)?.into_iter().next() {
                 return Err(ProtocolError::new(
                     ErrorKind::Other,
-                    anyhow!("{}: could not delete {} ({})", path.display(), failure.key, failure.code),
+                    anyhow!("{}: could not delete {} ({})", path, failure.key, failure.code),
                 ));
             }
         }
         Ok(())
     }
 
-    async fn delete_folder(&self, bucket: &str, prefix: &str, path: &Path) -> Result<(), ProtocolError> {
+    async fn delete_folder(&self, bucket: &str, prefix: &str, path: &VfsPath) -> Result<(), ProtocolError> {
         let keys: Vec<String> =
             self.listing(bucket, prefix, false, path).await?.objects.into_iter().map(|object| object.key).collect();
         self.delete_keys(bucket, &keys, path).await?;
@@ -375,7 +373,7 @@ impl S3Fs {
         Ok(())
     }
 
-    async fn head(&self, bucket: &str, key: &str, path: &Path) -> Result<Option<Metadata>, ProtocolError> {
+    async fn head(&self, bucket: &str, key: &str, path: &VfsPath) -> Result<Option<Metadata>, ProtocolError> {
         let response = self.client.send(Call::new(Method::HEAD, Some(bucket), key)).await.map_err(other)?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(None);
@@ -390,7 +388,7 @@ impl S3Fs {
         Ok(Some(file(size, modified)))
     }
 
-    async fn is_folder(&self, bucket: &str, key: &str, path: &Path) -> Result<bool, ProtocolError> {
+    async fn is_folder(&self, bucket: &str, key: &str, path: &VfsPath) -> Result<bool, ProtocolError> {
         let call = Call::new(Method::GET, Some(bucket), "")
             .query("list-type", "2")
             .query("prefix", &format!("{key}/"))
@@ -400,7 +398,7 @@ impl S3Fs {
         Ok(!page.objects.is_empty() || !page.prefixes.is_empty())
     }
 
-    async fn find(&self, path: &Path) -> Result<Option<Metadata>, ProtocolError> {
+    async fn find(&self, path: &VfsPath) -> Result<Option<Metadata>, ProtocolError> {
         match self.locate(path) {
             Location::Root | Location::Bucket(_) => Ok(Some(folder())),
             Location::Object { bucket, key } => {
@@ -418,7 +416,7 @@ impl S3Fs {
         }
     }
 
-    async fn copy(&self, bucket: &str, from: &str, to: &str, size: u64, path: &Path) -> Result<(), ProtocolError> {
+    async fn copy(&self, bucket: &str, from: &str, to: &str, size: u64, path: &VfsPath) -> Result<(), ProtocolError> {
         let source = format!("/{}/{}", encode_key(bucket), encode_key(from));
         if size <= COPY_LIMIT {
             let response =
@@ -438,13 +436,13 @@ impl S3Fs {
             Some(copied) if copied.size == size => Ok(()),
             _ => {
                 let _ = self.send(Call::new(Method::DELETE, Some(bucket), to), path).await;
-                Err(ProtocolError::new(ErrorKind::Other, anyhow!("the copy of {} is incomplete", path.display())))
+                Err(ProtocolError::new(ErrorKind::Other, anyhow!("the copy of {} is incomplete", path)))
             }
         }
     }
 
     async fn copy_parts(
-        &self, bucket: &str, source: &str, to: &str, id: &str, size: u64, path: &Path,
+        &self, bucket: &str, source: &str, to: &str, id: &str, size: u64, path: &VfsPath,
     ) -> Result<(), ProtocolError> {
         let mut parts = Vec::new();
         for (index, (start, end)) in copy_ranges(size, COPY_PART).into_iter().enumerate() {
@@ -459,24 +457,21 @@ impl S3Fs {
                 return Err(to_protocol(&error, path));
             }
             let etag = xml::copy_part_etag(&reply).ok_or_else(|| {
-                ProtocolError::new(
-                    ErrorKind::Other,
-                    anyhow!("the server did not confirm a copied part of {}", path.display()),
-                )
+                ProtocolError::new(ErrorKind::Other, anyhow!("the server did not confirm a copied part of {}", path))
             })?;
             parts.push((number, etag));
         }
         self.complete_with(bucket, to, id, &parts, path).await
     }
 
-    async fn move_folder(&self, bucket: &str, from: &str, to: &str, path: &Path) -> Result<(), ProtocolError> {
+    async fn move_folder(&self, bucket: &str, from: &str, to: &str, path: &VfsPath) -> Result<(), ProtocolError> {
         let objects = self.listing(bucket, &format!("{from}/"), false, path).await?.objects;
         for object in &objects {
             let target = format!("{to}{}", &object.key[from.len()..]);
             if let Err(err) = self.copy(bucket, &object.key, &target, object.size, path).await {
                 return Err(ProtocolError::new(
                     ErrorKind::Other,
-                    anyhow!("{}: could not move {} ({err})", path.display(), object.key),
+                    anyhow!("{}: could not move {} ({err})", path, object.key),
                 ));
             }
         }
@@ -488,7 +483,7 @@ impl S3Fs {
         Ok(())
     }
 
-    async fn items(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
+    async fn items(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let base = panel_path(dir);
         let (bucket, prefix) = match self.locate(dir) {
             Location::Root => {
@@ -549,7 +544,7 @@ impl FileSystem for S3Fs {
         self.info.clone()
     }
 
-    async fn list(&self, dir: &Path) -> Result<Vec<Entry>, ProtocolError> {
+    async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         Ok(self
             .items(dir)
             .await?
@@ -566,24 +561,22 @@ impl FileSystem for S3Fs {
             .collect())
     }
 
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<DirItem>, ProtocolError> {
+    async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         self.items(dir).await
     }
 
-    async fn stat(&self, path: &Path) -> Result<Metadata, ProtocolError> {
-        self.find(path)
-            .await?
-            .ok_or_else(|| ProtocolError::new(ErrorKind::NotFound, anyhow!("{} not found", path.display())))
+    async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {
+        self.find(path).await?.ok_or_else(|| ProtocolError::new(ErrorKind::NotFound, anyhow!("{} not found", path)))
     }
 
-    async fn create_dir(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn create_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let location = self.locate(path);
         let (bucket, key) = object(&location)?;
         self.send(Call::new(Method::PUT, Some(bucket), &format!("{key}/")), path).await?;
         Ok(())
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> Result<(), ProtocolError> {
+    async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<(), ProtocolError> {
         let (source, target) = (self.locate(from), self.locate(to));
         let ((bucket, from_key), (to_bucket, to_key)) = (object(&source)?, object(&target)?);
         if bucket != to_bucket {
@@ -613,7 +606,7 @@ impl FileSystem for S3Fs {
         Ok(())
     }
 
-    async fn remove_file(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn remove_file(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let location = self.locate(path);
         let (bucket, key) = object(&location)?;
         if let Some(staged) = staged_key(key)
@@ -625,7 +618,7 @@ impl FileSystem for S3Fs {
         Ok(())
     }
 
-    async fn delete(&self, path: &Path) -> Result<(), ProtocolError> {
+    async fn delete(&self, path: &VfsPath) -> Result<(), ProtocolError> {
         let location = self.locate(path);
         let (bucket, key) = object(&location)?;
         if self.stat(path).await?.is_dir() {
@@ -634,11 +627,11 @@ impl FileSystem for S3Fs {
         self.remove_file(path).await
     }
 
-    async fn home(&self) -> Result<PathBuf, ProtocolError> {
-        Ok(PathBuf::from("/"))
+    async fn home(&self) -> Result<VfsPath, ProtocolError> {
+        Ok(VfsPath::root())
     }
 
-    async fn open_read(&self, path: &Path, offset: u64) -> Result<Reader, ProtocolError> {
+    async fn open_read(&self, path: &VfsPath, offset: u64) -> Result<Reader, ProtocolError> {
         let location = self.locate(path);
         let (bucket, key) = object(&location)?;
         let mut call = Call::new(Method::GET, Some(bucket), key);
@@ -664,10 +657,10 @@ impl FileSystem for S3Fs {
         Ok(Box::new(reader))
     }
 
-    async fn open_write(&self, path: &Path, offset: u64) -> Result<Writer, ProtocolError> {
+    async fn open_write(&self, path: &VfsPath, offset: u64) -> Result<Writer, ProtocolError> {
         let location = self.locate(path);
         let (bucket, key) = object(&location)?;
-        let too_large = format!("{} is too large for S3 multipart upload", path.display());
+        let too_large = format!("{} is too large for S3 multipart upload", path);
         let Some(staged) = staged_key(key) else {
             let id = self.create_upload(bucket, key, path).await?;
             let finish = self.completion(bucket, key, &id, path);

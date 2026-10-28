@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("porthmos only supports Unix-like platforms (Linux/macOS)");
-
 mod auth;
 mod client;
 mod errors;
@@ -13,7 +10,7 @@ mod settings;
 mod upload;
 
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, PoisonError},
     time::Duration,
 };
@@ -22,7 +19,7 @@ use anyhow::anyhow;
 use porthmos_tls::{KnownCertificates, ProblemSlot, TrustProblem, ask_to_trust, client_config};
 use porthmos_vfs::{
     Answer, Choice, ConnectionForm, ErrorKind, FileSystem, OptionField, OptionKind, Prompter, Protocol, ProtocolError,
-    Question, Target, async_trait,
+    Question, Target, VfsPath, async_trait,
 };
 use reqwest::{Method, Response, StatusCode};
 
@@ -132,7 +129,7 @@ fn take_problem(slot: &ProblemSlot) -> Option<TrustProblem> {
 }
 
 async fn probe(client: &DavClient) -> Result<Response, Failure> {
-    propfind(client, Path::new("/"), true, "0").await
+    propfind(client, &VfsPath::root(), true, "0").await
 }
 
 async fn probe_trusted(
@@ -201,7 +198,7 @@ fn check_probe(response: &Response, settings: &WebDavSettings) -> Result<(), Pro
 }
 
 async fn options_headers(client: &DavClient) -> Option<reqwest::header::HeaderMap> {
-    let root = client.locator().href(Path::new("/"), true);
+    let root = client.locator().href(&VfsPath::root(), true);
     let response = client.send(Method::OPTIONS, &root, |builder| builder).await.ok()?;
     Some(response.headers().clone())
 }

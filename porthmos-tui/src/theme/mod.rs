@@ -7,15 +7,15 @@ pub enum ColorDepth {
 }
 
 impl ColorDepth {
-    pub fn detect(colorterm: Option<&str>) -> Self {
-        match colorterm.map(str::to_ascii_lowercase).as_deref() {
-            Some("truecolor" | "24bit") => ColorDepth::TrueColor,
-            _ => ColorDepth::Indexed,
-        }
+    pub fn detect(colorterm: Option<&str>, windows_terminal_session: Option<&str>) -> Self {
+        let colorterm_says_true_colour =
+            matches!(colorterm.map(str::to_ascii_lowercase).as_deref(), Some("truecolor" | "24bit"));
+        let in_windows_terminal = windows_terminal_session.is_some_and(|session| !session.is_empty());
+        if colorterm_says_true_colour || in_windows_terminal { ColorDepth::TrueColor } else { ColorDepth::Indexed }
     }
 
     pub fn from_environment() -> Self {
-        Self::detect(std::env::var("COLORTERM").ok().as_deref())
+        Self::detect(std::env::var("COLORTERM").ok().as_deref(), std::env::var("WT_SESSION").ok().as_deref())
     }
 }
 

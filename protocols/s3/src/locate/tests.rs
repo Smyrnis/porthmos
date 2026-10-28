@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::*;
 
 fn object(bucket: &str, key: &str) -> Location {
@@ -8,21 +6,21 @@ fn object(bucket: &str, key: &str) -> Location {
 
 #[test]
 fn without_a_configured_bucket_the_root_lists_buckets() {
-    assert_eq!(locate(Path::new("/"), None), Location::Root);
-    assert_eq!(locate(Path::new("/photos"), None), Location::Bucket("photos".to_string()));
-    assert_eq!(locate(Path::new("/photos/2026/a.jpg"), None), object("photos", "2026/a.jpg"));
+    assert_eq!(locate(&VfsPath::new("/"), None), Location::Root);
+    assert_eq!(locate(&VfsPath::new("/photos"), None), Location::Bucket("photos".to_string()));
+    assert_eq!(locate(&VfsPath::new("/photos/2026/a.jpg"), None), object("photos", "2026/a.jpg"));
 }
 
 #[test]
 fn a_configured_bucket_is_the_root() {
-    assert_eq!(locate(Path::new("/"), Some("photos")), Location::Bucket("photos".to_string()));
-    assert_eq!(locate(Path::new("/2026/a.jpg"), Some("photos")), object("photos", "2026/a.jpg"));
+    assert_eq!(locate(&VfsPath::new("/"), Some("photos")), Location::Bucket("photos".to_string()));
+    assert_eq!(locate(&VfsPath::new("/2026/a.jpg"), Some("photos")), object("photos", "2026/a.jpg"));
 }
 
 #[test]
 fn parent_segments_never_leave_the_root() {
-    assert_eq!(locate(Path::new("/../x"), Some("b")), object("b", "x"));
-    assert_eq!(locate(Path::new("/b/c/../../d/e"), None), object("d", "e"));
+    assert_eq!(locate(&VfsPath::new("/../x"), Some("b")), object("b", "x"));
+    assert_eq!(locate(&VfsPath::new("/b/c/../../d/e"), None), object("d", "e"));
 }
 
 #[test]
@@ -66,4 +64,16 @@ fn virtual_hosting_puts_the_bucket_in_the_host_and_omits_the_default_port() {
 #[test]
 fn ipv6_hosts_are_bracketed() {
     assert_eq!(Endpoint::new(false, "::1", 9000).host(None, Addressing::Path), "[::1]:9000");
+}
+
+#[test]
+fn a_backslash_or_a_drive_prefix_stays_inside_one_key_segment() {
+    assert_eq!(locate(&VfsPath::new("/b/a\\b/C:x.txt"), None), object("b", "a\\b/C:x.txt"));
+    assert_eq!(locate(&VfsPath::new("/C:/x"), None), object("C:", "x"));
+}
+
+#[test]
+fn parent_directory_segments_still_pop_a_segment() {
+    assert_eq!(segments(&VfsPath::new("/a/b/../c")), vec!["a".to_string(), "c".to_string()]);
+    assert_eq!(segments(&VfsPath::new("/../..")), Vec::<String>::new());
 }

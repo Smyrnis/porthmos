@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use porthmos_vfs::VfsPath;
 
 use super::*;
 
@@ -6,7 +6,7 @@ fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
     Entry {
         modified: None,
         name: name.to_string(),
-        path: PathBuf::from("/d").join(name),
+        path: VfsPath::from("/d").join(name),
         is_dir,
         size,
         permissions: None,
@@ -16,7 +16,7 @@ fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
 
 #[test]
 fn a_listing_below_the_root_starts_with_a_parent_row() {
-    let listing = Listing::new(PathBuf::from("/d"), vec![entry("a", false, 1)], SortSpec::default(), false);
+    let listing = Listing::new(VfsPath::from("/d"), vec![entry("a", false, 1)], SortSpec::default(), false);
 
     assert_eq!(listing.rows()[0], Row::Parent);
     assert_eq!(listing.rows().len(), 2);
@@ -24,7 +24,7 @@ fn a_listing_below_the_root_starts_with_a_parent_row() {
 
 #[test]
 fn a_listing_at_the_root_has_no_parent_row() {
-    let listing = Listing::new(PathBuf::from("/"), Vec::new(), SortSpec::default(), false);
+    let listing = Listing::new(VfsPath::from("/"), Vec::new(), SortSpec::default(), false);
 
     assert!(listing.rows().is_empty());
 }
@@ -32,7 +32,7 @@ fn a_listing_at_the_root_has_no_parent_row() {
 #[test]
 fn hidden_entries_are_filtered_until_shown() {
     let mut listing = Listing::new(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![entry(".secret", false, 1), entry("open", false, 1)],
         SortSpec::default(),
         false,
@@ -47,7 +47,7 @@ fn hidden_entries_are_filtered_until_shown() {
 #[test]
 fn directories_sort_before_files_and_the_sort_can_cycle() {
     let mut listing = Listing::new(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![entry("b.txt", false, 5), entry("zdir", true, 0), entry("a.txt", false, 9)],
         SortSpec::default(),
         false,
@@ -71,11 +71,11 @@ fn directories_sort_before_files_and_the_sort_can_cycle() {
 
 #[test]
 fn replacing_keeps_the_view_settings() {
-    let mut listing = Listing::new(PathBuf::from("/d"), Vec::new(), SortSpec::default(), true);
+    let mut listing = Listing::new(VfsPath::from("/d"), Vec::new(), SortSpec::default(), true);
 
-    listing.replace(PathBuf::from("/e"), vec![entry(".x", false, 1)]);
+    listing.replace(VfsPath::from("/e"), vec![entry(".x", false, 1)]);
 
-    assert_eq!(listing.path(), Path::new("/e"));
+    assert_eq!(listing.path(), &VfsPath::new("/e"));
     assert_eq!(listing.rows().len(), 2);
 }
 
@@ -92,7 +92,7 @@ fn names(listing: &Listing) -> Vec<String> {
 
 fn filterable() -> Listing {
     Listing::new(
-        PathBuf::from("/d"),
+        VfsPath::from("/d"),
         vec![
             entry("porthmos", true, 0),
             entry("Report.pdf", false, 1),
@@ -149,10 +149,29 @@ fn a_new_folder_clears_the_filter_but_a_refresh_keeps_it() {
     let mut listing = filterable();
     listing.set_filter(Some("port"));
 
-    listing.replace(PathBuf::from("/d"), vec![entry("porthmos", true, 0), entry("other", false, 1)]);
+    listing.replace(VfsPath::from("/d"), vec![entry("porthmos", true, 0), entry("other", false, 1)]);
     assert_eq!(names(&listing), vec!["..", "porthmos"]);
 
-    listing.replace(PathBuf::from("/d/porthmos"), vec![entry("x", false, 1)]);
+    listing.replace(VfsPath::from("/d/porthmos"), vec![entry("x", false, 1)]);
     assert_eq!(listing.filter(), None);
     assert_eq!(names(&listing), vec!["..", "x"]);
+}
+
+#[test]
+fn a_listing_path_typed_with_a_trailing_slash_matches_its_entries() {
+    let listing = Listing::new(VfsPath::from("/srv/"), vec![entry("a", false, 1)], SortSpec::default(), false);
+
+    assert_eq!(listing.path(), &VfsPath::from("/srv"));
+    assert_eq!(listing.rows().len(), 2);
+}
+
+#[test]
+fn an_entry_flagged_hidden_is_not_shown_until_hidden_files_are_shown() {
+    let flagged = Entry { hidden: true, ..entry("desktop.ini", false, 1) };
+    let mut listing =
+        Listing::new(VfsPath::from("/d"), vec![flagged, entry("a.txt", false, 1)], SortSpec::default(), false);
+
+    assert_eq!(listing.rows().len(), 2);
+    listing.set_show_hidden(true);
+    assert_eq!(listing.rows().len(), 3);
 }

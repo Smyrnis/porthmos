@@ -3,7 +3,6 @@ use std::{
     fmt::Display,
     fs,
     io::{self, Write},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -13,7 +12,10 @@ use std::{
 
 use anyhow::{Context, Result};
 
+mod private;
 pub mod writer;
+
+pub(crate) use private::{create_private_dir, private_file_options, restrict_to_owner};
 
 pub enum Loaded<T> {
     Missing,
@@ -92,16 +94,10 @@ fn write_file(path: &Path, contents: &[u8], mode: u32) -> Result<()> {
 }
 
 fn write_temp_and_replace(path: &Path, temp_path: &Path, contents: &[u8], mode: u32) -> Result<()> {
-    let mut handle = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(mode)
+    let mut handle = private_file_options(mode)
         .open(temp_path)
         .with_context(|| format!("couldn't write {}", temp_path.display()))?;
-    handle
-        .set_permissions(fs::Permissions::from_mode(mode))
-        .with_context(|| format!("couldn't protect {}", temp_path.display()))?;
+    restrict_to_owner(temp_path, mode).with_context(|| format!("couldn't protect {}", temp_path.display()))?;
     handle.write_all(contents).with_context(|| format!("couldn't write {}", temp_path.display()))?;
     drop(handle);
     fs::rename(temp_path, path).with_context(|| format!("couldn't replace {}", path.display()))

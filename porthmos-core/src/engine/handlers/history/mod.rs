@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-};
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
+use porthmos_vfs::VfsPath;
 
 use super::super::{Engine, Event};
 use crate::{
@@ -43,18 +41,21 @@ impl HistoryLog {
     }
 }
 
-fn common_directory<'a>(paths: impl Iterator<Item = &'a Path>) -> PathBuf {
-    let mut common: Option<PathBuf> = None;
+fn common_directory<'a>(paths: impl Iterator<Item = &'a VfsPath>) -> VfsPath {
+    let mut common: Option<VfsPath> = None;
     for path in paths {
-        let parent = path.parent().unwrap_or(path);
+        let parent = path.parent().unwrap_or_else(|| path.clone());
         common = Some(match common {
-            None => parent.to_path_buf(),
-            Some(current) => current
-                .components()
-                .zip(parent.components())
-                .take_while(|(left, right)| left == right)
-                .map(|(component, _)| component)
-                .collect::<PathBuf>(),
+            None => parent,
+            Some(current) if current.is_absolute() != parent.is_absolute() => VfsPath::default(),
+            Some(current) => VfsPath::from_segments(
+                current.is_absolute(),
+                current
+                    .segments()
+                    .zip(parent.segments())
+                    .take_while(|(left, right)| left == right)
+                    .map(|(segment, _)| segment),
+            ),
         });
     }
     common.unwrap_or_default()
@@ -226,12 +227,13 @@ impl Engine {
         let connection = session_id.map(|id| self.session_name(id)).unwrap_or_else(|| "unknown".to_string());
         let (local_path, remote_path) = match jobs.as_slice() {
             [job] if job.display_name == row.label => (job.local_path.clone(), job.remote_path.clone()),
-            _ => (
-                common_directory(jobs.iter().map(|job| job.local_path.as_path())),
-                common_directory(jobs.iter().map(|job| Path::new(job.remote_path.as_str())))
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
+            _ => {
+                let remote_paths: Vec<VfsPath> = jobs.iter().map(|job| VfsPath::new(&job.remote_path)).collect();
+                (
+                    common_directory(jobs.iter().map(|job| &job.local_path)),
+                    common_directory(remote_paths.iter()).to_string_lossy().into_owned(),
+                )
+            }
         };
         let failed: Vec<&&TransferJob> = jobs.iter().filter(|job| matches!(job.status, JobStatus::Failed(_))).collect();
         HistoryEntry {

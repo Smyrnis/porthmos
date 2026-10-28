@@ -1,4 +1,7 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
+
+use porthmos_lfs::from_os_path;
+use porthmos_vfs::VfsPath;
 
 use crate::{
     Severity,
@@ -179,7 +182,7 @@ async fn a_running_transfer_obeys_the_limit() {
     let entry = crate::Entry {
         modified: None,
         name: "a.bin".to_string(),
-        path: t.dir.path().join("a.bin"),
+        path: from_os_path(&t.dir.path().join("a.bin")),
         is_dir: false,
         size: 3000,
         permissions: None,
@@ -187,7 +190,7 @@ async fn a_running_transfer_obeys_the_limit() {
     };
     let started = std::time::Instant::now();
 
-    t.engine.copy(Location::Local, vec![entry], Location::Session(session), PathBuf::from("/up"));
+    t.engine.copy(Location::Local, vec![entry], Location::Session(session), VfsPath::from("/up"));
     tokio::time::timeout(Duration::from_secs(10), async {
         while t.engine.transfers.jobs().count() == 0
             || t.engine.transfers.jobs().any(|job| job.status != crate::transfer::JobStatus::Completed)

@@ -1,6 +1,6 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
-use porthmos_vfs::{ErrorKind, FileSystem};
+use porthmos_vfs::{ErrorKind, FileSystem, VfsPath};
 
 pub const TEST_LIMIT: Duration = Duration::from_secs(15);
 
@@ -57,13 +57,13 @@ pub fn stage_of(kind: ErrorKind) -> Option<TestStage> {
 
 pub async fn check_start_folder(fs: &dyn FileSystem, configured: Option<&str>) -> StartFolder {
     let path = match configured {
-        Some(path) => PathBuf::from(path),
+        Some(path) => VfsPath::from(path),
         None => match fs.home().await {
             Ok(home) => home,
             Err(_) => return StartFolder::Unchecked,
         },
     };
-    let shown = path.display().to_string();
+    let shown = configured.map_or_else(|| path.to_string(), str::to_string);
     match fs.stat(&path).await {
         Ok(metadata) if metadata.is_dir() => StartFolder::Opens(shown),
         Ok(_) => StartFolder::Unreadable { path: shown, message: "not a folder".to_string() },

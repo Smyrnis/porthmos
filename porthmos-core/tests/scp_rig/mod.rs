@@ -7,7 +7,7 @@ use std::{
 };
 
 use porthmos_core::{
-    Answer, Command, Core, CoreHandle, Entry, Event, Location, Paths, Question, Severity,
+    Answer, Command, Core, CoreHandle, Entry, Event, Location, Paths, Protocol, Question, Severity,
     config::{Settings, settings::TransferSettings},
     history::HistoryEntry,
     sync::{SyncOptions, SyncPlan},
@@ -16,48 +16,102 @@ use porthmos_core::{
         rows::RowState,
     },
 };
+use porthmos_lfs::from_os_path;
+#[cfg(unix)]
 use porthmos_scp::Scp;
+#[cfg(unix)]
 use porthmos_ssh::testing::{Options, PASSWORD, SshServer, USER};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 pub struct Rig {
     pub core: CoreHandle,
     events: UnboundedReceiver<Event>,
-    pub server: SshServer,
+    pub remote_root: PathBuf,
     local: tempfile::TempDir,
     pub session: u64,
     pub max_active: usize,
     pub notices: Vec<String>,
     _config: tempfile::TempDir,
+    _remote: RemoteHold,
 }
+
+struct Remote {
+    profile: String,
+    root: PathBuf,
+    password: Option<&'static str>,
+    protocol: Option<Arc<dyn Protocol>>,
+    hold: RemoteHold,
+}
+
+#[cfg(unix)]
+type RemoteHold = SshServer;
+#[cfg(windows)]
+type RemoteHold = tempfile::TempDir;
 
 pub fn data(size: usize, seed: u8) -> Vec<u8> {
     (0..size).map(|index| (index as u8).wrapping_mul(31).wrapping_add(seed)).collect()
 }
 
-pub async fn rig(max_parallel: usize, policy: ConflictPolicy) -> Rig {
+#[cfg(unix)]
+async fn remote_side() -> Remote {
     let server = SshServer::start(Options::default()).await;
-    let config = tempfile::tempdir().unwrap();
-    let local = tempfile::tempdir().unwrap();
-    let paths = Paths::in_dir(config.path());
-    std::fs::create_dir_all(&paths.config_dir).unwrap();
     let profile = format!(
         "[connections.box]\nprotocol = \"scp\"\nhost = \"127.0.0.1\"\nport = {}\nusername = \"{USER}\"\n",
         server.port
     );
-    std::fs::write(paths.connections_file(), profile).unwrap();
+    let scp = Scp::default().with_connect_options(server.connect_options());
+    Remote {
+        profile,
+        root: server.root.path().to_path_buf(),
+        password: Some(PASSWORD),
+        protocol: Some(Arc::new(scp)),
+        hold: server,
+    }
+}
+
+#[cfg(windows)]
+async fn remote_side() -> Remote {
+    let variable = |name: &str| {
+        std::env::var(name)
+            .unwrap_or_else(|_| panic!("set PORTHMOS_TEST_SSHD_* or run without the sshd-tests feature ({name})"))
+    };
+    let port = variable("PORTHMOS_TEST_SSHD_PORT");
+    let user = variable("PORTHMOS_TEST_SSHD_USER");
+    let key = variable("PORTHMOS_TEST_SSHD_KEY").replace('\\', "/");
+    let folder = tempfile::tempdir().unwrap();
+    let profile = format!(
+        "[connections.box]\nprotocol = \"sftp\"\nhost = \"127.0.0.1\"\nport = {port}\nusername = \"{user}\"\nidentity_file = \"{key}\"\n"
+    );
+    Remote { profile, root: folder.path().to_path_buf(), password: None, protocol: None, hold: folder }
+}
+
+pub async fn rig(max_parallel: usize, policy: ConflictPolicy) -> Rig {
+    let remote = remote_side().await;
+    let config = tempfile::tempdir().unwrap();
+    let local = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(config.path());
+    std::fs::create_dir_all(&paths.config_dir).unwrap();
+    std::fs::write(paths.connections_file(), &remote.profile).unwrap();
     let settings =
         Settings { transfers: TransferSettings { max_parallel, on_conflict: policy }, ..Settings::default() };
-    let scp = Scp::default().with_connect_options(server.connect_options());
-    let (core, events) = Core::builder()
-        .without_keyring()
-        .paths(paths)
-        .settings(settings)
-        .local_home(local.path().to_path_buf())
-        .protocol(Arc::new(scp))
-        .start()
-        .unwrap();
-    let mut rig = Rig { core, events, server, local, session: 0, max_active: 0, notices: Vec::new(), _config: config };
+    let builder =
+        Core::builder().without_keyring().paths(paths).settings(settings).local_home(local.path().to_path_buf());
+    let builder = match remote.protocol {
+        Some(protocol) => builder.protocol(protocol),
+        None => builder,
+    };
+    let (core, events) = builder.start().unwrap();
+    let mut rig = Rig {
+        core,
+        events,
+        remote_root: remote.root,
+        local,
+        session: 0,
+        max_active: 0,
+        notices: Vec::new(),
+        _config: config,
+        _remote: remote.hold,
+    };
     rig.core.send(Command::Connect { profile: "box".into() });
     loop {
         match rig.event().await {
@@ -66,7 +120,7 @@ pub async fn rig(max_parallel: usize, policy: ConflictPolicy) -> Rig {
             }
             Event::Question { request_id, question: Question::Password { .. } } => rig.core.send(Command::Answer {
                 request_id,
-                answer: Some(Answer::Password(PASSWORD.into())),
+                answer: Some(Answer::Password(remote.password.expect("the server asked for a password").into())),
                 save: false,
             }),
             Event::Connected { session, .. } => {
@@ -107,7 +161,10 @@ impl Rig {
     }
 
     pub async fn open_for_edit(&mut self, name: &str) -> (u64, PathBuf) {
-        self.core.send(Command::EditFile { location: Location::Session(self.session), path: self.remote(name) });
+        self.core.send(Command::EditFile {
+            location: Location::Session(self.session),
+            path: from_os_path(&self.remote(name)),
+        });
         loop {
             if let Event::EditReady { edit_id, file, .. } = self.event().await {
                 return (edit_id, file);
@@ -126,7 +183,7 @@ impl Rig {
     }
 
     pub fn remote(&self, name: &str) -> PathBuf {
-        self.server.root.path().join(name)
+        self.remote_root.join(name)
     }
 
     pub fn local(&self, name: &str) -> PathBuf {
@@ -138,7 +195,7 @@ impl Rig {
         Entry {
             modified: None,
             name: path.file_name().unwrap().to_string_lossy().into_owned(),
-            path: path.to_path_buf(),
+            path: from_os_path(path),
             is_dir,
             size,
             permissions: None,
@@ -152,7 +209,7 @@ impl Rig {
             from: Location::Local,
             entries,
             to: Location::Session(self.session),
-            dest_dir: self.server.root.path().to_path_buf(),
+            dest_dir: from_os_path(&self.remote_root),
         });
     }
 
@@ -162,7 +219,7 @@ impl Rig {
             from: Location::Session(self.session),
             entries,
             to: Location::Local,
-            dest_dir: self.local.path().to_path_buf(),
+            dest_dir: from_os_path(self.local.path()),
         });
     }
 
@@ -172,7 +229,7 @@ impl Rig {
             from: Location::Local,
             entries,
             to: Location::Session(self.session),
-            dest_dir: self.server.root.path().to_path_buf(),
+            dest_dir: from_os_path(&self.remote_root),
         });
     }
 
@@ -182,7 +239,7 @@ impl Rig {
             from: Location::Session(self.session),
             entries,
             to: Location::Local,
-            dest_dir: self.local.path().to_path_buf(),
+            dest_dir: from_os_path(self.local.path()),
         });
     }
 
@@ -225,8 +282,8 @@ impl Rig {
     pub async fn scan_sync(&mut self, options: SyncOptions) -> Option<Arc<SyncPlan>> {
         self.core.send(Command::StartSync {
             session: self.session,
-            local_dir: self.local("tree"),
-            remote_dir: self.remote("tree"),
+            local_dir: from_os_path(&self.local("tree")),
+            remote_dir: from_os_path(&self.remote("tree")),
             options,
         });
         loop {

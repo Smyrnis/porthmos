@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -9,7 +8,8 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation,
+    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation, UpdateMode,
+    UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
@@ -44,6 +44,7 @@ use crate::{
         search_view::{self, SearchOutcome, SearchView},
         sync_view::{self, SyncView},
         transfer_list,
+        update_badge::BadgeKind,
     },
 };
 
@@ -63,13 +64,14 @@ mod search;
 mod sync;
 mod transfer_queue;
 mod transfers;
+mod update;
 
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
 
 enum PendingAction {
     Mkdir,
-    Rename,
-    Delete,
+    Rename { location: Location, from: VfsPath },
+    Delete { location: Location, paths: Vec<VfsPath> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
     SubmitTestPassword { request_id: RequestId },
@@ -85,7 +87,7 @@ enum PendingAction {
     ClearHistory,
     EditUpload { edit_id: u64 },
     EditConflict { edit_id: u64 },
-    QuitWhileSaving,
+    ConfirmQuit,
     StartSync { session: SessionId },
     SpeedLimit,
 }
@@ -183,11 +185,16 @@ pub struct App {
     last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
+    update_mode: UpdateMode,
+    home: Option<VfsPath>,
+    update_state: Option<UpdateState>,
+    ready_update: Option<String>,
+    announced_update: Option<(String, BadgeKind)>,
     core: CoreHandle,
 }
 
 impl App {
-    pub fn new(core: CoreHandle, local_path: PathBuf, panel: &PanelSettings, key_bindings: input::KeyBindings) -> Self {
+    pub fn new(core: CoreHandle, local_path: VfsPath, panel: &PanelSettings, key_bindings: input::KeyBindings) -> Self {
         let app = Self {
             should_quit: false,
             screen: Screen::Files,
@@ -235,6 +242,11 @@ impl App {
             last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
+            update_mode: UpdateMode::default(),
+            home: None,
+            update_state: None,
+            ready_update: None,
+            announced_update: None,
             core,
         };
         app.core.send(Command::List { location: Location::Local, path: Some(local_path) });
@@ -243,6 +255,16 @@ impl App {
 
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    pub fn with_home(mut self, home: Option<VfsPath>) -> Self {
+        self.home = home;
+        self
+    }
+
+    pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
+        self.update_mode = mode;
         self
     }
 
@@ -283,11 +305,15 @@ impl App {
                 }
                 Some(core_event) = core_events.recv() => {
                     if let Event::ShellReady { invocation, .. } = core_event {
-                        self.launch_shell(terminal, invocation).await?;
+                        drop(events);
+                        let launched = self.launch_shell(terminal, invocation).await;
                         events = EventStream::new();
+                        launched?;
                     } else if let Event::EditReady { edit_id, file, editor } = core_event {
-                        self.launch_editor(terminal, edit_id, file, editor).await?;
+                        drop(events);
+                        let launched = self.launch_editor(terminal, edit_id, file, editor).await;
                         events = EventStream::new();
+                        launched?;
                     } else {
                         self.apply_core_event(core_event);
                     }
@@ -417,6 +443,7 @@ impl App {
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
+            Event::Update(state) => self.apply_update_event(state),
         }
     }
 
@@ -446,10 +473,10 @@ impl App {
         }
     }
 
-    fn apply_listing(&mut self, location: Location, path: PathBuf, entries: Vec<porthmos_core::Entry>) {
+    fn apply_listing(&mut self, location: Location, path: VfsPath, entries: Vec<porthmos_core::Entry>) {
         match location {
             Location::Local => {
-                if path != self.local.path() {
+                if &path != self.local.path() {
                     self.local.cursor = 0;
                 }
                 self.local.replace_listing(path, entries);
@@ -465,7 +492,7 @@ impl App {
         }
     }
 
-    fn apply_free_space(&mut self, location: Location, path: &Path, bytes: Option<u64>) {
+    fn apply_free_space(&mut self, location: Location, path: &VfsPath, bytes: Option<u64>) {
         match location {
             Location::Local => self.local.set_free_space(path, bytes),
             Location::Session(id) => {
@@ -478,9 +505,9 @@ impl App {
 
     fn relist(&self, location: Location) {
         let path = match location {
-            Location::Local => Some(self.local.path().to_path_buf()),
+            Location::Local => Some(self.local.path().clone()),
             Location::Session(id) => match self.sessions.by_id(id) {
-                Some(session) => Some(session.panel.path().to_path_buf()),
+                Some(session) => Some(session.panel.path().clone()),
                 None => return,
             },
         };

@@ -1,7 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-};
+use std::collections::{HashMap, HashSet};
+
+use porthmos_vfs::{NameRules, VfsPath};
 
 use super::plan::{DirectoryPlan, ExistingFile, PlannedFile};
 
@@ -35,11 +34,11 @@ impl ConflictPolicy {
     }
 }
 
-pub fn unique_name(name: &str, taken: &HashSet<String>) -> String {
+pub fn unique_name(name: &str, taken: &HashSet<String>, rules: NameRules) -> String {
     let (stem, extension) = split_extension(name);
     (1..)
         .map(|counter| format!("{stem} ({counter}){extension}"))
-        .find(|candidate| !taken.contains(candidate))
+        .find(|candidate| !taken.contains(&rules.fold(candidate)))
         .unwrap_or_else(|| name.to_string())
 }
 
@@ -111,7 +110,7 @@ pub struct ResolvedPlan {
 }
 
 pub fn resolve(plan: DirectoryPlan, answers: &[Resolution]) -> ResolvedPlan {
-    let DirectoryPlan { files, mut taken_names, .. } = plan;
+    let DirectoryPlan { files, mut taken_names, name_rules, .. } = plan;
     let mut answers = answers.iter().copied();
     let mut resolved = Vec::new();
     let mut skipped = 0;
@@ -140,7 +139,7 @@ pub fn resolve(plan: DirectoryPlan, answers: &[Resolution]) -> ResolvedPlan {
                 resolved.push(file);
             }
             Resolution::Rename => {
-                rename_destination(&mut file, &mut taken_names);
+                rename_destination(&mut file, &mut taken_names, name_rules);
                 file.resume = false;
                 resolved.push(file);
             }
@@ -149,16 +148,15 @@ pub fn resolve(plan: DirectoryPlan, answers: &[Resolution]) -> ResolvedPlan {
     ResolvedPlan { files: resolved, skipped, skipped_partials, blocked_by_folder }
 }
 
-fn rename_destination(file: &mut PlannedFile, taken_names: &mut HashMap<PathBuf, HashSet<String>>) {
+fn rename_destination(file: &mut PlannedFile, taken_names: &mut HashMap<VfsPath, HashSet<String>>, rules: NameRules) {
     let (Some(parent), Some(name)) = (file.destination.parent(), file.destination.file_name()) else {
         return;
     };
-    let parent = parent.to_path_buf();
     let taken = taken_names.entry(parent.clone()).or_default();
-    let new_name = unique_name(&name.to_string_lossy(), taken);
-    taken.insert(new_name.clone());
+    let new_name = unique_name(&name.to_string_lossy(), taken, rules);
+    taken.insert(rules.fold(&new_name));
     file.destination = parent.join(&new_name);
-    file.display_name = Path::new(&file.display_name).with_file_name(&new_name).to_string_lossy().into_owned();
+    file.display_name = VfsPath::new(&file.display_name).with_file_name(&new_name).to_string_lossy().into_owned();
 }
 
 fn split_extension(name: &str) -> (&str, &str) {
