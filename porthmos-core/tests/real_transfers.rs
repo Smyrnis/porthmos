@@ -18,6 +18,7 @@ use porthmos_core::{
         rows::RowState,
     },
 };
+use porthmos_lfs::from_os_path;
 use scp_rig::{Rig, data, rig};
 
 fn no_conflicts(_: &[ConflictInfo]) -> Option<Vec<Resolution>> {
@@ -247,7 +248,7 @@ async fn a_finished_upload_is_kept_in_the_history_file() {
     assert_eq!(listed[0].direction, Direction::Upload);
     assert_eq!(listed[0].result, HistoryResult::Done);
     assert_eq!((listed[0].files_done, listed[0].files_total, listed[0].bytes), (1, 1, 1000));
-    assert_eq!(listed[0].local_path, rig.local("a.txt").to_string_lossy());
+    assert_eq!(listed[0].local_path, from_os_path(&rig.local("a.txt")).to_string());
     assert!(listed[0].remote_path.ends_with("/a.txt"), "{}", listed[0].remote_path);
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     let stored = loop {
