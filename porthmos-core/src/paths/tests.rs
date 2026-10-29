@@ -8,6 +8,7 @@ use std::{
 
 use super::*;
 
+#[cfg(unix)]
 #[test]
 fn xdg_directories_win_over_home() {
     let paths = Paths::resolve(
