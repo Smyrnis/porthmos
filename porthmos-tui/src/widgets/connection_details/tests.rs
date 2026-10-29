@@ -283,16 +283,16 @@ fn the_header_shows_name_protocol_and_connected_status() {
 }
 
 #[test]
-fn a_failed_entry_shows_its_first_error_line_in_err() {
+fn a_failed_entry_shows_its_last_error_line_in_err() {
     let theme = indexed();
     let mut draw = Draw::new();
     draw.failure = Some("Authentication failed\nsecond line");
 
     let terminal = draw.entry(&sftp_entry(), 50, 8);
 
-    let (x, y) = find_text(&terminal, "Authentication failed").unwrap();
+    let (x, y) = find_text(&terminal, "second line").unwrap();
     assert_eq!((y, cell_fg(&terminal, x, y)), (0, theme.err));
-    assert!(!screen(&terminal).contains("second line"));
+    assert!(!screen(&terminal).contains("Authentication failed"));
 }
 
 #[test]
@@ -511,4 +511,14 @@ fn the_longest_option_labels_are_not_cut_short() {
     let terminal = draw.entry(&entry, 60, 14);
 
     assert!(screen(&terminal).contains("identity file /home/user/.ssh/id_ed25519"), "{}", screen(&terminal));
+}
+
+#[test]
+fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
+    let mut draw = Draw::new();
+    draw.failure = Some("Unable to connect to web:\nConnection refused (os error 111)");
+
+    let terminal = draw.entry(&sftp_entry(), 80, 8);
+
+    assert!(find_text(&terminal, "Connection refused (os error 111)").is_some(), "{}", screen(&terminal));
 }

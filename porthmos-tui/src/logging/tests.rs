@@ -129,3 +129,8 @@ fn an_explicit_setting_replaces_the_default() {
     assert!(!logs.contains("core warning"), "{logs}");
     assert!(logs.contains("dependency error"), "{logs}");
 }
+
+#[test]
+fn the_log_file_layer_turns_ansi_colour_off() {
+    assert!(include_str!("../main.rs").contains(".with_ansi(false)"));
+}

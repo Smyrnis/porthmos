@@ -106,9 +106,10 @@ pub fn forget_ssh_labels(paths: &Paths, name: &str) -> Result<()> {
 
 fn read_config_file(path: &Path) -> Result<ConfigFile> {
     match fs::read_to_string(path) {
-        Ok(contents) => {
-            toml::from_str(&contents).map_err(|err| anyhow::anyhow!(crate::persist::toml_problem(&contents, &err)))
-        }
+        Ok(contents) => toml::from_str(&contents).map_err(|err| {
+            anyhow::anyhow!(crate::persist::toml_problem(&contents, &err))
+                .context(format!("failed to parse {}", path.file_name().unwrap_or_default().to_string_lossy()))
+        }),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(ConfigFile::default()),
         Err(err) => Err(err.into()),
     }

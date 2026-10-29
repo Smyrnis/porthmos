@@ -457,3 +457,16 @@ fn a_malformed_connections_file_reports_the_line_but_not_its_contents() {
     assert!(error.contains("line 4"), "{error}");
     assert!(!error.contains("AKIAEXAMPLE"), "{error}");
 }
+
+#[test]
+fn a_malformed_connections_file_error_names_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(dir.path());
+    std::fs::create_dir_all(&paths.config_dir).unwrap();
+    std::fs::write(paths.connections_file(), "[connections.s3]\nhost = \"h\nusername = \"u\"\n").unwrap();
+
+    let error = format!("{:#}", load(&paths).unwrap_err());
+
+    assert!(error.contains("connections.toml"), "{error}");
+    assert!(error.contains("line 2"), "{error}");
+}

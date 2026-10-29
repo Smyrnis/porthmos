@@ -7,6 +7,7 @@ use ratatui::{Frame, layout::Rect};
 use crate::{
     theme::Theme,
     widgets::{
+        dialog::types_text,
         form_fields::{LABEL_WIDTH, displayed_value, render_field_stack, stack_height},
         history_view::printable,
         popup::{content_width, footer, footer_text, render_popup},
@@ -289,7 +290,7 @@ impl FormDialog {
         let field = &mut self.fields[self.focused];
         if field.kind == FieldKind::SavedSecret {
             match key.code {
-                KeyCode::Char(c) => {
+                KeyCode::Char(c) if types_text(key.modifiers) => {
                     field.kind = FieldKind::Masked;
                     field.value = c.to_string();
                     field.cursor = 1;
@@ -361,7 +362,7 @@ impl FormDialog {
                 }
                 FormOutcome::Pending
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char(c) if types_text(key.modifiers) => {
                 let field = &mut self.fields[self.focused];
                 field.insert_char_at(field.cursor, c);
                 field.cursor += 1;

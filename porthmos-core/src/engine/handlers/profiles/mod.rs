@@ -24,7 +24,7 @@ impl Engine {
     pub(crate) fn list_profiles(&mut self) {
         match self.all_profiles() {
             Ok(entries) => self.emit(Event::Profiles(entries)),
-            Err(err) => self.report(Severity::Error, err.to_string()),
+            Err(err) => self.report(Severity::Error, format!("{err:#}")),
         }
     }
 
@@ -60,7 +60,7 @@ impl Engine {
             }
             Ok(_) => {}
             Err(err) => {
-                self.report(Severity::Error, err.to_string());
+                self.report(Severity::Error, format!("{err:#}"));
                 return;
             }
         }
@@ -69,7 +69,7 @@ impl Engine {
             && profile.name != *original
             && let Err(err) = store::delete(&self.paths, original)
         {
-            self.report(Severity::Error, err.to_string());
+            self.report(Severity::Error, format!("{err:#}"));
             return;
         }
 
@@ -81,7 +81,7 @@ impl Engine {
                 self.emit(Event::ProfileSaved);
                 self.list_profiles();
             }
-            Err(err) => return self.report(Severity::Error, err.to_string()),
+            Err(err) => return self.report(Severity::Error, format!("{err:#}")),
         }
 
         let renamed_from = original.filter(|old| *old != profile.name);
@@ -106,7 +106,7 @@ impl Engine {
                 self.profile_rejected(format!("{name} is not in ~/.ssh/config"));
                 return;
             }
-            Err(err) => return self.report(Severity::Error, err.to_string()),
+            Err(err) => return self.report(Severity::Error, format!("{err:#}")),
         }
         let labels =
             Labels { group: labels::normalize_group(group), tags: labels::parse_tags(tags), in_keyring: Vec::new() };
@@ -115,7 +115,7 @@ impl Engine {
                 self.emit(Event::ProfileSaved);
                 self.list_profiles();
             }
-            Err(err) => self.report(Severity::Error, err.to_string()),
+            Err(err) => self.report(Severity::Error, format!("{err:#}")),
         }
     }
 
@@ -132,11 +132,11 @@ impl Engine {
                             self.move_ssh_password(from, to, saved);
                         }
                     }
-                    Err(err) => self.report(Severity::Error, err.to_string()),
+                    Err(err) => self.report(Severity::Error, format!("{err:#}")),
                 }
             }
             Ok(false) => self.report(Severity::Error, format!("{to} is not in ~/.ssh/config")),
-            Err(err) => self.report(Severity::Error, err.to_string()),
+            Err(err) => self.report(Severity::Error, format!("{err:#}")),
         }
         self.list_profiles();
     }
@@ -144,7 +144,7 @@ impl Engine {
     pub(crate) fn forget_ssh_labels(&mut self, name: &str) {
         let saved = self.ssh_markers(name);
         if let Err(err) = store::forget_ssh_labels(&self.paths, name) {
-            self.report(Severity::Error, err.to_string());
+            self.report(Severity::Error, format!("{err:#}"));
             return self.list_profiles();
         }
         if !self.names_a_live_connection(name) {
@@ -170,7 +170,7 @@ impl Engine {
             .map(|profile| profile.in_keyring)
             .unwrap_or_default();
         if let Err(err) = store::delete(&self.paths, name) {
-            self.report(Severity::Error, err.to_string());
+            self.report(Severity::Error, format!("{err:#}"));
             return self.list_profiles();
         }
         self.forget_last_used(name);

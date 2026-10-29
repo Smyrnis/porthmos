@@ -66,3 +66,46 @@ fn next_wake_returns_the_front_entrys_deadline() {
     notifications.push(Severity::Warning, "careful");
     assert!(notifications.next_wake().is_some());
 }
+
+#[test]
+fn identical_consecutive_messages_collapse_into_one_with_a_count() {
+    let mut notifications = Notifications::default();
+    for _ in 0..12 {
+        notifications.push(Severity::Error, "Transfer failed: Permission denied");
+    }
+
+    assert_eq!(notifications.current().unwrap().message, "Transfer failed: Permission denied (x12)");
+    notifications.dismiss_current();
+    assert!(notifications.current().is_none());
+}
+
+#[test]
+fn messages_separated_by_another_message_do_not_collapse() {
+    let mut notifications = Notifications::default();
+    notifications.push(Severity::Error, "a");
+    notifications.push(Severity::Error, "b");
+    notifications.push(Severity::Error, "a");
+
+    let mut seen = Vec::new();
+    while let Some(current) = notifications.current() {
+        seen.push(current.message.clone());
+        notifications.dismiss_current();
+    }
+    assert_eq!(seen, ["a", "b", "a"]);
+}
+
+#[test]
+fn the_queue_is_bounded_and_keeps_the_newest_messages() {
+    let mut notifications = Notifications::default();
+    for n in 0..1000 {
+        notifications.push(Severity::Error, format!("failure {n}"));
+    }
+
+    let mut seen = Vec::new();
+    while let Some(current) = notifications.current() {
+        seen.push(current.message.clone());
+        notifications.dismiss_current();
+    }
+    assert!(seen.len() <= 50, "{} notifications stayed queued", seen.len());
+    assert_eq!(seen.last().map(String::as_str), Some("failure 999"));
+}

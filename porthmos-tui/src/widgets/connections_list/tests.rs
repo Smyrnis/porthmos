@@ -301,7 +301,7 @@ fn several_connected_sessions_all_show_ok_dots() {
 }
 
 #[test]
-fn a_failed_connection_has_an_err_dot_and_its_first_message_line_replaces_the_host() {
+fn a_failed_connection_has_an_err_dot_and_its_message_lines_replace_the_host() {
     let theme = indexed();
     let mut setup = Setup::new();
     setup.failures.insert("web".to_string(), "Authentication failed for web\ntried 3 keys".to_string());
@@ -310,7 +310,7 @@ fn a_failed_connection_has_an_err_dot_and_its_first_message_line_replaces_the_ho
 
     let line = row(&terminal, 2);
     assert!(line.contains("Authentication failed for web"), "{line:?}");
-    assert!(!line.contains("tried 3 keys") && !line.contains("deploy@"), "{line:?}");
+    assert!(line.contains("tried 3 keys") && !line.contains("deploy@"), "{line:?}");
     assert_eq!(cell_fg(&terminal, 2, 2), theme.err);
     let (x, y) = find_text(&terminal, "Authentication").unwrap();
     assert_eq!(cell_fg(&terminal, x, y), theme.err);
@@ -606,4 +606,17 @@ fn a_lost_session_has_an_err_dot_and_says_so() {
     assert_eq!(cell_fg(&terminal, dot_x, dot_y), theme.err);
     let (x, y) = find_text(&terminal, "connection lost").unwrap();
     assert_eq!(cell_fg(&terminal, x, y), theme.err);
+}
+
+#[test]
+fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
+    let mut setup = Setup::new();
+    setup
+        .failures
+        .insert("web".to_string(), "Unable to connect to web:\nConnection refused (os error 111)".to_string());
+
+    let terminal = setup.draw(&view_of(vec![entry("web")]), 100, 6);
+
+    let line = row(&terminal, 2);
+    assert!(line.contains("Connection refused (os error 111)"), "{line:?}");
 }
