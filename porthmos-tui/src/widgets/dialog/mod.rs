@@ -7,13 +7,19 @@ pub mod text_input;
 
 pub use confirm::ConfirmDialog;
 pub use conflict::ConflictDialog;
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, KeyModifiers};
 pub use form::{FieldKind, FormDialog, FormField, FormLayout, KEPT_SECRET, TestState};
 pub use list::ListDialog;
 use ratatui::{Frame, layout::Rect};
 pub use text_input::TextInputDialog;
 
 use crate::theme::Theme;
+
+fn types_text(modifiers: KeyModifiers) -> bool {
+    let control = modifiers.contains(KeyModifiers::CONTROL);
+    let alt = modifiers.contains(KeyModifiers::ALT);
+    control == alt
+}
 
 pub enum Dialog {
     Confirm(ConfirmDialog),

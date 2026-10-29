@@ -213,6 +213,7 @@ impl Engine {
                 self.refresh_transfer_destination(id);
                 self.fill_transfer_slots();
                 self.finish_move_batch_of(id);
+                self.announce_batch_failures(id);
             }
             TransferEvent::SourceRemoved { id } => self.source_removed(id),
             TransferEvent::SourceRemovalFailed { id, message } => self.source_removal_failed(id, message),
@@ -236,10 +237,13 @@ impl Engine {
                 }
                 let retried = !cancelled && self.transfers.fail_or_retry(id, message.clone());
                 if !retried {
-                    if !cancelled && known {
-                        self.announce(Severity::Error, message);
-                    } else if !cancelled {
-                        self.report(Severity::Error, message);
+                    let summarised_by_batch = known && self.reports_with_its_batch(id);
+                    if !cancelled && !summarised_by_batch {
+                        if known {
+                            self.announce(Severity::Error, message);
+                        } else {
+                            self.report(Severity::Error, message);
+                        }
                     }
                     self.refresh_transfer_destination(id);
                 }
@@ -247,6 +251,7 @@ impl Engine {
                 if !retried {
                     self.finish_move_batch_of(id);
                 }
+                self.announce_batch_failures(id);
             }
             TransferEvent::PlanReady { batch_id, session_id, direction, plan } => {
                 self.clear_planning(batch_id);
@@ -573,25 +578,83 @@ impl Engine {
         }
     }
 
+    fn batch_row_of(&self, id: u64) -> Option<QueueRow> {
+        let batch_id = self.transfers.get(id)?.batch_id?;
+        self.transfers.row(RowKind::Batch(batch_id))
+    }
+
+    fn reports_with_its_batch(&self, id: u64) -> bool {
+        self.batch_row_of(id).is_some_and(|row| row.files_total > 1)
+    }
+
+    fn announce_batch_failures(&mut self, id: u64) {
+        let Some(row) = self.batch_row_of(id).filter(|row| row.files_total > 1 && row.is_finished()) else {
+            return;
+        };
+        let failed =
+            self.transfers.jobs_of(row.kind).iter().filter(|job| matches!(job.status, JobStatus::Failed(_))).count();
+        let Some(failure) = row.failure.filter(|_| failed > 0) else {
+            return;
+        };
+        let RowKind::Batch(batch_id) = row.kind else {
+            return;
+        };
+        let cause = failure.message.rsplit_once('\n').map_or(failure.message.as_str(), |(_, cause)| cause);
+        self.announce(
+            Severity::Error,
+            format!(
+                "{} of {} failed: {failed} of {} files \u{2014} {cause} (see Ctrl+T)",
+                self.verb_of(batch_id),
+                row.label,
+                row.files_total
+            ),
+        );
+    }
+
     pub(crate) fn retry_row(&mut self, kind: RowKind) {
-        let retryable: Vec<u64> = self
+        let retryable: Vec<(u64, u64, Option<u64>)> = self
             .transfers
             .jobs_of(kind)
             .iter()
             .filter(|job| matches!(job.status, JobStatus::Failed(_) | JobStatus::Cancelled))
-            .map(|job| job.id)
+            .map(|job| (job.id, job.session_id, job.batch_id))
             .collect();
-        let Some(session_id) = retryable.first().and_then(|id| self.transfers.get(*id)).map(|job| job.session_id)
-        else {
-            return;
-        };
-        if !self.sessions.contains_key(&session_id) {
-            self.report(Severity::Warning, "Can't retry: session disconnected");
-            return;
+        let mut ready: Vec<u64> = Vec::new();
+        let mut reconnect: Vec<String> = Vec::new();
+        for (id, session_id, batch_id) in retryable {
+            match self.usable_session_for(session_id) {
+                Some(target) => {
+                    if target != session_id {
+                        self.transfers.rebind_session(id, target);
+                        if let Some(moving) = batch_id.and_then(|batch_id| self.moves.get_mut(&batch_id)) {
+                            moving.session_id = target;
+                        }
+                    }
+                    ready.push(id);
+                }
+                None => {
+                    let name = self.session_name(session_id);
+                    if !reconnect.contains(&name) {
+                        reconnect.push(name);
+                    }
+                }
+            }
         }
-        if self.transfers.retry_jobs(&retryable) > 0 {
+        for name in reconnect {
+            self.report(Severity::Warning, format!("Can't retry: reconnect to {name} first"));
+        }
+        if self.transfers.retry_jobs(&ready) > 0 {
             self.fill_transfer_slots();
         }
+    }
+
+    fn usable_session_for(&self, session_id: u64) -> Option<u64> {
+        let usable = |id: &u64| self.sessions.contains_key(id) && !self.lost_sessions.contains(id);
+        if usable(&session_id) {
+            return Some(session_id);
+        }
+        let name = self.session_name(session_id);
+        self.sessions.iter().rev().find(|(id, live)| live.name == name && usable(id)).map(|(id, _)| *id)
     }
 
     pub(crate) fn clear_finished_rows(&mut self) {

@@ -28,8 +28,8 @@ const MISSING_APP_DATA: &str = "APPDATA environment variable is not set";
 const MISSING_LOCAL_APP_DATA: &str = "LOCALAPPDATA environment variable is not set";
 
 fn resolve_dir(xdg: Option<OsString>, home: Option<&Path>, fallback: &[&str]) -> Result<PathBuf> {
-    if let Some(xdg) = xdg {
-        return Ok(PathBuf::from(xdg).join(APP_DIR));
+    if let Some(xdg) = xdg.map(PathBuf::from).filter(|xdg| xdg.is_absolute()) {
+        return Ok(xdg.join(APP_DIR));
     }
     let home = home.context(MISSING_HOME)?;
     Ok(fallback.iter().fold(home.to_path_buf(), |path, part| path.join(part)).join(APP_DIR))

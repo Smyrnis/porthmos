@@ -138,6 +138,12 @@ struct ConflictPrompt {
     answers: Vec<Option<Resolution>>,
 }
 
+struct PendingFocus {
+    location: Location,
+    folder: VfsPath,
+    name: String,
+}
+
 pub struct App {
     should_quit: bool,
     screen: Screen,
@@ -166,6 +172,7 @@ pub struct App {
     reselect_row: Option<RowKind>,
     connection_status: ConnectionStatus,
     search: Option<SearchSession>,
+    pending_focus: Option<PendingFocus>,
     transfers: TransferSnapshot,
     history: HistoryView,
     sync_view: SyncView,
@@ -223,6 +230,7 @@ impl App {
             reselect_row: None,
             connection_status: ConnectionStatus::Disconnected,
             search: None,
+            pending_focus: None,
             transfers: TransferSnapshot::default(),
             history: HistoryView::new(),
             sync_view: SyncView::new(),
@@ -474,6 +482,7 @@ impl App {
     }
 
     fn apply_listing(&mut self, location: Location, path: VfsPath, entries: Vec<porthmos_core::Entry>) {
+        let focus = self.pending_focus.take_if(|pending| pending.location == location && pending.folder == path);
         match location {
             Location::Local => {
                 if &path != self.local.path() {
@@ -489,6 +498,14 @@ impl App {
                     tracing::debug!("dropping a listing for session {id}, which is gone");
                 }
             }
+        }
+        if let Some(focus) = focus {
+            match location {
+                Location::Local => self.local.focus_name(&focus.name),
+                Location::Session(id) => {
+                    self.sessions.by_id_mut(id).is_some_and(|session| session.panel.focus_name(&focus.name))
+                }
+            };
         }
     }
 

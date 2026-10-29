@@ -77,6 +77,7 @@ impl App {
                 ActivePanel::Remote
             }
         };
+        self.pending_focus = Some(PendingFocus { location, folder: parent.clone(), name: entry.name });
         self.core.send(Command::List { location, path: Some(parent) });
     }
 }

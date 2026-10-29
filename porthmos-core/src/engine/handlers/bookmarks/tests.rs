@@ -149,3 +149,25 @@ fn a_protected_bookmarks_file_does_not_change_or_publish_the_list_on_remove() {
     assert!(bookmark_events(events.clone()).is_empty());
     assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Error, .. })));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_bookmark_that_cannot_be_written_reports_why() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut t = test_engine();
+    let config_dir = t.engine.paths.config_dir.clone();
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let writable_anyway = std::fs::File::create(config_dir.join("probe")).is_ok();
+
+    t.engine.add_bookmark("home".to_string(), Location::Local, VfsPath::from("/home/me"));
+
+    std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    if writable_anyway {
+        return;
+    }
+    let (severity, message) = t.first_notice().expect("an error notice");
+    assert_eq!(severity, Severity::Error);
+    assert!(message.contains("Permission denied"), "{message}");
+}

@@ -212,8 +212,8 @@ fn server_text_and_messages_are_sanitised_and_cut_but_the_time_never_is() {
         assert!(find_text(&terminal, "142 ms").is_some(), "{width}");
         let terminal = render(&failed, width);
         assert!(!has_unprintable_cell(&terminal), "{width}");
-        assert!(!screen_rows(&terminal)[0].contains("second"), "{width}");
     }
+    assert!(text(&failed, 130).contains("first - second"));
 }
 
 #[test]
@@ -246,4 +246,14 @@ fn an_indexed_theme_keeps_ok_bright_err_and_dim_distinct() {
     for (index, colour) in colours.iter().enumerate() {
         assert!(colours.iter().skip(index + 1).all(|other| other != colour));
     }
+}
+
+#[test]
+fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
+    let failed = TestState::Finished(TestOutcome::Failed {
+        stage: TestStage::Connect,
+        message: "Unable to connect to sftp-local:\nConnection refused (os error 111)".to_string(),
+    });
+
+    assert!(text(&failed, 120).contains("Connection refused (os error 111)"));
 }
