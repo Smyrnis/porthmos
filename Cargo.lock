@@ -5094,7 +5094,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-core"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
@@ -5124,7 +5124,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-ftp"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5146,7 +5146,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-gui"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5172,7 +5172,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-lfs"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "libc",
@@ -5185,7 +5185,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-release"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5199,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-s3"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5231,7 +5231,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-scp"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "porthmos-lfs",
@@ -5243,7 +5243,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-sftp"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5259,7 +5259,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-ssh"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5273,7 +5273,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-tls"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5291,7 +5291,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-tui"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5311,7 +5311,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-update"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5338,7 +5338,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-vfs"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5352,7 +5352,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-webdav"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
