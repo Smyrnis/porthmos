@@ -22,6 +22,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time", "sync"] }
 toml = "1.1.6"
+toml_edit = "0.25"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-width = "0.2.2"

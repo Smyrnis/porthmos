@@ -1,4 +1,5 @@
 mod conflict;
+mod sync_options;
 
 use iced::widget::{checkbox, column, container, row, space, stack, text, text_input};
 use iced::{Border, Element, Font, Length, alignment};
@@ -10,10 +11,12 @@ use crate::dialogs::{Dialog, Typed};
 use crate::editing::waiting_notice;
 use crate::modal::{Modal, delete_summary, edit_question_title, quit_text};
 use crate::theme::Palette;
-use porthmos_core::edit::{EditChoice, EditQuestionKind};
+use crate::view::text_fit::fit;
+use porthmos_core::edit::{EditChoice, EditQuestionKind, printable};
 
 const DIALOG_WIDTH: f32 = 440.0;
 const CONFLICT_WIDTH: f32 = 720.0;
+const NAME_CELLS: usize = 60;
 
 pub(super) fn button<'a>(title: &str, message: Message, palette: &Palette) -> Element<'a, Message> {
     text_button(title, Some(message), Look::Normal, palette)
@@ -136,6 +139,11 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             "Quit Porthmos".to_string(),
             body_text(quit_text(*transfers, *edits), palette),
             buttons("Quit", "Cancel", palette),
+        ),
+        Modal::SyncOptions { name, offer_both, direction, by, subfolders, error, .. } => (
+            format!("Synchronize with {}", fit(&printable(name), NAME_CELLS)),
+            sync_options::body(*direction, *by, *subfolders, *offer_both, error, palette),
+            buttons("Start", "Cancel", palette),
         ),
         Modal::ConfirmDelete { entries, .. } => {
             let lines = delete_summary(entries).join("\n");

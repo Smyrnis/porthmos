@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,6 +11,7 @@ use iced::futures::stream::unfold;
 use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, config};
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use crate::settings_view::GuiSettings;
 use crate::shortcuts::Shortcuts;
 use crate::theme::ThemeSettings;
 
@@ -42,6 +44,8 @@ pub struct Started {
     pub warnings: Vec<String>,
     pub theme: ThemeSettings,
     pub shortcuts: Shortcuts,
+    pub settings: GuiSettings,
+    pub config_file: PathBuf,
 }
 
 pub fn start(env: Environment, paths: Paths) -> Result<Started> {
@@ -49,12 +53,26 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     let (settings, config_warnings) = config::load(&paths)?;
     let (theme, theme_warnings) = ThemeSettings::from_frontend(&settings.frontend);
     let (shortcuts, key_warnings) = Shortcuts::from_frontend(&settings.frontend);
+    let gui_settings = GuiSettings {
+        editor: settings.edit.editor.clone(),
+        auto_upload: settings.edit.auto_upload,
+        update_mode: settings.update.mode,
+    };
+    let config_file = paths.config_file();
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();
     warnings.extend(theme_warnings);
     warnings.extend(key_warnings);
     let (core, receiver) =
         Core::builder().paths(paths).environment(env).settings(settings).release_updates().start()?;
-    Ok(Started { core, events: EventSource::new(receiver), warnings, theme, shortcuts })
+    Ok(Started {
+        core,
+        events: EventSource::new(receiver),
+        warnings,
+        theme,
+        shortcuts,
+        settings: gui_settings,
+        config_file,
+    })
 }
 
 pub fn subscription(source: &EventSource) -> Subscription<Event> {

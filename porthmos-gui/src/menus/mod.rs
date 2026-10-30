@@ -5,6 +5,7 @@ use crate::shortcuts::Action;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoreItem {
+    Palette,
     SelectAll,
     ToggleHidden,
     Preview,
@@ -13,7 +14,9 @@ pub enum MoreItem {
     Bookmarks,
     BookmarkHere,
     History,
+    Sync,
     Terminal,
+    CheckForUpdates,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,11 +24,13 @@ pub struct MoreState {
     pub hidden_shown: bool,
     pub file: bool,
     pub terminal: bool,
+    pub sync: bool,
 }
 
 pub fn more_items(state: MoreState) -> Vec<(MoreItem, String, bool)> {
     let hidden = if state.hidden_shown { "Hide hidden files" } else { "Show hidden files" };
     vec![
+        (MoreItem::Palette, "Command palette…".to_string(), true),
         (MoreItem::SelectAll, "Select all".to_string(), true),
         (MoreItem::ToggleHidden, hidden.to_string(), true),
         (MoreItem::Preview, "Preview".to_string(), state.file),
@@ -34,7 +39,9 @@ pub fn more_items(state: MoreState) -> Vec<(MoreItem, String, bool)> {
         (MoreItem::Bookmarks, "Bookmarks…".to_string(), true),
         (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
         (MoreItem::History, "Transfer history…".to_string(), true),
+        (MoreItem::Sync, "Synchronize…".to_string(), state.sync),
         (MoreItem::Terminal, "Open terminal here".to_string(), state.terminal),
+        (MoreItem::CheckForUpdates, "Check for updates".to_string(), true),
     ]
 }
 

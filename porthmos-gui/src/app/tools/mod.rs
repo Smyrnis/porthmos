@@ -47,6 +47,9 @@ impl App {
             Tool::Bookmarks(_) => None,
             Tool::History(_) => Some(App::history_filter_id()),
             Tool::Preview(_) => None,
+            Tool::Palette(_) => Some(App::palette_input_id()),
+            Tool::Settings(_) => None,
+            Tool::Sync => None,
         })
     }
 
@@ -100,6 +103,7 @@ impl App {
         match self.tool.take() {
             Some(Tool::Search(_)) => self.core.send(Command::CancelSearch),
             Some(Tool::Preview(state)) if state.is_loading() => self.core.send(Command::CancelPreview),
+            Some(Tool::Sync) => self.cancel_sync_review(),
             _ => {}
         }
     }
@@ -142,7 +146,7 @@ impl App {
         }
     }
 
-    fn show_location(&mut self, location: Location) -> bool {
+    pub(in crate::app) fn show_location(&mut self, location: Location) -> bool {
         match location {
             Location::Local => self.active = PanelSide::Local,
             Location::Session(id) => {
@@ -225,6 +229,9 @@ impl App {
             Tool::Bookmarks(state) => state.selected().map(|(row, _)| row),
             Tool::History(state) => state.selected_row(),
             Tool::Preview(_) => None,
+            Tool::Palette(state) => (state.hit_count() > 0).then(|| state.selected()),
+            Tool::Settings(_) => None,
+            Tool::Sync => (self.sync_view.matched() > 0).then(|| self.sync_view.cursor()),
         }
     }
 
@@ -233,7 +240,8 @@ impl App {
             Some(Tool::Search(state)) => state.move_selection(down),
             Some(Tool::Bookmarks(state)) => state.move_selection(down),
             Some(Tool::History(state)) => state.move_selection(down),
-            Some(Tool::Preview(_)) | None => {}
+            Some(Tool::Sync) => self.sync_view.move_cursor(if down { 1 } else { -1 }),
+            Some(Tool::Preview(_) | Tool::Palette(_) | Tool::Settings(_)) | None => {}
         }
     }
 
@@ -242,7 +250,7 @@ impl App {
             Some(Tool::Search(_)) => self.open_search_result(),
             Some(Tool::Bookmarks(_)) => self.go_to_bookmark(),
             Some(Tool::History(_)) => self.show_history_details(),
-            Some(Tool::Preview(_)) | None => {}
+            Some(Tool::Preview(_) | Tool::Palette(_) | Tool::Settings(_) | Tool::Sync) | None => {}
         }
     }
 
@@ -251,11 +259,11 @@ impl App {
             Some(Tool::Search(state)) => state.select(row),
             Some(Tool::Bookmarks(state)) => state.select(row),
             Some(Tool::History(state)) => state.select(row),
-            Some(Tool::Preview(_)) | None => {}
+            Some(Tool::Preview(_) | Tool::Palette(_) | Tool::Settings(_) | Tool::Sync) | None => {}
         }
     }
 
-    fn reveal_selection(&mut self) -> Task<Message> {
+    pub(in crate::app) fn reveal_selection(&mut self) -> Task<Message> {
         let Some(tool) = self.tool.as_ref() else {
             return Task::none();
         };
@@ -276,6 +284,15 @@ impl App {
         use keyboard::key::Named;
         if matches!(self.tool, Some(Tool::Preview(_))) {
             return self.preview_key(press);
+        }
+        if matches!(self.tool, Some(Tool::Sync)) {
+            return self.sync_key(press);
+        }
+        if matches!(self.tool, Some(Tool::Palette(_))) {
+            return self.palette_key(press);
+        }
+        if matches!(self.tool, Some(Tool::Settings(_))) {
+            return self.settings_key(press);
         }
         match &press.key {
             Key::Named(Named::Escape) => self.close_tool(),
@@ -313,7 +330,7 @@ impl App {
                 self.tool_scroll = 0.0;
                 return operation::scroll_to(App::tool_list_id(), operation::AbsoluteOffset { x: None, y: Some(0.0) });
             }
-            Message::PreviewScrolled(offset) => self.tool_scroll = offset,
+            Message::PreviewScrolled(offset) | Message::SyncScrolled(offset) => self.tool_scroll = offset,
             Message::HistoryDetailsPressed => self.show_history_details(),
             Message::HistoryClearPressed => self.ask_clear_history(),
             Message::SearchRowPressed(row) | Message::BookmarkRowPressed(row) | Message::HistoryRowPressed(row) => {
@@ -327,7 +344,7 @@ impl App {
             }
             Message::SearchOpenPressed | Message::BookmarkGoPressed => self.activate_tool_selection(),
             Message::BookmarkRemovePressed => self.remove_bookmark(),
-            _ => {}
+            message => return self.sync_message(message),
         }
         Task::none()
     }

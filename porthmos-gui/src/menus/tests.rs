@@ -1,7 +1,7 @@
 use super::{MoreItem, MoreState, more_items};
 
 fn state(hidden_shown: bool, file: bool) -> MoreState {
-    MoreState { hidden_shown, file, terminal: true }
+    MoreState { hidden_shown, file, terminal: true, sync: true }
 }
 
 #[test]
@@ -12,6 +12,7 @@ fn more_items_toggle_the_hidden_label() {
     assert_eq!(
         hidden,
         vec![
+            (MoreItem::Palette, "Command palette…".to_string(), true),
             (MoreItem::SelectAll, "Select all".to_string(), true),
             (MoreItem::ToggleHidden, "Show hidden files".to_string(), true),
             (MoreItem::Preview, "Preview".to_string(), true),
@@ -20,10 +21,12 @@ fn more_items_toggle_the_hidden_label() {
             (MoreItem::Bookmarks, "Bookmarks…".to_string(), true),
             (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
             (MoreItem::History, "Transfer history…".to_string(), true),
-            (MoreItem::Terminal, "Open terminal here".to_string(), true)
+            (MoreItem::Sync, "Synchronize…".to_string(), true),
+            (MoreItem::Terminal, "Open terminal here".to_string(), true),
+            (MoreItem::CheckForUpdates, "Check for updates".to_string(), true)
         ]
     );
-    assert_eq!(shown[1], (MoreItem::ToggleHidden, "Hide hidden files".to_string(), true));
+    assert_eq!(shown[2], (MoreItem::ToggleHidden, "Hide hidden files".to_string(), true));
 }
 
 fn enabled(items: &[(super::MenuItem, bool)]) -> Vec<super::MenuItem> {
@@ -152,4 +155,18 @@ fn edit_in_the_more_menu_follows_the_file_flag() {
 
     assert!(enabled_for(true));
     assert!(!enabled_for(false));
+}
+
+#[test]
+fn the_more_item_is_disabled_without_a_listed_connection() {
+    let sync_for = |sync: bool| {
+        more_items(MoreState { hidden_shown: false, file: false, terminal: false, sync })
+            .into_iter()
+            .find(|(item, _, _)| *item == MoreItem::Sync)
+            .map(|(_, title, enabled)| (title, enabled))
+            .unwrap()
+    };
+
+    assert_eq!(sync_for(true), ("Synchronize…".to_string(), true));
+    assert_eq!(sync_for(false), ("Synchronize…".to_string(), false));
 }

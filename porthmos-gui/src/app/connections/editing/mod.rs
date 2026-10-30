@@ -27,6 +27,7 @@ impl App {
         if let Some(name) = self.reveal.take() {
             self.manager.reveal(&name);
         }
+        self.palette_profiles_changed();
     }
 
     pub(in crate::app) fn profile_saved(&mut self) {

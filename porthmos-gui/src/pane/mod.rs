@@ -18,6 +18,7 @@ pub struct Pane {
     pub history: History,
     expected: Expected,
     recording: bool,
+    listed: bool,
 }
 
 impl Pane {
@@ -28,6 +29,7 @@ impl Pane {
             history: History::new(),
             expected: Expected::Current,
             recording: true,
+            listed: false,
         }
     }
 
@@ -38,7 +40,12 @@ impl Pane {
             history: History::new(),
             expected: Expected::Anything,
             recording: true,
+            listed: false,
         }
+    }
+
+    pub fn is_listed(&self) -> bool {
+        self.listed
     }
 
     pub fn expect_unrecorded(&mut self, path: Option<VfsPath>) {
@@ -77,6 +84,7 @@ impl Pane {
             self.recording = true;
         }
         self.panel.replace_listing(path, entries);
+        self.listed = true;
         true
     }
 }

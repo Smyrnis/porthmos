@@ -110,7 +110,7 @@ fn no_connection_means_no_terminal() {
 #[test]
 fn the_more_item_is_disabled_without_shell_support() {
     let enabled_for = |terminal: bool| {
-        more_items(MoreState { hidden_shown: false, file: true, terminal })
+        more_items(MoreState { hidden_shown: false, file: true, terminal, sync: true })
             .into_iter()
             .find(|(item, _, _)| *item == MoreItem::Terminal)
             .map(|(_, title, enabled)| (title, enabled))

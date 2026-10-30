@@ -1,9 +1,25 @@
 use std::time::{Duration, Instant};
 
-use porthmos_core::{Command, CoreHandle, Event};
+use porthmos_core::{Command, CoreHandle, Environment, Event, Paths, UpdateMode};
 use tokio::sync::mpsc::unbounded_channel;
 
 use super::*;
+
+#[tokio::test]
+async fn started_carries_the_update_mode() {
+    for (text, expected) in [("off", UpdateMode::Off), ("notify", UpdateMode::Notify), ("auto", UpdateMode::Auto)] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::in_dir(root.path());
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(paths.config_file(), format!("[update]\nmode = \"{text}\"\n")).unwrap();
+        let env = Environment::from_process();
+
+        let started = start(env, paths).unwrap();
+
+        assert_eq!(started.settings.update_mode, expected, "{text}");
+        started.core.shutdown().await;
+    }
+}
 
 #[test]
 fn the_event_source_hands_out_its_receiver_exactly_once() {

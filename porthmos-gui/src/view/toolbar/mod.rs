@@ -9,6 +9,7 @@ use crate::icons::Icon;
 use crate::menus::{MoreState, more_items};
 use crate::shortcuts::Action;
 use crate::theme::Palette;
+use crate::update_view::badge_text;
 
 const MORE_MENU_WIDTH: f32 = 220.0;
 const SEPARATOR_HEIGHT: f32 = 24.0;
@@ -27,6 +28,16 @@ pub struct ToolbarState {
 
 pub fn show_titles(window_width: f32) -> bool {
     labels_visible(window_width)
+}
+
+pub fn badge_label(app: &App) -> Option<String> {
+    app.update_badge().map(|badge| badge_text(&badge, app.window_size().width))
+}
+
+fn badge_button(app: &App) -> Option<Element<'_, Message>> {
+    let text = badge_label(app)?;
+    let tip = app.update_announcement().unwrap_or_default();
+    Some(tool_button(None, &text, true, tip, Some(Message::UpdateBadgePressed), Look::Primary, app.palette()))
 }
 
 fn hint(app: &App, title: &str, action: Action) -> String {
@@ -67,6 +78,7 @@ pub fn bar(app: &App) -> Element<'_, Message> {
         action_button(app, Icon::Refresh, "Refresh", Action::Refresh, state.refresh),
         action_button(app, Icon::Search, "Filter", Action::StartFilter, state.filter),
         space().width(Length::Fill),
+        badge_button(app).unwrap_or_else(|| space().width(Length::Fixed(0.0)).into()),
         tool_button(
             Some(Icon::Transfers),
             &transfers_title,
@@ -89,8 +101,8 @@ pub fn bar(app: &App) -> Element<'_, Message> {
             Some(Icon::Settings),
             "Settings",
             titles,
-            "Settings (coming later)".to_string(),
-            None,
+            hint(app, "Settings", Action::Settings),
+            Some(Message::ActionRequested(Action::Settings)),
             Look::Normal,
             palette
         ),
@@ -113,6 +125,7 @@ pub fn more_menu(app: &App) -> Element<'_, Message> {
         hidden_shown: app.hidden_shown(),
         file: app.single_file(),
         terminal: app.terminal_possible(),
+        sync: app.sync_possible(),
     }) {
         let color = if enabled { palette.fg_bright } else { palette.fg_dim };
         let row_button = button(label(title, color))

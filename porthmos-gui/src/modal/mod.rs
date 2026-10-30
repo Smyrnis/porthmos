@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 
 use porthmos_core::edit::{EditQuestionKind, printable};
-use porthmos_core::{Entry, Location, VfsPath};
+use porthmos_core::sync::{SyncBy, SyncDirection};
+use porthmos_core::{Entry, Location, SessionId, VfsPath};
 
 use crate::app::PanelSide;
 use crate::conflicts::ConflictView;
@@ -14,16 +15,58 @@ const NAME_CELLS: usize = 60;
 #[derive(Debug, Clone)]
 pub enum Modal {
     Question(Dialog),
-    NewFolder { side: PanelSide, text: String, error: Option<String> },
-    Rename { side: PanelSide, original: Entry, text: String, error: Option<String> },
-    BookmarkName { location: Location, path: VfsPath, text: String, error: Option<String> },
-    Info { title: String, body: String },
+    NewFolder {
+        side: PanelSide,
+        text: String,
+        error: Option<String>,
+    },
+    Rename {
+        side: PanelSide,
+        original: Entry,
+        text: String,
+        error: Option<String>,
+    },
+    BookmarkName {
+        location: Location,
+        path: VfsPath,
+        text: String,
+        error: Option<String>,
+    },
+    Info {
+        title: String,
+        body: String,
+    },
     ConfirmClearHistory,
-    ConfirmDelete { side: PanelSide, entries: Vec<Entry> },
-    Conflict { view: ConflictView, apply_to_rest: bool },
-    EditQuestion { edit_id: u64, name: String, kind: EditQuestionKind },
-    EditWaiting { edit_id: u64, name: String },
-    ConfirmQuit { transfers: bool, edits: bool },
+    ConfirmDelete {
+        side: PanelSide,
+        entries: Vec<Entry>,
+    },
+    Conflict {
+        view: ConflictView,
+        apply_to_rest: bool,
+    },
+    EditQuestion {
+        edit_id: u64,
+        name: String,
+        kind: EditQuestionKind,
+    },
+    EditWaiting {
+        edit_id: u64,
+        name: String,
+    },
+    ConfirmQuit {
+        transfers: bool,
+        edits: bool,
+    },
+    SyncOptions {
+        session: SessionId,
+        name: String,
+        offer_both: bool,
+        direction: SyncDirection,
+        by: SyncBy,
+        subfolders: bool,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Default)]

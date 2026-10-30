@@ -96,7 +96,6 @@ impl Sessions {
         self.items.iter().find(|session| session.name == name)
     }
 
-    #[cfg(test)]
     pub fn by_id(&self, id: SessionId) -> Option<&Session> {
         self.items.iter().find(|session| session.id == id)
     }

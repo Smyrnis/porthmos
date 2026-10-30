@@ -10,6 +10,7 @@ use crate::editing::Platform;
 use crate::native::{Attached, EventLog, Native, NativeError, NativeEvent};
 use crate::processes::{Launcher, ProcessEvent, ProcessJob, Spawner};
 use crate::runtime::EventSource;
+use crate::settings_view::GuiSettings;
 use crate::shortcuts::Shortcuts;
 use crate::theme::{Palette, ThemeSettings};
 
@@ -39,13 +40,27 @@ impl Harness {
         Harness::with_protocols(builtin_infos())
     }
 
+    pub fn with_update_mode(mode: porthmos_core::UpdateMode) -> Harness {
+        Harness::build(Vec::new(), GuiSettings { update_mode: mode, ..GuiSettings::default() })
+    }
+
+    pub fn with_gui_settings(settings: GuiSettings) -> Harness {
+        Harness::build(Vec::new(), settings)
+    }
+
     pub fn with_protocols(protocols: Vec<ProtocolInfo>) -> Harness {
+        Harness::build(protocols, GuiSettings::default())
+    }
+
+    fn build(protocols: Vec<ProtocolInfo>, settings: GuiSettings) -> Harness {
         let (core, commands) = CoreHandle::detached_with(protocols);
         let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let start = VfsPath::new("/home/tester");
         let palette = Palette::new(&ThemeSettings::default());
-        let mut app = App::new(core, EventSource::new(receiver), start.clone(), palette, Shortcuts::default());
         let scratch = tempfile::tempdir().unwrap();
+        let mut app = App::new(core, EventSource::new(receiver), start.clone(), palette, Shortcuts::default())
+            .with_update_mode(settings.update_mode)
+            .with_settings(settings, scratch.path().join("config.toml"));
         app.set_staging_parent(scratch.path().to_path_buf());
         let launched = Arc::new(Mutex::new(Vec::new()));
         let installed = Arc::new(Mutex::new(vec!["xterm".to_string()]));

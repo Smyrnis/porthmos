@@ -87,3 +87,21 @@ fn the_remembered_scroll_resets_when_another_folder_is_shown() {
     pane.accept(VfsPath::new("/b"), Vec::new());
     assert_eq!(pane.scroll, 0.0);
 }
+
+#[test]
+fn a_pane_is_listed_after_its_first_listing() {
+    let mut pane = Pane::awaiting_first_listing();
+    assert!(!pane.is_listed());
+
+    assert!(pane.accept(VfsPath::new("/a"), Vec::new()));
+    assert!(pane.is_listed());
+}
+
+#[test]
+fn a_dropped_listing_does_not_make_a_pane_listed() {
+    let mut pane = Pane::new(VfsPath::new("/a"));
+
+    assert!(!pane.accept(VfsPath::new("/b"), Vec::new()));
+
+    assert!(!pane.is_listed());
+}

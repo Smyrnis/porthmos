@@ -34,10 +34,14 @@ pub enum Action {
     Bookmarks,
     BookmarkHere,
     History,
+    Sync,
+    Palette,
+    Settings,
+    CheckForUpdates,
     Quit,
 }
 
-const NAMES: [(Action, &str); 32] = [
+const NAMES: [(Action, &str); 36] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -69,6 +73,10 @@ const NAMES: [(Action, &str); 32] = [
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
     (Action::History, "history"),
+    (Action::Sync, "sync"),
+    (Action::Palette, "palette"),
+    (Action::Settings, "settings"),
+    (Action::CheckForUpdates, "check_for_updates"),
     (Action::Quit, "quit"),
 ];
 
@@ -108,6 +116,55 @@ const NAMED_KEYS: [(&str, Named); 30] = [
 impl Action {
     fn from_name(name: &str) -> Option<Action> {
         NAMES.iter().find(|(_, known)| *known == name).map(|(action, _)| *action)
+    }
+
+    pub fn all() -> impl Iterator<Item = Action> {
+        NAMES.iter().map(|(action, _)| *action)
+    }
+
+    pub fn name(self) -> &'static str {
+        NAMES.iter().find(|(action, _)| *action == self).map_or("", |(_, name)| *name)
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Action::MoveUp => "Move up",
+            Action::MoveDown => "Move down",
+            Action::PageUp => "Page up",
+            Action::PageDown => "Page down",
+            Action::Home => "Go to the first entry",
+            Action::End => "Go to the last entry",
+            Action::Open => "Open",
+            Action::Parent => "Go to the parent folder",
+            Action::SwitchPanel => "Switch panel",
+            Action::ToggleSelect => "Select or deselect",
+            Action::SelectAll => "Select all",
+            Action::ToggleHidden => "Show or hide hidden files",
+            Action::CycleSort => "Change sort order",
+            Action::Refresh => "Refresh",
+            Action::StartFilter => "Filter files",
+            Action::ClearFilter => "Clear the filter",
+            Action::NextTab => "Next connection tab",
+            Action::PreviousTab => "Previous connection tab",
+            Action::NewFolder => "New folder",
+            Action::Rename => "Rename",
+            Action::Delete => "Delete",
+            Action::Copy => "Copy to other panel",
+            Action::Move => "Move to other panel",
+            Action::ToggleQueue => "Show or hide transfers",
+            Action::Preview => "Preview",
+            Action::Edit => "Edit",
+            Action::Terminal => "Open terminal here",
+            Action::Search => "Search\u{2026}",
+            Action::Bookmarks => "Bookmarks\u{2026}",
+            Action::BookmarkHere => "Bookmark this folder",
+            Action::History => "Transfer history\u{2026}",
+            Action::Sync => "Synchronize\u{2026}",
+            Action::Palette => "Command palette\u{2026}",
+            Action::Settings => "Settings",
+            Action::CheckForUpdates => "Check for updates",
+            Action::Quit => "Quit",
+        }
     }
 }
 
@@ -151,7 +208,29 @@ impl Chord {
 }
 
 impl Chord {
-    fn label(&self) -> String {
+    pub fn spec(&self) -> String {
+        let mut text = String::new();
+        for (held, prefix) in [
+            (self.modifiers.control(), "ctrl+"),
+            (self.modifiers.alt(), "alt+"),
+            (self.modifiers.shift(), "shift+"),
+            (self.modifiers.logo(), "cmd+"),
+        ] {
+            if held {
+                text.push_str(prefix);
+            }
+        }
+        match &self.key {
+            Key::Named(named) => {
+                text.push_str(NAMED_KEYS.iter().find(|(_, known)| known == named).map_or("", |(name, _)| *name))
+            }
+            Key::Character(character) => text.push_str(character),
+            Key::Unidentified => {}
+        }
+        text
+    }
+
+    pub fn label(&self) -> String {
         let mut parts = Vec::new();
         if self.modifiers.control() {
             parts.push("Ctrl".to_string());
@@ -168,8 +247,14 @@ impl Chord {
         parts.push(match &self.key {
             Key::Named(named) => {
                 let name = NAMED_KEYS.iter().find(|(_, known)| known == named).map_or("", |(name, _)| *name);
-                let mut letters = name.chars();
-                letters.next().map(|first| first.to_uppercase().chain(letters).collect()).unwrap_or_default()
+                match name {
+                    "pageup" => "PageUp".to_string(),
+                    "pagedown" => "PageDown".to_string(),
+                    _ => {
+                        let mut letters = name.chars();
+                        letters.next().map(|first| first.to_uppercase().chain(letters).collect()).unwrap_or_default()
+                    }
+                }
             }
             Key::Character(text) => text.to_uppercase(),
             Key::Unidentified => String::new(),
@@ -195,6 +280,12 @@ pub fn is_reserved(chord: &Chord) -> bool {
     window_switch || fullscreen || terminal_chord || system_key
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignError {
+    Reserved,
+    UsedBy(Action),
+}
+
 #[derive(Debug, Clone)]
 pub struct KeyPress {
     pub key: Key,
@@ -213,6 +304,19 @@ pub fn effective(press: &KeyPress) -> (Key, Modifiers) {
         return (press.modified_key.clone(), Modifiers::empty());
     }
     (press.key.clone(), press.modifiers)
+}
+
+pub fn chord_from_press(press: &KeyPress) -> Option<Chord> {
+    let (key, modifiers) = effective(press);
+    let expressible = match &key {
+        Key::Named(named) => NAMED_KEYS.iter().any(|(_, known)| known == named),
+        Key::Character(text) => {
+            let mut letters = text.to_lowercase().chars().collect::<Vec<_>>().into_iter();
+            matches!((letters.next(), letters.next()), (Some(only), None) if !only.is_whitespace() && !only.is_control())
+        }
+        Key::Unidentified => false,
+    };
+    expressible.then(|| Chord::new(key, modifiers))
 }
 
 #[derive(Debug, Clone)]
@@ -256,6 +360,9 @@ impl Default for Shortcuts {
             (character("b"), Modifiers::CTRL, Action::Bookmarks),
             (character("d"), Modifiers::CTRL, Action::BookmarkHere),
             (character("y"), Modifiers::CTRL, Action::History),
+            (character("u"), Modifiers::CTRL, Action::Sync),
+            (character("p"), Modifiers::CTRL, Action::Palette),
+            (character(","), Modifiers::CTRL, Action::Settings),
             (named(Named::F7), none, Action::NewFolder),
             (named(Named::F2), none, Action::Rename),
             (named(Named::Delete), none, Action::Delete),
@@ -275,6 +382,45 @@ impl Shortcuts {
 
     pub fn label_for(&self, action: Action) -> Option<String> {
         self.bindings.iter().find(|(_, bound)| *bound == action).map(|(chord, _)| chord.label())
+    }
+
+    pub fn chords_for(&self, action: Action) -> Vec<Chord> {
+        self.bindings.iter().filter(|(_, bound)| *bound == action).map(|(chord, _)| chord.clone()).collect()
+    }
+
+    pub fn default_chords(action: Action) -> Vec<Chord> {
+        Shortcuts::default().chords_for(action)
+    }
+
+    pub fn owner_of(&self, chord: &Chord) -> Option<Action> {
+        self.bindings.iter().find(|(bound, _)| bound == chord).map(|(_, action)| *action)
+    }
+
+    pub fn is_modified(&self, action: Action) -> bool {
+        let current = self.chords_for(action);
+        let defaults = Shortcuts::default_chords(action);
+        current.len() != defaults.len() || current.iter().any(|chord| !defaults.contains(chord))
+    }
+
+    pub fn assign(&mut self, action: Action, chord: Chord) -> Result<(), AssignError> {
+        if is_reserved(&chord) {
+            return Err(AssignError::Reserved);
+        }
+        if let Some(owner) = self.owner_of(&chord).filter(|owner| *owner != action) {
+            return Err(AssignError::UsedBy(owner));
+        }
+        self.bindings.retain(|(_, bound)| *bound != action);
+        self.bindings.push((chord, action));
+        Ok(())
+    }
+
+    pub fn reset(&mut self, action: Action) {
+        self.bindings.retain(|(_, bound)| *bound != action);
+        for chord in Shortcuts::default_chords(action) {
+            if self.owner_of(&chord).is_none() {
+                self.bindings.push((chord, action));
+            }
+        }
     }
 
     pub fn action_for(&self, key: &Key, modifiers: Modifiers) -> Option<Action> {

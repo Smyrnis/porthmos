@@ -12,7 +12,9 @@ use porthmos_core::{
 };
 
 use porthmos_core::config::bookmarks::Bookmark;
+use porthmos_core::sync::SyncOptions;
 
+pub use self::sync::SyncChoice;
 use crate::conflicts::ConflictQueue;
 use crate::connections::{Manager, MissingChoice, Screen};
 use crate::dialogs::{Dialog, Typed};
@@ -32,11 +34,14 @@ use crate::panel::{Modifiers, Panel};
 use crate::processes::{Launcher, ProcessEvent, ProcessSource};
 use crate::runtime::{self, EventSource};
 use crate::sessions::Sessions;
+use crate::settings_view::GuiSettings;
 use crate::shortcuts::{self, Action, KeyPress, Shortcuts};
 use crate::staging::{Job, Stage, Staging};
+use crate::sync_view::SyncView;
 use crate::theme::Palette;
 use crate::tools::Tool;
 use crate::transfers::{QUEUE_HEIGHT, QueuePane, RowButton, TransferState, transfer_command};
+use crate::update_view::UpdateView;
 use crate::view::toolbar::ToolbarState;
 
 const NOTICE_LIMIT: usize = 50;
@@ -145,6 +150,17 @@ pub enum Message {
     HistoryRowActivated(usize),
     HistoryDetailsPressed,
     HistoryClearPressed,
+    PaletteTyped(String),
+    PaletteRowPressed(usize),
+    PaletteRowActivated(usize),
+    UpdateBadgePressed,
+    SettingsChangePressed(Action),
+    SettingsResetPressed(Action),
+    SettingsEditorTyped(String),
+    SettingsEditorApplied,
+    SettingsAutoUploadToggled(bool),
+    SettingsUpdateModeChosen(porthmos_core::UpdateMode),
+    SettingsScrolled(f32),
     MoreMenuToggled,
     RowRightPressed(PanelSide, usize),
     BackgroundRightPressed(PanelSide),
@@ -163,6 +179,14 @@ pub enum Message {
     ModalTyped(String),
     ModalAccepted,
     ModalDeclined,
+    SyncOptionChosen(SyncChoice),
+    SyncFilterTyped(String),
+    SyncRowPressed(usize),
+    SyncTickAllPressed,
+    SyncUntickAllPressed,
+    SyncFlipPressed,
+    SyncRunPressed,
+    SyncScrolled(f32),
     ActionRequested(Action),
     QueueRowPressed(RowKind, RowButton),
     QueueClearFinished,
@@ -225,6 +249,7 @@ pub struct App {
     bookmarks: Vec<Bookmark>,
     tool: Option<Tool>,
     tool_scroll: f32,
+    sync_view: SyncView,
     tool_version: u64,
     next_preview_id: u64,
     launcher: Launcher,
@@ -252,6 +277,9 @@ pub struct App {
     drop_at: Option<Point>,
     staging: Option<Job>,
     staging_parent: PathBuf,
+    update: UpdateView,
+    gui_settings: GuiSettings,
+    config_file: Option<PathBuf>,
 }
 
 impl App {
@@ -288,6 +316,7 @@ impl App {
             bookmarks: Vec::new(),
             tool: None,
             tool_scroll: 0.0,
+            sync_view: SyncView::default(),
             tool_version: 0,
             next_preview_id: 1,
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
@@ -315,6 +344,9 @@ impl App {
             drop_at: None,
             staging: None,
             staging_parent: std::env::temp_dir(),
+            update: UpdateView::new(porthmos_core::UpdateMode::Auto),
+            gui_settings: GuiSettings::default(),
+            config_file: None,
         };
         app.list(Location::Local, Some(local_start));
         app
@@ -715,6 +747,9 @@ impl App {
                 let save = self.keyring_available.then_some(self.save_choice);
                 self.modals.push(Modal::Question(Dialog::from_question(request_id, question, save)));
             }
+            Event::Update(state) => self.update_arrived(state),
+            Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
+            Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
             _ => {}
         }
     }
@@ -947,6 +982,7 @@ impl App {
                 self.more_open = false;
                 if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
                     let action = match item {
+                        MoreItem::Palette => Action::Palette,
                         MoreItem::SelectAll => Action::SelectAll,
                         MoreItem::ToggleHidden => Action::ToggleHidden,
                         MoreItem::Preview => Action::Preview,
@@ -955,10 +991,22 @@ impl App {
                         MoreItem::Search => Action::Search,
                         MoreItem::Bookmarks => Action::Bookmarks,
                         MoreItem::History => Action::History,
+                        MoreItem::Sync => Action::Sync,
                         MoreItem::BookmarkHere => Action::BookmarkHere,
+                        MoreItem::CheckForUpdates => Action::CheckForUpdates,
                     };
                     return self.perform(action);
                 }
+            }
+            message @ (Message::SettingsChangePressed(_)
+            | Message::SettingsResetPressed(_)
+            | Message::SettingsEditorTyped(_)
+            | Message::SettingsEditorApplied
+            | Message::SettingsAutoUploadToggled(_)
+            | Message::SettingsUpdateModeChosen(_)
+            | Message::SettingsScrolled(_)) => return self.settings_message(message),
+            message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
+                return self.palette_message(message);
             }
             message @ (Message::ManagerToggled
             | Message::ManagerClosed
@@ -968,6 +1016,7 @@ impl App {
             | Message::ManagerGroupToggled(_)
             | Message::ManagerConnect) => return self.manager_message(message),
             Message::ManagerIgnored | Message::ToolIgnored => {}
+            Message::UpdateBadgePressed => self.show_update_announcement(),
             Message::ProcessFinished(event) => self.process_finished(event),
             Message::EditAnswered(choice) => self.edit_answered(choice),
             Message::EditDoneEditing => self.answer_modal(true),
@@ -985,7 +1034,14 @@ impl App {
             | Message::HistoryRowActivated(_)
             | Message::HistoryDetailsPressed
             | Message::HistoryClearPressed
-            | Message::PreviewScrolled(_)) => return self.tool_message(message),
+            | Message::PreviewScrolled(_)
+            | Message::SyncFilterTyped(_)
+            | Message::SyncRowPressed(_)
+            | Message::SyncTickAllPressed
+            | Message::SyncUntickAllPressed
+            | Message::SyncFlipPressed
+            | Message::SyncRunPressed
+            | Message::SyncScrolled(_)) => return self.tool_message(message),
             Message::PasswordSaveToggled(on) => {
                 if let Some(Modal::Question(Dialog::Password { save: Some(save), .. })) = self.modals.front_mut() {
                     *save = on;
@@ -1031,6 +1087,7 @@ impl App {
             }
             Message::ModalAccepted => self.answer_modal(true),
             Message::ModalDeclined => self.answer_modal(false),
+            Message::SyncOptionChosen(choice) => self.sync_option_chosen(choice),
             Message::QueueRowPressed(kind, button) => self.core.send(button.command(kind)),
             Message::QueueClearFinished => self.core.send(Command::ClearFinished),
             Message::QueueCancelAll => self.core.send(Command::CancelAllTransfers),
@@ -1390,6 +1447,9 @@ impl App {
             }
             return;
         }
+        if accepted && self.sync_options_rejected() {
+            return;
+        }
         if !accepted && matches!(self.modals.front(), Some(Modal::EditWaiting { .. })) {
             return;
         }
@@ -1420,6 +1480,9 @@ impl App {
                 self.core.send(Command::AddBookmark { label: text.trim().to_string(), location, path });
             }
             (true, Modal::ConfirmClearHistory) => self.core.send(Command::ClearHistory),
+            (true, Modal::SyncOptions { session, direction, by, subfolders, .. }) => {
+                self.start_sync(session, SyncOptions { direction, by, subfolders })
+            }
             (true, Modal::ConfirmDelete { side, entries }) => {
                 if let Some(location) = self.location_of(side) {
                     let paths = entries.into_iter().map(|entry| entry.path).collect();
@@ -1506,6 +1569,7 @@ impl App {
                     | Modal::EditQuestion { .. }
                     | Modal::EditWaiting { .. }
                     | Modal::ConfirmQuit { .. }
+                    | Modal::SyncOptions { .. }
             );
             match &press.key {
                 keyboard::Key::Named(keyboard::key::Named::Escape) => self.answer_modal(false),
@@ -1717,6 +1781,10 @@ impl App {
             Action::Search => self.open_search(),
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),
+            Action::Sync => self.request_sync(),
+            Action::Palette => self.open_palette(),
+            Action::Settings => self.open_settings(),
+            Action::CheckForUpdates => self.check_for_updates(),
             Action::BookmarkHere => self.open_bookmark_dialog(),
             Action::NextTab => self.sessions.next(),
             Action::PreviousTab => self.sessions.previous(),
@@ -1804,10 +1872,14 @@ impl App {
 
 mod connections;
 mod editing;
+mod palette;
 mod preview;
 mod quit;
+mod settings;
+mod sync;
 mod terminal;
 mod tools;
+mod update;
 
 #[cfg(test)]
 mod tests;

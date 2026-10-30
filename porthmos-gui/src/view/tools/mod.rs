@@ -1,5 +1,5 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, stack, svg, text_input};
-use iced::{Alignment, Border, Element, Font, Length, Size, alignment};
+use iced::{Alignment, Border, Element, Font, Length, Size, alignment, mouse};
 use porthmos_core::Entry;
 
 use super::button::{Look, text_button};
@@ -16,6 +16,15 @@ use crate::tools::Tool;
 pub const PREVIEW_WIDTH: f32 = 960.0;
 pub const PREVIEW_HEIGHT: f32 = 640.0;
 pub const PREVIEW_CHROME: f32 = 120.0;
+pub const SYNC_WIDTH: f32 = 960.0;
+pub const SYNC_HEIGHT: f32 = 640.0;
+const SYNC_CHROME: f32 = 190.0;
+pub const SETTINGS_WIDTH: f32 = 760.0;
+pub const SETTINGS_HEIGHT: f32 = 560.0;
+pub const SETTINGS_CHROME: f32 = 140.0;
+pub const PALETTE_WIDTH: f32 = 640.0;
+pub const PALETTE_HEIGHT: f32 = 420.0;
+pub const PALETTE_CHROME: f32 = 76.0;
 pub const TOOL_WIDTH: f32 = 640.0;
 pub const TOOL_HEIGHT: f32 = 440.0;
 pub const BOOKMARKS_WIDTH: f32 = 560.0;
@@ -42,6 +51,9 @@ pub fn frame_size(tool: &Tool, window: Size) -> Size {
         Tool::Bookmarks(_) => fit(window, BOOKMARKS_WIDTH, BOOKMARKS_HEIGHT),
         Tool::History(_) => fit(window, HISTORY_WIDTH, HISTORY_HEIGHT),
         Tool::Preview(_) => fit(window, PREVIEW_WIDTH, PREVIEW_HEIGHT),
+        Tool::Palette(_) => fit(window, PALETTE_WIDTH, PALETTE_HEIGHT),
+        Tool::Settings(_) => fit(window, SETTINGS_WIDTH, SETTINGS_HEIGHT),
+        Tool::Sync => fit(window, SYNC_WIDTH, SYNC_HEIGHT),
     }
 }
 
@@ -51,7 +63,24 @@ pub fn list_height(tool: &Tool, window: Size) -> f32 {
         Tool::Bookmarks(_) => bookmarks_list_height(window),
         Tool::History(_) => history_list_height(window),
         Tool::Preview(_) => preview_list_height(window),
+        Tool::Palette(_) => palette_list_height(window),
+        Tool::Settings(_) => settings_list_height(window),
+        Tool::Sync => sync_list_height(window),
     }
+}
+
+pub fn sync_list_height(window: Size) -> f32 {
+    let frame = fit(window, SYNC_WIDTH, SYNC_HEIGHT);
+    let stacked = if super::sync::stacked_buttons(frame.width) { super::sync::SYNC_STACK_EXTRA } else { 0.0 };
+    (frame.height - SYNC_CHROME - stacked).max(ROW_HEIGHT)
+}
+
+pub fn settings_list_height(window: Size) -> f32 {
+    (fit(window, SETTINGS_WIDTH, SETTINGS_HEIGHT).height - SETTINGS_CHROME).max(ROW_HEIGHT)
+}
+
+pub fn palette_list_height(window: Size) -> f32 {
+    (fit(window, PALETTE_WIDTH, PALETTE_HEIGHT).height - PALETTE_CHROME).max(ROW_HEIGHT)
 }
 
 pub fn preview_list_height(window: Size) -> f32 {
@@ -276,6 +305,9 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Tool::Bookmarks(state) => bookmarks_body(app, state),
         Tool::History(state) => history_body(app, state),
         Tool::Preview(state) => super::preview::body(app, state),
+        Tool::Palette(state) => super::palette::body(app, state),
+        Tool::Settings(state) => super::settings::body(app, state),
+        Tool::Sync => super::sync::body(app, app.sync_view()),
     };
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
@@ -287,9 +319,10 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
                 ..container::Style::default()
             },
         );
-    let blocked = mouse_area(boxed).on_press(Message::ToolIgnored);
-    let backdrop =
-        mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(Message::ToolIgnored);
+    let blocked = mouse_area(boxed).on_press(Message::ToolIgnored).interaction(mouse::Interaction::Idle);
+    let backdrop = mouse_area(container(space()).width(Length::Fill).height(Length::Fill))
+        .on_press(Message::ToolIgnored)
+        .interaction(mouse::Interaction::Idle);
     let placed = container(blocked)
         .width(Length::Fill)
         .height(Length::Fill)

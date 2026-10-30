@@ -11,6 +11,7 @@ mod app;
 mod bookmarks;
 mod breadcrumbs;
 mod cli;
+mod config_file;
 mod conflicts;
 mod connections;
 mod console;
@@ -26,6 +27,7 @@ mod modal;
 mod names;
 mod native;
 mod navigation;
+mod palette;
 mod pane;
 mod panel;
 mod preview_view;
@@ -33,14 +35,17 @@ mod processes;
 mod runtime;
 mod search;
 mod sessions;
+mod settings_view;
 mod shortcuts;
 mod staging;
+mod sync_view;
 mod terminal;
 #[cfg(test)]
 mod testing;
 mod theme;
 mod tools;
 mod transfers;
+mod update_view;
 mod view;
 
 fn main() -> Result<()> {
@@ -81,7 +86,9 @@ fn run_window() -> Result<()> {
         Some(folder) => from_os_path(&folder),
         None => porthmos_core::VfsPath::root(),
     };
-    let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts);
+    let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts)
+        .with_update_mode(started.settings.update_mode)
+        .with_settings(started.settings, started.config_file);
     for warning in started.warnings {
         app.warn(warning);
     }
