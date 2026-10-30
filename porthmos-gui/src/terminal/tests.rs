@@ -172,7 +172,9 @@ fn quote_for_shell_handles_quotes_spaces_and_newlines() {
 
 #[test]
 fn env_values_never_appear_in_the_argv() {
-    for platform in [Platform::Linux, Platform::MacOs, Platform::Windows] {
+    let platforms: &[Platform] =
+        if cfg!(unix) { &[Platform::Linux, Platform::MacOs, Platform::Windows] } else { &[Platform::Windows] };
+    for &platform in platforms {
         let dir = tempfile::tempdir().unwrap();
 
         let launched = launch(inner(), secret_env(), true, platform, &only(&["xterm"]), None, dir.path()).unwrap();
