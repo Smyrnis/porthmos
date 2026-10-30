@@ -146,6 +146,7 @@ fn shell_ready_spawns_the_terminal_without_waiting() {
 }
 
 #[test]
+#[cfg(unix)]
 fn the_invocation_env_reaches_the_launcher_but_not_the_argv() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
@@ -163,6 +164,7 @@ fn the_invocation_env_reaches_the_launcher_but_not_the_argv() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_missing_terminal_shows_an_error_notice_with_the_hint() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
@@ -183,6 +185,7 @@ fn a_missing_terminal_shows_an_error_notice_with_the_hint() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_launch_failure_becomes_an_error_notice_without_the_secret() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);

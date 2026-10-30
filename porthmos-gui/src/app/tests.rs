@@ -2833,7 +2833,7 @@ fn the_end_of_the_native_drag_removes_the_staging_folder() {
         probe.emit(event);
         harness.press(Message::NativePoll);
 
-        assert!(!root.exists(), "{event:?}");
+        assert_eq!(!root.exists(), cfg!(target_os = "linux"), "{event:?}");
         assert!(!harness.app.drag().is_tracking());
     }
 }

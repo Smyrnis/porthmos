@@ -173,8 +173,7 @@ impl Harness {
 }
 
 pub fn builtin_infos() -> Vec<ProtocolInfo> {
-    let nowhere = Some("/nonexistent-porthmos-tests".into());
-    let paths = porthmos_core::Paths::resolve(nowhere.clone(), nowhere, None).unwrap();
+    let paths = porthmos_core::Paths::in_dir(std::path::Path::new("/nonexistent-porthmos-tests"));
     porthmos_core::builtin_protocols(&paths)
         .iter()
         .map(|protocol| ProtocolInfo::from_protocol(protocol.as_ref()))
