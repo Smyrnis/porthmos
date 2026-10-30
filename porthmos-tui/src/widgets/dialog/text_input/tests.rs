@@ -189,3 +189,35 @@ fn tiny_screens_do_not_panic() {
 fn the_source_no_longer_uses_the_reversed_modifier() {
     assert!(!include_str!("mod.rs").contains("REVERSED"));
 }
+
+fn modified(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+    KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }
+}
+
+#[test]
+fn control_and_alt_combinations_insert_nothing() {
+    let mut dialog = TextInputDialog::new("New folder", "abc");
+    for (character, modifiers) in [
+        ('s', KeyModifiers::CONTROL),
+        ('u', KeyModifiers::CONTROL),
+        ('x', KeyModifiers::ALT),
+        ('y', KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+    ] {
+        dialog.handle_key(modified(KeyCode::Char(character), modifiers));
+    }
+    assert_eq!(dialog.value, "abc");
+}
+
+#[test]
+fn control_with_alt_is_alt_gr_and_inserts_the_character() {
+    let mut dialog = TextInputDialog::new("New folder", "");
+    dialog.handle_key(modified(KeyCode::Char('@'), KeyModifiers::CONTROL | KeyModifiers::ALT));
+    assert_eq!(dialog.value, "@");
+}
+
+#[test]
+fn shift_still_inserts_the_character() {
+    let mut dialog = TextInputDialog::new("New folder", "");
+    dialog.handle_key(modified(KeyCode::Char('A'), KeyModifiers::SHIFT));
+    assert_eq!(dialog.value, "A");
+}

@@ -3,7 +3,7 @@ use porthmos_core::VfsPath;
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
 use super::*;
-use crate::app::testing::{entry, test_app};
+use crate::app::testing::{cursor_name, entry, test_app};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent { code, modifiers: KeyModifiers::NONE, kind: KeyEventKind::Press, state: KeyEventState::NONE }
@@ -139,4 +139,73 @@ fn typing_in_the_search_pattern_only_types() {
     assert_eq!(test.app.screen, Screen::Search);
     assert!(!test.app.should_quit);
     assert!(test.app.dialog.is_none());
+}
+
+fn many_files(dir: &VfsPath, first: u32, last: u32) -> Vec<porthmos_core::Entry> {
+    (first..=last).map(|n| entry(dir, &format!("f{n}.txt"), false)).collect()
+}
+
+#[test]
+fn opening_a_result_in_another_folder_puts_the_cursor_on_that_file_once_it_is_listed() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let session = test.connect(3, "srv");
+    let home = VfsPath::from("/home/x");
+    test.list_remote(session, "/home/x", many_files(&home, 1, 8));
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.sessions.by_id_mut(session).unwrap().panel.cursor = 4;
+    test.app.apply_action(Action::OpenSearch);
+    let many = VfsPath::from("/home/x/many");
+    test.app.apply_core_event(Event::SearchFound(entry(&many, "f198.txt", false)));
+    test.app.apply_search_key(key(KeyCode::Enter));
+
+    test.list_remote(session, "/home/x/many", many_files(&many, 101, 199));
+
+    let panel = &test.app.sessions.by_id(session).unwrap().panel;
+    assert_eq!(cursor_name(panel), Some("f198.txt"));
+}
+
+#[test]
+fn opening_a_result_in_the_current_folder_puts_the_cursor_on_that_file_once_it_is_listed() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let dir = VfsPath::new("/d");
+    test.list_local(many_files(&dir, 1, 20));
+    test.app.local.cursor = 2;
+    test.app.apply_action(Action::OpenSearch);
+    test.app.apply_core_event(Event::SearchFound(entry(&dir, "f17.txt", false)));
+    test.app.apply_search_key(key(KeyCode::Enter));
+
+    test.list_local(many_files(&dir, 1, 20));
+
+    assert_eq!(cursor_name(&test.app.local), Some("f17.txt"));
+}
+
+#[test]
+fn the_cursor_is_left_alone_when_the_search_is_closed_without_opening_a_result() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let dir = VfsPath::new("/d");
+    test.list_local(many_files(&dir, 1, 20));
+    test.app.local.cursor = 2;
+    let before = cursor_name(&test.app.local).map(str::to_string);
+    test.app.apply_action(Action::OpenSearch);
+    test.app.apply_core_event(Event::SearchFound(entry(&dir, "f17.txt", false)));
+    test.app.apply_search_key(key(KeyCode::Esc));
+
+    test.list_local(many_files(&dir, 1, 20));
+
+    assert_eq!(cursor_name(&test.app.local).map(str::to_string), before);
+}
+
+#[test]
+fn the_cursor_moves_to_the_result_without_pulling_the_user_back_to_the_files_screen() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let dir = VfsPath::new("/d");
+    test.list_local(many_files(&dir, 1, 20));
+    test.app.apply_action(Action::OpenSearch);
+    test.app.apply_core_event(Event::SearchFound(entry(&dir, "f17.txt", false)));
+    test.app.apply_search_key(key(KeyCode::Enter));
+    test.app.screen = Screen::Transfers;
+
+    test.list_local(many_files(&dir, 1, 20));
+
+    assert_eq!((test.app.screen, cursor_name(&test.app.local)), (Screen::Transfers, Some("f17.txt")));
 }

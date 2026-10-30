@@ -52,6 +52,12 @@ jobs:
             echo "porthmos-tui must depend on porthmos-core only"
             exit 1
           fi
+          if [ "$(cargo tree -p porthmos-gui -e normal --depth 1 | grep -c 'porthmos-')" != 2 ]; then
+            echo "porthmos-gui must depend on porthmos-core only"
+            exit 1
+          fi
+          forbid_dependency porthmos-gui porthmos-tui
+          forbid_dependency porthmos-core iced
       - name: Installer
         run: |
           shellcheck scripts/install/*.sh

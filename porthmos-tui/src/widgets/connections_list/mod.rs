@@ -21,7 +21,7 @@ use crate::{
         connections_view::ConnectionsView,
         filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
-        history_view::printable,
+        history_view::{joined_lines, printable},
         last_used::last_used_text,
         text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
@@ -210,7 +210,7 @@ fn connection_line(
     );
     let fixed = MARKER_WIDTH + indent.width() + 2 + columns.name + COLUMN_GAP + columns.protocol + COLUMN_GAP;
     let (detail, detail_style) = match failure {
-        Some(message) => (printable(message.lines().next().unwrap_or("")), theme.err_text()),
+        Some(message) => (joined_lines(message), theme.err_text()),
         None if lost => (CONNECTION_LOST.to_string(), theme.err_text()),
         None => (host_text(entry, context.protocols), theme.dim()),
     };

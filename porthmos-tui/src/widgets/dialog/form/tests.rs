@@ -935,3 +935,46 @@ fn a_running_test_is_cleared_by_an_edit_too() {
 
     assert_eq!(form.test, None);
 }
+
+fn modified(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+    KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }
+}
+
+#[test]
+fn control_and_alt_combinations_insert_nothing_into_a_field() {
+    let mut form = sample_form();
+    for (character, modifiers) in [('w', KeyModifiers::CONTROL), ('u', KeyModifiers::CONTROL), ('a', KeyModifiers::ALT)]
+    {
+        form.handle_key(modified(KeyCode::Char(character), modifiers));
+    }
+    assert_eq!(form.value("name").as_deref(), Some(""));
+}
+
+#[test]
+fn control_with_alt_is_alt_gr_and_inserts_into_a_field() {
+    let mut form = sample_form();
+    form.handle_key(modified(KeyCode::Char('@'), KeyModifiers::CONTROL | KeyModifiers::ALT));
+    assert_eq!(form.value("name").as_deref(), Some("@"));
+}
+
+#[test]
+fn control_u_on_a_saved_secret_leaves_it_saved() {
+    let mut form = screen_form();
+    form.fields[4] = FormField::saved_secret("password", "Password");
+    form.focused = 4;
+
+    form.handle_key(modified(KeyCode::Char('u'), KeyModifiers::CONTROL));
+
+    assert_eq!(form.fields[4].kind, FieldKind::SavedSecret);
+}
+
+#[test]
+fn control_with_alt_replaces_a_saved_secret_like_any_typed_character() {
+    let mut form = screen_form();
+    form.fields[4] = FormField::saved_secret("password", "Password");
+    form.focused = 4;
+
+    form.handle_key(modified(KeyCode::Char('q'), KeyModifiers::CONTROL | KeyModifiers::ALT));
+
+    assert_eq!((form.fields[4].kind.clone(), form.value("password").as_deref()), (FieldKind::Masked, Some("q")));
+}

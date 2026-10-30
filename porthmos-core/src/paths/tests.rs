@@ -8,6 +8,7 @@ use std::{
 
 use super::*;
 
+#[cfg(unix)]
 #[test]
 fn xdg_directories_win_over_home() {
     let paths = Paths::resolve(
@@ -198,4 +199,32 @@ fn windows_paths_with_an_empty_app_data_fail_naming_the_variable() {
     let error = Paths::resolve_windows(Some(OsString::new()), Some(OsString::from(r"C:\Local"))).unwrap_err();
 
     assert_eq!(error.to_string(), "APPDATA environment variable is not set");
+}
+
+#[test]
+fn empty_xdg_values_count_as_unset() {
+    let paths = Paths::resolve(Some(OsString::new()), Some(OsString::new()), Some(Path::new("/home/u"))).unwrap();
+
+    assert_eq!(paths.config_dir, PathBuf::from("/home/u/.config/porthmos"));
+    assert_eq!(paths.state_dir, PathBuf::from("/home/u/.local/state/porthmos"));
+}
+
+#[test]
+fn relative_xdg_values_are_ignored() {
+    let paths = Paths::resolve(
+        Some(OsString::from("relative/config")),
+        Some(OsString::from("state")),
+        Some(Path::new("/home/u")),
+    )
+    .unwrap();
+
+    assert_eq!(paths.config_dir, PathBuf::from("/home/u/.config/porthmos"));
+    assert_eq!(paths.state_dir, PathBuf::from("/home/u/.local/state/porthmos"));
+}
+
+#[test]
+fn an_empty_xdg_value_without_home_is_an_error_not_a_relative_path() {
+    let error = Paths::resolve(Some(OsString::new()), Some(OsString::new()), None).unwrap_err();
+
+    assert!(error.to_string().contains("HOME"), "{error}");
 }
