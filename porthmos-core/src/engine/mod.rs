@@ -153,6 +153,7 @@ pub(crate) struct Engine {
     tasks: Tasks,
     reporter: Reporter,
     clock: fn() -> chrono::DateTime<chrono::Utc>,
+    local_offset: fn() -> chrono::FixedOffset,
     pub(crate) finished: Option<tokio::sync::watch::Sender<bool>>,
     pub(crate) shutdown_grace: Duration,
     pub(crate) upload_grace: Duration,
@@ -244,6 +245,7 @@ impl Engine {
             tasks,
             reporter,
             clock: chrono::Utc::now,
+            local_offset: current_local_offset,
             finished: None,
             shutdown_grace: SHUTDOWN_GRACE,
             upload_grace: EDIT_UPLOAD_GRACE,
@@ -573,3 +575,7 @@ pub(crate) mod testing;
 
 #[cfg(test)]
 mod tests;
+
+fn current_local_offset() -> chrono::FixedOffset {
+    *chrono::Local::now().offset()
+}

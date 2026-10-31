@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use porthmos_lfs::{checked_os_path, from_os_path};
 use porthmos_vfs::{ErrorKind, FileSystem, ProtocolError, VfsPath};
 use tokio::io::AsyncWriteExt;
@@ -161,7 +161,7 @@ struct UploadJob {
     baseline: Baseline,
     name: String,
     mode: UploadMode,
-    at: DateTime<Utc>,
+    at: DateTime<chrono::FixedOffset>,
 }
 
 async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSystem>) -> EditEvent {
@@ -480,7 +480,15 @@ impl Engine {
         };
         let local = self.local_fs.clone();
         let internal = self.internal.clone();
-        let job = UploadJob { edit_id, remote, file: temp.file, baseline, name, mode, at: (self.clock)() };
+        let job = UploadJob {
+            edit_id,
+            remote,
+            file: temp.file,
+            baseline,
+            name,
+            mode,
+            at: (self.clock)().with_timezone(&(self.local_offset)()),
+        };
         self.tasks.spawn("edit-upload", Scope::Edit(edit_id), move |_| async move {
             let event = upload(job, fs, local).await;
             let _ = internal.send(Internal::Edit(event));

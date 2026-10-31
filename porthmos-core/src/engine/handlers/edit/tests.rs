@@ -660,6 +660,7 @@ async fn a_session_lost_before_the_upload_keeps_the_copy() {
 async fn a_conflict_copy_name_that_already_exists_fails_the_upload_and_overwrites_nothing() {
     let mut t = test_engine();
     t.engine.clock = || chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 9, 30, 10, 15, 0).unwrap();
+    t.engine.local_offset = || chrono::FixedOffset::east_opt(0).unwrap();
     let (session, fs) = remote_session(&mut t);
     let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
     let file = t.engine.edit.sessions[&edit_id].temp.as_ref().unwrap().file.clone();
@@ -955,4 +956,18 @@ async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_fo
     }
 
     assert_eq!(files, [".._.._x.txt", "C__evil.bat", "a_b.txt"]);
+}
+
+#[tokio::test]
+async fn the_conflict_copy_is_stamped_with_the_local_time() {
+    let mut t = test_engine();
+    t.engine.clock = || chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 10, 31, 15, 22, 19).unwrap();
+    t.engine.local_offset = || chrono::FixedOffset::east_opt(2 * 3600).unwrap();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+
+    t.engine.handle_command(Command::ResolveEdit { edit_id, choice: EditChoice::KeepCopy });
+    t.run_internal().await;
+
+    assert_eq!(fs.contents("/home/user/a.conflict-20261031-172219.txt").unwrap(), b"mine");
 }
