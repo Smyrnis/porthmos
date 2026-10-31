@@ -11,6 +11,7 @@ KEYRING_LOG="$WORK/keyring.log"
 trap 'rm -rf "$WORK"' EXIT
 TARGET=x86_64-unknown-linux-gnu
 failures=0
+unset XDG_CONFIG_HOME XDG_STATE_HOME PORTHMOS_INSTALL_DIR PORTHMOS_BIN_DIR
 
 release_tool() {
   (cd "$ROOT" && cargo run -q -p porthmos-release -- "$@")
@@ -220,6 +221,13 @@ fake_data() {
   printf 'x\n' > "$home/.local/state/porthmos/state.toml"
   printf 'keep\n' > "$home/.config/other/keep.toml"
   printf 'keep\n' > "$home/.ssh/known_hosts"
+}
+
+test_the_tests_do_not_inherit_the_callers_config_folders() {
+  [ -z "${XDG_CONFIG_HOME:-}" ]
+  [ -z "${XDG_STATE_HOME:-}" ]
+  [ -z "${PORTHMOS_INSTALL_DIR:-}" ]
+  [ -z "${PORTHMOS_BIN_DIR:-}" ]
 }
 
 test_the_uninstall_tests_never_reach_a_real_keyring_tool() {
