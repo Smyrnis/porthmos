@@ -39,6 +39,42 @@ fn glob_match_is_case_insensitive() {
     assert!(glob_match("EXACT.txt", "exact.TXT"));
 }
 
+#[test]
+fn compiled_glob_agrees_with_glob_match_on_ascii_and_unicode_names() {
+    let patterns = ["*", "", "*.log", "file?.txt", "ERROR*", "*a*b*c", "??", "stra\u{df}e*", "\u{130}*", "*\u{c4}*"];
+    let names = [
+        "error.log",
+        "ERROR.LOG",
+        "file1.txt",
+        "file12.txt",
+        "",
+        "ab",
+        "aXbYc",
+        "stra\u{df}e.txt",
+        "STRASSE.txt",
+        "\u{130}stanbul",
+        "i\u{307}stanbul",
+        "\u{e4}pfel",
+        "\u{c4}PFEL",
+        "no\u{eb}l",
+    ];
+    for pattern in patterns {
+        let glob = Glob::new(pattern);
+        for name in names {
+            assert_eq!(glob.matches(name), glob_match(pattern, name), "pattern {pattern:?} name {name:?}");
+        }
+    }
+}
+
+#[test]
+fn compiled_glob_matches_many_names_with_one_pattern() {
+    let glob = Glob::new("*.RS");
+    assert!(glob.matches("main.rs"));
+    assert!(glob.matches("LIB.Rs"));
+    assert!(!glob.matches("main.rs.bak"));
+    assert!(!glob.matches("rs"));
+}
+
 async fn drain(mut rx: mpsc::UnboundedReceiver<SearchEvent>) -> (Vec<Entry>, bool) {
     let mut found = Vec::new();
     let mut truncated = false;

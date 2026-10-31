@@ -33,18 +33,36 @@ pub enum SearchEvent {
 
 pub type SearchSender = mpsc::UnboundedSender<SearchEvent>;
 
-pub fn glob_match(pattern: &str, name: &str) -> bool {
-    let pattern: Vec<char> = pattern.to_lowercase().chars().collect();
-    let name: Vec<char> = name.to_lowercase().chars().collect();
-    match_from(&pattern, &name)
+pub struct Glob {
+    pattern: Vec<char>,
 }
 
-fn match_from(pattern: &[char], name: &[char]) -> bool {
+impl Glob {
+    pub fn new(pattern: &str) -> Self {
+        Self { pattern: pattern.to_lowercase().chars().collect() }
+    }
+
+    pub fn matches(&self, name: &str) -> bool {
+        if name.is_ascii() {
+            let bytes = name.as_bytes();
+            match_from(&self.pattern, bytes.len(), |index| char::from(bytes[index].to_ascii_lowercase()))
+        } else {
+            let lowered: Vec<char> = name.to_lowercase().chars().collect();
+            match_from(&self.pattern, lowered.len(), |index| lowered[index])
+        }
+    }
+}
+
+pub fn glob_match(pattern: &str, name: &str) -> bool {
+    Glob::new(pattern).matches(name)
+}
+
+fn match_from(pattern: &[char], length: usize, name_at: impl Fn(usize) -> char) -> bool {
     let (mut p, mut n) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
 
-    while n < name.len() {
-        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == name[n]) {
+    while n < length {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == name_at(n)) {
             p += 1;
             n += 1;
         } else if p < pattern.len() && pattern[p] == '*' {
@@ -70,6 +88,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
     fs: &F, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>,
 ) {
     let SearchQuery { root, pattern, max_depth, max_results } = query;
+    let glob = Glob::new(&pattern);
     let mut found = 0usize;
     let mut truncated = false;
     let mut stack: Vec<(VfsPath, usize)> = vec![(root, 0)];
@@ -107,7 +126,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
 
             let is_dir = item.metadata.kind == FileKind::Dir;
 
-            if glob_match(&pattern, &item.name) {
+            if glob.matches(&item.name) {
                 let _ = tx.send(SearchEvent::Found(Entry {
                     name: item.name.clone(),
                     path: item.path.clone(),
