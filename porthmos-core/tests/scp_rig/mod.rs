@@ -147,6 +147,12 @@ impl Rig {
         event
     }
 
+    pub async fn wait_until_active(&mut self, count: usize) {
+        while self.max_active < count {
+            self.event().await;
+        }
+    }
+
     pub fn state_paths(&self) -> Paths {
         Paths::in_dir(self._config.path())
     }

@@ -21,6 +21,8 @@ use porthmos_core::{
 use porthmos_lfs::from_os_path;
 use scp_rig::{Rig, data, rig};
 
+const SLOW_BYTES_PER_SECOND: u64 = 64 * 1024;
+
 fn no_conflicts(_: &[ConflictInfo]) -> Option<Vec<Resolution>> {
     panic!("no conflict was expected")
 }
@@ -53,7 +55,11 @@ async fn downloads_run_at_most_max_parallel_at_once() {
     for index in 0..10u8 {
         std::fs::write(rig.remote(&format!("down/f{index}")), data(2_000_000, index)).unwrap();
     }
+    rig.core.send(Command::SetSpeedLimit { bytes_per_second: Some(SLOW_BYTES_PER_SECOND) });
     rig.download(&[("down", true)]);
+
+    rig.wait_until_active(4).await;
+    rig.core.send(Command::SetSpeedLimit { bytes_per_second: None });
 
     assert_eq!(rig.settle(no_conflicts).await, vec![RowState::Done]);
     for index in 0..10u8 {
