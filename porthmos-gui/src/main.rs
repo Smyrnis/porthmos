@@ -79,6 +79,7 @@ fn run_window() -> Result<()> {
     let env = Environment::from_process();
     let home = env.home.clone();
     let paths = Paths::from_env(&env)?;
+    porthmos_core::logging::init("porthmos-gui", Some(&paths.log_file()));
     let state_dir = paths.state_dir.clone();
     let started = runtime::start(env, paths)?;
     let palette = theme::Palette::new(&started.theme);

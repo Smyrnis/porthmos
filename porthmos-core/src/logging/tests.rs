@@ -1,6 +1,6 @@
 use std::{fs, io::Write};
 
-use tracing_subscriber::{EnvFilter, prelude::*};
+use tracing_subscriber::EnvFilter;
 
 use super::{testing::Buffer, *};
 
@@ -131,6 +131,31 @@ fn an_explicit_setting_replaces_the_default() {
 }
 
 #[test]
-fn the_log_file_layer_turns_ansi_colour_off() {
-    assert!(include_str!("../main.rs").contains(".with_ansi(false)"));
+fn the_log_file_gets_plain_lines_without_colour_codes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state").join("porthmos.log");
+    let file = open_writer_at(&path).unwrap();
+
+    tracing::subscriber::with_default(file_subscriber(file, None), || {
+        tracing::warn!(target: "porthmos_core::engine::report", "Can't retry: session disconnected");
+        tracing::info!(target: "porthmos_core::engine::report", "chatter");
+    });
+
+    let contents = fs::read_to_string(&path).unwrap();
+    assert!(contents.contains("Can't retry: session disconnected"), "{contents}");
+    assert!(!contents.contains("chatter"), "{contents}");
+    assert!(!contents.contains('\u{1b}'), "{contents:?}");
+}
+
+#[test]
+fn the_log_file_obeys_the_given_directives() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("porthmos.log");
+    let file = open_writer_at(&path).unwrap();
+
+    tracing::subscriber::with_default(file_subscriber(file, Some("info")), || {
+        tracing::info!(target: "porthmos_core::engine::report", "chatter");
+    });
+
+    assert!(fs::read_to_string(&path).unwrap().contains("chatter"));
 }

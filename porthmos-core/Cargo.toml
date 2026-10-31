@@ -34,6 +34,7 @@ porthmos-update = { workspace = true, optional = true }
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 zeroize.workspace = true
 keyring-core = { workspace = true, optional = true }
 
@@ -53,6 +54,5 @@ windows-native-keyring-store = { version = "1.1.0", optional = true, default-fea
 porthmos-scp.workspace = true
 porthmos-ssh = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
-tracing-subscriber.workspace = true
 porthmos-vfs = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }

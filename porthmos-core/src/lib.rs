@@ -7,6 +7,7 @@ mod health;
 pub mod history;
 pub mod last_used;
 pub mod listing;
+pub mod logging;
 pub mod paths;
 pub mod persist;
 pub mod preview;

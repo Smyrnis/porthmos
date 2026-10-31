@@ -1,10 +1,10 @@
 use anyhow::Result;
-use tracing_subscriber::prelude::*;
 
 mod app;
 mod cli;
 mod clock;
 mod input;
+#[cfg(test)]
 mod logging;
 mod palette;
 mod rate;
@@ -26,32 +26,6 @@ fn install_panic_hook() {
         let _ = terminal::restore();
         default_hook(panic_info);
     }));
-}
-
-fn init_tracing(log_file: Option<&std::path::Path>) {
-    let filter = logging::log_filter(std::env::var("RUST_LOG").ok().as_deref());
-    let writer = match log_file {
-        Some(path) => logging::open_writer_at(path),
-        None => Err(anyhow::anyhow!("HOME environment variable is not set")),
-    };
-    match writer {
-        Ok(file) => {
-            tracing_subscriber::registry()
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(std::sync::Mutex::new(file))
-                        .with_ansi(false)
-                        .with_filter(filter),
-                )
-                .init();
-        }
-        Err(err) => {
-            eprintln!("porthmos: failed to open log file, logging disabled: {err}");
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_writer(std::io::sink).with_filter(filter))
-                .init();
-        }
-    }
 }
 
 struct ExitUpdate {
@@ -147,7 +121,7 @@ fn run_update_command(check_only: bool) -> Result<()> {
 async fn run() -> Result<Option<ExitUpdate>> {
     let env = Environment::from_process();
     let paths = Paths::from_env(&env);
-    init_tracing(paths.as_ref().ok().map(Paths::log_file).as_deref());
+    porthmos_core::logging::init("porthmos", paths.as_ref().ok().map(Paths::log_file).as_deref());
 
     install_panic_hook();
 
