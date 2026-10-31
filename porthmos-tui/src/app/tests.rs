@@ -238,3 +238,68 @@ fn health_news_for_a_session_that_is_gone_changes_nothing() {
 
     assert_eq!(dot_colour(&test, "srv"), test.app.theme.ok);
 }
+
+fn found_event(index: usize) -> Event {
+    Event::SearchFound(entry(&VfsPath::new("/d"), &format!("hit{index}.log"), false))
+}
+
+fn shell_ready() -> Event {
+    Event::ShellReady {
+        session: 1,
+        invocation: porthmos_core::ShellInvocation { program: "ssh".into(), args: Vec::new(), env: Vec::new() },
+    }
+}
+
+fn search_results(test: &testing::TestApp) -> usize {
+    test.app.search.as_ref().unwrap().view.results.len()
+}
+
+fn waiting_events(count: usize) -> (tokio::sync::mpsc::UnboundedSender<Event>, UnboundedReceiver<Event>) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    for index in 0..count {
+        tx.send(found_event(index)).unwrap();
+    }
+    (tx, rx)
+}
+
+#[test]
+fn every_core_event_that_is_already_waiting_is_applied_before_the_next_redraw() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    let (_tx, mut rx) = waiting_events(5);
+
+    let special = test.app.apply_ready_events(&mut rx);
+
+    assert!(special.is_none());
+    assert_eq!(search_results(&test), 5);
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn a_shell_hand_over_is_returned_to_the_caller_and_later_events_wait() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    let (tx, mut rx) = waiting_events(2);
+    tx.send(shell_ready()).unwrap();
+    tx.send(found_event(9)).unwrap();
+
+    let special = test.app.apply_ready_events(&mut rx);
+
+    assert!(matches!(special, Some(Event::ShellReady { .. })));
+    assert_eq!(search_results(&test), 2);
+    assert!(matches!(rx.try_recv(), Ok(Event::SearchFound(_))));
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn a_flood_of_events_is_applied_in_batches_so_keys_are_not_starved() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    let (_tx, mut rx) = waiting_events(READY_EVENT_BATCH + 10);
+
+    let special = test.app.apply_ready_events(&mut rx);
+
+    assert!(special.is_none());
+    assert_eq!(search_results(&test), READY_EVENT_BATCH);
+    assert_eq!(std::iter::from_fn(|| rx.try_recv().ok()).count(), 10);
+}

@@ -67,6 +67,7 @@ mod transfers;
 mod update;
 
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
+const READY_EVENT_BATCH: usize = 256;
 
 enum PendingAction {
     Mkdir,
@@ -312,18 +313,22 @@ impl App {
                     }
                 }
                 Some(core_event) = core_events.recv() => {
-                    if let Event::ShellReady { invocation, .. } = core_event {
-                        drop(events);
-                        let launched = self.launch_shell(terminal, invocation).await;
-                        events = EventStream::new();
-                        launched?;
-                    } else if let Event::EditReady { edit_id, file, editor } = core_event {
-                        drop(events);
-                        let launched = self.launch_editor(terminal, edit_id, file, editor).await;
-                        events = EventStream::new();
-                        launched?;
-                    } else {
-                        self.apply_core_event(core_event);
+                    let mut next = Some(core_event);
+                    while let Some(core_event) = next.take() {
+                        if let Event::ShellReady { invocation, .. } = core_event {
+                            drop(events);
+                            let launched = self.launch_shell(terminal, invocation).await;
+                            events = EventStream::new();
+                            launched?;
+                        } else if let Event::EditReady { edit_id, file, editor } = core_event {
+                            drop(events);
+                            let launched = self.launch_editor(terminal, edit_id, file, editor).await;
+                            events = EventStream::new();
+                            launched?;
+                        } else {
+                            self.apply_core_event(core_event);
+                            next = self.apply_ready_events(&mut core_events);
+                        }
                     }
                 }
                 _ = sleep_until_or_pending(self.notifications.next_wake()) => {
@@ -337,6 +342,17 @@ impl App {
 
         let _ = tokio::time::timeout(SHUTDOWN_WAIT, self.core.shutdown()).await;
         Ok(())
+    }
+
+    fn apply_ready_events(&mut self, core_events: &mut UnboundedReceiver<Event>) -> Option<Event> {
+        for _ in 0..READY_EVENT_BATCH {
+            match core_events.try_recv() {
+                Ok(event) if needs_terminal(&event) => return Some(event),
+                Ok(event) => self.apply_core_event(event),
+                Err(_) => return None,
+            }
+        }
+        None
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
@@ -544,6 +560,10 @@ impl App {
             Location::Session(id) => self.sessions.by_id(id).map(|session| &session.panel),
         }
     }
+}
+
+fn needs_terminal(event: &Event) -> bool {
+    matches!(event, Event::ShellReady { .. } | Event::EditReady { .. })
 }
 
 async fn sleep_until_or_pending(deadline: Option<Instant>) {
