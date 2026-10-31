@@ -143,6 +143,7 @@ jobs:
             latest.json
             latest.json.sig
             scripts/install/install.sh
+            scripts/install/uninstall.sh
 
   release:
     needs: manifest
@@ -177,5 +178,5 @@ jobs:
         run: |
           flags=()
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$TAG" dist/* latest.json latest.json.sig scripts/install/install.sh \
+          gh release create "$TAG" dist/* latest.json latest.json.sig scripts/install/install.sh scripts/install/uninstall.sh \
             --title "$TAG" --notes-file notes.txt "${flags[@]}"
