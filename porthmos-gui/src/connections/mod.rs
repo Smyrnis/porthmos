@@ -214,7 +214,14 @@ impl Manager {
     }
 }
 
-pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, connected: bool) -> Vec<(String, String)> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkState {
+    Off,
+    Live,
+    Lost,
+}
+
+pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, link: LinkState) -> Vec<(String, String)> {
     let mut lines = vec![
         ("Protocol".to_string(), protocol_name.to_string()),
         ("Host".to_string(), entry.host.clone()),
@@ -226,7 +233,11 @@ pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, connected: bo
         ("Start folder".to_string(), entry.options.get("remote_path").cloned().unwrap_or_default()),
     ];
     lines.retain(|(_, value)| !value.is_empty());
-    let status = if connected { "Connected" } else { "Not connected" };
+    let status = match link {
+        LinkState::Off => "Not connected",
+        LinkState::Live => "Connected",
+        LinkState::Lost => "Connection lost",
+    };
     lines.push(("Status".to_string(), status.to_string()));
     lines
 }
@@ -258,10 +269,6 @@ pub fn announcement(entries: &[ConnectionEntry], announced: &mut HashSet<String>
     }
     announced.extend(missing.into_iter().chain(shadowed));
     Some(sentences.join(" "))
-}
-
-pub fn badge(entry: &ConnectionEntry) -> String {
-    entry.protocol.to_uppercase()
 }
 
 pub fn subtitle(entry: &ConnectionEntry) -> String {

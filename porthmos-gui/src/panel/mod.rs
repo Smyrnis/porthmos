@@ -151,6 +151,17 @@ impl Panel {
         self.set_cursor(target);
     }
 
+    pub fn focus_name(&mut self, name: &str) -> bool {
+        let position = self.rows().iter().position(|row| matches!(row, Row::Entry(entry) if entry.name == name));
+        match position {
+            Some(row) => {
+                self.set_cursor(row);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn set_cursor(&mut self, row: usize) {
         self.cursor = row.min(self.last_row());
     }

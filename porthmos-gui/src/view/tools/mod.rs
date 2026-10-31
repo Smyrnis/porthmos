@@ -3,6 +3,7 @@ use iced::{Alignment, Border, Element, Font, Length, Size, alignment, mouse};
 use porthmos_core::Entry;
 
 use super::button::{Look, text_button};
+use super::file_list::CELL_WIDTH;
 use super::{bold_label, filled, hairline_across, label};
 use crate::app::{App, Message};
 use crate::bookmarks::{BookmarksState, row_text};
@@ -176,9 +177,22 @@ fn search_body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message>
     .into()
 }
 
+const BOOKMARK_ROW_CHROME: f32 = 2.0 + 6.0 + ICON_SIZE + 6.0 + 2.0 * MARGIN;
+
+pub fn bookmark_place_cells(window: Size) -> usize {
+    let width = fit(window, BOOKMARKS_WIDTH, BOOKMARKS_HEIGHT).width;
+    let place_width = (width - BOOKMARK_ROW_CHROME).max(0.0) * 3.0 / 5.0;
+    ((place_width / CELL_WIDTH).floor() as usize).max(1)
+}
+
+pub fn fit_place(place: &str, cells: usize) -> String {
+    super::text_fit::fit(place, cells)
+}
+
 fn bookmark_row<'a>(
     app: &App, index: usize, bookmark: &porthmos_core::config::bookmarks::Bookmark, selected: bool,
 ) -> Element<'a, Message> {
+    let place_cells = bookmark_place_cells(app.window_size());
     let palette = app.palette();
     let (title, place) = row_text(bookmark);
     let name_color = if selected { palette.fg_focus } else { palette.fg };
@@ -189,7 +203,7 @@ fn bookmark_row<'a>(
         svg(icons::handle(Icon::Folder)).width(ICON_SIZE).height(ICON_SIZE),
         space().width(Length::Fixed(6.0)),
         container(bold_label(title, name_color)).width(Length::FillPortion(2)).clip(true),
-        container(label(place, palette.fg_dim)).width(Length::FillPortion(3)).clip(true),
+        container(label(fit_place(&place, place_cells), palette.fg_dim)).width(Length::FillPortion(3)).clip(true),
     ]
     .align_y(Alignment::Center);
     let background = if selected { palette.row_focus } else { iced::Color::TRANSPARENT };

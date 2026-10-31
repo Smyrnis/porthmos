@@ -2,7 +2,7 @@ use iced::widget::{checkbox, column, container, mouse_area, pick_list, row, scro
 use iced::{Alignment, Border, Element, Font, Length, Size, alignment};
 
 use super::button::{Look, compact_button, text_button};
-use super::{bold_label, label};
+use super::{bold_label, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::connections::form::{Choice, FieldKind, FieldView, FormState};
 use crate::connections::trial::{TestPrompt, TestState, describe};
@@ -91,10 +91,10 @@ fn form_body<'a>(app: &'a App, state: &'a FormState) -> (Element<'a, Message>, E
     }
     let mut body = column![scrollable(fields).height(Length::Fill)].spacing(8);
     if let Some(error) = &state.error {
-        body = body.push(label(error.clone(), palette.err));
+        body = body.push(wrapped_label(error.clone(), palette.err));
     }
     if let Some(hint) = app.keyring_hint() {
-        body = body.push(label(hint, palette.fg_dim));
+        body = body.push(wrapped_label(hint, palette.fg_dim));
     }
     if let Some(line) = test_line(app, state) {
         body = body.push(line);
@@ -127,7 +127,7 @@ fn test_line<'a>(app: &App, state: &FormState) -> Option<Element<'a, Message>> {
         Some(TestState::Finished(outcome)) => {
             let line = describe(outcome)?;
             let color = if line.good { palette.ok } else { palette.err };
-            Some(row![label("\u{25cf}", color), label(line.text, palette.fg)].spacing(8).into())
+            Some(row![label("\u{25cf}", color), wrapped_label(line.text, palette.fg)].spacing(8).into())
         }
     }
 }
@@ -210,8 +210,8 @@ fn delete_body<'a>(app: &App, name: &str) -> (Element<'a, Message>, Element<'a, 
     let body = label(format!("Delete connection \"{name}\"?"), palette.fg).into();
     let footer = row![
         space().width(Length::Fill),
-        text_button("Cancel", Some(Message::ScreenCancelled), Look::Normal, palette),
-        text_button("Delete", Some(Message::DeleteConfirmed), Look::Primary, palette),
+        text_button("Delete", Some(Message::DeleteConfirmed), Look::Normal, palette),
+        text_button("Cancel", Some(Message::ScreenCancelled), Look::Primary, palette),
     ]
     .spacing(8)
     .into();

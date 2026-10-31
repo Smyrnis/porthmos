@@ -4,6 +4,8 @@ use porthmos_core::Command;
 use porthmos_core::transfer::conflicts::{ConflictInfo, Resolution, fits_the_rest};
 use porthmos_core::transfer::plan::ExistingFile;
 
+const SECONDS_SHOWN: u64 = 60;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConflictView {
     pub file_name: String,
@@ -21,7 +23,7 @@ impl ConflictView {
     }
 
     pub fn freshness(&self) -> Option<&'static str> {
-        let (new, old) = (self.new_modified?, self.existing?.modified?);
+        let (new, old) = (self.new_modified? / SECONDS_SHOWN, self.existing?.modified? / SECONDS_SHOWN);
         match new.cmp(&old) {
             std::cmp::Ordering::Greater => Some("newer"),
             std::cmp::Ordering::Less => Some("older"),

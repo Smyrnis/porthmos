@@ -5,7 +5,7 @@ use porthmos_core::profiles::ConnectionSource;
 use porthmos_core::{Command, Severity};
 
 use super::{App, Message};
-use crate::connections::{Manager, ManagerButtons, Screen};
+use crate::connections::{LinkState, Manager, ManagerButtons, Screen};
 use crate::shortcuts::KeyPress;
 
 impl App {
@@ -25,8 +25,12 @@ impl App {
         self.manager.buttons()
     }
 
-    pub fn is_connected(&self, name: &str) -> bool {
-        self.sessions.by_name(name).is_some()
+    pub fn link_state(&self, name: &str) -> LinkState {
+        match self.sessions.by_name(name) {
+            None => LinkState::Off,
+            Some(session) if session.healthy => LinkState::Live,
+            Some(_) => LinkState::Lost,
+        }
     }
 
     pub fn protocol_name(&self, id: &str) -> String {
@@ -116,7 +120,7 @@ impl App {
             Key::Named(Named::Escape) => self.set_screen(Some(Screen::List)),
             Key::Named(Named::Enter) => match self.connections_screen {
                 Some(Screen::List) => self.connect_selected(),
-                Some(Screen::ConfirmDelete { .. }) => self.confirm_delete(),
+                Some(Screen::ConfirmDelete { .. }) => self.set_screen(Some(Screen::List)),
                 _ => {}
             },
             Key::Named(Named::ArrowDown) if on_list => self.manager.move_selection(true),

@@ -107,3 +107,25 @@ fn edit_dialog_titles_make_hostile_names_printable() {
         "a.txt changed on the server while you were editing"
     );
 }
+
+#[test]
+fn only_irreversible_or_trusting_answers_are_risky_to_accept() {
+    let trust = Modal::Question(Dialog::from_question(
+        1,
+        Question::TrustHostKey {
+            name: "n".to_string(),
+            host: "h".to_string(),
+            port: 22,
+            key_type: "ssh-ed25519".to_string(),
+            fingerprint: "SHA256:x".to_string(),
+        },
+        None,
+    ));
+
+    assert!(trust.is_risky_to_accept());
+    assert!(Modal::ConfirmDelete { side: PanelSide::Local, entries: vec![entry("a")] }.is_risky_to_accept());
+    assert!(Modal::ConfirmClearHistory.is_risky_to_accept());
+    assert!(Modal::ConfirmQuit { transfers: true, edits: false }.is_risky_to_accept());
+    assert!(!question(1).is_risky_to_accept());
+    assert!(!Modal::Info { title: String::new(), body: String::new() }.is_risky_to_accept());
+}

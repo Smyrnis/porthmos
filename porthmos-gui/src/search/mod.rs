@@ -68,10 +68,13 @@ impl SearchState {
         if self.status != SearchStatus::Searching {
             return;
         }
-        self.results.push(entry);
-        if self.selected.is_none() {
-            self.selected = Some(0);
-        }
+        let position = self.results.partition_point(|shown| shown.path <= entry.path);
+        self.results.insert(position, entry);
+        self.selected = match self.selected {
+            None => Some(0),
+            Some(row) if position <= row => Some(row + 1),
+            keep => keep,
+        };
     }
 
     pub fn finished(&mut self, truncated: bool) {

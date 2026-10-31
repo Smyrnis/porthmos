@@ -1,6 +1,6 @@
 use porthmos_core::transfer::plan::ExistingFile;
 
-use super::{apply_text, existing_text, new_text, partial_text};
+use super::{apply_text, existing_text, new_text, partial_text, title};
 use crate::conflicts::ConflictView;
 
 fn view(existing: Option<ExistingFile>, partial: Option<ExistingFile>, new_modified: Option<u64>) -> ConflictView {
@@ -50,4 +50,11 @@ fn a_partial_copy_is_described_only_when_there_is_one() {
 #[test]
 fn the_apply_line_names_what_it_does() {
     assert_eq!(apply_text(), "Apply to the rest of this batch");
+}
+
+#[test]
+fn the_title_says_partly_copied_when_only_a_partial_file_is_there() {
+    assert_eq!(title(&view(file(5, None), None, None)), "File already exists");
+    assert_eq!(title(&view(file(5, None), file(3, None), None)), "File already exists");
+    assert_eq!(title(&view(None, file(3, None), None)), "File was partly copied before");
 }

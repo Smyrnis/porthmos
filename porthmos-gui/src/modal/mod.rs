@@ -69,6 +69,18 @@ pub enum Modal {
     },
 }
 
+impl Modal {
+    pub fn is_risky_to_accept(&self) -> bool {
+        matches!(
+            self,
+            Modal::Question(Dialog::Confirm { .. })
+                | Modal::ConfirmDelete { .. }
+                | Modal::ConfirmClearHistory
+                | Modal::ConfirmQuit { .. }
+        )
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ModalQueue {
     items: VecDeque<Modal>,

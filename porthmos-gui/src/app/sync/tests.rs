@@ -732,3 +732,34 @@ fn typing_in_the_filter_does_not_fire_panel_shortcuts() {
     assert!(harness.sent().is_empty());
     assert!(sync_open(&harness));
 }
+
+#[test]
+fn the_arrow_keys_cycle_the_direction_including_both() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    ctrl_u(&mut harness);
+    assert_eq!(options_modal(&harness).3, SyncDirection::LocalToRemote);
+
+    key(&mut harness, Key::Named(Named::ArrowRight), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::RemoteToLocal);
+    key(&mut harness, Key::Named(Named::ArrowDown), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::Both);
+    key(&mut harness, Key::Named(Named::ArrowRight), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::LocalToRemote);
+    key(&mut harness, Key::Named(Named::ArrowLeft), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::Both);
+    key(&mut harness, Key::Named(Named::ArrowUp), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::RemoteToLocal);
+}
+
+#[test]
+fn the_arrow_keys_skip_both_when_the_connection_cannot_keep_times() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 4, "beta", true, false);
+    ctrl_u(&mut harness);
+
+    key(&mut harness, Key::Named(Named::ArrowRight), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::RemoteToLocal);
+    key(&mut harness, Key::Named(Named::ArrowRight), Modifiers::empty());
+    assert_eq!(options_modal(&harness).3, SyncDirection::LocalToRemote);
+}

@@ -1,7 +1,8 @@
-use iced::widget::{container, row};
+use iced::widget::{container, row, tooltip};
 use iced::{Element, Length, alignment};
 use porthmos_core::Severity;
 
+use super::button::hinted;
 use super::file_list::PADDING;
 use super::text_fit::fit;
 use super::{filled, format, label};
@@ -16,6 +17,7 @@ pub fn panel_summary(panel: &Panel) -> String {
     let (matched, shown) = panel.match_count();
     let count = match panel.filter() {
         Some(filter) => format!("{matched} of {shown} match \"{filter}\""),
+        None if shown == 1 => "1 item".to_string(),
         None => format!("{shown} items"),
     };
     let free = panel.free_bytes().map(|bytes| format!("{} free", format::size(bytes, false)));
@@ -64,21 +66,39 @@ pub fn keyring_text(waiting: bool) -> Option<&'static str> {
     waiting.then_some("Waiting for the keyring\u{2026}")
 }
 
+pub fn notice_text(severity: Severity, message: &str) -> String {
+    match severity {
+        Severity::Error => format!("Error: {message}"),
+        Severity::Warning => format!("Warning: {message}"),
+        Severity::Info => message.to_string(),
+    }
+}
+
 pub fn bar(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
-    let content = match (app.connecting(), app.notices().last()) {
+    let notice = app.notices().last();
+    let content = match (app.connecting(), notice) {
         _ if app.is_closing() => label("Closing…", palette.fg_muted),
         (Some(name), _) => label(format!("Connecting to {name}…"), palette.fg_muted),
-        (None, Some(notice)) => match notice.severity {
-            Severity::Error => label(format!("Error: {}", one_line(&notice.message)), palette.err),
-            Severity::Warning => label(format!("Warning: {}", one_line(&notice.message)), palette.fg_bright),
-            Severity::Info => label(one_line(&notice.message), palette.fg_muted),
-        },
+        (None, Some(notice)) => {
+            let color = match notice.severity {
+                Severity::Error => palette.err,
+                Severity::Warning => palette.fg_bright,
+                Severity::Info => palette.fg_muted,
+            };
+            label(one_line(&notice_text(notice.severity, &notice.message)), color)
+        }
         (None, None) => label("Ready", palette.fg_dim),
+    };
+    let content: Element<'_, Message> = match (app.connecting(), notice) {
+        (None, Some(notice)) if !app.is_closing() => {
+            hinted(content.into(), notice_text(notice.severity, &notice.message), tooltip::Position::Top, palette)
+        }
+        _ => content.into(),
     };
     let left: Element<'_, Message> = match app.transfer_summary() {
         Some(summary) => row![content, label(format!("{SEPARATOR}{summary}"), palette.accent)].into(),
-        None => content.into(),
+        None => content,
     };
     let active_panel = match app.active_side() {
         PanelSide::Local => Some(&app.local().panel),

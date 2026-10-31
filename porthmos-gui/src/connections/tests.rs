@@ -152,11 +152,10 @@ fn reveal_of_an_unknown_name_changes_nothing() {
 }
 
 #[test]
-fn badge_and_subtitle_text() {
+fn subtitle_text() {
     let mut item = entry("a", None, &[]);
     item.protocol = "webdav".to_string();
     item.port = 8099;
-    assert_eq!(badge(&item), "WEBDAV");
     assert_eq!(subtitle(&item), "me@a.example.com:8099");
 }
 

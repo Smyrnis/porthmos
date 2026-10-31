@@ -898,15 +898,12 @@ fn cancelling_a_password_question_answers_none() {
 }
 
 #[test]
-fn enter_confirms_a_yes_no_question_but_not_a_password_prompt() {
+fn enter_declines_a_trust_question_and_does_nothing_on_a_password_prompt() {
     let mut harness = Harness::new();
     harness.feed(question(1, host_question()));
     harness.sent();
     plain(&mut harness, Named::Enter);
-    assert_eq!(
-        harness.sent(),
-        vec![Command::Answer { request_id: 1, answer: Some(porthmos_core::Answer::Confirmed), save: false }]
-    );
+    assert_eq!(harness.sent(), vec![Command::Answer { request_id: 1, answer: None, save: false }]);
 
     harness.feed(question(2, password_question()));
     harness.sent();
@@ -1141,7 +1138,7 @@ fn confirming_delete_sends_one_delete_with_every_selected_path() {
     harness.sent();
 
     plain(&mut harness, Named::F8);
-    plain(&mut harness, Named::Enter);
+    harness.press(Message::ModalAccepted);
 
     assert_eq!(
         harness.sent(),
@@ -1243,7 +1240,7 @@ fn fifty_thousand_selected_entries_become_one_delete_command() {
     harness.sent();
 
     plain(&mut harness, Named::Delete);
-    plain(&mut harness, Named::Enter);
+    harness.press(Message::ModalAccepted);
 
     let sent = harness.sent();
     assert_eq!(sent.len(), 1);
@@ -3489,4 +3486,167 @@ fn a_disabled_menu_item_does_nothing_when_delivered() {
 
     assert!(harness.app.modal().is_none());
     assert!(harness.sent().is_empty());
+}
+
+fn tab_task_units(harness: &mut Harness, modifiers: Modifiers) -> usize {
+    let key = Key::Named(Named::Tab);
+    let press = KeyPress { key: key.clone(), modified_key: key, modifiers, text: None };
+    harness.app.update(Message::KeyPressed(press)).units()
+}
+
+#[test]
+fn tab_moves_the_focus_in_a_prompt_instead_of_being_ignored() {
+    let mut harness = Harness::new();
+    plain(&mut harness, Named::F7);
+
+    assert!(tab_task_units(&mut harness, Modifiers::empty()) > 0);
+    assert!(tab_task_units(&mut harness, Modifiers::SHIFT) > 0);
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { .. }));
+}
+
+#[test]
+fn tab_moves_the_focus_in_the_connection_form_and_leaves_the_name_alone() {
+    let mut harness = Harness::with_builtin_protocols();
+    harness.press(Message::ManagerToggled);
+    harness.press(Message::ManagerAddPressed);
+    harness.press(Message::FormTextTyped("name".to_string(), "prod".to_string()));
+
+    assert!(tab_task_units(&mut harness, Modifiers::empty()) > 0);
+    assert!(tab_task_units(&mut harness, Modifiers::SHIFT) > 0);
+    match harness.app.screen() {
+        Some(crate::connections::Screen::Form(state)) => assert_eq!(state.draft().name, "prod"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn tab_moves_the_focus_in_the_speed_limit_field() {
+    let mut harness = Harness::new();
+    harness.press(Message::SpeedLimitTyped("1M".to_string()));
+    assert!(tab_task_units(&mut harness, Modifiers::empty()) > 0);
+}
+
+#[test]
+fn tab_still_switches_the_panels_when_nothing_is_open() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    let before = harness.app.active_side();
+
+    assert_eq!(tab_task_units(&mut harness, Modifiers::empty()), 0);
+
+    assert_ne!(harness.app.active_side(), before);
+}
+
+#[test]
+fn enter_on_the_delete_confirmation_cancels_and_deletes_nothing() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+    select_rows(&mut harness, &[1, 2]);
+    harness.sent();
+
+    plain(&mut harness, Named::F8);
+    plain(&mut harness, Named::Enter);
+
+    assert!(harness.sent().is_empty());
+    assert!(harness.app.modal().is_none());
+}
+
+fn notice_after(harness: &mut Harness, severity: Severity, seconds: u64) -> usize {
+    let now = Instant::now() + std::time::Duration::from_secs(seconds);
+    harness.feed(Event::Notice { severity, message: "something".to_string() });
+    harness.press(Message::NoticeTick(now));
+    harness.app.notices().len()
+}
+
+#[test]
+fn an_info_notice_expires_after_a_few_seconds() {
+    let mut harness = Harness::new();
+    assert_eq!(notice_after(&mut harness, Severity::Info, 2), 1);
+
+    let mut harness = Harness::new();
+    assert_eq!(notice_after(&mut harness, Severity::Info, 5), 0);
+}
+
+#[test]
+fn a_warning_outlives_an_info_and_an_error_outlives_a_warning() {
+    let mut harness = Harness::new();
+    assert_eq!(notice_after(&mut harness, Severity::Warning, 5), 1);
+    let mut harness = Harness::new();
+    assert_eq!(notice_after(&mut harness, Severity::Warning, 9), 0);
+
+    let mut harness = Harness::new();
+    assert_eq!(notice_after(&mut harness, Severity::Error, 9), 1);
+    let mut harness = Harness::new();
+    assert_eq!(notice_after(&mut harness, Severity::Error, 16), 0);
+}
+
+#[test]
+fn only_the_expired_notices_are_dropped() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Notice { severity: Severity::Error, message: "keep".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Info, message: "go".to_string() });
+
+    harness.press(Message::NoticeTick(Instant::now() + std::time::Duration::from_secs(6)));
+
+    let messages: Vec<_> = harness.app.notices().iter().map(|notice| notice.message.as_str()).collect();
+    assert_eq!(messages, ["keep"]);
+}
+
+#[test]
+fn connecting_successfully_clears_the_old_notices() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Notice { severity: Severity::Error, message: "old failure".to_string() });
+
+    connect(&mut harness, 1, "alpha");
+
+    assert!(harness.app.notices().is_empty());
+}
+
+#[test]
+fn going_up_puts_the_cursor_on_the_folder_that_was_left() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+
+    harness.press(Message::NavigateUp(PanelSide::Local));
+    list_local_at(&mut harness, "/home", &["alpha", "tester", "zed"]);
+
+    assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
+}
+
+#[test]
+fn the_parent_row_puts_the_cursor_on_the_folder_that_was_left() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+
+    harness.press(Message::PanelDoubleClicked(PanelSide::Local, 0));
+    list_local_at(&mut harness, "/home", &["alpha", "tester", "zed"]);
+
+    assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
+}
+
+#[test]
+fn going_back_to_an_ancestor_puts_the_cursor_on_the_folder_toward_where_you_were() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::NavigateUp(PanelSide::Local));
+    list_local_at(&mut harness, "/home", &["alpha", "tester"]);
+    harness.press(Message::NavigateBack(PanelSide::Local));
+    list_local_at(&mut harness, "/home/tester", &["a"]);
+    harness.press(Message::NavigateForward(PanelSide::Local));
+    list_local_at(&mut harness, "/home", &["alpha", "tester"]);
+
+    assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
+}
+
+#[test]
+fn going_into_a_folder_does_not_move_the_cursor_anywhere_special() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    let sub = porthmos_core::Entry { is_dir: true, ..entry(&folder, "sub") };
+    fill_local_with(&mut harness, vec![entry(&folder, "a"), sub]);
+
+    harness.press(Message::PanelDoubleClicked(PanelSide::Local, 2));
+    list_local_at(&mut harness, "/home/tester/sub", &["x", "y"]);
+
+    assert_eq!(cursor_name(&harness, PanelSide::Local), "..");
 }

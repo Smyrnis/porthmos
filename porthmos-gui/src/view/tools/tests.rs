@@ -83,3 +83,23 @@ fn the_history_hint_depends_on_the_filter() {
     assert_eq!(history_hint(0, 5), Some("No transfers match."));
     assert_eq!(history_hint(3, 5), None);
 }
+
+#[test]
+fn the_bookmark_place_column_gets_fewer_cells_in_a_narrower_window() {
+    let wide = bookmark_place_cells(Size::new(1100.0, 700.0));
+    let narrow = bookmark_place_cells(Size::new(480.0, 320.0));
+
+    assert!(wide > narrow);
+    assert!(narrow >= 1);
+}
+
+#[test]
+fn a_long_bookmark_path_is_shortened_with_an_ellipsis_to_the_column() {
+    let long = "/home/tester/projects/a/very/deep/folder/structure/that/does/not/fit/in/the/column";
+
+    let shown = fit_place(long, 20);
+
+    assert!(shown.ends_with('\u{2026}'));
+    assert!(unicode_width::UnicodeWidthStr::width(shown.as_str()) <= 20);
+    assert_eq!(fit_place("/short", 20), "/short");
+}

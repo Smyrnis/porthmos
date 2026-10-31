@@ -34,6 +34,10 @@ pub fn label<'a>(content: impl Into<String>, color: Color) -> iced::widget::Text
     text(content.into()).size(file_list::TEXT_SIZE).font(Font::DEFAULT).color(color).wrapping(Wrapping::None)
 }
 
+pub fn wrapped_label<'a>(content: impl Into<String>, color: Color) -> iced::widget::Text<'a> {
+    text(content.into()).size(file_list::TEXT_SIZE).font(Font::DEFAULT).color(color).width(Length::Fill)
+}
+
 pub fn bold_label<'a>(content: impl Into<String>, color: Color) -> iced::widget::Text<'a> {
     label(content, color).font(BOLD)
 }

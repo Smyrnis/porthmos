@@ -206,12 +206,18 @@ fn delete_asks_first_then_sends_delete_profile() {
 }
 
 #[test]
-fn enter_confirms_a_delete() {
+fn enter_cancels_a_delete_and_the_button_confirms_it() {
     let mut harness = with_profiles(vec![saved("prod")]);
     select(&mut harness, 0);
     harness.press(Message::ManagerDeletePressed);
 
     named(&mut harness, Named::Enter);
+
+    assert!(harness.sent().is_empty());
+    assert!(matches!(harness.app.screen(), Some(Screen::List)));
+
+    harness.press(Message::ManagerDeletePressed);
+    harness.press(Message::DeleteConfirmed);
 
     assert_eq!(harness.sent(), vec![Command::DeleteProfile { name: "prod".to_string() }]);
 }

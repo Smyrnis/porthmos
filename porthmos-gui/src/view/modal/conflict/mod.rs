@@ -49,6 +49,10 @@ pub fn partial_text(view: &ConflictView) -> Option<String> {
     })
 }
 
+pub fn title(view: &ConflictView) -> &'static str {
+    if view.existing.is_some() { "File already exists" } else { "File was partly copied before" }
+}
+
 pub fn apply_text() -> &'static str {
     "Apply to the rest of this batch"
 }

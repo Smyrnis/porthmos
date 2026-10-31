@@ -1,9 +1,9 @@
-use iced::widget::{column, container, responsive, row, scrollable, space, text_input};
+use iced::widget::{column, container, responsive, row, scrollable, space, text_input, tooltip};
 use iced::{Alignment, Element, Font, Length, alignment};
 use porthmos_core::transfer::Direction;
 use porthmos_core::transfer::rows::{QueueRow, RowState, percent_of};
 
-use super::button::compact_button;
+use super::button::{compact_button, hinted};
 use super::file_list::{PADDING, line_cells};
 use super::text_fit::fit;
 use super::{bold_label, filled, hairline_across, label};
@@ -44,11 +44,21 @@ pub fn row_text(row: &QueueRow) -> String {
     }
 }
 
-pub fn percent_text(row: &QueueRow) -> String {
+pub fn row_hint(row: &QueueRow) -> Option<String> {
+    row.failure.as_ref().map(|_| row_text(row))
+}
+
+pub fn progress(row: &QueueRow) -> Option<u8> {
     match row.state {
-        RowState::Scanning => String::new(),
-        _ => format!("{}%", percent_of(row.bytes_done, row.bytes_total)),
+        RowState::Scanning | RowState::AwaitingAnswer => None,
+        RowState::Done => Some(percent_of(row.bytes_done, row.bytes_total)),
+        _ if row.bytes_total == 0 => None,
+        _ => Some(percent_of(row.bytes_done, row.bytes_total)),
     }
+}
+
+pub fn percent_text(row: &QueueRow) -> String {
+    progress(row).map_or_else(String::new, |percent| format!("{percent}%"))
 }
 
 fn state_color(row: &QueueRow, palette: &Palette) -> iced::Color {
@@ -64,7 +74,7 @@ fn button<'a>(title: &str, message: Message, palette: &Palette) -> Element<'a, M
 }
 
 fn bar<'a>(row: &QueueRow, palette: &Palette) -> Element<'a, Message> {
-    let percent = percent_of(row.bytes_done, row.bytes_total);
+    let percent = progress(row).unwrap_or(0);
     let fill = container(space())
         .width(Length::Fixed(fill_width(BAR_WIDTH, percent)))
         .height(Length::Fixed(BAR_HEIGHT))
@@ -86,9 +96,14 @@ fn row_view<'a>(row: &QueueRow, cells: usize, palette: &Palette) -> Element<'a, 
     for action in row_buttons(row) {
         buttons = buttons.push(button(action.title(), Message::QueueRowPressed(row.kind, action), palette));
     }
+    let text_cell = label(fit(&row_text(row), cells), text_color).width(Length::Fill);
+    let text_cell: Element<'a, Message> = match row_hint(row) {
+        Some(hint) => hinted(text_cell.into(), hint, tooltip::Position::Top, palette),
+        None => text_cell.into(),
+    };
     let line = row![
         label(direction_glyph(row.direction), palette.fg_dim).width(Length::Fixed(GLYPH_WIDTH)),
-        label(fit(&row_text(row), cells), text_color).width(Length::Fill),
+        container(text_cell).width(Length::Fill),
         label(format!("{}/{}", row.files_done, row.files_total), palette.fg_muted)
             .width(Length::Fixed(COUNT_WIDTH))
             .align_x(alignment::Horizontal::Right),

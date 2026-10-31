@@ -3,7 +3,7 @@ use iced::keyboard::{Key, Modifiers};
 use porthmos_core::profiles::{ConnectionEntry, ConnectionSource};
 use porthmos_core::{Command, Event, Location, Severity, VfsPath};
 
-use crate::connections::{ManagerButtons, details_lines};
+use crate::connections::{LinkState, ManagerButtons, details_lines};
 use crate::shortcuts::KeyPress;
 use crate::testing::Harness;
 
@@ -316,7 +316,7 @@ fn details_skip_empty_values_and_show_the_start_folder() {
     entry.options.insert("remote_path".to_string(), "/srv".to_string());
     entry.saved_password = true;
 
-    let lines = details_lines(&entry, "SFTP", false);
+    let lines = details_lines(&entry, "SFTP", LinkState::Off);
 
     assert_eq!(
         lines,
@@ -337,7 +337,7 @@ fn details_show_group_tags_and_connected_status() {
     let mut entry = grouped("alpha", "Work/Db");
     entry.tags = vec!["prod".to_string(), "eu".to_string()];
 
-    let lines = details_lines(&entry, "SFTP", true);
+    let lines = details_lines(&entry, "SFTP", LinkState::Live);
 
     assert!(lines.contains(&("Group".to_string(), "Work/Db".to_string())));
     assert!(lines.contains(&("Tags".to_string(), "prod, eu".to_string())));
@@ -382,4 +382,56 @@ pub(super) fn fill_new(harness: &mut Harness) {
     type_field(harness, "name", "prod");
     type_field(harness, "host", "example.com");
     type_field(harness, "username", "me");
+}
+
+#[test]
+fn details_report_a_lost_connection() {
+    let entry = profile("alpha", ConnectionSource::Profile);
+
+    let lines = details_lines(&entry, "SFTP", LinkState::Lost);
+
+    assert_eq!(lines.last().unwrap(), &("Status".to_string(), "Connection lost".to_string()));
+}
+
+#[test]
+fn an_unhealthy_session_is_lost_rather_than_connected() {
+    let mut harness = harness();
+    feed_profiles(&mut harness, &["alpha"]);
+    assert_eq!(harness.app.link_state("alpha"), LinkState::Off);
+
+    connected(&mut harness, 1, "alpha");
+    assert_eq!(harness.app.link_state("alpha"), LinkState::Live);
+
+    harness.feed(Event::SessionHealth { session: 1, healthy: false });
+    assert_eq!(harness.app.link_state("alpha"), LinkState::Lost);
+
+    harness.feed(Event::SessionHealth { session: 1, healthy: true });
+    assert_eq!(harness.app.link_state("alpha"), LinkState::Live);
+}
+
+#[test]
+fn connecting_a_lost_connection_reconnects_it() {
+    let mut harness = harness();
+    feed_profiles(&mut harness, &["alpha"]);
+    connected(&mut harness, 1, "alpha");
+    harness.feed(Event::SessionHealth { session: 1, healthy: false });
+    harness.press(Message::ManagerToggled);
+    harness.sent();
+    select(&mut harness, 0);
+
+    harness.press(Message::ManagerConnect);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::Disconnect { session: 1 }, Command::Connect { profile: "alpha".to_string() }]
+    );
+}
+
+#[test]
+fn the_list_names_a_protocol_the_way_the_form_does() {
+    let harness = harness();
+
+    assert_eq!(harness.app.protocol_name("webdav"), "WebDAV");
+    assert_eq!(harness.app.protocol_name("sftp"), "SFTP");
+    assert_eq!(harness.app.protocol_name("unknown"), "unknown");
 }

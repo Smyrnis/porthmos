@@ -16,6 +16,7 @@ mod conflicts;
 mod connections;
 mod console;
 mod dialogs;
+mod display;
 mod drag;
 mod editing;
 mod entries;
@@ -72,6 +73,10 @@ fn main() -> Result<()> {
 const RUNTIME_GRACE: Duration = Duration::from_millis(500);
 
 fn run_window() -> Result<()> {
+    if display::is_missing() {
+        eprintln!("{}", display::NO_DISPLAY_MESSAGE);
+        std::process::exit(1);
+    }
     porthmos_core::disable_core_dumps();
     staging::remove_stale(&std::env::temp_dir(), staging::STALE_AFTER);
     let runtime = tokio::runtime::Runtime::new()?;

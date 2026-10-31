@@ -48,12 +48,31 @@ const NOTICE_LIMIT: usize = 50;
 const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const STAGING_TICK: Duration = Duration::from_secs(1);
+const NOTICE_TICK: Duration = Duration::from_secs(1);
+const NOTICE_INFO_LIFETIME: Duration = Duration::from_secs(4);
+const NOTICE_WARNING_LIFETIME: Duration = Duration::from_secs(8);
+const NOTICE_ERROR_LIFETIME: Duration = Duration::from_secs(15);
 const STAGING_LINGER: Duration = if cfg!(target_os = "linux") { Duration::ZERO } else { Duration::from_secs(10 * 60) };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub severity: Severity,
     pub message: String,
+    raised: Instant,
+}
+
+impl Notice {
+    fn lifetime(&self) -> Duration {
+        match self.severity {
+            Severity::Info => NOTICE_INFO_LIFETIME,
+            Severity::Warning => NOTICE_WARNING_LIFETIME,
+            Severity::Error => NOTICE_ERROR_LIFETIME,
+        }
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.raised) >= self.lifetime()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +224,7 @@ pub enum Message {
     NativePoll,
     WindowLeft,
     StagingTick(Instant),
+    NoticeTick(Instant),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -631,6 +651,16 @@ impl App {
         Task::batch(tasks)
     }
 
+    fn reveal_focused(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        for side in [PanelSide::Local, PanelSide::Remote] {
+            if self.side_mut(side).is_some_and(Pane::take_reveal_request) {
+                tasks.push(self.reveal_cursor(side));
+            }
+        }
+        Task::batch(tasks)
+    }
+
     fn pane_mut(&mut self, location: Location) -> Option<&mut Pane> {
         match location {
             Location::Local => Some(&mut self.local),
@@ -655,7 +685,7 @@ impl App {
     }
 
     fn push_notice(&mut self, severity: Severity, message: String) {
-        self.notices.push(Notice { severity, message });
+        self.notices.push(Notice { severity, message, raised: Instant::now() });
         if self.notices.len() > NOTICE_LIMIT {
             self.notices.remove(0);
         }
@@ -667,6 +697,7 @@ impl App {
             Event::Connecting { name } => self.connecting = Some(name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
+                self.notices.clear();
                 self.set_screen(None);
                 if !self.sessions.activate(session) {
                     self.sessions.insert(session, name);
@@ -891,7 +922,10 @@ impl App {
     fn handle(&mut self, message: Message) -> Task<Message> {
         let before = self.shown();
         match message {
-            Message::Core(event) => self.apply(event),
+            Message::Core(event) => {
+                self.apply(event);
+                return Task::batch([self.reveal_focused(), self.resync_scroll(&before)]);
+            }
             Message::CloseRequested => return self.request_close(),
             Message::ShutdownFinished => return iced::exit(),
             Message::ModifiersChanged(modifiers) => self.modifiers = modifiers,
@@ -1110,6 +1144,7 @@ impl App {
             }
             Message::WindowLeft => self.leave_window(),
             Message::NativePoll => self.poll_native(),
+            Message::NoticeTick(now) => self.notices.retain(|notice| !notice.expired(now)),
             Message::StagingTick(now) => {
                 if let Some(job) = self.staging.as_mut() {
                     job.tick(now);
@@ -1534,6 +1569,14 @@ impl App {
         }
     }
 
+    fn text_fields_are_shown(&self) -> bool {
+        !self.modals.is_empty()
+            || self.queue.speed_text().is_some()
+            || self.path_edit.is_some()
+            || self.connections_screen.is_some()
+            || self.tool.is_some()
+    }
+
     fn press_key(&mut self, press: KeyPress) -> Task<Message> {
         if self.closing {
             return Task::none();
@@ -1559,21 +1602,25 @@ impl App {
             self.conflict_key(&press);
             return Task::none();
         }
+        if press.key == keyboard::Key::Named(keyboard::key::Named::Tab) && self.text_fields_are_shown() {
+            return if press.modifiers.shift() { operation::focus_previous() } else { operation::focus_next() };
+        }
         if let Some(modal) = self.modals.front() {
             let enter_accepts = matches!(
                 modal,
-                Modal::Question(Dialog::Confirm { .. })
-                    | Modal::ConfirmDelete { .. }
-                    | Modal::ConfirmClearHistory
-                    | Modal::Info { .. }
-                    | Modal::EditQuestion { .. }
-                    | Modal::EditWaiting { .. }
-                    | Modal::ConfirmQuit { .. }
-                    | Modal::SyncOptions { .. }
+                Modal::Info { .. } | Modal::EditQuestion { .. } | Modal::EditWaiting { .. } | Modal::SyncOptions { .. }
             );
+            let enter_declines = modal.is_risky_to_accept();
             match &press.key {
                 keyboard::Key::Named(keyboard::key::Named::Escape) => self.answer_modal(false),
                 keyboard::Key::Named(keyboard::key::Named::Enter) if enter_accepts => self.answer_modal(true),
+                keyboard::Key::Named(keyboard::key::Named::Enter) if enter_declines => self.answer_modal(false),
+                keyboard::Key::Named(keyboard::key::Named::ArrowRight | keyboard::key::Named::ArrowDown) => {
+                    self.cycle_sync_direction(true)
+                }
+                keyboard::Key::Named(keyboard::key::Named::ArrowLeft | keyboard::key::Named::ArrowUp) => {
+                    self.cycle_sync_direction(false)
+                }
                 _ => {}
             }
             return Task::none();
@@ -1828,6 +1875,14 @@ impl App {
         }
     }
 
+    fn notice_subscription(&self) -> Subscription<Message> {
+        if self.notices.is_empty() {
+            Subscription::none()
+        } else {
+            iced::time::every(NOTICE_TICK).map(Message::NoticeTick)
+        }
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
             runtime::subscription(&self.events).map(Message::Core),
@@ -1850,6 +1905,7 @@ impl App {
             Self::pointer_position_subscription(),
             self.native_subscription(),
             self.staging_subscription(),
+            self.notice_subscription(),
             self.desktop.subscription().map(Message::Desktop),
             self.processes.subscription().map(Message::ProcessFinished),
             event::listen_with(|event, _, _| match event {

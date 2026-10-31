@@ -4,9 +4,9 @@ use porthmos_core::connections_tree::TreeRow;
 use porthmos_core::profiles::ConnectionSource;
 
 use super::button::{Look, flat, hinted, text_button};
-use super::{bold_label, filled, hairline_across, hairline_down, label};
+use super::{bold_label, filled, hairline_across, hairline_down, label, wrapped_label};
 use crate::app::{App, Message};
-use crate::connections::{badge, details_lines, subtitle};
+use crate::connections::{LinkState, details_lines, subtitle};
 use crate::geometry::ROW_HEIGHT;
 use crate::icons::{self, Icon};
 use crate::theme::Palette;
@@ -85,7 +85,11 @@ fn connection_row<'a>(app: &'a App, row_index: usize, entry_index: usize, depth:
         (true, false) => palette.fg_focus,
         (false, false) => palette.fg,
     };
-    let dot = if app.is_connected(&entry.name) { label("●", palette.ok) } else { label(" ", palette.fg_dim) };
+    let dot = match app.link_state(&entry.name) {
+        LinkState::Live => label("●", palette.ok),
+        LinkState::Lost => label("●", palette.err),
+        LinkState::Off => label(" ", palette.fg_dim),
+    };
     let name = if orphan { format!("⚠ {}", entry.name) } else { entry.name.clone() };
     let line = row![
         container(space()).width(Length::Fixed(2.0)).height(Length::Fill).style(filled(if selected {
@@ -96,7 +100,7 @@ fn connection_row<'a>(app: &'a App, row_index: usize, entry_index: usize, depth:
         space().width(Length::Fixed(6.0 + depth as f32 * INDENT)),
         dot.width(Length::Fixed(14.0)),
         container(label(name, name_color)).width(Length::FillPortion(2)).clip(true),
-        label(badge(entry), palette.fg_dim).width(Length::Fixed(BADGE_WIDTH)),
+        label(app.protocol_name(&entry.protocol), palette.fg_dim).width(Length::Fixed(BADGE_WIDTH)),
         container(label(subtitle(entry), palette.fg_dim)).width(Length::FillPortion(3)).clip(true),
     ]
     .align_y(Alignment::Center);
@@ -109,6 +113,13 @@ fn connection_row<'a>(app: &'a App, row_index: usize, entry_index: usize, depth:
         .into()
 }
 
+fn starts_ungrouped_section(rows: &[TreeRow], index: usize) -> bool {
+    let is_top_level_connection = |row: &TreeRow| matches!(row, TreeRow::Connection { depth: 0, .. });
+    rows.get(index).is_some_and(is_top_level_connection)
+        && !rows[..index].iter().any(is_top_level_connection)
+        && rows[..index].iter().any(|row| matches!(row, TreeRow::Group { .. }))
+}
+
 fn list<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     let manager = app.manager();
@@ -119,6 +130,9 @@ fn list<'a>(app: &'a App) -> Element<'a, Message> {
     }
     let mut lines = column![];
     for (index, tree_row) in rows.iter().enumerate() {
+        if starts_ungrouped_section(&rows, index) {
+            lines = lines.push(container(label("Ungrouped", palette.fg_dim)).padding([6.0, 10.0]).width(Length::Fill));
+        }
         lines = lines.push(match tree_row {
             TreeRow::Group { path, name, depth, count, expanded } => {
                 group_row(app, index, path, name, *depth, *count, *expanded)
@@ -142,9 +156,9 @@ fn details<'a>(app: &'a App) -> Element<'a, Message> {
         lines = lines.push(label("This host is not in ~/.ssh/config", palette.fg_muted));
     } else {
         let protocol = app.protocol_name(&entry.protocol);
-        for (name, value) in details_lines(entry, &protocol, app.is_connected(&entry.name)) {
+        for (name, value) in details_lines(entry, &protocol, app.link_state(&entry.name)) {
             lines = lines.push(
-                row![label(name, palette.fg_dim).width(Length::Fixed(LABEL_WIDTH)), label(value, palette.fg)]
+                row![label(name, palette.fg_dim).width(Length::Fixed(LABEL_WIDTH)), wrapped_label(value, palette.fg)]
                     .spacing(6),
             );
         }

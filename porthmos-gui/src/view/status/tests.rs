@@ -1,7 +1,7 @@
 use porthmos_core::listing::SortSpec;
 use porthmos_core::{Entry, VfsPath};
 
-use super::{connection_text, keyring_text, panel_summary, selection_text};
+use super::{connection_text, keyring_text, notice_text, panel_summary, selection_text};
 use crate::panel::{Modifiers, Panel};
 use crate::testing::Harness;
 use porthmos_core::Event;
@@ -114,4 +114,25 @@ fn small_selections_show_bytes_with_a_unit() {
 fn the_keyring_text_shows_only_while_waiting() {
     assert_eq!(keyring_text(true), Some("Waiting for the keyring\u{2026}"));
     assert_eq!(keyring_text(false), None);
+}
+
+#[test]
+fn the_notice_text_keeps_every_character_and_names_the_severity() {
+    let long = "x".repeat(900);
+
+    assert_eq!(notice_text(porthmos_core::Severity::Error, &long), format!("Error: {long}"));
+    assert_eq!(notice_text(porthmos_core::Severity::Warning, "careful"), "Warning: careful");
+    assert_eq!(notice_text(porthmos_core::Severity::Info, "fine"), "fine");
+}
+
+#[test]
+fn the_summary_uses_the_singular_for_one_item() {
+    let folder = VfsPath::new("/data");
+    let mut panel = Panel::new(folder.clone(), SortSpec::default(), false);
+    panel.replace_listing(
+        folder.clone(),
+        vec![Entry { name: "only".to_string(), path: folder.join("only"), ..Entry::default() }],
+    );
+
+    assert_eq!(panel_summary(&panel), "1 item");
 }

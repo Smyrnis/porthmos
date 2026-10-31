@@ -37,3 +37,35 @@ fn the_details_pane_hides_in_a_narrow_panel() {
     assert!(details_visible(DETAILS_MIN_PANEL));
     assert!(!details_visible(DETAILS_MIN_PANEL - 1.0));
 }
+
+fn group(name: &str) -> TreeRow {
+    TreeRow::Group { path: name.to_string(), name: name.to_string(), depth: 0, count: 1, expanded: true }
+}
+
+fn connection(index: usize, depth: usize) -> TreeRow {
+    TreeRow::Connection { index, depth }
+}
+
+#[test]
+fn the_first_top_level_connection_after_a_group_gets_the_ungrouped_heading() {
+    let rows = [group("Work"), connection(0, 1), connection(1, 0), connection(2, 0)];
+
+    let headings: Vec<_> = (0..rows.len()).map(|index| starts_ungrouped_section(&rows, index)).collect();
+
+    assert_eq!(headings, [false, false, true, false]);
+}
+
+#[test]
+fn a_list_without_groups_needs_no_heading() {
+    let rows = [connection(0, 0), connection(1, 0)];
+
+    assert!(!starts_ungrouped_section(&rows, 0));
+    assert!(!starts_ungrouped_section(&rows, 1));
+}
+
+#[test]
+fn groups_after_a_collapsed_group_do_not_confuse_the_heading() {
+    let rows = [group("A"), group("B"), connection(0, 0)];
+
+    assert!(starts_ungrouped_section(&rows, 2));
+}

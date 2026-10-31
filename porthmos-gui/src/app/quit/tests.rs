@@ -115,7 +115,7 @@ fn accepting_closes_and_declining_does_not() {
 }
 
 #[test]
-fn enter_accepts_and_escape_declines() {
+fn enter_and_escape_both_keep_the_app_open_while_work_is_running() {
     let mut harness = Harness::new();
     harness.feed(Event::EditsBusy(true));
     harness.press(Message::CloseRequested);
@@ -125,7 +125,8 @@ fn enter_accepts_and_escape_declines() {
     harness.press(Message::CloseRequested);
     key(&mut harness, Key::Named(Named::Enter), Modifiers::empty());
 
-    assert!(harness.app.is_closing());
+    assert!(!harness.app.is_closing());
+    assert!(harness.app.modal().is_none());
 }
 
 #[test]

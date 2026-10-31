@@ -217,3 +217,20 @@ fn answering_ten_thousand_files_one_by_one_stays_linear() {
 
     assert!(matches!(sent, Some(Command::ResolveConflicts { answers: Some(answers), .. }) if answers.len() == 10_000));
 }
+
+#[test]
+fn files_modified_within_the_same_minute_are_neither_newer_nor_older() {
+    let mut queue = ConflictQueue::default();
+    let close_after = ConflictInfo { new_modified: Some(1_010), ..conflict("close-after") };
+    let close_before = ConflictInfo { new_modified: Some(970), ..conflict("close-before") };
+    let minute_later = ConflictInfo { new_modified: Some(1_100), ..conflict("later") };
+    queue.found(1, vec![close_after, close_before, minute_later]);
+
+    let mut words = Vec::new();
+    for _ in 0..3 {
+        words.push(queue.current().unwrap().freshness());
+        queue.answer(Some(Resolution::Skip), false);
+    }
+
+    assert_eq!(words, [None, None, Some("newer")]);
+}

@@ -167,3 +167,28 @@ fn a_result_outside_the_root_shows_its_full_parent() {
 
     assert_eq!(state.shown_parent(&hit("/other/dir/x.txt")), "/other/dir");
 }
+
+#[test]
+fn results_are_kept_sorted_by_path_whatever_order_they_arrive_in() {
+    let mut state = searching();
+
+    state.found(hit("/data/f198.txt"));
+    state.found(hit("/data/f19.txt"));
+    state.found(hit("/data/a/f2.txt"));
+
+    let paths: Vec<_> = state.results().iter().map(|entry| entry.path.to_string()).collect();
+    assert_eq!(paths, ["/data/a/f2.txt", "/data/f19.txt", "/data/f198.txt"]);
+}
+
+#[test]
+fn the_selection_stays_on_the_same_result_when_an_earlier_one_arrives() {
+    let mut state = searching();
+    state.found(hit("/data/m.txt"));
+    state.found(hit("/data/z.txt"));
+    state.select(1);
+
+    state.found(hit("/data/a.txt"));
+
+    assert_eq!(state.selected().map(|entry| entry.name.clone()).as_deref(), Some("z.txt"));
+    assert_eq!(state.selected_row(), Some(2));
+}

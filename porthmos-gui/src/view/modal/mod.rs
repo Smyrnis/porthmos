@@ -5,7 +5,7 @@ use iced::widget::{checkbox, column, container, row, space, stack, text, text_in
 use iced::{Border, Element, Font, Length, alignment};
 
 use super::button::{Look, text_button};
-use super::{bold_label, label};
+use super::{bold_label, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::dialogs::{Dialog, Typed};
 use crate::editing::waiting_notice;
@@ -54,11 +54,17 @@ fn buttons<'a>(accept: &str, decline: &str, palette: &Palette) -> Element<'a, Me
         .into()
 }
 
+fn cautious_buttons<'a>(accept: &str, decline: &str, palette: &Palette) -> Element<'a, Message> {
+    row![button(accept, Message::ModalAccepted, palette), primary_button(decline, Message::ModalDeclined, palette)]
+        .spacing(8)
+        .into()
+}
+
 pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let palette = app.palette();
     let (title, content, buttons) = match app.modal()? {
         Modal::Question(Dialog::Confirm { title, body, .. }) => {
-            (title.clone(), body_text(body.clone(), palette), buttons("Yes", "No", palette))
+            (title.clone(), body_text(body.clone(), palette), cautious_buttons("Yes", "No", palette))
         }
         Modal::Question(Dialog::Password { title, prompt, text: typed, save, .. }) => {
             let input = text_input("", typed.as_str())
@@ -74,7 +80,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
                     content.push(checkbox(*save).label("Save in keyring").on_toggle(Message::PasswordSaveToggled));
             }
             if let Some(hint) = app.keyring_hint() {
-                content = content.push(label(hint, palette.fg_dim));
+                content = content.push(wrapped_label(hint, palette.fg_dim));
             }
             (title.clone(), content.into(), buttons("OK", "Cancel", palette))
         }
@@ -90,13 +96,13 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Modal::ConfirmClearHistory => (
             "Clear history".to_string(),
             body_text("Clear the whole transfer history?".to_string(), palette),
-            buttons("Clear", "Cancel", palette),
+            cautious_buttons("Clear", "Cancel", palette),
         ),
         Modal::Rename { text, error, .. } => {
             ("Rename".to_string(), name_prompt(text, error, palette), buttons("Rename", "Cancel", palette))
         }
         Modal::Conflict { view, apply_to_rest } => (
-            "File already exists".to_string(),
+            conflict::title(view).to_string(),
             conflict::body(view, *apply_to_rest, palette),
             conflict::buttons(view, palette),
         ),
@@ -138,7 +144,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Modal::ConfirmQuit { transfers, edits } => (
             "Quit Porthmos".to_string(),
             body_text(quit_text(*transfers, *edits), palette),
-            buttons("Quit", "Cancel", palette),
+            cautious_buttons("Quit", "Cancel", palette),
         ),
         Modal::SyncOptions { name, offer_both, direction, by, subfolders, error, .. } => (
             format!("Synchronize with {}", fit(&printable(name), NAME_CELLS)),
@@ -147,7 +153,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         ),
         Modal::ConfirmDelete { entries, .. } => {
             let lines = delete_summary(entries).join("\n");
-            ("Delete".to_string(), body_text(lines, palette), buttons("Delete", "Cancel", palette))
+            ("Delete".to_string(), body_text(lines, palette), cautious_buttons("Delete", "Cancel", palette))
         }
     };
     let width = if matches!(app.modal(), Some(Modal::Conflict { .. })) { CONFLICT_WIDTH } else { DIALOG_WIDTH };

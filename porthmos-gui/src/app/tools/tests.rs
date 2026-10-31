@@ -829,6 +829,19 @@ fn clear_asks_before_sending() {
 }
 
 #[test]
+fn enter_on_the_clear_confirmation_cancels_and_clears_nothing() {
+    let mut harness = Harness::new();
+    open_history(&mut harness, vec![past("photos", "alpha")]);
+    harness.press(Message::HistoryClearPressed);
+    harness.sent();
+
+    named(&mut harness, Named::Enter);
+
+    assert!(harness.sent().is_empty());
+    assert!(harness.app.modal().is_none());
+}
+
+#[test]
 fn declining_clear_sends_nothing() {
     let mut harness = Harness::new();
     open_history(&mut harness, vec![past("photos", "alpha")]);
@@ -882,4 +895,62 @@ fn keyboard_selection_scrolls_the_history_into_view() {
     }
 
     assert!(harness.app.tool_scroll() > 0.0);
+}
+
+fn list_local_folder(harness: &mut Harness, folder: &str, names: &[&str]) {
+    let folder = VfsPath::new(folder);
+    let entries: Vec<Entry> = names
+        .iter()
+        .map(|name| Entry { name: name.to_string(), path: folder.join(*name), ..Entry::default() })
+        .collect();
+    harness.feed(Event::Listed { location: Location::Local, path: folder, entries });
+}
+
+fn cursor_name(harness: &Harness) -> Option<String> {
+    harness.app.local().panel.cursor_entry().map(|entry| entry.name)
+}
+
+#[test]
+fn opening_a_result_in_another_folder_puts_the_cursor_on_the_file_once_it_is_listed() {
+    let mut harness = Harness::new();
+    list_local_folder(&mut harness, "/home/tester", &["deep"]);
+    open_search(&mut harness);
+    search(&mut harness, "f19");
+    found(&mut harness, "/home/tester/deep/f19.txt");
+    named(&mut harness, Named::Enter);
+    assert_eq!(cursor_name(&harness), None);
+
+    list_local_folder(&mut harness, "/home/tester/deep", &["f1.txt", "f19.txt", "f198.txt"]);
+
+    assert_eq!(cursor_name(&harness).as_deref(), Some("f19.txt"));
+}
+
+#[test]
+fn opening_a_result_in_the_folder_already_shown_moves_the_cursor_after_the_relisting() {
+    let mut harness = Harness::new();
+    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt", "c.txt"]);
+    open_search(&mut harness);
+    search(&mut harness, "c");
+    found(&mut harness, "/home/tester/c.txt");
+    named(&mut harness, Named::Enter);
+
+    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt", "c.txt"]);
+
+    assert_eq!(cursor_name(&harness).as_deref(), Some("c.txt"));
+}
+
+#[test]
+fn the_cursor_is_not_pulled_back_by_a_later_unrelated_listing() {
+    let mut harness = Harness::new();
+    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt"]);
+    open_search(&mut harness);
+    search(&mut harness, "b");
+    found(&mut harness, "/home/tester/b.txt");
+    named(&mut harness, Named::Enter);
+    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt"]);
+    harness.press(Message::PanelClicked(PanelSide::Local, 1));
+
+    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt"]);
+
+    assert_eq!(cursor_name(&harness).as_deref(), Some("a.txt"));
 }

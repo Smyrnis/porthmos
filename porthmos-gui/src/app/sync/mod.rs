@@ -87,6 +87,21 @@ impl App {
         *error = None;
     }
 
+    pub(in crate::app) fn cycle_sync_direction(&mut self, forward: bool) {
+        let Some(Modal::SyncOptions { offer_both, direction, error, .. }) = self.modals.front_mut() else {
+            return;
+        };
+        let order: &[SyncDirection] = if *offer_both {
+            &[SyncDirection::LocalToRemote, SyncDirection::RemoteToLocal, SyncDirection::Both]
+        } else {
+            &[SyncDirection::LocalToRemote, SyncDirection::RemoteToLocal]
+        };
+        let current = order.iter().position(|candidate| candidate == direction).unwrap_or(0);
+        let next = if forward { (current + 1) % order.len() } else { (current + order.len() - 1) % order.len() };
+        *direction = order[next];
+        *error = None;
+    }
+
     pub(in crate::app) fn sync_options_rejected(&mut self) -> bool {
         let Some(Modal::SyncOptions { direction, by, subfolders, error, .. }) = self.modals.front_mut() else {
             return false;
