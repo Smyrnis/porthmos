@@ -32,6 +32,12 @@ run_install() {
   HOME="$home" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" "$@" sh "$INSTALL_SH"
 }
 
+run_install_channel() {
+  local home=$1 stable=$2 preview=$3
+  shift 3
+  HOME="$home" PORTHMOS_RELEASE_BASE="$stable" PORTHMOS_PREVIEW_BASE="$preview" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" sh "$INSTALL_SH" "$@"
+}
+
 fresh_home() {
   mkdir -p "$WORK/tmp"
   printf '%s\n' "$WORK/home-$1"
@@ -113,6 +119,96 @@ test_a_missing_checksum_file_installs_nothing() {
   make_release "$WORK/rel-nosum" one
   rm "$WORK/rel-nosum/dist/porthmos-$TARGET.tar.gz.sha256"
   if run_install "$home" "file://$WORK/rel-nosum/dist" > /dev/null 2>&1; then return 1; fi
+  [ ! -e "$home/.local/bin/porthmos" ]
+}
+
+test_the_stable_channel_is_the_default_and_the_preview_channel_has_its_own_location() {
+  (
+    export PORTHMOS_INSTALL_SOURCE_ONLY=1
+    # shellcheck disable=SC1090
+    . "$INSTALL_SH"
+    [ "$(release_base stable)" = "https://github.com/Smyrnis/porthmos/releases/latest/download" ]
+    [ "$(release_base preview)" = "https://github.com/Smyrnis/porthmos/releases/download/preview" ]
+  )
+}
+
+test_each_channel_location_can_be_overridden_on_its_own() {
+  (
+    export PORTHMOS_INSTALL_SOURCE_ONLY=1
+    # shellcheck disable=SC1090
+    . "$INSTALL_SH"
+    PORTHMOS_RELEASE_BASE=https://stable.example/x
+    PORTHMOS_PREVIEW_BASE=https://preview.example/y
+    [ "$(release_base stable)" = https://stable.example/x ]
+    [ "$(release_base preview)" = https://preview.example/y ]
+  )
+}
+
+test_without_the_flag_the_stable_build_is_installed() {
+  local home
+  home=$(fresh_home chan-stable)
+  make_release "$WORK/rel-chan-stable" stable
+  make_release "$WORK/rel-chan-preview" preview
+  run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/rel-chan-preview/dist" > "$WORK/out-chan-stable" 2>&1
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub stable" ]
+  ! grep -qi 'preview' "$WORK/out-chan-stable"
+}
+
+test_the_preview_flag_installs_the_preview_build_and_says_so() {
+  local home
+  home=$(fresh_home chan-preview)
+  make_release "$WORK/rel-chan-stable" stable
+  make_release "$WORK/rel-chan-preview" preview
+  run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/rel-chan-preview/dist" --preview > "$WORK/out-chan-preview" 2>&1
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub preview" ]
+  grep -qi 'preview' "$WORK/out-chan-preview"
+  grep -q 'development' "$WORK/out-chan-preview"
+}
+
+test_the_stable_flag_less_run_replaces_a_preview_install() {
+  local home
+  home=$(fresh_home chan-back)
+  make_release "$WORK/rel-chan-stable" stable
+  make_release "$WORK/rel-chan-preview" preview
+  run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/rel-chan-preview/dist" --preview > /dev/null 2>&1
+  run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/rel-chan-preview/dist" > /dev/null 2>&1
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub stable" ]
+}
+
+test_a_preview_install_over_a_stable_one_replaces_it() {
+  local home
+  home=$(fresh_home chan-forward)
+  make_release "$WORK/rel-chan-stable" stable
+  make_release "$WORK/rel-chan-preview" preview
+  run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/rel-chan-preview/dist" > /dev/null 2>&1
+  run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/rel-chan-preview/dist" --preview > /dev/null 2>&1
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub preview" ]
+}
+
+test_the_preview_location_must_be_https_or_a_file() {
+  local home
+  home=$(fresh_home chan-http)
+  mkdir -p "$WORK/tmp"
+  if run_install_channel "$home" "file://$WORK/none" "http://example.invalid/preview" --preview > "$WORK/out-chan-http" 2>&1; then return 1; fi
+  grep -q 'https' "$WORK/out-chan-http"
+  [ ! -e "$home/.local/bin/porthmos" ]
+}
+
+test_an_unknown_install_option_is_refused_and_installs_nothing() {
+  local home
+  home=$(fresh_home chan-badopt)
+  make_release "$WORK/rel-chan-stable" stable
+  if run_install_channel "$home" "file://$WORK/rel-chan-stable/dist" "file://$WORK/none" --nightly > "$WORK/out-chan-badopt" 2>&1; then return 1; fi
+  grep -qi 'usage' "$WORK/out-chan-badopt"
+  [ ! -e "$home/.local/bin/porthmos" ]
+}
+
+test_install_help_describes_the_preview_flag_and_installs_nothing() {
+  local home
+  home=$(fresh_home chan-help)
+  mkdir -p "$home"
+  run_install_channel "$home" "file://$WORK/none" "file://$WORK/none" --help > "$WORK/out-chan-help" 2>&1
+  grep -q -- '--preview' "$WORK/out-chan-help"
   [ ! -e "$home/.local/bin/porthmos" ]
 }
 

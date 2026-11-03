@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-DEFAULT_BASE="https://github.com/Smyrnis/porthmos/releases/latest/download"
+STABLE_BASE="https://github.com/Smyrnis/porthmos/releases/latest/download"
+PREVIEW_BASE="https://github.com/Smyrnis/porthmos/releases/download/preview"
 
 say() {
   printf '%s\n' "$*"
@@ -10,6 +11,29 @@ say() {
 fail() {
   printf 'porthmos install: %s\n' "$*" >&2
   exit 1
+}
+
+usage() {
+  cat << 'USAGE'
+Usage: install.sh [--preview]
+
+Installs Porthmos into $PORTHMOS_INSTALL_DIR (default ~/.local/share/porthmos)
+and links it from $PORTHMOS_BIN_DIR (default ~/.local/bin).
+
+  --preview   install the preview build instead of the stable one. Preview
+              builds come from the development branch, get new features
+              first, and may be less polished. They update from the preview
+              feed. Run this script again without --preview to go back to
+              the stable build.
+  --help      show this text.
+USAGE
+}
+
+release_base() {
+  case $1 in
+    preview) printf '%s\n' "${PORTHMOS_PREVIEW_BASE:-$PREVIEW_BASE}" ;;
+    *) printf '%s\n' "${PORTHMOS_RELEASE_BASE:-$STABLE_BASE}" ;;
+  esac
 }
 
 detect_target() {
@@ -42,7 +66,22 @@ verify_checksum() {
 }
 
 main() {
-  base=${PORTHMOS_RELEASE_BASE:-$DEFAULT_BASE}
+  channel=stable
+  for argument in "$@"; do
+    case $argument in
+      --preview) channel=preview ;;
+      --help | -h)
+        usage
+        exit 0
+        ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  base=$(release_base "$channel")
   [ -n "${HOME:-}" ] || fail "HOME is not set"
   install_dir=${PORTHMOS_INSTALL_DIR:-$HOME/.local/share/porthmos}
   bin_dir=${PORTHMOS_BIN_DIR:-$HOME/.local/bin}
@@ -53,6 +92,9 @@ main() {
     *) fail "the release location must start with https://" ;;
   esac
   command -v curl > /dev/null 2>&1 || fail "curl is required"
+  if [ "$channel" = preview ]; then
+    say "Installing the preview build from the development channel. It may be less stable than the release."
+  fi
 
   if [ -n "${PORTHMOS_TARGET:-}" ]; then
     target=$PORTHMOS_TARGET
