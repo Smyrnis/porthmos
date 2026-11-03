@@ -137,8 +137,8 @@ test_each_channel_location_can_be_overridden_on_its_own() {
     export PORTHMOS_INSTALL_SOURCE_ONLY=1
     # shellcheck disable=SC1090
     . "$INSTALL_SH"
-    PORTHMOS_RELEASE_BASE=https://stable.example/x
-    PORTHMOS_PREVIEW_BASE=https://preview.example/y
+    export PORTHMOS_RELEASE_BASE=https://stable.example/x
+    export PORTHMOS_PREVIEW_BASE=https://preview.example/y
     [ "$(release_base stable)" = https://stable.example/x ]
     [ "$(release_base preview)" = https://preview.example/y ]
   )
