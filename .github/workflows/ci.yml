@@ -62,6 +62,10 @@ jobs:
         run: |
           shellcheck scripts/install/*.sh
           bash scripts/install/test.sh
+      - name: Release scripts
+        run: |
+          shellcheck scripts/release/*.sh
+          bash scripts/release/test.sh
 
   windows:
     runs-on: windows-latest

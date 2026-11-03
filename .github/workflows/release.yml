@@ -12,8 +12,17 @@ jobs:
   check-tag:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.channel.outputs.value }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tag belongs to a channel and its commit is on that channel's branch
+        id: channel
+        run: |
+          channel=$(sh scripts/release/channel.sh check "$GITHUB_REF_NAME" "$GITHUB_SHA")
+          echo "value=$channel" >> "$GITHUB_OUTPUT"
       - name: The tag matches the workspace version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
@@ -146,7 +155,7 @@ jobs:
             scripts/install/uninstall.sh
 
   release:
-    needs: manifest
+    needs: [check-tag, manifest]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
@@ -175,8 +184,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          CHANNEL: ${{ needs.check-tag.outputs.channel }}
         run: |
-          flags=()
-          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$TAG" dist/* latest.json latest.json.sig scripts/install/install.sh scripts/install/uninstall.sh \
-            --title "$TAG" --notes-file notes.txt "${flags[@]}"
+          assets=(dist/* latest.json latest.json.sig scripts/install/install.sh scripts/install/uninstall.sh)
+          if [ "$CHANNEL" = preview ]; then
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              gh release upload "$TAG" "${assets[@]}" --clobber
+            else
+              gh release create "$TAG" "${assets[@]}" --title "Preview $TAG" --notes-file notes.txt --prerelease
+            fi
+            note="Latest preview build: $TAG. This release always holds the newest build from the development branch; it is what preview builds check for updates."
+            if gh release view preview > /dev/null 2>&1; then
+              gh release edit preview --title "Preview (latest)" --notes "$note" --prerelease
+              gh release upload preview dist/* scripts/install/install.sh scripts/install/uninstall.sh --clobber
+              gh release upload preview latest.json.sig latest.json --clobber
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/preview" -f sha="$GITHUB_SHA" -F force=true
+            else
+              gh release create preview "${assets[@]}" --target "$GITHUB_SHA" --title "Preview (latest)" --notes "$note" --prerelease
+            fi
+          else
+            flags=()
+            [ "$CHANNEL" = stable ] || flags+=(--prerelease)
+            gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes-file notes.txt "${flags[@]}"
+          fi
