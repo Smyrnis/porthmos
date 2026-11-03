@@ -20,7 +20,7 @@ pub struct ReleaseUpdater {
 impl ReleaseUpdater {
     pub fn new(update_dir: PathBuf, user_agent: &str) -> anyhow::Result<ReleaseUpdater> {
         Ok(ReleaseUpdater {
-            checker: Checker::release(user_agent)?,
+            checker: Checker::release(&super::current_version(), user_agent)?,
             stager: Stager::new(UpdateDir::new(update_dir), user_agent)?,
         })
     }

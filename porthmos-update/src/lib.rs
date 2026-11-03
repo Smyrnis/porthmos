@@ -13,7 +13,9 @@ mod unpack;
 
 pub mod keys;
 
-pub use check::{CheckError, Checker, DEFAULT_MANIFEST_URL, Outcome, UpdateInfo};
+pub use check::{
+    CheckError, Checker, Outcome, PREVIEW_MANIFEST_URL, STABLE_MANIFEST_URL, UpdateInfo, manifest_url_for,
+};
 pub use digest::{sha256_hex, sha256_hex_of_file};
 pub use install::{InstallError, InstallPlace, Installed, forget_previous_version, install, install_place};
 pub use manifest::{Artifact, Manifest};
