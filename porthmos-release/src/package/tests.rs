@@ -42,7 +42,7 @@ impl Fixture {
     }
 
     fn run(&self) -> Result<()> {
-        package(Product::Tui, TARGET, &Version::new(0, 4, 0), &self.binary(), &self.license(), &self.out())
+        package(Product::Tui, TARGET, &Version::new(0, 4, 0), &self.binary(), &self.license(), None, &self.out())
     }
 }
 
@@ -135,7 +135,7 @@ fn a_missing_binary_is_an_error_naming_the_path_and_leaves_no_archive_behind() {
 const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 
 fn windows_run(fixture: &Fixture, out: &Path) -> Result<()> {
-    package(Product::Tui, WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), out)
+    package(Product::Tui, WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), None, out)
 }
 
 fn zip_members(archive: &Path) -> Vec<(String, Vec<u8>)> {
@@ -214,7 +214,7 @@ fn a_gui_package_is_named_after_the_gui_program_and_holds_it() {
     let fixture = Fixture::new();
     let version = "2026.5.0".parse().unwrap();
 
-    package(Product::Gui, TARGET, &version, &fixture.binary(), &fixture.license(), &fixture.out()).unwrap();
+    package(Product::Gui, TARGET, &version, &fixture.binary(), &fixture.license(), None, &fixture.out()).unwrap();
 
     let mut names: Vec<String> = std::fs::read_dir(fixture.out())
         .unwrap()
@@ -241,8 +241,87 @@ fn a_gui_windows_package_is_a_zip_holding_the_gui_exe() {
     let fixture = Fixture::new();
     let version = "2026.5.0".parse().unwrap();
 
-    package(Product::Gui, WINDOWS_TARGET, &version, &fixture.binary(), &fixture.license(), &fixture.out()).unwrap();
+    package(Product::Gui, WINDOWS_TARGET, &version, &fixture.binary(), &fixture.license(), None, &fixture.out())
+        .unwrap();
 
     let members = zip_members(&fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip"));
     assert_eq!(members.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["porthmos-gui.exe", "LICENSE"]);
+}
+
+const ICON: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>\n";
+
+fn write_icon(fixture: &Fixture) -> PathBuf {
+    let path = fixture.directory.path().join("porthmos.svg");
+    std::fs::write(&path, ICON).unwrap();
+    path
+}
+
+#[test]
+fn an_icon_is_added_to_the_archive_under_the_program_name() {
+    let fixture = Fixture::new();
+    let icon = write_icon(&fixture);
+    let version = "2026.5.0".parse().unwrap();
+
+    package(Product::Gui, TARGET, &version, &fixture.binary(), &fixture.license(), Some(&icon), &fixture.out())
+        .unwrap();
+
+    for name in
+        ["porthmos-gui-x86_64-unknown-linux-gnu.tar.gz", "porthmos-gui-2026.5.0-x86_64-unknown-linux-gnu.tar.gz"]
+    {
+        let entries = entries_of(&fixture.out().join(name));
+        let names: Vec<&str> = entries.iter().map(|(name, _, _)| name.as_str()).collect();
+        assert_eq!(names, ["porthmos-gui", "LICENSE", "porthmos-gui.svg"], "{name}");
+        assert_eq!(entries[2].1 & 0o777, 0o644, "{name}");
+        assert_eq!(entries[2].2, ICON, "{name}");
+    }
+}
+
+#[test]
+fn the_checksum_covers_an_archive_that_holds_the_icon() {
+    let fixture = Fixture::new();
+    let icon = write_icon(&fixture);
+    let version = "2026.5.0".parse().unwrap();
+
+    package(Product::Gui, TARGET, &version, &fixture.binary(), &fixture.license(), Some(&icon), &fixture.out())
+        .unwrap();
+
+    let archive = std::fs::read(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    let sidecar =
+        std::fs::read_to_string(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz.sha256")).unwrap();
+    assert!(sidecar.starts_with(&sha256_hex(&archive)), "{sidecar}");
+}
+
+#[test]
+fn an_icon_is_added_to_the_windows_zip_too() {
+    let fixture = Fixture::new();
+    let icon = write_icon(&fixture);
+    let version = "2026.5.0".parse().unwrap();
+
+    package(Product::Gui, WINDOWS_TARGET, &version, &fixture.binary(), &fixture.license(), Some(&icon), &fixture.out())
+        .unwrap();
+
+    let members = zip_members(&fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip"));
+    let names: Vec<&str> = members.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["porthmos-gui.exe", "LICENSE", "porthmos-gui.svg"]);
+    assert_eq!(members[2].1, ICON);
+}
+
+#[test]
+fn a_missing_icon_is_an_error_naming_the_path_and_leaves_no_archive_behind() {
+    let fixture = Fixture::new();
+    let missing = fixture.directory.path().join("nope.svg");
+
+    let error = package(
+        Product::Gui,
+        TARGET,
+        &Version::new(2026, 5, 0),
+        &fixture.binary(),
+        &fixture.license(),
+        Some(&missing),
+        &fixture.out(),
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("nope.svg"), "{error}");
+    assert!(std::fs::read_dir(fixture.out()).unwrap().next().is_none());
 }

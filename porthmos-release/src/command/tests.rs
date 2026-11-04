@@ -367,6 +367,34 @@ fn the_package_command_reports_the_gui_file_names() {
 }
 
 #[test]
+fn the_package_command_adds_the_icon_given_with_the_icon_flag() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("program"), b"binary").unwrap();
+    std::fs::write(directory.path().join("LICENSE"), b"license").unwrap();
+    std::fs::write(directory.path().join("icon.svg"), b"<svg/>").unwrap();
+    let mut with_icon = package_args(&directory, Some("gui"));
+    with_icon.extend(["--icon".to_string(), path(&directory, "icon.svg")]);
+
+    run(&with_icon, &no_env).unwrap();
+    let with =
+        std::fs::read(directory.path().join("dist").join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    std::fs::remove_dir_all(directory.path().join("dist")).unwrap();
+    run(&package_args(&directory, Some("gui")), &no_env).unwrap();
+    let without =
+        std::fs::read(directory.path().join("dist").join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+
+    let names = |archive: &[u8]| -> Vec<String> {
+        tar::Archive::new(flate2::read::GzDecoder::new(archive))
+            .entries()
+            .unwrap()
+            .map(|entry| entry.unwrap().path().unwrap().to_string_lossy().into_owned())
+            .collect()
+    };
+    assert_eq!(names(&with), ["porthmos-gui", "LICENSE", "porthmos-gui.svg"]);
+    assert_eq!(names(&without), ["porthmos-gui", "LICENSE"]);
+}
+
+#[test]
 fn the_manifest_command_needs_a_product() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(directory.path().join("notes.txt"), b"notes").unwrap();

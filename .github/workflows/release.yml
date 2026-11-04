@@ -152,6 +152,7 @@ jobs:
           --version "$VERSION"
           --binary "target/${{ matrix.target }}/release/$PROGRAM${{ matrix.exe }}"
           --license LICENSE
+          ${{ needs.plan.outputs.product == 'gui' && '--icon assets/icon/porthmos.svg' || '' }}
           --out dist
       - uses: actions/upload-artifact@v4
         with:

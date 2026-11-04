@@ -28,10 +28,18 @@ fn append(builder: &mut tar::Builder<GzEncoder<Vec<u8>>>, name: &str, bytes: &[u
     Ok(())
 }
 
-fn archive_of(member: &str, binary: &[u8], license: &[u8]) -> Result<Vec<u8>> {
+struct Icon<'a> {
+    name: String,
+    bytes: &'a [u8],
+}
+
+fn archive_of(member: &str, binary: &[u8], license: &[u8], icon: Option<&Icon>) -> Result<Vec<u8>> {
     let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
     append(&mut builder, member, binary, EXECUTABLE_MODE)?;
     append(&mut builder, LICENSE_NAME, license, FILE_MODE)?;
+    if let Some(icon) = icon {
+        append(&mut builder, &icon.name, icon.bytes, FILE_MODE)?;
+    }
     Ok(builder.into_inner()?.finish()?)
 }
 
@@ -46,7 +54,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     result.with_context(|| format!("couldn't write {}", path.display()))
 }
 
-fn zip_of(member: &str, binary: &[u8], license: &[u8]) -> Result<Vec<u8>> {
+fn zip_of(member: &str, binary: &[u8], license: &[u8], icon: Option<&Icon>) -> Result<Vec<u8>> {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .last_modified_time(zip::DateTime::default())
@@ -56,18 +64,24 @@ fn zip_of(member: &str, binary: &[u8], license: &[u8]) -> Result<Vec<u8>> {
     writer.write_all(binary)?;
     writer.start_file(LICENSE_NAME, options.unix_permissions(FILE_MODE))?;
     writer.write_all(license)?;
+    if let Some(icon) = icon {
+        writer.start_file(&icon.name, options.unix_permissions(FILE_MODE))?;
+        writer.write_all(icon.bytes)?;
+    }
     Ok(writer.finish()?.into_inner())
 }
 
 pub fn package(
-    product: Product, target: &str, version: &Version, binary: &Path, license: &Path, out: &Path,
+    product: Product, target: &str, version: &Version, binary: &Path, license: &Path, icon: Option<&Path>, out: &Path,
 ) -> Result<()> {
     let (binary, license) = (read(binary)?, read(license)?);
+    let icon_bytes = icon.map(read).transpose()?;
     let program = product.program();
+    let icon = icon_bytes.as_deref().map(|bytes| Icon { name: format!("{program}.svg"), bytes });
     let (archive, extension) = if target.contains("windows") {
-        (zip_of(&format!("{program}.exe"), &binary, &license)?, "zip")
+        (zip_of(&format!("{program}.exe"), &binary, &license, icon.as_ref())?, "zip")
     } else {
-        (archive_of(program, &binary, &license)?, "tar.gz")
+        (archive_of(program, &binary, &license, icon.as_ref())?, "tar.gz")
     };
     let plain_name = format!("{program}-{target}.{extension}");
     let checksum = format!("{}  {plain_name}\n", sha256_hex(&archive));

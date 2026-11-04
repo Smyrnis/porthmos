@@ -63,6 +63,7 @@ fn package_command(flags: &Flags) -> Result<String> {
         &version,
         Path::new(flags.required("binary")?),
         Path::new(flags.required("license")?),
+        flags.optional("icon").map(Path::new),
         Path::new(out),
     )?;
     let extension = if target.contains("windows") { "zip" } else { "tar.gz" };
