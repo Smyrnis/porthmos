@@ -11,20 +11,25 @@ KEYRING_LOG="$WORK/keyring.log"
 trap 'rm -rf "$WORK"' EXIT
 TARGET=x86_64-unknown-linux-gnu
 failures=0
-unset XDG_CONFIG_HOME XDG_STATE_HOME PORTHMOS_INSTALL_DIR PORTHMOS_BIN_DIR
+unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME PORTHMOS_INSTALL_DIR PORTHMOS_BIN_DIR
 
 release_tool() {
   (cd "$ROOT" && cargo run -q -p porthmos-release -- "$@")
 }
 
 make_release() {
-  local dir=$1 marker=$2 product=${3:-tui} program=porthmos
+  local dir=$1 marker=$2 product=${3:-tui} icon=${4:-icon} program=porthmos
+  local icon_flags=()
   [ "$product" = gui ] && program=porthmos-gui
   mkdir -p "$dir"
   printf '#!/bin/sh\necho "%s-stub %s"\n' "$program" "$marker" > "$dir/$program"
   chmod 755 "$dir/$program"
   printf 'MIT\n' > "$dir/LICENSE"
-  release_tool package --product "$product" --target "$TARGET" --version 2026.5.0 --binary "$dir/$program" --license "$dir/LICENSE" --out "$dir/dist" > /dev/null
+  if [ "$product" = gui ] && [ "$icon" = icon ]; then
+    printf '<svg>%s</svg>\n' "$marker" > "$dir/icon.svg"
+    icon_flags=(--icon "$dir/icon.svg")
+  fi
+  release_tool package --product "$product" --target "$TARGET" --version 2026.5.0 --binary "$dir/$program" --license "$dir/LICENSE" "${icon_flags[@]}" --out "$dir/dist" > /dev/null
 }
 
 run_install() {
@@ -838,6 +843,154 @@ test_uninstall_leaves_no_temp_files_behind() {
   mkdir -p "$WORK/tmp"
   run_uninstall "$home" > /dev/null 2>&1
   [ -z "$(ls -A "$WORK/tmp")" ]
+}
+
+desktop_file() {
+  printf '%s\n' "${1:-$HOME}/.local/share/applications/porthmos-gui.desktop"
+}
+
+icon_file() {
+  printf '%s\n' "$1/.local/share/icons/hicolor/scalable/apps/porthmos-gui.svg"
+}
+
+install_gui() {
+  local home=$1 base=$2
+  run_install_channel "$home" "$base" "$base" --gui
+}
+
+test_the_window_app_gets_a_launcher_and_an_icon() {
+  local home desktop
+  home=$(fresh_home launcher)
+  make_release "$WORK/rel-launcher" one gui
+  install_gui "$home" "file://$WORK/rel-launcher/dist" > "$WORK/out-launcher" 2>&1
+  desktop=$(desktop_file "$home")
+  [ -f "$desktop" ]
+  grep -qx '\[Desktop Entry\]' "$desktop"
+  grep -qx 'Type=Application' "$desktop"
+  grep -qx 'Name=Porthmos' "$desktop"
+  grep -qx 'Terminal=false' "$desktop"
+  grep -qx 'Icon=porthmos-gui' "$desktop"
+  grep -qx 'StartupWMClass=porthmos-gui' "$desktop"
+  grep -qx "Exec=\"$home/.local/share/porthmos/porthmos-gui\"" "$desktop"
+  grep -q '^Categories=.*Network' "$desktop"
+  [ "$(cat "$(icon_file "$home")")" = "<svg>one</svg>" ]
+}
+
+test_the_launcher_follows_xdg_data_home() {
+  local home data
+  home=$(fresh_home launcher-xdg)
+  data="$WORK/xdg-data"
+  make_release "$WORK/rel-launcher-xdg" one gui
+  (
+    export XDG_DATA_HOME="$data"
+    install_gui "$home" "file://$WORK/rel-launcher-xdg/dist" > "$WORK/out-launcher-xdg" 2>&1
+  )
+  [ -f "$data/applications/porthmos-gui.desktop" ]
+  [ -f "$data/icons/hicolor/scalable/apps/porthmos-gui.svg" ]
+  [ ! -e "$home/.local/share/applications/porthmos-gui.desktop" ]
+}
+
+test_the_launcher_quotes_an_install_path_with_a_space() {
+  local home
+  home="$WORK/home with space"
+  mkdir -p "$WORK/tmp"
+  make_release "$WORK/rel-launcher-space" one gui
+  install_gui "$home" "file://$WORK/rel-launcher-space/dist" > "$WORK/out-launcher-space" 2>&1
+  grep -qxF "Exec=\"$home/.local/share/porthmos/porthmos-gui\"" "$(desktop_file "$home")"
+}
+
+test_the_terminal_app_gets_no_launcher() {
+  local home
+  home=$(fresh_home launcher-tui)
+  make_release "$WORK/rel-launcher-tui" one
+  run_install "$home" "file://$WORK/rel-launcher-tui/dist" > /dev/null 2>&1
+  [ ! -e "$home/.local/share/applications" ]
+  [ ! -e "$home/.local/share/icons" ]
+}
+
+test_an_archive_without_an_icon_installs_without_a_launcher() {
+  local home
+  home=$(fresh_home launcher-noicon)
+  make_release "$WORK/rel-launcher-noicon" one gui noicon
+  install_gui "$home" "file://$WORK/rel-launcher-noicon/dist" > "$WORK/out-launcher-noicon" 2>&1
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
+  [ ! -e "$(desktop_file "$home")" ]
+}
+
+test_macos_gets_no_launcher() {
+  local home bin
+  home=$(fresh_home launcher-mac)
+  bin="$WORK/darwin-bin"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\necho Darwin\n' > "$bin/uname"
+  chmod 755 "$bin/uname"
+  make_release "$WORK/rel-launcher-mac" one gui
+  (
+    export PATH="$bin:$PATH"
+    install_gui "$home" "file://$WORK/rel-launcher-mac/dist" > "$WORK/out-launcher-mac" 2>&1
+  )
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
+  [ ! -e "$home/.local/share/applications" ]
+}
+
+test_a_launcher_that_cannot_be_written_does_not_fail_the_install() {
+  local home
+  home=$(fresh_home launcher-blocked)
+  mkdir -p "$home/.local/share"
+  printf 'in the way\n' > "$home/.local/share/applications"
+  make_release "$WORK/rel-launcher-blocked" one gui
+  install_gui "$home" "file://$WORK/rel-launcher-blocked/dist" > "$WORK/out-launcher-blocked" 2>&1
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
+  grep -q "Couldn't add the launcher" "$WORK/out-launcher-blocked"
+}
+
+test_installing_again_keeps_one_launcher_that_points_at_the_program() {
+  local home
+  home=$(fresh_home launcher-again)
+  make_release "$WORK/rel-launcher-again-1" one gui
+  make_release "$WORK/rel-launcher-again-2" two gui
+  install_gui "$home" "file://$WORK/rel-launcher-again-1/dist" > /dev/null 2>&1
+  install_gui "$home" "file://$WORK/rel-launcher-again-2/dist" > /dev/null 2>&1
+  [ "$(grep -c '^Exec=' "$(desktop_file "$home")")" = 1 ]
+  [ "$(cat "$(icon_file "$home")")" = "<svg>two</svg>" ]
+}
+
+test_uninstall_removes_the_launcher_and_the_icon() {
+  local home other
+  home=$(fresh_home un-launcher)
+  make_release "$WORK/rel-un-launcher" one gui
+  install_gui "$home" "file://$WORK/rel-un-launcher/dist" > /dev/null 2>&1
+  other="$home/.local/share/applications/other.desktop"
+  printf '[Desktop Entry]\nName=Other\n' > "$other"
+  run_uninstall "$home" > "$WORK/out-un-launcher" 2>&1
+  [ ! -e "$(desktop_file "$home")" ]
+  [ ! -e "$(icon_file "$home")" ]
+  [ -f "$other" ]
+}
+
+test_uninstall_leaves_a_launcher_of_the_same_name_that_it_did_not_write() {
+  local home desktop
+  home=$(fresh_home un-foreign)
+  fake_install_gui "$home"
+  desktop=$(desktop_file "$home")
+  mkdir -p "$(dirname "$desktop")"
+  printf '[Desktop Entry]\nName=Mine\nExec=/opt/mine\n' > "$desktop"
+  run_uninstall "$home" > "$WORK/out-un-foreign" 2>&1
+  [ -f "$desktop" ]
+  grep -qx 'Name=Mine' "$desktop"
+}
+
+test_uninstall_removes_the_launcher_with_only_basic_tools_on_the_path() {
+  local home bin
+  home=$(fresh_home un-launcher-bare)
+  make_release "$WORK/rel-un-launcher-bare" one gui
+  install_gui "$home" "file://$WORK/rel-un-launcher-bare/dist" > /dev/null 2>&1
+  [ -f "$(desktop_file "$home")" ]
+  [ -f "$(icon_file "$home")" ]
+  bin=$(bare_path)
+  HOME="$home" PATH="$bin" PORTHMOS_UNINSTALL_TTY="$WORK/no-terminal" TMPDIR="$WORK/tmp" /bin/sh "$UNINSTALL_SH" > "$WORK/out-un-launcher-bare" 2>&1
+  [ ! -e "$(desktop_file "$home")" ]
+  [ ! -e "$(icon_file "$home")" ]
 }
 
 make_fake_keyring

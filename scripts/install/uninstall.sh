@@ -108,11 +108,36 @@ remove_one_program() {
   fi
 }
 
+data_home() {
+  xdg_or "${XDG_DATA_HOME:-}" "$HOME/.local/share"
+}
+
+remove_launcher() {
+  name=$1
+  data=$(data_home)
+  launcher=$data/applications/$name.desktop
+  if [ -f "$launcher" ]; then
+    case $(cat "$launcher" 2> /dev/null) in
+      *X-Porthmos-Installer=install.sh*)
+        rm -f "$launcher"
+        say "Removed $launcher"
+        found=1
+        rm -f "$data/icons/hicolor/scalable/apps/$name.svg"
+        if command -v update-desktop-database > /dev/null 2>&1; then
+          update-desktop-database "$data/applications" > /dev/null 2>&1 || true
+        fi
+        ;;
+      *) say "Left $launcher alone: the installer did not write it." ;;
+    esac
+  fi
+}
+
 remove_program() {
   found=0
   for name in $PROGRAMS; do
     remove_one_program "$name"
   done
+  remove_launcher porthmos-gui
 
   for leftover in "$install_dir"/.porthmos.*; do
     [ -e "$leftover" ] || continue

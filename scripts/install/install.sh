@@ -84,6 +84,56 @@ fetch_verified() {
   done
 }
 
+data_home() {
+  case ${XDG_DATA_HOME:-} in
+    /*) printf '%s\n' "$XDG_DATA_HOME" ;;
+    *) printf '%s\n' "$HOME/.local/share" ;;
+  esac
+}
+
+write_launcher() {
+  cat << LAUNCHER
+[Desktop Entry]
+Type=Application
+Name=Porthmos
+Comment=Connect to servers and move files
+Exec="$1"
+Icon=$2
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=sftp;ftp;ssh;scp;s3;webdav;
+StartupWMClass=$2
+X-Porthmos-Installer=install.sh
+LAUNCHER
+}
+
+install_launcher() {
+  program=$1
+  executable=$2
+  icon=$3
+  [ "$(uname -s)" = Linux ] || return 0
+  [ -f "$icon" ] || return 0
+  case $executable in
+    *'"'* | *'$'* | *'`'* | *\\* | *'%'*)
+      say "Couldn't add the launcher: the install path has a character a launcher can't hold."
+      return 0
+      ;;
+  esac
+  data=$(data_home)
+  icon_dir=$data/icons/hicolor/scalable/apps
+  app_dir=$data/applications
+  pending=$app_dir/.$program.desktop.$$
+  if ! { mkdir -p "$icon_dir" "$app_dir" && cp "$icon" "$icon_dir/$program.svg" &&
+    write_launcher "$executable" "$program" > "$pending" && mv -f "$pending" "$app_dir/$program.desktop"; }; then
+    rm -f "$pending"
+    say "Couldn't add the launcher to the applications menu; $program still runs from the command line."
+    return 0
+  fi
+  if command -v update-desktop-database > /dev/null 2>&1; then
+    update-desktop-database "$app_dir" > /dev/null 2>&1 || true
+  fi
+}
+
 main() {
   channel=stable
   product=tui
@@ -136,6 +186,9 @@ main() {
 
   mkdir "$temp/extract"
   tar -xzf "$temp/$archive" -C "$temp/extract" "$program" || fail "the archive does not contain the $program program"
+  if [ "$product" = gui ]; then
+    tar -xzf "$temp/$archive" -C "$temp/extract" "$program.svg" > /dev/null 2>&1 || true
+  fi
 
   mkdir -p "$install_dir" "$bin_dir" || fail "couldn't create $install_dir or $bin_dir"
   staged=$install_dir/.porthmos.new.$$
@@ -144,6 +197,9 @@ main() {
     fail "couldn't install into $install_dir"
   fi
   ln -sf "$install_dir/$program" "$bin_dir/$program" || fail "couldn't link $bin_dir/$program"
+  if [ "$product" = gui ]; then
+    install_launcher "$program" "$install_dir/$program" "$temp/extract/$program.svg"
+  fi
 
   version=$("$install_dir/$program" --version 2> /dev/null || true)
   say "Installed ${version:-$program} in $install_dir and linked it as $bin_dir/$program"
