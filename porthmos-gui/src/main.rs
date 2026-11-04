@@ -4,7 +4,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::Result;
-use iced::{Size, window};
 use porthmos_core::{Environment, Paths, from_os_path};
 
 mod app;
@@ -23,6 +22,7 @@ mod entries;
 mod geometry;
 mod history_view;
 mod icons;
+mod main_window;
 mod menus;
 mod modal;
 mod names;
@@ -101,15 +101,9 @@ fn run_window() -> Result<()> {
         app.warn(warning);
     }
     app.set_state_dir(state_dir);
-    let size = Size::new(1100.0, 700.0);
-    app.set_window_size(size);
+    app.set_window_size(main_window::INITIAL_SIZE);
     let slot = Mutex::new(Some(app));
-    let settings = window::Settings {
-        size,
-        min_size: Some(Size::new(480.0, 320.0)),
-        exit_on_close_request: false,
-        ..window::Settings::default()
-    };
+    let settings = main_window::settings();
     let result = iced::application(
         move || {
             let app = slot.lock().unwrap().take().expect("the application boots once");
