@@ -5,6 +5,19 @@ use crate::testing::{archive_with, raw_archive, stub_archive, zip_archive_with};
 
 const CAP: u64 = 1024 * 1024;
 
+#[cfg(windows)]
+const PROGRAM_FILE: &str = "porthmos.exe";
+#[cfg(not(windows))]
+const PROGRAM_FILE: &str = "porthmos";
+
+fn extract_binary(archive: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
+    extract_binary_named(archive, destination, max_bytes, PROGRAM_FILE)
+}
+
+fn health_check(binary: &Path, expected: &Version, timeout: Duration) -> Result<()> {
+    super::health_check(binary, expected, timeout, "porthmos")
+}
+
 fn version(text: &str) -> Version {
     text.parse().unwrap()
 }
@@ -359,4 +372,17 @@ fn a_truncated_or_corrupt_zip_is_an_error_not_a_panic() {
         assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
         assert!(folder.stage_listing().is_empty());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_health_check_for_the_gui_wants_the_gui_name() {
+    let folder = Folder::new();
+    let binary = folder.root.path().join("porthmos-gui");
+    fs::write(&binary, b"#!/bin/sh\necho \"porthmos-gui 2026.5.0\"\n").unwrap();
+    fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let expected = version("2026.5.0");
+
+    assert!(super::health_check(&binary, &expected, Duration::from_secs(5), "porthmos-gui").is_ok());
+    assert!(super::health_check(&binary, &expected, Duration::from_secs(5), "porthmos").is_err());
 }

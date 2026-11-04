@@ -207,3 +207,102 @@ fn recording_replaces_an_earlier_record_atomically() {
     assert_eq!(find_staged(&fixture.dir, &version("0.4.0")), Some(second));
     assert!(!fixture.names().iter().any(|name| name.ends_with(".tmp")), "{:?}", fixture.names());
 }
+
+#[test]
+fn for_product_gives_each_app_its_own_folder() {
+    let root = tempfile::tempdir().unwrap();
+    let tui = UpdateDir::for_product(root.path(), crate::Product::Tui);
+    let gui = UpdateDir::for_product(root.path(), crate::Product::Gui);
+    assert_eq!(tui.path(), root.path().join("tui"));
+    assert_eq!(gui.path(), root.path().join("gui"));
+
+    let folder = tui.path().join("2026.5.0");
+    fs::create_dir_all(&folder).unwrap();
+    let binary = folder.join("porthmos");
+    fs::write(&binary, b"abc").unwrap();
+    record_staged(&tui, &Staged { version: version("2026.5.0"), binary, sha256: HASH.to_string(), size: 3 }).unwrap();
+
+    assert!(find_staged(&tui, &version("2026.4.0")).is_some());
+    assert_eq!(find_staged(&gui, &version("2026.4.0")), None);
+}
+
+fn legacy_root(fixture: &Fixture) -> PathBuf {
+    let root = fixture.root.path().join("update");
+    fs::create_dir_all(root.join("0.4.0")).unwrap();
+    fs::write(root.join("0.4.0").join("porthmos"), b"old binary").unwrap();
+    fs::write(root.join("staged.toml"), b"version = \"0.4.0\"").unwrap();
+    fs::write(root.join("staged.toml.tmp"), b"half written").unwrap();
+    root
+}
+
+fn product_folder_with_a_staged_update(root: &Path, product: Product) -> PathBuf {
+    let dir = UpdateDir::for_product(root, product);
+    let folder = dir.path().join("2026.5.1");
+    fs::create_dir_all(&folder).unwrap();
+    let binary = folder.join(product.program());
+    fs::write(&binary, b"new binary").unwrap();
+    let staged = Staged { version: version("2026.5.1"), binary, sha256: HASH.to_string(), size: 10 };
+    record_staged(&dir, &staged).unwrap();
+    dir.path().to_path_buf()
+}
+
+#[test]
+fn the_old_layout_is_removed_from_the_update_root() {
+    let fixture = Fixture::new();
+    let root = legacy_root(&fixture);
+
+    remove_legacy_layout(&root);
+
+    assert!(!root.join("staged.toml").exists());
+    assert!(!root.join("staged.toml.tmp").exists());
+    assert!(!root.join("0.4.0").exists());
+}
+
+#[test]
+fn the_product_folders_survive_the_cleanup_of_the_old_layout() {
+    let fixture = Fixture::new();
+    let root = legacy_root(&fixture);
+    let tui = product_folder_with_a_staged_update(&root, Product::Tui);
+    let gui = product_folder_with_a_staged_update(&root, Product::Gui);
+
+    remove_legacy_layout(&root);
+
+    for (folder, product) in [(&tui, Product::Tui), (&gui, Product::Gui)] {
+        assert!(folder.join("staged.toml").exists(), "{product:?}");
+        assert!(folder.join("2026.5.1").join(product.program()).exists(), "{product:?}");
+    }
+    assert!(!root.join("0.4.0").exists());
+}
+
+#[test]
+fn cleaning_the_old_layout_leaves_fresh_work_of_another_process_and_removes_stale_work() {
+    let fixture = Fixture::new();
+    let root = legacy_root(&fixture);
+    let work = other_process_work(&fixture);
+
+    remove_legacy_layout(&root);
+    for folder in &work {
+        assert!(folder.join("partial").exists(), "{folder:?}");
+    }
+
+    for folder in &work {
+        make_old(folder);
+    }
+    remove_legacy_layout(&root);
+    for folder in &work {
+        assert!(!folder.exists(), "{folder:?}");
+    }
+}
+
+#[test]
+fn cleaning_the_old_layout_of_a_missing_or_empty_root_is_harmless() {
+    let fixture = Fixture::new();
+    let root = fixture.root.path().join("update");
+
+    remove_legacy_layout(&root);
+    assert!(!root.exists());
+
+    fs::create_dir_all(&root).unwrap();
+    remove_legacy_layout(&root);
+    assert!(root.is_dir());
+}

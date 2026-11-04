@@ -11,16 +11,18 @@ use semver::Version;
 
 use super::*;
 use crate::{
-    Artifact, sha256_hex,
+    Artifact, Product, sha256_hex,
     testing::{Route, TestServer, archive_with, stub_archive},
 };
 
 #[cfg(unix)]
 use crate::{
     find_staged, sha256_hex_of_file,
-    testing::{stub_script, zip_archive_with},
-    unpack::PROGRAM_FILE,
+    testing::{stub_archive_for, stub_script, stub_script_for, zip_archive_with},
 };
+
+#[cfg(unix)]
+const PROGRAM_FILE: &str = "porthmos";
 
 fn version(text: &str) -> Version {
     text.parse().unwrap()
@@ -40,7 +42,11 @@ impl Setup {
     }
 
     fn stager(&self) -> Stager {
-        Stager::with_policy(self.dir(), "porthmos/9.9.9", false).unwrap()
+        self.stager_for(Product::Tui)
+    }
+
+    fn stager_for(&self, product: Product) -> Stager {
+        Stager::with_policy(product, self.dir(), "porthmos/9.9.9", false).unwrap()
     }
 
     fn entries(&self) -> Vec<String> {
@@ -219,13 +225,15 @@ async fn the_production_stager_refuses_plain_http_without_connecting() {
     let archive = stub_archive("0.5.0", &[]);
     let server = TestServer::start(vec![("/p.tar.gz", Route::Body(archive.clone()))]).await;
     let update = update_for(&server, "/p.tar.gz", "0.5.0", &archive);
-    let stager = Stager::new(setup.dir(), "porthmos/9.9.9").unwrap();
+    let stager = Stager::new(Product::Tui, setup.dir().path(), "porthmos/9.9.9").unwrap();
 
     let result = stager.stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
 
     assert!(matches!(&result, Err(StageError::Download(text)) if text.contains("https")), "{result:?}");
     assert_eq!(server.request_count(), 0);
-    assert!(setup.entries().is_empty());
+    let product_folder = setup.dir().path().join(Product::Tui.id());
+    let left_behind: Vec<_> = fs::read_dir(&product_folder).map(|read| read.collect()).unwrap_or_default();
+    assert!(left_behind.is_empty(), "{left_behind:?}");
 }
 
 #[cfg(unix)]
@@ -302,4 +310,57 @@ async fn a_staged_update_from_a_zip_is_stored_under_the_platform_program_name() 
 
     assert_eq!(staged.binary, setup.dir().path().join("0.5.0").join(PROGRAM_FILE));
     assert_eq!(find_staged(&setup.dir(), &version("0.4.0")), Some(staged));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_gui_stager_unpacks_the_gui_program_from_a_gui_archive() {
+    let setup = Setup::new();
+    let archive = stub_archive_for(Product::Gui, "2026.5.0", &[("LICENSE", b"MIT")]);
+    let server = TestServer::start(vec![("/g.tar.gz", Route::Body(archive.clone()))]).await;
+    let update = update_for(&server, "/g.tar.gz", "2026.5.0", &archive);
+
+    let staged = setup.stager_for(Product::Gui).stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await.unwrap();
+
+    assert_eq!(staged.binary, setup.dir().path().join("2026.5.0").join("porthmos-gui"));
+    assert!(staged.binary.is_file());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_gui_stager_refuses_an_archive_that_only_holds_the_tui_program() {
+    let setup = Setup::new();
+    let archive = stub_archive("2026.5.0", &[]);
+    let server = TestServer::start(vec![("/t.tar.gz", Route::Body(archive.clone()))]).await;
+    let update = update_for(&server, "/t.tar.gz", "2026.5.0", &archive);
+
+    let result = setup.stager_for(Product::Gui).stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
+
+    assert!(matches!(result, Err(StageError::Unpack(_))), "{result:?}");
+    assert_eq!(find_staged(&setup.dir(), &version("2026.4.0")), None);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_gui_stager_refuses_a_program_that_answers_with_the_tui_name() {
+    let setup = Setup::new();
+    let wrong_answer = stub_script_for(Product::Tui, "2026.5.0");
+    let archive = archive_with(&[("porthmos-gui", &wrong_answer)]);
+    let server = TestServer::start(vec![("/w.tar.gz", Route::Body(archive.clone()))]).await;
+    let update = update_for(&server, "/w.tar.gz", "2026.5.0", &archive);
+
+    let result = setup.stager_for(Product::Gui).stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
+
+    assert!(matches!(result, Err(StageError::HealthCheck(_))), "{result:?}");
+}
+
+#[test]
+fn a_new_stager_works_in_the_folder_of_its_product_under_the_update_root() {
+    let root = tempfile::tempdir().unwrap();
+    for product in [Product::Tui, Product::Gui] {
+        let stager = Stager::new(product, root.path(), "test-agent").unwrap();
+
+        assert_eq!(stager.dir, UpdateDir::for_product(root.path(), product));
+        assert_eq!(stager.dir.path(), root.path().join(product.id()));
+    }
 }

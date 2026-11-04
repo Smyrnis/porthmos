@@ -1,6 +1,6 @@
 use std::{
     fmt, fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -9,11 +9,11 @@ use anyhow::Result;
 use semver::Version;
 
 use crate::{
-    Staged, UpdateDir, UpdateInfo,
+    Product, Staged, UpdateDir, UpdateInfo,
     fetch::{FetchError, Fetcher},
     find_staged, sha256_hex_of_file,
     staged::{is_another_process_at_work, record_staged},
-    unpack::{PROGRAM_FILE, extract_binary, health_check},
+    unpack::{extract_binary_named, health_check},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +45,7 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 const ARCHIVE_FILE: &str = "archive";
 
 pub struct Stager {
+    product: Product,
     fetcher: Fetcher,
     dir: UpdateDir,
 }
@@ -65,12 +66,12 @@ fn remove_folder(path: &Path) {
 }
 
 impl Stager {
-    pub fn new(dir: UpdateDir, user_agent: &str) -> Result<Stager> {
-        Stager::with_policy(dir, user_agent, true)
+    pub fn new(product: Product, update_root: impl Into<PathBuf>, user_agent: &str) -> Result<Stager> {
+        Stager::with_policy(product, UpdateDir::for_product(update_root, product), user_agent, true)
     }
 
-    fn with_policy(dir: UpdateDir, user_agent: &str, https_only: bool) -> Result<Stager> {
-        Ok(Stager { fetcher: Fetcher::new(user_agent, ARCHIVE_TIMEOUT, https_only)?, dir })
+    fn with_policy(product: Product, dir: UpdateDir, user_agent: &str, https_only: bool) -> Result<Stager> {
+        Ok(Stager { product, fetcher: Fetcher::new(user_agent, ARCHIVE_TIMEOUT, https_only)?, dir })
     }
 
     pub async fn stage(
@@ -106,15 +107,16 @@ impl Stager {
             return Err(StageError::Cancelled);
         }
 
-        let binary = staging.join(PROGRAM_FILE);
-        let (unpack_from, unpack_to) = (archive, binary.clone());
-        tokio::task::spawn_blocking(move || extract_binary(&unpack_from, &unpack_to, MAX_BINARY_BYTES))
+        let program_file = self.product.program_file();
+        let binary = staging.join(&program_file);
+        let (unpack_from, unpack_to, member) = (archive, binary.clone(), program_file.clone());
+        tokio::task::spawn_blocking(move || extract_binary_named(&unpack_from, &unpack_to, MAX_BINARY_BYTES, &member))
             .await
             .map_err(|error| StageError::Unpack(error.to_string()))?
             .map_err(|error| StageError::Unpack(format!("{error:#}")))?;
 
-        let (checked, expected) = (binary.clone(), update.version.clone());
-        tokio::task::spawn_blocking(move || health_check(&checked, &expected, HEALTH_TIMEOUT))
+        let (checked, expected, program) = (binary.clone(), update.version.clone(), self.product.program());
+        tokio::task::spawn_blocking(move || health_check(&checked, &expected, HEALTH_TIMEOUT, program))
             .await
             .map_err(|error| StageError::HealthCheck(error.to_string()))?
             .map_err(|error| StageError::HealthCheck(format!("{error:#}")))?;
@@ -124,7 +126,7 @@ impl Stager {
         let folder = self.dir.path().join(update.version.to_string());
         remove_folder(&folder);
         fs::rename(staging, &folder).map_err(disk)?;
-        let staged = Staged { version: update.version.clone(), binary: folder.join(PROGRAM_FILE), sha256, size };
+        let staged = Staged { version: update.version.clone(), binary: folder.join(&program_file), sha256, size };
         record_staged(&self.dir, &staged).map_err(disk)?;
         self.forget_other_versions(&folder);
         Ok(staged)

@@ -11,11 +11,6 @@ use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
 use semver::Version;
 
-const BINARY_NAME: &str = "porthmos";
-#[cfg(windows)]
-pub(crate) const PROGRAM_FILE: &str = "porthmos.exe";
-#[cfg(not(windows))]
-pub(crate) const PROGRAM_FILE: &str = "porthmos";
 const ARCHIVE_SLACK: u64 = 16 * 1024 * 1024;
 const OUTPUT_LIMIT: u64 = 4096;
 const POLL: Duration = Duration::from_millis(10);
@@ -99,10 +94,6 @@ pub(crate) fn extract_binary_named(archive: &Path, destination: &Path, max_bytes
     result
 }
 
-pub(crate) fn extract_binary(archive: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
-    extract_binary_named(archive, destination, max_bytes, PROGRAM_FILE)
-}
-
 pub(crate) fn version_output(binary: &Path, timeout: Duration) -> Result<String> {
     let mut command = Command::new(binary);
     command.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).env_clear();
@@ -136,11 +127,11 @@ pub(crate) fn version_output(binary: &Path, timeout: Duration) -> Result<String>
     Ok(output.trim().to_string())
 }
 
-pub(crate) fn health_check(binary: &Path, expected: &Version, timeout: Duration) -> Result<()> {
+pub(crate) fn health_check(binary: &Path, expected: &Version, timeout: Duration, program: &str) -> Result<()> {
     let output = version_output(binary, timeout)?;
-    if output != format!("{BINARY_NAME} {expected}") {
+    if output != format!("{program} {expected}") {
         let shown: String = output.chars().take(80).collect();
-        bail!("the program reported \"{shown}\" instead of {BINARY_NAME} {expected}");
+        bail!("the program reported \"{shown}\" instead of {program} {expected}");
     }
     Ok(())
 }

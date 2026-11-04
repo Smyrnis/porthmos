@@ -4,7 +4,7 @@ use chrono::TimeZone;
 
 use super::*;
 use crate::{
-    Manifest, generate_key_pair, keys, parse_public_key, sign,
+    Manifest, Product, generate_key_pair, keys, parse_public_key, sign,
     testing::{Route, TestServer},
 };
 
@@ -201,53 +201,34 @@ async fn a_binary_signature_body_is_a_bad_encoding_error() {
 }
 
 #[test]
-fn the_stable_feed_is_the_latest_release_and_is_https() {
-    assert_eq!(STABLE_MANIFEST_URL, "https://github.com/Smyrnis/porthmos/releases/latest/download/latest.json");
-}
-
-#[test]
-fn the_preview_feed_is_the_fixed_preview_release_and_is_https() {
-    assert_eq!(PREVIEW_MANIFEST_URL, "https://github.com/Smyrnis/porthmos/releases/download/preview/latest.json");
-}
-
-#[test]
-fn a_dev_version_reads_the_preview_feed_and_every_other_version_reads_the_stable_one() {
-    for dev in ["0.5.0-dev", "0.5.0-dev.1", "0.5.0-dev.12", "1.0.0-dev.3"] {
-        assert_eq!(manifest_url_for(&version(dev)), PREVIEW_MANIFEST_URL, "{dev}");
-    }
-    for other in [
-        "0.5.0",
-        "0.5.0-rc.1",
-        "0.5.0-beta.2",
-        "0.5.0-developer",
-        "0.5.0-dev-1",
-        "0.5.0-alpha.dev",
-        "0.5.0-dev.1.2",
-        "0.5.0-dev.x",
-    ] {
-        assert_eq!(manifest_url_for(&version(other)), STABLE_MANIFEST_URL, "{other}");
-    }
-}
-
-#[test]
 fn the_release_checker_reads_the_feed_of_the_running_channel() {
-    let stable = Checker::release(&version("0.5.0"), "porthmos/9.9.9").unwrap();
-    let preview = Checker::release(&version("0.5.0-dev.2"), "porthmos/9.9.9").unwrap();
+    let stable = Checker::release(Product::Tui, &version("2026.5.0"), "porthmos/9.9.9").unwrap();
+    let preview = Checker::release(Product::Tui, &version("2026.5.0-dev.2"), "porthmos/9.9.9").unwrap();
 
-    assert_eq!(stable.manifest_url(), STABLE_MANIFEST_URL);
-    assert_eq!(preview.manifest_url(), PREVIEW_MANIFEST_URL);
+    assert_eq!(stable.manifest_url(), "https://github.com/Smyrnis/porthmos/releases/download/tui-stable/latest.json");
+    assert_eq!(preview.manifest_url(), "https://github.com/Smyrnis/porthmos/releases/download/tui-preview/latest.json");
+}
+
+#[test]
+fn a_gui_checker_reads_the_gui_feed_and_a_tui_checker_the_tui_feed() {
+    let gui = Checker::release(Product::Gui, &version("2026.5.0-dev.1"), "porthmos-gui/9.9.9").unwrap();
+    let tui = Checker::release(Product::Tui, &version("2026.5.0-dev.1"), "porthmos/9.9.9").unwrap();
+
+    assert!(gui.manifest_url().contains("/gui-preview/"));
+    assert!(tui.manifest_url().contains("/tui-preview/"));
+    assert_ne!(gui.manifest_url(), tui.manifest_url());
 }
 
 #[test]
 fn the_release_checker_trusts_exactly_the_embedded_keys() {
-    let checker = Checker::release(&version("0.5.0"), "porthmos/9.9.9").unwrap();
+    let checker = Checker::release(Product::Tui, &version("2026.5.0"), "porthmos/9.9.9").unwrap();
 
     assert_eq!(checker.trusted_count(), keys::trusted_keys().len());
 }
 
 #[test]
 fn the_preview_checker_trusts_exactly_the_embedded_keys_too() {
-    let checker = Checker::release(&version("0.5.0-dev.1"), "porthmos/9.9.9").unwrap();
+    let checker = Checker::release(Product::Tui, &version("2026.5.0-dev.1"), "porthmos/9.9.9").unwrap();
 
     assert_eq!(checker.trusted_count(), keys::trusted_keys().len());
 }
@@ -266,6 +247,12 @@ async fn a_dev_user_is_not_offered_the_same_or_an_older_dev_build() {
 #[tokio::test]
 async fn a_dev_build_manifest_is_ignored_by_a_stable_version() {
     assert_eq!(check(&release("0.5.0-dev.4", TARGET), "0.4.0").await, Ok(Outcome::UpToDate));
+}
+
+#[tokio::test]
+async fn a_new_year_is_an_update_and_an_older_minor_in_the_same_year_is_not() {
+    assert!(matches!(check(&release("2027.1.0", TARGET), "2026.9.0").await, Ok(Outcome::Available(_))));
+    assert_eq!(check(&release("2026.4.0", TARGET), "2026.5.0-dev.1").await, Ok(Outcome::UpToDate));
 }
 
 #[tokio::test]
