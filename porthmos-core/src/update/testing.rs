@@ -26,8 +26,19 @@ pub(crate) fn run_version(path: &Path) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
+pub(crate) fn staged_dir(paths: &Paths, product: porthmos_update::Product) -> porthmos_update::UpdateDir {
+    porthmos_update::UpdateDir::for_product(paths.update_dir(), product)
+}
+
 pub(crate) fn stage_on_disk(paths: &Paths, version: &str) -> porthmos_update::Staged {
-    let binary = paths.update_dir().join(version).join("porthmos");
+    stage_on_disk_for(paths, porthmos_update::Product::Tui, version)
+}
+
+pub(crate) fn stage_on_disk_for(
+    paths: &Paths, product: porthmos_update::Product, version: &str,
+) -> porthmos_update::Staged {
+    let dir = staged_dir(paths, product);
+    let binary = dir.path().join(version).join(product.program());
     write_program(&binary, version);
     let staged = porthmos_update::Staged {
         version: version.parse().unwrap(),
@@ -35,6 +46,6 @@ pub(crate) fn stage_on_disk(paths: &Paths, version: &str) -> porthmos_update::St
         sha256: porthmos_update::sha256_hex_of_file(&binary).unwrap(),
         size: fs::metadata(&binary).unwrap().len(),
     };
-    porthmos_update::record_staged(&porthmos_update::UpdateDir::new(paths.update_dir()), &staged).unwrap();
+    porthmos_update::record_staged(&dir, &staged).unwrap();
     staged
 }

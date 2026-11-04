@@ -17,7 +17,7 @@ use crate::{
     config::UpdateMode,
     health::wait_unless_cancelled,
     tasks::Scope,
-    update::{CheckError, Outcome, StageError, Staged, UpdateInfo, UpdateState, current_version},
+    update::{AppIdentity, CheckError, Outcome, StageError, Staged, UpdateInfo, UpdateState},
 };
 
 #[cfg_attr(not(feature = "update"), allow(dead_code))]
@@ -27,6 +27,8 @@ pub(crate) struct UpdateEngine {
     pub(crate) updater: Option<SharedUpdater>,
     pub(crate) timing: UpdateTiming,
     pub(crate) executable: Option<PathBuf>,
+    #[cfg(feature = "update")]
+    pub(crate) identity: AppIdentity,
     pub(crate) busy: bool,
     #[cfg(feature = "update")]
     running_manual: bool,
@@ -41,7 +43,7 @@ pub(crate) struct UpdateEngine {
 impl UpdateEngine {
     pub(crate) fn new(
         settings: UpdateSettings, record: UpdateRecord, updater: Option<SharedUpdater>, timing: UpdateTiming,
-        executable: Option<PathBuf>,
+        executable: Option<PathBuf>, #[cfg(feature = "update")] identity: AppIdentity,
     ) -> Self {
         Self {
             settings,
@@ -49,6 +51,8 @@ impl UpdateEngine {
             updater,
             timing,
             executable,
+            #[cfg(feature = "update")]
+            identity,
             busy: false,
             #[cfg(feature = "update")]
             running_manual: false,
@@ -107,8 +111,8 @@ impl Engine {
         {
             porthmos_update::forget_previous_version(executable);
         }
-        let dir = porthmos_update::UpdateDir::new(self.paths.update_dir());
-        if let Some(staged) = porthmos_update::find_staged(&dir, &current_version()) {
+        let dir = porthmos_update::UpdateDir::for_product(self.paths.update_dir(), self.update.identity.product);
+        if let Some(staged) = porthmos_update::find_staged(&dir, &self.update.identity.version) {
             let version = staged.version.to_string();
             self.update.staged = Some(staged);
             self.emit(Event::Update(UpdateState::Ready { version }));
@@ -176,7 +180,7 @@ impl Engine {
         self.update.busy = true;
         self.update.running_manual = manual;
         let internal = self.internal.clone();
-        let current = current_version();
+        let current = self.update.identity.version.clone();
         self.tasks.spawn("update-check", Scope::Background, move |_| async move {
             let result = updater.check(&current).await;
             let _ = internal.send(Internal::UpdateChecked { manual, result });
@@ -189,7 +193,7 @@ impl Engine {
                 self.remember_update_check();
                 self.update.busy = false;
                 if manual {
-                    self.info(format!("Porthmos is up to date ({})", current_version()));
+                    self.info(format!("Porthmos is up to date ({})", self.update.identity.version));
                 }
                 self.schedule_after_check(manual, true);
             }

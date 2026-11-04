@@ -11,8 +11,8 @@ use std::{
 
 use chrono::{TimeZone, Utc};
 use porthmos_core::{
-    ApplyOutcome, Command, Core, CoreHandle, Event, Paths, Severity, UpdateMode, UpdateSettings, UpdateState,
-    apply_staged_update,
+    AppIdentity, ApplyOutcome, Command, Core, CoreHandle, Event, Paths, Product, Severity, UpdateMode, UpdateSettings,
+    UpdateState, apply_staged_update,
     config::Settings,
     update::{CheckError, Outcome, StageError, Staged, UpdateInfo, Updater, Version},
 };
@@ -219,7 +219,10 @@ async fn apply_staged_update_with_nothing_staged_is_nothing_after_shutdown() {
 
     started.core.shutdown().await;
 
-    assert_eq!(apply_staged_update(&paths, UpdateMode::Auto), ApplyOutcome::Nothing);
+    assert_eq!(
+        apply_staged_update(&paths, UpdateMode::Auto, &AppIdentity::new(Product::Tui, "0.1.0")),
+        ApplyOutcome::Nothing
+    );
 }
 
 #[tokio::test]
@@ -251,8 +254,25 @@ async fn asking_for_release_updates_builds_the_real_updater_without_contacting_a
         .without_keyring()
         .paths(Paths::in_dir(root.path()))
         .local_home(root.path().to_path_buf())
-        .release_updates()
+        .release_updates(AppIdentity::new(Product::Gui, "2026.5.0-dev.1"))
         .start();
 
     assert!(started.is_ok());
+}
+
+#[tokio::test]
+async fn starting_the_core_removes_the_update_files_of_the_old_layout() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(root.path());
+    std::fs::create_dir_all(paths.update_dir().join("0.4.0")).unwrap();
+    std::fs::write(paths.update_dir().join("staged.toml"), "version = \"0.4.0\"").unwrap();
+    std::fs::write(paths.state_dir.join("update.toml"), "last_failure = \"old\"\n").unwrap();
+
+    let (core, _events) =
+        Core::builder().without_keyring().paths(paths.clone()).local_home(root.path().to_path_buf()).start().unwrap();
+    core.shutdown().await;
+
+    assert!(!paths.update_dir().join("staged.toml").exists());
+    assert!(!paths.update_dir().join("0.4.0").exists());
+    assert!(!paths.state_dir.join("update.toml").exists());
 }

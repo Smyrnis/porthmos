@@ -212,6 +212,8 @@ pub(crate) struct EngineParts {
     pub(crate) updater: Option<crate::update::SharedUpdater>,
     pub(crate) update_timing: crate::update::UpdateTiming,
     pub(crate) executable: Option<PathBuf>,
+    #[cfg(feature = "update")]
+    pub(crate) identity: crate::update::AppIdentity,
     pub(crate) publish_interval: Duration,
     pub(crate) persist_interval: Duration,
 }
@@ -290,6 +292,8 @@ impl Engine {
                 parts.updater,
                 parts.update_timing,
                 parts.executable,
+                #[cfg(feature = "update")]
+                parts.identity,
             ),
         }
     }

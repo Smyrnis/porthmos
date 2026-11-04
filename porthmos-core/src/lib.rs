@@ -37,7 +37,9 @@ pub use porthmos_vfs::{
 pub use protocol_info::ProtocolInfo;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-pub use update::{ApplyOutcome, HeadlessUpdate, UpdateState, apply_staged_update, run_update};
+#[cfg(feature = "update")]
+pub use update::{AppIdentity, Product};
+pub use update::{ApplyOutcome, ExitLine, HeadlessUpdate, UpdateState, apply_staged_update, run_update};
 
 use crate::{
     config::Settings,
@@ -156,6 +158,7 @@ impl Core {
 #[cfg(feature = "update")]
 fn choose_updater(
     injected: Option<Arc<dyn update::Updater>>, release_updates: bool, mode: config::UpdateMode, paths: &Paths,
+    identity: &update::AppIdentity,
 ) -> (Option<update::SharedUpdater>, Option<String>) {
     if let Some(updater) = injected {
         return (Some(updater), None);
@@ -163,8 +166,7 @@ fn choose_updater(
     if !release_updates || mode == config::UpdateMode::Off {
         return (None, None);
     }
-    let user_agent = format!("porthmos/{}", env!("CARGO_PKG_VERSION"));
-    match update::ReleaseUpdater::new(paths.update_dir(), &user_agent) {
+    match update::ReleaseUpdater::new(identity, paths.update_dir()) {
         Ok(updater) => (Some(Arc::new(updater)), None),
         Err(err) => (None, Some(format!("Couldn't prepare update checks: {err:#}"))),
     }
@@ -182,6 +184,8 @@ pub struct CoreBuilder {
     updater: Option<Arc<dyn update::Updater>>,
     #[cfg(feature = "update")]
     release_updates: bool,
+    #[cfg(feature = "update")]
+    identity: Option<update::AppIdentity>,
 }
 
 impl CoreBuilder {
@@ -216,8 +220,9 @@ impl CoreBuilder {
     }
 
     #[cfg(feature = "update")]
-    pub fn release_updates(mut self) -> Self {
+    pub fn release_updates(mut self, identity: update::AppIdentity) -> Self {
         self.release_updates = true;
+        self.identity = Some(identity);
         self
     }
 
@@ -233,13 +238,22 @@ impl CoreBuilder {
 
     pub fn start(self) -> Result<(CoreHandle, UnboundedReceiver<Event>)> {
         let paths = self.paths.context("the core needs its configuration paths")?;
+        #[cfg(feature = "update")]
+        update::legacy::remove(&paths);
         let (history, history_warning) = history::History::load(&paths);
         let (last_used, last_used_warning) = last_used::LastUsed::load(&paths);
-        let (update_record, update_warning) = update::record::UpdateRecord::load(&paths);
+        #[cfg(feature = "update")]
+        let identity =
+            self.identity.unwrap_or_else(|| update::AppIdentity::new(update::Product::Tui, env!("CARGO_PKG_VERSION")));
+        #[cfg(feature = "update")]
+        let product_id = identity.product.id();
+        #[cfg(not(feature = "update"))]
+        let product_id = "tui";
+        let (update_record, update_warning) = update::record::UpdateRecord::load(&paths, product_id);
         let (bookmarks, bookmark_warnings) = config::bookmarks::load(&paths)?;
         #[cfg(feature = "update")]
         let (updater, updater_warning) =
-            choose_updater(self.updater, self.release_updates, self.settings.update.mode, &paths);
+            choose_updater(self.updater, self.release_updates, self.settings.update.mode, &paths, &identity);
         #[cfg(not(feature = "update"))]
         let (updater, updater_warning): (Option<update::SharedUpdater>, Option<String>) = (None, None);
         let local_home = self.local_home.or_else(|| self.env.home.clone()).unwrap_or_else(|| PathBuf::from("/"));
@@ -262,6 +276,8 @@ impl CoreBuilder {
             update_record,
             updater,
             executable: std::env::current_exe().ok(),
+            #[cfg(feature = "update")]
+            identity,
             publish_interval: engine::PROGRESS_SNAPSHOT_INTERVAL,
             persist_interval: engine::PERSIST_INTERVAL,
         };

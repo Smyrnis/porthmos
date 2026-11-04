@@ -1,6 +1,8 @@
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
-use porthmos_update::{CheckError, Checker, Outcome, StageError, Staged, Stager, UpdateDir, UpdateInfo, Version};
+use porthmos_update::{CheckError, Checker, Outcome, StageError, Staged, Stager, UpdateInfo, Version};
+
+use super::AppIdentity;
 use porthmos_vfs::async_trait;
 
 #[async_trait]
@@ -18,10 +20,11 @@ pub struct ReleaseUpdater {
 }
 
 impl ReleaseUpdater {
-    pub fn new(update_dir: PathBuf, user_agent: &str) -> anyhow::Result<ReleaseUpdater> {
+    pub fn new(identity: &AppIdentity, update_root: PathBuf) -> anyhow::Result<ReleaseUpdater> {
+        let user_agent = identity.user_agent();
         Ok(ReleaseUpdater {
-            checker: Checker::release(&super::current_version(), user_agent)?,
-            stager: Stager::new(UpdateDir::new(update_dir), user_agent)?,
+            checker: Checker::release(identity.product, &identity.version, &user_agent)?,
+            stager: Stager::new(identity.product, update_root, &user_agent)?,
         })
     }
 }

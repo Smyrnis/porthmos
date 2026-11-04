@@ -49,13 +49,14 @@ impl Setup {
         let mut t = test_engine();
         let fake = Arc::new(fake);
         let updater: Arc<dyn crate::update::Updater> = fake.clone();
-        let record = crate::update::record::UpdateRecord::load(&t.engine.paths).0;
+        let record = crate::update::record::UpdateRecord::load(&t.engine.paths, "tui").0;
         t.engine.update = UpdateEngine::new(
             UpdateSettings { mode, interval_hours: 1 },
             record,
             Some(updater),
             timing(),
             Some(PathBuf::from("/nonexistent/porthmos")),
+            crate::update::AppIdentity::new(crate::update::Product::Tui, "0.1.0"),
         );
         Setup { t, fake, seeded_check: None }
     }
@@ -148,7 +149,7 @@ async fn an_automatic_check_runs_after_the_startup_delay_and_records_the_time() 
     assert!(setup.calls().is_empty());
     setup.pump(2).await;
 
-    assert_eq!(setup.calls(), [format!("check {}", env!("CARGO_PKG_VERSION"))]);
+    assert_eq!(setup.calls(), ["check 0.1.0".to_string()]);
     assert!(setup.stored_check().is_some());
     assert!(setup.t.drain().is_empty());
 }
@@ -244,10 +245,7 @@ async fn a_manual_check_reports_up_to_date() {
     setup.t.engine.handle_command(Command::CheckForUpdate { manual: true });
     setup.pump(1).await;
 
-    assert_eq!(
-        notices(&setup.t.drain()),
-        [(Severity::Info, format!("Porthmos is up to date ({})", env!("CARGO_PKG_VERSION")))]
-    );
+    assert_eq!(notices(&setup.t.drain()), [(Severity::Info, "Porthmos is up to date (0.1.0)".to_string())]);
     assert!(setup.stored_check().is_some());
 }
 
@@ -344,13 +342,16 @@ fn staged_for(version: &str, binary: PathBuf) -> porthmos_update::Staged {
 }
 
 fn seed_staged(setup: &Setup, version: &str) -> porthmos_update::Staged {
-    let folder = setup.t.engine.paths.update_dir().join(version);
+    let folder = setup.t.engine.paths.update_dir().join("tui").join(version);
     std::fs::create_dir_all(&folder).unwrap();
     let binary = folder.join("porthmos");
     std::fs::write(&binary, b"x").unwrap();
     let staged = staged_for(version, binary);
-    porthmos_update::record_staged(&porthmos_update::UpdateDir::new(setup.t.engine.paths.update_dir()), &staged)
-        .unwrap();
+    porthmos_update::record_staged(
+        &porthmos_update::UpdateDir::for_product(setup.t.engine.paths.update_dir(), porthmos_update::Product::Tui),
+        &staged,
+    )
+    .unwrap();
     staged
 }
 
@@ -450,7 +451,7 @@ async fn startup_ignores_a_staged_update_in_notify_and_off_mode() {
         setup.t.engine.start_updates();
 
         assert!(updates(&setup.t.drain()).is_empty(), "{mode:?}");
-        assert!(setup.t.engine.paths.update_dir().join("0.9.0").join("porthmos").exists(), "{mode:?}");
+        assert!(setup.t.engine.paths.update_dir().join("tui").join("0.9.0").join("porthmos").exists(), "{mode:?}");
         assert!(setup.t.engine.update.staged.is_none());
     }
 }
@@ -463,7 +464,7 @@ async fn startup_clears_a_staged_update_that_is_not_newer() {
     setup.t.engine.start_updates();
 
     assert!(updates(&setup.t.drain()).is_empty());
-    assert!(!setup.t.engine.paths.update_dir().join("0.1.0").exists());
+    assert!(!setup.t.engine.paths.update_dir().join("tui").join("0.1.0").exists());
 }
 
 #[tokio::test]
@@ -547,7 +548,7 @@ async fn a_remembered_failure_is_reported_once_at_startup() {
         [(Severity::Warning, "Couldn't install the update: 0.9.0: boom".to_string())]
     );
     setup.t.engine.writer.flush().await;
-    let saved = std::fs::read_to_string(setup.t.engine.paths.update_state_file()).unwrap_or_default();
+    let saved = std::fs::read_to_string(setup.t.engine.paths.update_state_file("tui")).unwrap_or_default();
     assert!(!saved.contains("boom"), "{saved}");
     setup.t.engine.start_updates();
     assert!(notices(&setup.t.drain()).is_empty());

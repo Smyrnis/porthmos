@@ -96,8 +96,8 @@ impl Paths {
         self.state_dir.join("last_used.toml")
     }
 
-    pub fn update_state_file(&self) -> PathBuf {
-        self.state_dir.join("update.toml")
+    pub fn update_state_file(&self, product_id: &str) -> PathBuf {
+        self.state_dir.join(format!("update-{product_id}.toml"))
     }
 
     pub fn update_dir(&self) -> PathBuf {
