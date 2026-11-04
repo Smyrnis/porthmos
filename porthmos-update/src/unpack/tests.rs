@@ -67,13 +67,13 @@ impl Folder {
 fn the_binary_is_extracted_executable_and_the_license_is_ignored() {
     use std::os::unix::fs::PermissionsExt;
 
-    use crate::testing::stub_script;
+    use crate::{Product, testing::stub_script_for};
     let folder = Folder::new();
     let archive = folder.archive(&stub_archive("0.5.0", &[("LICENSE", b"MIT")]));
 
     extract_binary(&archive, &folder.destination(), CAP).unwrap();
 
-    assert_eq!(fs::read(folder.destination()).unwrap(), stub_script("0.5.0"));
+    assert_eq!(fs::read(folder.destination()).unwrap(), stub_script_for(Product::Tui, "0.5.0"));
     assert_eq!(fs::metadata(folder.destination()).unwrap().permissions().mode() & 0o777, 0o755);
     assert_eq!(folder.stage_listing(), [PROGRAM_FILE]);
 }

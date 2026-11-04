@@ -18,7 +18,7 @@ use crate::{
 #[cfg(unix)]
 use crate::{
     find_staged, sha256_hex_of_file,
-    testing::{stub_archive_for, stub_script, stub_script_for, zip_archive_with},
+    testing::{stub_archive_for, stub_script_for, zip_archive_with},
 };
 
 #[cfg(unix)]
@@ -302,7 +302,7 @@ async fn the_scratch_folder_is_named_after_this_process() {
 #[tokio::test]
 async fn a_staged_update_from_a_zip_is_stored_under_the_platform_program_name() {
     let setup = Setup::new();
-    let archive = zip_archive_with(&[(PROGRAM_FILE, &stub_script("0.5.0")), ("LICENSE", b"MIT")]);
+    let archive = zip_archive_with(&[(PROGRAM_FILE, &stub_script_for(Product::Tui, "0.5.0")), ("LICENSE", b"MIT")]);
     let server = TestServer::start(vec![("/p.zip", Route::Body(archive.clone()))]).await;
     let update = update_for(&server, "/p.zip", "0.5.0", &archive);
 

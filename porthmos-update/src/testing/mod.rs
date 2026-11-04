@@ -159,10 +159,6 @@ pub(crate) fn archive_with(members: &[(&str, &[u8])]) -> Vec<u8> {
     raw_archive(&members)
 }
 
-pub(crate) fn stub_script(version: &str) -> Vec<u8> {
-    stub_script_for(crate::Product::Tui, version)
-}
-
 pub(crate) fn stub_script_for(product: crate::Product, version: &str) -> Vec<u8> {
     format!("#!/bin/sh\necho \"{} {version}\"\n", product.program()).into_bytes()
 }
