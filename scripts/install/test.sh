@@ -18,12 +18,13 @@ release_tool() {
 }
 
 make_release() {
-  local dir=$1 marker=$2
+  local dir=$1 marker=$2 product=${3:-tui} program=porthmos
+  [ "$product" = gui ] && program=porthmos-gui
   mkdir -p "$dir"
-  printf '#!/bin/sh\necho "porthmos-stub %s"\n' "$marker" > "$dir/porthmos"
-  chmod 755 "$dir/porthmos"
+  printf '#!/bin/sh\necho "%s-stub %s"\n' "$program" "$marker" > "$dir/$program"
+  chmod 755 "$dir/$program"
   printf 'MIT\n' > "$dir/LICENSE"
-  release_tool package --target "$TARGET" --version 0.4.0 --binary "$dir/porthmos" --license "$dir/LICENSE" --out "$dir/dist" > /dev/null
+  release_tool package --product "$product" --target "$TARGET" --version 2026.5.0 --binary "$dir/$program" --license "$dir/LICENSE" --out "$dir/dist" > /dev/null
 }
 
 run_install() {
@@ -122,13 +123,79 @@ test_a_missing_checksum_file_installs_nothing() {
   [ ! -e "$home/.local/bin/porthmos" ]
 }
 
-test_the_stable_channel_is_the_default_and_the_preview_channel_has_its_own_location() {
+shadow_curl_serving_a_tampered_archive() {
+  local tampered=$1 times=$2 real
+  real=$(command -v curl)
+  mkdir -p "$FAKE_BIN"
+  printf '%s\n' 0 > "$WORK/curl-served"
+  cat > "$FAKE_BIN/curl" << SHADOW
+#!/bin/sh
+$real "\$@" || exit \$?
+out=
+url=
+while [ \$# -gt 0 ]; do
+  case \$1 in
+    -o) out=\$2; shift ;;
+    http*|file*) url=\$1 ;;
+  esac
+  shift
+done
+case \$url in
+  *.tar.gz)
+    served=\$(cat "$WORK/curl-served")
+    if [ "\$served" -lt $times ]; then
+      cp "$tampered" "\$out"
+      echo \$((served + 1)) > "$WORK/curl-served"
+    fi
+    ;;
+esac
+SHADOW
+  chmod 755 "$FAKE_BIN/curl"
+}
+
+run_install_with_shadowed_curl() {
+  local home=$1 base=$2
+  HOME="$home" PATH="$FAKE_BIN:$PATH" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_TARGET="$TARGET" PORTHMOS_RETRY_DELAY=0 TMPDIR="$WORK/tmp" sh "$INSTALL_SH"
+}
+
+test_an_archive_caught_between_two_uploads_is_fetched_again() {
+  local home
+  home=$(fresh_home between-uploads)
+  make_release "$WORK/rel-between" one
+  make_release "$WORK/rel-between-bad" tampered
+  shadow_curl_serving_a_tampered_archive "$WORK/rel-between-bad/dist/porthmos-$TARGET.tar.gz" 1
+  run_install_with_shadowed_curl "$home" "file://$WORK/rel-between/dist" > "$WORK/out-between" 2>&1
+  rm -f "$FAKE_BIN/curl"
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub one" ]
+  [ "$(cat "$WORK/curl-served")" = 1 ]
+}
+
+test_an_archive_that_never_matches_its_checksum_still_installs_nothing() {
+  local home
+  home=$(fresh_home never-matches)
+  make_release "$WORK/rel-never" one
+  make_release "$WORK/rel-never-bad" tampered
+  shadow_curl_serving_a_tampered_archive "$WORK/rel-never-bad/dist/porthmos-$TARGET.tar.gz" 99
+  if run_install_with_shadowed_curl "$home" "file://$WORK/rel-never/dist" > "$WORK/out-never" 2>&1; then
+    rm -f "$FAKE_BIN/curl"
+    return 1
+  fi
+  rm -f "$FAKE_BIN/curl"
+  grep -q 'does not match its checksum; nothing was installed' "$WORK/out-never"
+  [ ! -e "$home/.local/bin/porthmos" ]
+  [ ! -e "$home/.local/share/porthmos/porthmos" ]
+  [ "$(cat "$WORK/curl-served")" = 2 ]
+}
+
+test_every_app_and_channel_has_its_own_default_location() {
   (
     export PORTHMOS_INSTALL_SOURCE_ONLY=1
     # shellcheck disable=SC1090
     . "$INSTALL_SH"
-    [ "$(release_base stable)" = "https://github.com/Smyrnis/porthmos/releases/latest/download" ]
-    [ "$(release_base preview)" = "https://github.com/Smyrnis/porthmos/releases/download/preview" ]
+    [ "$(release_base tui stable)" = "https://github.com/Smyrnis/porthmos/releases/download/tui-stable" ]
+    [ "$(release_base tui preview)" = "https://github.com/Smyrnis/porthmos/releases/download/tui-preview" ]
+    [ "$(release_base gui stable)" = "https://github.com/Smyrnis/porthmos/releases/download/gui-stable" ]
+    [ "$(release_base gui preview)" = "https://github.com/Smyrnis/porthmos/releases/download/gui-preview" ]
   )
 }
 
@@ -139,8 +206,10 @@ test_each_channel_location_can_be_overridden_on_its_own() {
     . "$INSTALL_SH"
     export PORTHMOS_RELEASE_BASE=https://stable.example/x
     export PORTHMOS_PREVIEW_BASE=https://preview.example/y
-    [ "$(release_base stable)" = https://stable.example/x ]
-    [ "$(release_base preview)" = https://preview.example/y ]
+    [ "$(release_base tui stable)" = https://stable.example/x ]
+    [ "$(release_base gui stable)" = https://stable.example/x ]
+    [ "$(release_base tui preview)" = https://preview.example/y ]
+    [ "$(release_base gui preview)" = https://preview.example/y ]
   )
 }
 
@@ -210,6 +279,78 @@ test_install_help_describes_the_preview_flag_and_installs_nothing() {
   run_install_channel "$home" "file://$WORK/none" "file://$WORK/none" --help > "$WORK/out-chan-help" 2>&1
   grep -q -- '--preview' "$WORK/out-chan-help"
   [ ! -e "$home/.local/bin/porthmos" ]
+}
+
+test_the_gui_flag_installs_the_gui_and_leaves_the_tui_alone() {
+  local home
+  home=$(fresh_home gui-alone)
+  make_release "$WORK/rel-gui-alone-tui" tui-build tui
+  make_release "$WORK/rel-gui-alone-gui" gui-build gui
+  run_install_channel "$home" "file://$WORK/rel-gui-alone-tui/dist" "file://$WORK/none" > /dev/null 2>&1
+  run_install_channel "$home" "file://$WORK/rel-gui-alone-gui/dist" "file://$WORK/none" --gui > "$WORK/out-gui-alone" 2>&1
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub gui-build" ]
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub tui-build" ]
+  [ -L "$home/.local/bin/porthmos-gui" ]
+  [ "$(readlink "$home/.local/bin/porthmos-gui")" = "$home/.local/share/porthmos/porthmos-gui" ]
+  grep -q 'porthmos-gui' "$WORK/out-gui-alone"
+}
+
+test_the_gui_and_preview_flags_in_either_order_install_the_gui_preview_build() {
+  local home order
+  make_release "$WORK/rel-gp-stable" stable-gui gui
+  make_release "$WORK/rel-gp-preview" preview-gui gui
+  for order in "--gui --preview" "--preview --gui"; do
+    home=$(fresh_home "gp-${order// /}")
+    # shellcheck disable=SC2086
+    run_install_channel "$home" "file://$WORK/rel-gp-stable/dist" "file://$WORK/rel-gp-preview/dist" $order > "$WORK/out-gp" 2>&1
+    [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub preview-gui" ]
+    grep -qi 'preview' "$WORK/out-gp"
+    [ ! -e "$home/.local/bin/porthmos" ]
+  done
+}
+
+test_the_gui_flag_alone_uses_the_stable_location() {
+  local home
+  home=$(fresh_home gui-stable)
+  make_release "$WORK/rel-gs-stable" stable-gui gui
+  make_release "$WORK/rel-gs-preview" preview-gui gui
+  run_install_channel "$home" "file://$WORK/rel-gs-stable/dist" "file://$WORK/rel-gs-preview/dist" --gui > "$WORK/out-gs" 2>&1
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub stable-gui" ]
+  ! grep -qi 'preview' "$WORK/out-gs"
+}
+
+test_the_gui_flag_against_a_location_with_only_the_tui_installs_nothing() {
+  local home
+  home=$(fresh_home gui-wrong)
+  make_release "$WORK/rel-gw-tui" tui-build tui
+  if run_install_channel "$home" "file://$WORK/rel-gw-tui/dist" "file://$WORK/none" --gui > "$WORK/out-gw" 2>&1; then return 1; fi
+  grep -q 'porthmos-gui-' "$WORK/out-gw"
+  [ ! -e "$home/.local/bin/porthmos-gui" ]
+  [ ! -e "$home/.local/share/porthmos/porthmos-gui" ]
+}
+
+test_installing_the_gui_again_replaces_it_and_never_touches_the_tui() {
+  local home
+  home=$(fresh_home gui-again)
+  make_release "$WORK/rel-ga-tui" tui-build tui
+  make_release "$WORK/rel-ga-one" gui-one gui
+  make_release "$WORK/rel-ga-two" gui-two gui
+  run_install_channel "$home" "file://$WORK/rel-ga-tui/dist" "file://$WORK/none" > /dev/null 2>&1
+  run_install_channel "$home" "file://$WORK/rel-ga-one/dist" "file://$WORK/none" --gui > /dev/null 2>&1
+  run_install_channel "$home" "file://$WORK/rel-ga-two/dist" "file://$WORK/none" --gui > /dev/null 2>&1
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub gui-two" ]
+  run_install_channel "$home" "file://$WORK/rel-ga-tui/dist" "file://$WORK/none" > /dev/null 2>&1
+  [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub gui-two" ]
+  [ "$("$home/.local/bin/porthmos")" = "porthmos-stub tui-build" ]
+}
+
+test_install_help_describes_the_gui_flag() {
+  local home
+  home=$(fresh_home gui-help)
+  mkdir -p "$home"
+  run_install_channel "$home" "file://$WORK/none" "file://$WORK/none" --help > "$WORK/out-gui-help" 2>&1
+  grep -q -- '--gui' "$WORK/out-gui-help"
+  grep -q -- '--preview' "$WORK/out-gui-help"
 }
 
 test_works_when_home_contains_a_space_and_the_bin_dir_does_not_exist() {
@@ -310,6 +451,14 @@ fake_install() {
   ln -s "$home/.local/share/porthmos/porthmos" "$home/.local/bin/porthmos"
 }
 
+fake_install_gui() {
+  local home=$1
+  mkdir -p "$home/.local/share/porthmos" "$home/.local/bin"
+  printf '#!/bin/sh\necho stub\n' > "$home/.local/share/porthmos/porthmos-gui"
+  chmod 755 "$home/.local/share/porthmos/porthmos-gui"
+  ln -s "$home/.local/share/porthmos/porthmos-gui" "$home/.local/bin/porthmos-gui"
+}
+
 fake_data() {
   local home=$1
   mkdir -p "$home/.config/porthmos" "$home/.local/state/porthmos/updates" "$home/.config/other" "$home/.ssh"
@@ -400,6 +549,103 @@ test_uninstall_leaves_a_regular_file_in_the_bin_folder() {
   printf 'mine\n' > "$home/.local/bin/porthmos"
   run_uninstall "$home" > /dev/null 2>&1
   [ "$(cat "$home/.local/bin/porthmos")" = mine ]
+}
+
+test_uninstall_removes_a_lone_gui_with_its_link_and_the_empty_folder() {
+  local home
+  home=$(fresh_home un-gui)
+  fake_install_gui "$home"
+  run_uninstall "$home" > "$WORK/out-un-gui" 2>&1
+  [ ! -e "$home/.local/share/porthmos/porthmos-gui" ]
+  [ ! -L "$home/.local/bin/porthmos-gui" ]
+  [ ! -e "$home/.local/share/porthmos" ]
+  grep -q "$home/.local/bin/porthmos-gui" "$WORK/out-un-gui"
+}
+
+test_uninstall_removes_both_apps_when_both_are_installed() {
+  local home
+  home=$(fresh_home un-both)
+  fake_install "$home"
+  fake_install_gui "$home"
+  run_uninstall "$home" > "$WORK/out-un-both" 2>&1
+  [ ! -e "$home/.local/share/porthmos" ]
+  [ ! -L "$home/.local/bin/porthmos" ]
+  [ ! -L "$home/.local/bin/porthmos-gui" ]
+}
+
+test_uninstall_leaves_a_gui_link_that_points_somewhere_else_and_still_removes_the_tui() {
+  local home
+  home=$(fresh_home un-gui-otherlink)
+  fake_install "$home"
+  mkdir -p "$home/.local/bin"
+  ln -s /bin/sh "$home/.local/bin/porthmos-gui"
+  run_uninstall "$home" > "$WORK/out-un-gui-otherlink" 2>&1
+  [ "$(readlink "$home/.local/bin/porthmos-gui")" = /bin/sh ]
+  [ ! -L "$home/.local/bin/porthmos" ]
+  [ ! -e "$home/.local/share/porthmos/porthmos" ]
+  grep -q "$home/.local/bin/porthmos-gui" "$WORK/out-un-gui-otherlink"
+}
+
+test_uninstall_leaves_a_regular_file_named_like_the_gui() {
+  local home
+  home=$(fresh_home un-gui-file)
+  fake_install "$home"
+  printf 'mine\n' > "$home/.local/bin/porthmos-gui"
+  run_uninstall "$home" > "$WORK/out-un-gui-file" 2>&1
+  [ "$(cat "$home/.local/bin/porthmos-gui")" = mine ]
+  [ ! -L "$home/.local/bin/porthmos" ]
+}
+
+test_uninstall_keeps_the_install_folder_while_a_file_that_is_not_ours_is_in_it() {
+  local home
+  home=$(fresh_home un-gui-foreign)
+  fake_install_gui "$home"
+  printf 'x\n' > "$home/.local/share/porthmos/notes.txt"
+  run_uninstall "$home" > "$WORK/out-un-gui-foreign" 2>&1
+  [ -f "$home/.local/share/porthmos/notes.txt" ]
+  [ ! -e "$home/.local/share/porthmos/porthmos-gui" ]
+}
+
+test_purge_with_only_the_gui_installed_removes_its_data_too() {
+  local home
+  home=$(fresh_home un-gui-purge)
+  fake_install_gui "$home"
+  fake_data "$home"
+  run_uninstall "$home" --purge --yes > "$WORK/out-un-gui-purge" 2>&1
+  [ ! -e "$home/.local/share/porthmos" ]
+  [ ! -e "$home/.config/porthmos" ]
+  [ -f "$home/.config/other/keep.toml" ]
+  [ -f "$home/.ssh/known_hosts" ]
+}
+
+test_uninstall_without_purge_keeps_settings_when_removing_the_gui() {
+  local home
+  home=$(fresh_home un-gui-keep)
+  fake_install_gui "$home"
+  fake_data "$home"
+  run_uninstall "$home" > "$WORK/out-un-gui-keep" 2>&1
+  [ -f "$home/.config/porthmos/connections.toml" ]
+  [ -f "$home/.local/state/porthmos/state.toml" ]
+}
+
+test_uninstall_removes_the_previous_versions_an_update_left_behind() {
+  local home
+  home=$(fresh_home un-old)
+  fake_install "$home"
+  fake_install_gui "$home"
+  printf 'old\n' > "$home/.local/share/porthmos/porthmos.old"
+  printf 'old\n' > "$home/.local/share/porthmos/porthmos-gui.old"
+  run_uninstall "$home" > "$WORK/out-un-old" 2>&1
+  [ ! -e "$home/.local/share/porthmos" ]
+}
+
+test_uninstall_does_not_remove_other_files_that_end_in_old() {
+  local home
+  home=$(fresh_home un-old-other)
+  fake_install "$home"
+  printf 'mine\n' > "$home/.local/share/porthmos/notes.old"
+  run_uninstall "$home" > "$WORK/out-un-old-other" 2>&1
+  [ -f "$home/.local/share/porthmos/notes.old" ]
 }
 
 test_uninstall_reports_when_nothing_is_installed_and_points_at_other_methods() {

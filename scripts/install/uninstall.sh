@@ -14,9 +14,10 @@ usage() {
   cat << 'USAGE'
 Usage: uninstall.sh [--purge] [--yes]
 
-Removes the Porthmos program that install.sh put in place: the program in
-$PORTHMOS_INSTALL_DIR (default ~/.local/share/porthmos) and its link in
-$PORTHMOS_BIN_DIR (default ~/.local/bin).
+Removes the Porthmos programs that install.sh put in place, the terminal app
+(porthmos) and the window app (porthmos-gui), whichever are installed: the
+programs in $PORTHMOS_INSTALL_DIR (default ~/.local/share/porthmos) and their
+links in $PORTHMOS_BIN_DIR (default ~/.local/bin).
 
 Your settings, saved connections, bookmarks, history and saved passwords are
 kept unless you ask for them to go too.
@@ -73,10 +74,12 @@ clear_keyring() {
   esac
 }
 
-remove_program() {
-  found=0
-  link=$bin_dir/porthmos
-  program=$install_dir/porthmos
+PROGRAMS="porthmos porthmos-gui"
+
+remove_one_program() {
+  name=$1
+  link=$bin_dir/$name
+  program=$install_dir/$name
 
   if [ -L "$link" ]; then
     target=$(readlink "$link")
@@ -98,6 +101,18 @@ remove_program() {
     say "Removed $program"
     found=1
   fi
+
+  if [ -e "$program.old" ] || [ -L "$program.old" ]; then
+    rm -f "$program.old"
+    found=1
+  fi
+}
+
+remove_program() {
+  found=0
+  for name in $PROGRAMS; do
+    remove_one_program "$name"
+  done
 
   for leftover in "$install_dir"/.porthmos.*; do
     [ -e "$leftover" ] || continue
@@ -155,9 +170,9 @@ main() {
 
   if [ "$found" -eq 0 ]; then
     if [ "$purge" -eq 0 ] || [ -z "$data_dirs" ]; then
-      fail "nothing to remove: no program at $program. If you installed Porthmos with a package manager, Homebrew or cargo install, remove it with that tool."
+      fail "nothing to remove: no Porthmos program in $install_dir. If you installed Porthmos with a package manager, Homebrew or cargo install, remove it with that tool."
     fi
-    say "No program found at $program; removing only the saved data."
+    say "No program found in $install_dir; removing only the saved data."
   fi
 
   if [ "$purge" -eq 1 ]; then

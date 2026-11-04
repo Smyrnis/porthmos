@@ -1,8 +1,7 @@
 #!/bin/sh
 set -eu
 
-STABLE_BASE="https://github.com/Smyrnis/porthmos/releases/latest/download"
-PREVIEW_BASE="https://github.com/Smyrnis/porthmos/releases/download/preview"
+RELEASES="https://github.com/Smyrnis/porthmos/releases/download"
 
 say() {
   printf '%s\n' "$*"
@@ -15,11 +14,14 @@ fail() {
 
 usage() {
   cat << 'USAGE'
-Usage: install.sh [--preview]
+Usage: install.sh [--gui] [--preview]
 
 Installs Porthmos into $PORTHMOS_INSTALL_DIR (default ~/.local/share/porthmos)
 and links it from $PORTHMOS_BIN_DIR (default ~/.local/bin).
 
+  --gui       install the window app (porthmos-gui) instead of the terminal
+              app (porthmos). The two are separate programs: installing one
+              never touches the other.
   --preview   install the preview build instead of the stable one. Preview
               builds come from the development branch, get new features
               first, and may be less polished. They update from the preview
@@ -30,9 +32,9 @@ USAGE
 }
 
 release_base() {
-  case $1 in
-    preview) printf '%s\n' "${PORTHMOS_PREVIEW_BASE:-$PREVIEW_BASE}" ;;
-    *) printf '%s\n' "${PORTHMOS_RELEASE_BASE:-$STABLE_BASE}" ;;
+  case $2 in
+    preview) printf '%s\n' "${PORTHMOS_PREVIEW_BASE:-$RELEASES/$1-preview}" ;;
+    *) printf '%s\n' "${PORTHMOS_RELEASE_BASE:-$RELEASES/$1-stable}" ;;
   esac
 }
 
@@ -65,11 +67,34 @@ verify_checksum() {
   fi
 }
 
+fetch_verified() {
+  temp=$1
+  base=$2
+  archive=$3
+  shift 3
+  attempt=1
+  while :; do
+    download "$@" -o "$temp/$archive" "$base/$archive" || fail "couldn't download $archive from $base"
+    download "$@" -o "$temp/$archive.sha256" "$base/$archive.sha256" || fail "couldn't download $archive.sha256 from $base"
+    verify_checksum "$temp" "$archive.sha256" && return 0
+    [ "$attempt" -lt 2 ] || fail "the download does not match its checksum; nothing was installed"
+    say "The download does not match its checksum; the release may be mid-upload. Trying once more."
+    attempt=$((attempt + 1))
+    sleep "${PORTHMOS_RETRY_DELAY:-3}"
+  done
+}
+
 main() {
   channel=stable
+  product=tui
+  program=porthmos
   for argument in "$@"; do
     case $argument in
       --preview) channel=preview ;;
+      --gui)
+        product=gui
+        program=porthmos-gui
+        ;;
       --help | -h)
         usage
         exit 0
@@ -81,7 +106,7 @@ main() {
     esac
   done
 
-  base=$(release_base "$channel")
+  base=$(release_base "$product" "$channel")
   [ -n "${HOME:-}" ] || fail "HOME is not set"
   install_dir=${PORTHMOS_INSTALL_DIR:-$HOME/.local/share/porthmos}
   bin_dir=${PORTHMOS_BIN_DIR:-$HOME/.local/bin}
@@ -93,7 +118,7 @@ main() {
   esac
   command -v curl > /dev/null 2>&1 || fail "curl is required"
   if [ "$channel" = preview ]; then
-    say "Installing the preview build from the development channel. It may be less stable than the release."
+    say "Installing the preview build of $program from the development channel. It may be less stable than the release."
   fi
 
   if [ -n "${PORTHMOS_TARGET:-}" ]; then
@@ -106,24 +131,22 @@ main() {
   trap 'rm -rf "$temp"' EXIT
   trap 'exit 1' HUP INT TERM
 
-  archive=porthmos-$target.tar.gz
-  download "$@" -o "$temp/$archive" "$base/$archive" || fail "couldn't download $archive from $base"
-  download "$@" -o "$temp/$archive.sha256" "$base/$archive.sha256" || fail "couldn't download $archive.sha256 from $base"
-  verify_checksum "$temp" "$archive.sha256" || fail "the download does not match its checksum; nothing was installed"
+  archive=$program-$target.tar.gz
+  fetch_verified "$temp" "$base" "$archive" "$@"
 
   mkdir "$temp/extract"
-  tar -xzf "$temp/$archive" -C "$temp/extract" porthmos || fail "the archive does not contain the porthmos program"
+  tar -xzf "$temp/$archive" -C "$temp/extract" "$program" || fail "the archive does not contain the $program program"
 
   mkdir -p "$install_dir" "$bin_dir" || fail "couldn't create $install_dir or $bin_dir"
   staged=$install_dir/.porthmos.new.$$
-  if ! { cp "$temp/extract/porthmos" "$staged" && chmod 755 "$staged" && mv -f "$staged" "$install_dir/porthmos"; }; then
+  if ! { cp "$temp/extract/$program" "$staged" && chmod 755 "$staged" && mv -f "$staged" "$install_dir/$program"; }; then
     rm -f "$staged"
     fail "couldn't install into $install_dir"
   fi
-  ln -sf "$install_dir/porthmos" "$bin_dir/porthmos" || fail "couldn't link $bin_dir/porthmos"
+  ln -sf "$install_dir/$program" "$bin_dir/$program" || fail "couldn't link $bin_dir/$program"
 
-  version=$("$install_dir/porthmos" --version 2> /dev/null || true)
-  say "Installed ${version:-porthmos} in $install_dir and linked it as $bin_dir/porthmos"
+  version=$("$install_dir/$program" --version 2> /dev/null || true)
+  say "Installed ${version:-$program} in $install_dir and linked it as $bin_dir/$program"
   # shellcheck disable=SC2016
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
