@@ -99,16 +99,10 @@ fn describe_update_uses_the_exact_texts() {
 }
 
 #[test]
-fn install_message_prints_success_on_stdout_and_failure_on_stderr_and_nothing_otherwise() {
-    use porthmos_core::ApplyOutcome;
+fn the_tui_identifies_itself_as_the_tui_with_its_crate_version() {
+    let identity = app_identity();
 
-    assert_eq!(
-        install_message(&ApplyOutcome::Installed { version: "0.4.0".into() }),
-        Some(ExitLine::Out("Porthmos updated to 0.4.0.".to_string()))
-    );
-    assert_eq!(
-        install_message(&ApplyOutcome::Failed { version: "0.4.0".into(), message: "disk full".into() }),
-        Some(ExitLine::Err("porthmos: couldn't install the update to 0.4.0: disk full".to_string()))
-    );
-    assert_eq!(install_message(&ApplyOutcome::Nothing), None);
+    assert_eq!(identity.product, porthmos_core::Product::Tui);
+    assert_eq!(identity.version.to_string(), env!("CARGO_PKG_VERSION"));
+    assert_eq!(format!("{} {}", identity.product.program(), identity.version), version_line());
 }

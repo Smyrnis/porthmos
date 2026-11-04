@@ -44,7 +44,12 @@ fn start_app(
     let panel = settings.panel.clone();
     let update_mode = settings.update.mode;
     let exit_update = ExitUpdate { paths: paths.clone(), mode: update_mode };
-    let (core, events) = Core::builder().paths(paths).environment(env).settings(settings).release_updates().start()?;
+    let (core, events) = Core::builder()
+        .paths(paths)
+        .environment(env)
+        .settings(settings)
+        .release_updates(cli::app_identity())
+        .start()?;
 
     let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
     let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &panel, key_bindings)
@@ -90,9 +95,10 @@ fn main() -> Result<()> {
 }
 
 fn install_update(exit: ExitUpdate) {
-    match cli::install_message(&porthmos_core::apply_staged_update(&exit.paths, exit.mode)) {
-        Some(cli::ExitLine::Out(line)) => println!("{line}"),
-        Some(cli::ExitLine::Err(line)) => eprintln!("{line}"),
+    let identity = cli::app_identity();
+    match porthmos_core::apply_staged_update(&exit.paths, exit.mode, &identity).exit_line(identity.product.program()) {
+        Some(porthmos_core::ExitLine::Out(line)) => println!("{line}"),
+        Some(porthmos_core::ExitLine::Err(line)) => eprintln!("{line}"),
         None => {}
     }
 }
@@ -106,7 +112,7 @@ fn run_update_command(check_only: bool) -> Result<()> {
         }
     };
     let runtime = tokio::runtime::Runtime::new()?;
-    match runtime.block_on(porthmos_core::run_update(&paths, check_only)) {
+    match runtime.block_on(porthmos_core::run_update(&paths, check_only, &cli::app_identity())) {
         Ok(update) => {
             println!("{}", cli::describe_update(&update));
             Ok(())
