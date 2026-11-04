@@ -55,3 +55,39 @@ async fn shutting_down_sends_the_shutdown_command() {
 
     assert!(matches!(commands.recv().await, Some(Command::Shutdown)));
 }
+
+fn paths_with_mode(text: &str) -> (tempfile::TempDir, Paths) {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(root.path());
+    std::fs::create_dir_all(&paths.config_dir).unwrap();
+    std::fs::write(paths.config_file(), format!("[update]\nmode = \"{text}\"\n")).unwrap();
+    (root, paths)
+}
+
+#[test]
+fn the_mode_on_exit_is_the_one_saved_in_the_config_not_the_one_at_startup() {
+    for (text, expected) in [("off", UpdateMode::Off), ("notify", UpdateMode::Notify), ("auto", UpdateMode::Auto)] {
+        let (_root, paths) = paths_with_mode(text);
+        for started_with in [UpdateMode::Off, UpdateMode::Notify, UpdateMode::Auto] {
+            assert_eq!(
+                update_mode_on_exit(&paths, started_with),
+                expected,
+                "{text} after starting with {started_with:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_mode_on_exit_falls_back_to_the_startup_mode_when_the_config_cannot_be_read() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(root.path());
+    std::fs::create_dir_all(&paths.config_dir).unwrap();
+    std::fs::write(paths.config_file(), "[update\nmode = ").unwrap();
+    assert_eq!(update_mode_on_exit(&paths, UpdateMode::Notify), UpdateMode::Notify);
+    assert_eq!(update_mode_on_exit(&paths, UpdateMode::Off), UpdateMode::Off);
+
+    std::fs::remove_file(paths.config_file()).unwrap();
+    std::fs::create_dir(paths.config_file()).unwrap();
+    assert_eq!(update_mode_on_exit(&paths, UpdateMode::Off), UpdateMode::Off);
+}

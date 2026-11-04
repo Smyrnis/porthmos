@@ -86,14 +86,16 @@ fn run_window() -> Result<()> {
     let paths = Paths::from_env(&env)?;
     porthmos_core::logging::init("porthmos-gui", Some(&paths.log_file()));
     let state_dir = paths.state_dir.clone();
+    let exit_paths = paths.clone();
     let started = runtime::start(env, paths)?;
+    let update_mode = started.settings.update_mode;
     let palette = theme::Palette::new(&started.theme);
     let local_start = match home.or_else(|| std::env::current_dir().ok()) {
         Some(folder) => from_os_path(&folder),
         None => porthmos_core::VfsPath::root(),
     };
     let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts)
-        .with_update_mode(started.settings.update_mode)
+        .with_update_mode(update_mode)
         .with_settings(started.settings, started.config_file);
     for warning in started.warnings {
         app.warn(warning);
@@ -124,7 +126,17 @@ fn run_window() -> Result<()> {
     .run();
     drop(guard);
     runtime.shutdown_timeout(RUNTIME_GRACE);
+    install_update(&exit_paths, runtime::update_mode_on_exit(&exit_paths, update_mode));
     Ok(result?)
+}
+
+fn install_update(paths: &Paths, mode: porthmos_core::UpdateMode) {
+    let identity = cli::app_identity();
+    match porthmos_core::apply_staged_update(paths, mode, &identity).exit_line(identity.product.program()) {
+        Some(porthmos_core::ExitLine::Out(line)) => println!("{line}"),
+        Some(porthmos_core::ExitLine::Err(line)) => eprintln!("{line}"),
+        None => {}
+    }
 }
 
 fn run_update_command(check_only: bool) -> Result<()> {
@@ -136,7 +148,7 @@ fn run_update_command(check_only: bool) -> Result<()> {
         }
     };
     let runtime = tokio::runtime::Runtime::new()?;
-    match runtime.block_on(porthmos_core::run_update(&paths, check_only)) {
+    match runtime.block_on(porthmos_core::run_update(&paths, check_only, &cli::app_identity())) {
         Ok(update) => {
             println!("{}", cli::describe_update(&update));
             Ok(())

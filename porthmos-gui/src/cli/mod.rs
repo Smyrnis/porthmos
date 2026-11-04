@@ -1,4 +1,8 @@
-use porthmos_core::HeadlessUpdate;
+use porthmos_core::{AppIdentity, HeadlessUpdate, Product};
+
+pub fn app_identity() -> AppIdentity {
+    AppIdentity::new(Product::Gui, env!("CARGO_PKG_VERSION"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Invocation {

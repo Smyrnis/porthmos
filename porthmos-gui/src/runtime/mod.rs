@@ -8,7 +8,7 @@ use anyhow::Result;
 use iced::Subscription;
 use iced::futures::StreamExt;
 use iced::futures::stream::unfold;
-use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, config};
+use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, UpdateMode, config};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::settings_view::GuiSettings;
@@ -48,6 +48,13 @@ pub struct Started {
     pub config_file: PathBuf,
 }
 
+pub fn update_mode_on_exit(paths: &Paths, started_with: UpdateMode) -> UpdateMode {
+    match config::load(paths) {
+        Ok((settings, warnings)) if warnings.is_empty() => settings.update.mode,
+        _ => started_with,
+    }
+}
+
 pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
@@ -62,8 +69,12 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();
     warnings.extend(theme_warnings);
     warnings.extend(key_warnings);
-    let (core, receiver) =
-        Core::builder().paths(paths).environment(env).settings(settings).release_updates().start()?;
+    let (core, receiver) = Core::builder()
+        .paths(paths)
+        .environment(env)
+        .settings(settings)
+        .release_updates(crate::cli::app_identity())
+        .start()?;
     Ok(Started {
         core,
         events: EventSource::new(receiver),

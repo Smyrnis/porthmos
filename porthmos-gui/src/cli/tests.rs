@@ -59,3 +59,12 @@ fn describing_an_update_names_the_gui() {
         "Porthmos updated to 0.5.0."
     );
 }
+
+#[test]
+fn the_gui_identifies_itself_as_the_gui_with_its_crate_version() {
+    let identity = app_identity();
+
+    assert_eq!(identity.product, porthmos_core::Product::Gui);
+    assert_eq!(identity.version.to_string(), env!("CARGO_PKG_VERSION"));
+    assert_eq!(format!("{} {}", identity.product.program(), identity.version), version_line());
+}
