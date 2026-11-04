@@ -2,38 +2,101 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["[0-9][0-9][0-9][0-9][TG].*"]
   workflow_dispatch:
+    inputs:
+      product:
+        description: Which app to build for the dry run
+        type: choice
+        options: [tui, gui]
+        default: tui
 
 permissions:
   contents: read
 
 jobs:
-  check-tag:
-    if: github.event_name == 'push'
+  plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      channel: ${{ steps.channel.outputs.value }}
+      product: ${{ steps.plan.outputs.product }}
+      channel: ${{ steps.plan.outputs.channel }}
+      version: ${{ steps.plan.outputs.version }}
+      package: ${{ steps.plan.outputs.package }}
+      program: ${{ steps.plan.outputs.program }}
+      feed: ${{ steps.plan.outputs.feed }}
+      tag: ${{ steps.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: The tag belongs to a channel and its commit is on that channel's branch
-        id: channel
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The tag names an app, a channel and a version, and its commit is on that channel's branch
+        if: github.event_name == 'push'
+        id: tag
         run: |
-          channel=$(sh scripts/release/channel.sh check "$GITHUB_REF_NAME" "$GITHUB_SHA")
-          echo "value=$channel" >> "$GITHUB_OUTPUT"
-      - name: The tag matches the workspace version
+          parsed=$(sh scripts/release/channel.sh check "$GITHUB_REF_NAME" "$GITHUB_SHA")
+          echo "$parsed" >> "$GITHUB_OUTPUT"
+      - name: Which crate, program and feed belong to it
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSHED_PRODUCT: ${{ steps.tag.outputs.product }}
+          PUSHED_CHANNEL: ${{ steps.tag.outputs.channel }}
+          PUSHED_VERSION: ${{ steps.tag.outputs.version }}
+          CHOSEN_PRODUCT: ${{ inputs.product }}
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
-            echo "tag $GITHUB_REF_NAME does not match the workspace version $version"
+          if [ "$EVENT" = push ]; then
+            product=$PUSHED_PRODUCT
+            channel=$PUSHED_CHANNEL
+            tag=$GITHUB_REF_NAME
+          else
+            product=$CHOSEN_PRODUCT
+            channel=candidate
+            tag=dry-run
+          fi
+          case $product in
+            tui) package=porthmos-tui program=porthmos ;;
+            gui) package=porthmos-gui program=porthmos-gui ;;
+            *) echo "unknown app '$product'"; exit 1 ;;
+          esac
+          crate_version=$(cargo metadata --no-deps --format-version 1 --locked | jq -r --arg package "$package" '.packages[] | select(.name == $package) | .version')
+          if [ -z "$crate_version" ]; then
+            echo "the crate $package has no version"
+            exit 1
+          fi
+          if [ "$EVENT" = push ] && [ "$PUSHED_VERSION" != "$crate_version" ]; then
+            echo "tag $GITHUB_REF_NAME means version $PUSHED_VERSION, but $package is at version $crate_version"
+            exit 1
+          fi
+          feed=
+          if [ "$channel" = stable ] || [ "$channel" = preview ]; then
+            feed=$product-$channel
+          fi
+          {
+            echo "product=$product"
+            echo "channel=$channel"
+            echo "version=$crate_version"
+            echo "package=$package"
+            echo "program=$program"
+            echo "feed=$feed"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+      - name: CI has passed on this commit
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --json conclusion --jq '[.[] | select(.conclusion == "success")] | length')
+          if [ "$passed" -lt 1 ]; then
+            echo "CI has not passed for commit $GITHUB_SHA; wait for it to finish and re-run this job"
             exit 1
           fi
 
   build:
-    needs: check-tag
-    if: ${{ !cancelled() && (needs.check-tag.result == 'success' || needs.check-tag.result == 'skipped') }}
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
@@ -54,35 +117,50 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-      - name: Workspace version
-        id: version
-        run: echo "value=$(tr -d '\r' < Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n 1)" >> "$GITHUB_OUTPUT"
-      - run: cargo build --release --locked -p porthmos-tui --target ${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ needs.plan.outputs.product }}
+      - run: cargo build --release --locked -p ${{ needs.plan.outputs.package }} --target ${{ matrix.target }}
       - name: The binary reports its version
-        if: matrix.target != 'x86_64-apple-darwin'
+        if: matrix.target != 'x86_64-apple-darwin' && !(matrix.exe == '.exe' && needs.plan.outputs.product == 'gui')
         env:
-          VERSION: ${{ steps.version.outputs.value }}
+          PROGRAM: ${{ needs.plan.outputs.program }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          [ "$(target/${{ matrix.target }}/release/porthmos${{ matrix.exe }} --version)" = "porthmos $VERSION" ]
+          [ "$("target/${{ matrix.target }}/release/${PROGRAM}${{ matrix.exe }}" --version)" = "$PROGRAM $VERSION" ]
+      - name: The window program for Windows reports its version through a pipe
+        if: matrix.exe == '.exe' && needs.plan.outputs.product == 'gui'
+        shell: pwsh
+        env:
+          PROGRAM: ${{ needs.plan.outputs.program }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          $binary = "target\${{ matrix.target }}\release\$env:PROGRAM.exe"
+          $embedded = (Get-Item $binary).VersionInfo.ProductVersion
+          if ($embedded -ne $env:VERSION) { throw "the program carries version '$embedded', expected $env:VERSION" }
+          $captured = Join-Path $env:RUNNER_TEMP 'version.txt'
+          Start-Process -FilePath $binary -ArgumentList '--version' -RedirectStandardOutput $captured -Wait -NoNewWindow
+          $reported = (Get-Content -Raw $captured).Trim()
+          if ($reported -ne "$env:PROGRAM $env:VERSION") { throw "the program reports '$reported'" }
       - name: Package
         env:
-          VERSION: ${{ steps.version.outputs.value }}
+          PRODUCT: ${{ needs.plan.outputs.product }}
+          PROGRAM: ${{ needs.plan.outputs.program }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: >
           cargo run --release --locked -p porthmos-release -- package
+          --product "$PRODUCT"
           --target ${{ matrix.target }}
           --version "$VERSION"
-          --binary target/${{ matrix.target }}/release/porthmos${{ matrix.exe }}
+          --binary "target/${{ matrix.target }}/release/$PROGRAM${{ matrix.exe }}"
           --license LICENSE
           --out dist
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.target }}
+          name: dist-${{ needs.plan.outputs.product }}-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
   manifest:
-    needs: build
+    needs: [plan, build]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -97,26 +175,24 @@ jobs:
           path: dist
           pattern: dist-*
           merge-multiple: true
-      - name: Version, tag and notes
-        id: release
+      - name: Release notes
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            tag=$GITHUB_REF_NAME
-            git tag -l --format='%(contents)' "$tag" > notes.txt
+            git tag -l --format='%(contents)' "$TAG" > notes.txt
           else
-            tag="v$version"
             echo "dry run" > notes.txt
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - run: cargo build --release --locked -p porthmos-release
       - name: Manifest
         env:
-          VERSION: ${{ steps.release.outputs.version }}
-          TAG: ${{ steps.release.outputs.tag }}
+          PRODUCT: ${{ needs.plan.outputs.product }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
         run: >
           ./target/release/porthmos-release manifest
+          --product "$PRODUCT"
           --version "$VERSION"
           --released "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           --notes-file notes.txt
@@ -155,12 +231,15 @@ jobs:
             scripts/install/uninstall.sh
 
   release:
-    needs: [check-tag, manifest]
+    needs: [plan, manifest]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
     permissions:
       contents: write
+    concurrency:
+      group: release-${{ needs.plan.outputs.product }}-${{ needs.plan.outputs.channel }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -183,27 +262,46 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          CHANNEL: ${{ needs.check-tag.outputs.channel }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          PRODUCT: ${{ needs.plan.outputs.product }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          FEED: ${{ needs.plan.outputs.feed }}
+          PROGRAM: ${{ needs.plan.outputs.program }}
         run: |
+          case $PRODUCT in
+            tui) label="Porthmos terminal app" ;;
+            gui) label="Porthmos window app" ;;
+          esac
           assets=(dist/* latest.json latest.json.sig scripts/install/install.sh scripts/install/uninstall.sh)
-          if [ "$CHANNEL" = preview ]; then
-            if gh release view "$TAG" > /dev/null 2>&1; then
-              gh release upload "$TAG" "${assets[@]}" --clobber
-            else
-              gh release create "$TAG" "${assets[@]}" --title "Preview $TAG" --notes-file notes.txt --prerelease
-            fi
-            note="Latest preview build: $TAG. This release always holds the newest build from the development branch; it is what preview builds check for updates."
-            if gh release view preview > /dev/null 2>&1; then
-              gh release edit preview --title "Preview (latest)" --notes "$note" --prerelease
-              gh release upload preview dist/* scripts/install/install.sh scripts/install/uninstall.sh --clobber
-              gh release upload preview latest.json.sig latest.json --clobber
-              gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/preview" -f sha="$GITHUB_SHA" -F force=true
-            else
-              gh release create preview "${assets[@]}" --target "$GITHUB_SHA" --title "Preview (latest)" --notes "$note" --prerelease
-            fi
+          page_flags=(--latest=false)
+          title="$label $VERSION"
+          is_prerelease=false
+          if [ "$CHANNEL" != stable ]; then
+            page_flags+=(--prerelease)
+            is_prerelease=true
+            title="$title ($CHANNEL)"
+          fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            flags=()
-            [ "$CHANNEL" = stable ] || flags+=(--prerelease)
-            gh release create "$TAG" "${assets[@]}" --title "$TAG" --notes-file notes.txt "${flags[@]}"
+            gh release create "$TAG" "${assets[@]}" --title "$title" --notes-file notes.txt "${page_flags[@]}"
+          fi
+          [ -n "$FEED" ] || exit 0
+          note="Latest $CHANNEL build of the $label: $VERSION. This release always holds the newest $CHANNEL build; it is where the app checks for updates and where install.sh downloads from."
+          feed_assets=()
+          for file in dist/*; do
+            case ${file##*/} in
+              "$PROGRAM-$VERSION-"*) ;;
+              *) feed_assets+=("$file") ;;
+            esac
+          done
+          feed_assets+=(scripts/install/install.sh scripts/install/uninstall.sh)
+          if gh release view "$FEED" > /dev/null 2>&1; then
+            gh release edit "$FEED" --title "$label ($CHANNEL, latest)" --notes "$note" --prerelease="$is_prerelease" --latest=false
+            gh release upload "$FEED" "${feed_assets[@]}" --clobber
+            gh release upload "$FEED" latest.json.sig latest.json --clobber
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$FEED" -f sha="$GITHUB_SHA" -F force=true
+          else
+            gh release create "$FEED" "${feed_assets[@]}" latest.json.sig latest.json --target "$GITHUB_SHA" --title "$label ($CHANNEL, latest)" --notes "$note" --prerelease="$is_prerelease" --latest=false
           fi

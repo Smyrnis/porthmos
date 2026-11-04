@@ -97,21 +97,39 @@ jobs:
           if ($module -eq [IntPtr]::Zero) { throw 'the program could not be loaded as a data file' }
           $iconGroup = [Native.Resources]::FindResource($module, [IntPtr]1, [IntPtr]14)
           if ($iconGroup -eq [IntPtr]::Zero) { throw 'the program has no icon resource' }
-      - name: Package and run the Windows zip
+      - name: Package and run the Windows zips
         shell: pwsh
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          cargo build -p porthmos-gui
           $target = 'x86_64-pc-windows-msvc'
-          cargo run -p porthmos-release -- package --target $target --version $version --binary target\debug\porthmos.exe --license LICENSE --out dist
-          foreach ($name in "porthmos-$version-$target.zip", "porthmos-$target.zip", "porthmos-$target.zip.sha256") {
-            if (-not (Test-Path "dist\$name")) { throw "missing $name" }
+          $apps = @(
+            @{ Product = 'tui'; Program = 'porthmos'; Manifest = 'Cargo.toml'; Run = $true },
+            @{ Product = 'gui'; Program = 'porthmos-gui'; Manifest = 'porthmos-gui\Cargo.toml'; Run = $false }
+          )
+          foreach ($app in $apps) {
+            $program = $app.Program
+            $version = (Select-String -Path $app.Manifest -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+            $out = "dist-$($app.Product)"
+            cargo run -p porthmos-release -- package --product $app.Product --target $target --version $version --binary "target\debug\$program.exe" --license LICENSE --out $out
+            foreach ($name in "$program-$version-$target.zip", "$program-$target.zip", "$program-$target.zip.sha256") {
+              if (-not (Test-Path "$out\$name")) { throw "missing $name" }
+            }
+            $expected = (Get-Content "$out\$program-$target.zip.sha256").Split(' ')[0]
+            $actual = (Get-FileHash "$out\$program-$target.zip" -Algorithm SHA256).Hash.ToLower()
+            if ($expected -ne $actual) { throw "the checksum file says $expected but the zip is $actual" }
+            Expand-Archive "$out\$program-$version-$target.zip" -DestinationPath "$out\unpacked"
+            if ($app.Run) {
+              $reported = (& "$out\unpacked\$program.exe" --version)
+              if ($reported -ne "$program $version") { throw "the unpacked program reports '$reported'" }
+            } else {
+              $embedded = (Get-Item "$out\unpacked\$program.exe").VersionInfo.ProductVersion
+              if ($embedded -ne $version) { throw "the unpacked program carries version '$embedded', expected $version" }
+              $captured = Join-Path $out 'version.txt'
+              Start-Process -FilePath "$out\unpacked\$program.exe" -ArgumentList '--version' -RedirectStandardOutput $captured -Wait -NoNewWindow
+              $reported = (Get-Content -Raw $captured).Trim()
+              if ($reported -ne "$program $version") { throw "the unpacked program reports '$reported'" }
+            }
           }
-          $expected = (Get-Content "dist\porthmos-$target.zip.sha256").Split(' ')[0]
-          $actual = (Get-FileHash "dist\porthmos-$target.zip" -Algorithm SHA256).Hash.ToLower()
-          if ($expected -ne $actual) { throw "the checksum file says $expected but the zip is $actual" }
-          Expand-Archive "dist\porthmos-$version-$target.zip" -DestinationPath dist\unpacked
-          $reported = (& dist\unpacked\porthmos.exe --version)
-          if ($reported -ne "porthmos $version") { throw "the unpacked program reports '$reported'" }
       - name: Start OpenSSH Server
         shell: pwsh
         run: |
