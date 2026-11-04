@@ -18,7 +18,7 @@ fn artifacts(files: &[(&str, &[u8])]) -> tempfile::TempDir {
 }
 
 fn build(version: &Version, base: &str, directory: &tempfile::TempDir) -> Result<Manifest> {
-    build_manifest(version, released(), "notes", base, directory.path())
+    build_manifest(Product::Tui, version, released(), "notes", base, directory.path())
 }
 
 #[test]
@@ -144,4 +144,48 @@ fn a_windows_zip_is_listed_under_its_target() {
     let windows = &manifest.targets["x86_64-pc-windows-msvc"];
     assert_eq!(windows.url, format!("{BASE}/porthmos-0.4.0-x86_64-pc-windows-msvc.zip"));
     assert_eq!(windows.sha256, sha256_hex(zip));
+}
+
+#[test]
+fn a_gui_manifest_lists_only_gui_archives() {
+    let directory = artifacts(&[
+        ("porthmos-2026.5.0-x86_64-unknown-linux-gnu.tar.gz", b"tui" as &[u8]),
+        ("porthmos-gui-2026.5.0-x86_64-unknown-linux-gnu.tar.gz", b"gui archive"),
+        ("porthmos-gui-2026.5.0-aarch64-apple-darwin.tar.gz", b"gui mac"),
+    ]);
+    let version: Version = "2026.5.0".parse().unwrap();
+
+    let manifest = build_manifest(Product::Gui, &version, released(), "notes", BASE, directory.path()).unwrap();
+
+    assert_eq!(manifest.targets.keys().collect::<Vec<_>>(), ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]);
+    assert_eq!(
+        manifest.targets["x86_64-unknown-linux-gnu"].url,
+        format!("{BASE}/porthmos-gui-2026.5.0-x86_64-unknown-linux-gnu.tar.gz")
+    );
+    assert_eq!(manifest.targets["x86_64-unknown-linux-gnu"].sha256, sha256_hex(b"gui archive"));
+}
+
+#[test]
+fn a_gui_manifest_refuses_a_folder_that_only_holds_tui_archives() {
+    let directory = artifacts(&[("porthmos-2026.5.0-x86_64-unknown-linux-gnu.tar.gz", b"tui")]);
+    let version: Version = "2026.5.0".parse().unwrap();
+
+    let message =
+        build_manifest(Product::Gui, &version, released(), "notes", BASE, directory.path()).unwrap_err().to_string();
+
+    assert!(message.contains("porthmos-gui-2026.5.0-"), "{message}");
+}
+
+#[test]
+fn a_tui_manifest_is_not_confused_by_gui_archives() {
+    let directory = artifacts(&[
+        ("porthmos-2026.5.0-x86_64-unknown-linux-gnu.tar.gz", b"tui" as &[u8]),
+        ("porthmos-gui-2026.5.0-x86_64-unknown-linux-gnu.tar.gz", b"gui"),
+    ]);
+    let version: Version = "2026.5.0".parse().unwrap();
+
+    let manifest = build_manifest(Product::Tui, &version, released(), "notes", BASE, directory.path()).unwrap();
+
+    assert_eq!(manifest.targets.len(), 1);
+    assert_eq!(manifest.targets["x86_64-unknown-linux-gnu"].sha256, sha256_hex(b"tui"));
 }

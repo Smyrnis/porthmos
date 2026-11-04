@@ -220,6 +220,8 @@ fn the_manifest_subcommand_lists_what_the_package_subcommand_wrote() {
         run(
             &args(&[
                 "package",
+                "--product",
+                "tui",
                 "--target",
                 target,
                 "--version",
@@ -239,6 +241,8 @@ fn the_manifest_subcommand_lists_what_the_package_subcommand_wrote() {
     run(
         &args(&[
             "manifest",
+            "--product",
+            "tui",
             "--version",
             "0.4.0",
             "--released",
@@ -292,6 +296,8 @@ fn the_package_command_reports_a_zip_for_windows() {
     let message = run(
         &args(&[
             "package",
+            "--product",
+            "tui",
             "--target",
             "x86_64-pc-windows-msvc",
             "--version",
@@ -310,4 +316,82 @@ fn the_package_command_reports_a_zip_for_windows() {
     assert!(message.starts_with("wrote porthmos-0.4.0-x86_64-pc-windows-msvc.zip, "), "{message}");
     assert!(message.contains("porthmos-x86_64-pc-windows-msvc.zip.sha256"), "{message}");
     assert!(!message.contains("tar.gz"), "{message}");
+}
+
+fn package_args(directory: &tempfile::TempDir, product: Option<&str>) -> Vec<String> {
+    let mut all = vec!["package".to_string()];
+    if let Some(product) = product {
+        all.extend(["--product".to_string(), product.to_string()]);
+    }
+    all.extend(
+        [
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--version",
+            "2026.5.0",
+            "--binary",
+            &path(directory, "program"),
+            "--license",
+            &path(directory, "LICENSE"),
+            "--out",
+            &path(directory, "dist"),
+        ]
+        .map(String::from),
+    );
+    all
+}
+
+#[test]
+fn the_package_command_needs_a_product_and_names_the_allowed_ones() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("program"), b"binary").unwrap();
+    std::fs::write(directory.path().join("LICENSE"), b"license").unwrap();
+
+    let missing = run(&package_args(&directory, None), &no_env).unwrap_err().to_string();
+    let unknown = run(&package_args(&directory, Some("cli")), &no_env).unwrap_err().to_string();
+
+    assert!(missing.contains("--product"), "{missing}");
+    assert!(unknown.contains("cli") && unknown.contains("tui") && unknown.contains("gui"), "{unknown}");
+}
+
+#[test]
+fn the_package_command_reports_the_gui_file_names() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("program"), b"binary").unwrap();
+    std::fs::write(directory.path().join("LICENSE"), b"license").unwrap();
+
+    let message = run(&package_args(&directory, Some("gui")), &no_env).unwrap();
+
+    assert!(message.starts_with("wrote porthmos-gui-2026.5.0-x86_64-unknown-linux-gnu.tar.gz, "), "{message}");
+    assert!(directory.path().join("dist").join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz.sha256").exists());
+}
+
+#[test]
+fn the_manifest_command_needs_a_product() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("notes.txt"), b"notes").unwrap();
+    std::fs::create_dir(directory.path().join("dist")).unwrap();
+
+    let message = run(
+        &args(&[
+            "manifest",
+            "--version",
+            "2026.5.0",
+            "--released",
+            "2026-11-02T10:00:00Z",
+            "--notes-file",
+            &path(&directory, "notes.txt"),
+            "--base-url",
+            "https://github.com/Smyrnis/porthmos/releases/download/2026T.5.0",
+            "--artifacts",
+            &path(&directory, "dist"),
+            "--out",
+            &path(&directory, "latest.json"),
+        ]),
+        &no_env,
+    )
+    .unwrap_err()
+    .to_string();
+
+    assert!(message.contains("--product"), "{message}");
 }

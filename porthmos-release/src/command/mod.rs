@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
+use porthmos_update::Product;
 use semver::Version;
 
 use crate::{build_manifest, package};
@@ -31,6 +32,11 @@ impl Flags {
     fn optional(&self, name: &str) -> Option<&str> {
         self.0.get(name).map(String::as_str)
     }
+
+    fn product(&self) -> Result<Product> {
+        let id = self.required("product")?;
+        Product::from_id(id).ok_or_else(|| anyhow!("--product \"{id}\" is not known; expected one of: tui, gui"))
+    }
 }
 
 fn read_file(path: &str) -> Result<Vec<u8>> {
@@ -50,7 +56,9 @@ fn package_command(flags: &Flags) -> Result<String> {
     let target = flags.required("target")?;
     let version: Version = flags.required("version")?.parse().context("--version is not a valid version")?;
     let out = flags.required("out")?;
+    let product = flags.product()?;
     package(
+        product,
         target,
         &version,
         Path::new(flags.required("binary")?),
@@ -59,7 +67,8 @@ fn package_command(flags: &Flags) -> Result<String> {
     )?;
     let extension = if target.contains("windows") { "zip" } else { "tar.gz" };
     Ok(format!(
-        "wrote porthmos-{version}-{target}.{extension}, porthmos-{target}.{extension} and porthmos-{target}.{extension}.sha256 to {out}"
+        "wrote {program}-{version}-{target}.{extension}, {program}-{target}.{extension} and {program}-{target}.{extension}.sha256 to {out}",
+        program = product.program()
     ))
 }
 
@@ -70,6 +79,7 @@ fn manifest_command(flags: &Flags) -> Result<String> {
         .with_timezone(&Utc);
     let notes = String::from_utf8(read_file(flags.required("notes-file")?)?).context("the notes are not UTF-8")?;
     let manifest = build_manifest(
+        flags.product()?,
         &version,
         released,
         notes.trim(),

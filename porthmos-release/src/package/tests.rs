@@ -42,7 +42,7 @@ impl Fixture {
     }
 
     fn run(&self) -> Result<()> {
-        package(TARGET, &Version::new(0, 4, 0), &self.binary(), &self.license(), &self.out())
+        package(Product::Tui, TARGET, &Version::new(0, 4, 0), &self.binary(), &self.license(), &self.out())
     }
 }
 
@@ -135,7 +135,7 @@ fn a_missing_binary_is_an_error_naming_the_path_and_leaves_no_archive_behind() {
 const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 
 fn windows_run(fixture: &Fixture, out: &Path) -> Result<()> {
-    package(WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), out)
+    package(Product::Tui, WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), out)
 }
 
 fn zip_members(archive: &Path) -> Vec<(String, Vec<u8>)> {
@@ -207,4 +207,42 @@ fn the_versioned_and_version_less_windows_zips_are_identical() {
         std::fs::read(fixture.out().join("porthmos-0.4.0-x86_64-pc-windows-msvc.zip")).unwrap(),
         std::fs::read(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap()
     );
+}
+
+#[test]
+fn a_gui_package_is_named_after_the_gui_program_and_holds_it() {
+    let fixture = Fixture::new();
+    let version = "2026.5.0".parse().unwrap();
+
+    package(Product::Gui, TARGET, &version, &fixture.binary(), &fixture.license(), &fixture.out()).unwrap();
+
+    let mut names: Vec<String> = std::fs::read_dir(fixture.out())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "porthmos-gui-2026.5.0-x86_64-unknown-linux-gnu.tar.gz",
+            "porthmos-gui-x86_64-unknown-linux-gnu.tar.gz",
+            "porthmos-gui-x86_64-unknown-linux-gnu.tar.gz.sha256",
+        ]
+    );
+    let entries = entries_of(&fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz"));
+    assert_eq!(entries.iter().map(|(name, _, _)| name.as_str()).collect::<Vec<_>>(), ["porthmos-gui", "LICENSE"]);
+    let sidecar =
+        std::fs::read_to_string(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz.sha256")).unwrap();
+    assert!(sidecar.ends_with("  porthmos-gui-x86_64-unknown-linux-gnu.tar.gz\n"), "{sidecar}");
+}
+
+#[test]
+fn a_gui_windows_package_is_a_zip_holding_the_gui_exe() {
+    let fixture = Fixture::new();
+    let version = "2026.5.0".parse().unwrap();
+
+    package(Product::Gui, WINDOWS_TARGET, &version, &fixture.binary(), &fixture.license(), &fixture.out()).unwrap();
+
+    let members = zip_members(&fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip"));
+    assert_eq!(members.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["porthmos-gui.exe", "LICENSE"]);
 }

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
-use porthmos_update::{Artifact, Manifest, sha256_hex_of_file};
+use porthmos_update::{Artifact, Manifest, Product, sha256_hex_of_file};
 use semver::Version;
 
 const ARCHIVE_SUFFIXES: [&str; 2] = [".tar.gz", ".zip"];
@@ -13,9 +13,9 @@ fn target_of<'a>(file_name: &'a str, prefix: &str) -> Option<&'a str> {
 }
 
 pub fn build_manifest(
-    version: &Version, released: DateTime<Utc>, notes: &str, base_url: &str, artifacts: &Path,
+    product: Product, version: &Version, released: DateTime<Utc>, notes: &str, base_url: &str, artifacts: &Path,
 ) -> Result<Manifest> {
-    let prefix = format!("porthmos-{version}-");
+    let prefix = format!("{}-{version}-", product.program());
     let base = base_url.trim_end_matches('/');
     let mut targets = BTreeMap::new();
 
