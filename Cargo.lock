@@ -5146,7 +5146,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-gui"
-version = "2026.5.0-dev.1"
+version = "2026.5.0-dev.2"
 dependencies = [
  "anyhow",
  "chrono",
