@@ -55,7 +55,7 @@ const STAGING_LINGER: Duration = if cfg!(target_os = "linux") { Duration::ZERO }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub severity: Severity,
-    pub message: String,
+    pub message: porthmos_core::Message,
     raised: Instant,
 }
 
@@ -693,8 +693,8 @@ impl App {
         self.push_notice(Severity::Warning, message);
     }
 
-    fn push_notice(&mut self, severity: Severity, message: String) {
-        self.notices.push(Notice { severity, message, raised: Instant::now() });
+    fn push_notice(&mut self, severity: Severity, message: impl Into<porthmos_core::Message>) {
+        self.notices.push(Notice { severity, message: message.into(), raised: Instant::now() });
         if self.notices.len() > NOTICE_LIMIT {
             self.notices.remove(0);
         }

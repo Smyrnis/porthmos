@@ -86,14 +86,17 @@ pub fn bar(app: &App) -> Element<'_, Message> {
                 Severity::Warning => palette.fg_bright,
                 Severity::Info => palette.fg_muted,
             };
-            label(one_line(&notice_text(notice.severity, &notice.message)), color)
+            label(one_line(&notice_text(notice.severity, &notice.message.one_line())), color)
         }
         (None, None) => label("Ready", palette.fg_dim),
     };
     let content: Element<'_, Message> = match (app.connecting(), notice) {
-        (None, Some(notice)) if !app.is_closing() => {
-            hinted(content.into(), notice_text(notice.severity, &notice.message), tooltip::Position::Top, palette)
-        }
+        (None, Some(notice)) if !app.is_closing() => hinted(
+            content.into(),
+            notice_text(notice.severity, &notice.message.to_string()),
+            tooltip::Position::Top,
+            palette,
+        ),
         _ => content.into(),
     };
     let left: Element<'_, Message> = match app.transfer_summary() {

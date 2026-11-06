@@ -86,7 +86,7 @@ fn a_failure_names_its_stage() {
         (TestStage::StartFolder, "Start folder"),
     ];
     for (stage, name) in cases {
-        let line = describe(&TestOutcome::Failed { stage, message: "boom".to_string() }).unwrap();
+        let line = describe(&TestOutcome::Failed { stage, message: "boom".into() }).unwrap();
 
         assert_eq!(line.text, format!("{name} failed: boom"));
         assert!(!line.good);

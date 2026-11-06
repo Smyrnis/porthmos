@@ -8,8 +8,8 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, ConnectionState, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation,
-    UpdateMode, UpdateState, VfsPath,
+    Command, ConnectionState, CoreHandle, Event, Location, Message, Question, RequestId, SessionId, Severity,
+    ShellInvocation, UpdateMode, UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
@@ -125,7 +125,7 @@ impl Screen {
 enum ConnectionStatus {
     Disconnected,
     Connecting(String),
-    Failed(String),
+    Failed(Message),
 }
 
 struct SearchSession {
@@ -182,7 +182,7 @@ pub struct App {
     rates: RateTracker,
     details_popup: bool,
     body_width: std::cell::Cell<u16>,
-    last_failure: HashMap<String, String>,
+    last_failure: HashMap<String, Message>,
     connection_states: HashMap<String, ConnectionState>,
     last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
@@ -390,7 +390,7 @@ impl App {
 
     fn apply_core_event(&mut self, event: Event) {
         match event {
-            Event::Notice { severity, message } => self.notifications.push(severity, message),
+            Event::Notice { severity, message } => self.notifications.push(severity, message.to_string()),
             Event::ConnectionState { name, state } => {
                 self.connection_states.insert(name, state);
             }
@@ -399,7 +399,7 @@ impl App {
             Event::ConnectFailed { name, message } => {
                 self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
-                self.notifications.push(Severity::Error, message);
+                self.notifications.push(Severity::Error, message.to_string());
             }
             Event::Question { request_id, question } => self.ask(request_id, question),
             Event::TestQuestion { test_id, request_id, question } => self.ask_test(test_id, request_id, question),

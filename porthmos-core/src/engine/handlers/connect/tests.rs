@@ -141,7 +141,10 @@ async fn a_missing_remote_path_warns_and_falls_back_to_the_remote_home() {
     })
     .await;
 
-    assert!(warning.starts_with("Unable to open /var/www on srv, showing the home directory instead:\n"), "{warning}");
+    assert!(
+        warning.to_string().starts_with("Unable to open /var/www on srv, showing the home directory instead:\n"),
+        "{warning}"
+    );
     assert_eq!(path, VfsPath::from("/home/user"));
     assert_eq!(names, ["notes.txt"]);
 }
@@ -414,11 +417,9 @@ fn disconnecting_drops_that_sessions_waiting_copies_and_counts_them() {
             .iter()
             .any(|event| matches!(event, Event::ConflictsWithdrawn { batch_ids } if batch_ids == &vec![batch_id]))
     );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, Event::Notice { message, .. } if message.contains("1 transfer cancelled")))
-    );
+    assert!(events.iter().any(
+        |event| matches!(event, Event::Notice { message, .. } if message.to_string().contains("1 transfer cancelled"))
+    ));
 }
 
 #[tokio::test]
@@ -604,7 +605,7 @@ fn questions(seen: &[Event]) -> usize {
 fn errors(seen: &[Event]) -> Vec<String> {
     seen.iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message.clone()),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect()
@@ -1192,4 +1193,41 @@ async fn a_folder_is_resumed_only_once() {
     let (path, _) = reconnect_listing(&mut t).await;
 
     assert_eq!(path, VfsPath::from("/home/user"));
+}
+
+#[tokio::test]
+async fn a_failed_attempt_reports_what_failed_apart_from_why() {
+    let (mut t, _remote) = with_fake_profile(|fs| FakeProtocol::new(fs).failing_connect("Connection refused"));
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+
+    let message = next_matching(&mut t, |event| match event {
+        Event::ConnectFailed { message, .. } => Some(message.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(message.summary(), "Unable to connect to srv");
+    assert_eq!(message.cause(), Some("Connection refused"));
+}
+
+#[tokio::test]
+async fn a_rejected_password_has_no_cause_to_show() {
+    let (mut t, _remote) = with_fake_profile(|fs| FakeProtocol::new(fs).requiring_password("pw"));
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    let request_id = next_matching(&mut t, |event| match event {
+        Event::Question { request_id, .. } => Some(*request_id),
+        _ => None,
+    })
+    .await;
+    t.engine.handle_command(Command::Answer { request_id, answer: Some(Answer::Password("no".into())), save: false });
+    t.run_internal().await;
+
+    let message = next_matching(&mut t, |event| match event {
+        Event::ConnectFailed { message, .. } => Some(message.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!((message.summary(), message.cause()), ("Authentication failed for srv", None));
 }

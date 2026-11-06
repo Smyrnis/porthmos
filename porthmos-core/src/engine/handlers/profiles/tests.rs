@@ -415,7 +415,7 @@ fn error_notices(events: &[Event]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message.clone()),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect()

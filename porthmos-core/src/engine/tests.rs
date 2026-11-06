@@ -204,7 +204,7 @@ async fn a_panicking_background_task_is_reported_with_its_name() {
         .drain()
         .into_iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect();
@@ -335,7 +335,7 @@ async fn a_keyring_result_that_arrives_during_the_grace_is_still_applied() {
     let messages: Vec<String> = events
         .into_iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect();
@@ -501,7 +501,7 @@ fn a_failed_connect_is_in_the_log_as_well_as_shown() {
     let mut t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_internal(Internal::ConnectFailed { name: "prod".to_string(), message: "refused".to_string() });
+        t.engine.handle_internal(Internal::ConnectFailed { name: "prod".to_string(), message: "refused".into() });
     });
 
     assert!(logs.contains("ERROR") && logs.contains("refused"), "{logs}");
@@ -602,7 +602,7 @@ fn a_cancelled_connection_is_not_logged_as_an_error() {
     let logs = crate::engine::testing::capture_logs(|| {
         t.engine.handle_internal(Internal::ConnectFailed {
             name: "prod".to_string(),
-            message: crate::CONNECTION_CANCELLED.to_string(),
+            message: crate::CONNECTION_CANCELLED.into(),
         });
     });
 

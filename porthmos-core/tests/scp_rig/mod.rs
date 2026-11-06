@@ -141,7 +141,7 @@ impl Rig {
             .expect("the core is running");
         match &event {
             Event::TransfersChanged(snapshot) => self.max_active = self.max_active.max(snapshot.active.len()),
-            Event::Notice { message, .. } => self.notices.push(message.clone()),
+            Event::Notice { message, .. } => self.notices.push(message.to_string()),
             _ => {}
         }
         event
@@ -181,7 +181,7 @@ impl Rig {
     pub async fn wait_for_notice(&mut self, containing: &str) {
         loop {
             if let Event::Notice { message, .. } = self.event().await
-                && message.contains(containing)
+                && message.to_string().contains(containing)
             {
                 return;
             }
@@ -279,7 +279,7 @@ impl Rig {
                 Event::ConflictsFound { batch_id, files } => {
                     self.core.send(Command::ResolveConflicts { batch_id, answers: answers(&files) });
                 }
-                Event::Notice { message, .. } if message.contains(notice) => return,
+                Event::Notice { message, .. } if message.to_string().contains(notice) => return,
                 _ => {}
             }
         }
@@ -316,7 +316,7 @@ impl Rig {
     pub async fn drain(&mut self) {
         while tokio::time::timeout(Duration::from_millis(300), self.events.recv()).await.is_ok_and(|event| {
             if let Some(Event::Notice { message, .. }) = &event {
-                self.notices.push(message.clone());
+                self.notices.push(message.to_string());
             }
             event.is_some()
         }) {}

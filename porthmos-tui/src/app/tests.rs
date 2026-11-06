@@ -56,7 +56,7 @@ fn key_bindings_from_config_are_used_for_key_mapping() {
 fn set_status_pushes_an_error_notification_on_failure() {
     let mut test = test_app(&VfsPath::new("/d"));
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".into() });
 
     let current = test.app.notifications.current().unwrap();
     assert_eq!(current.message, "boom");

@@ -6,7 +6,7 @@ use porthmos_vfs::{Entry, Question, ShellInvocation, VfsPath};
 
 use super::{Location, RequestId, SessionId};
 use crate::{
-    ConnectionState, Severity,
+    ConnectionState, Message, Severity,
     config::bookmarks::Bookmark,
     edit::{EditQuestionKind, EditorCommand},
     history::HistoryEntry,
@@ -20,11 +20,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Notice { severity: Severity, message: String },
+    Notice { severity: Severity, message: Message },
     Connecting { name: String },
     Connected { session: SessionId, name: String, shell_available: bool },
     SessionCapabilities { session: SessionId, preserves_times: bool },
-    ConnectFailed { name: String, message: String },
+    ConnectFailed { name: String, message: Message },
     Question { request_id: RequestId, question: Question },
     TestQuestion { test_id: u64, request_id: RequestId, question: Question },
     TestFinished { test_id: u64, outcome: TestOutcome },

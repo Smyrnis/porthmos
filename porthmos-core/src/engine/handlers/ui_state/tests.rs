@@ -56,7 +56,7 @@ fn a_corrupt_state_file_is_announced_at_start_and_the_choice_defaults_to_off() {
 
     let events = t.drain();
     assert!(events.iter().any(|event| matches!(event, Event::SaveChoice { save: false })));
-    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Warning, message } if message.contains("state.toml.broken"))));
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Warning, message } if message.to_string().contains("state.toml.broken"))));
 }
 
 #[test]

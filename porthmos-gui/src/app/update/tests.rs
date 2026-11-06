@@ -25,7 +25,7 @@ fn infos(harness: &Harness) -> Vec<String> {
         .notices()
         .iter()
         .filter(|notice| notice.severity == Severity::Info)
-        .map(|notice| notice.message.clone())
+        .map(|notice| notice.message.to_string())
         .collect()
 }
 

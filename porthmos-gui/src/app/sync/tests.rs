@@ -48,7 +48,7 @@ fn connect(harness: &mut Harness, session: u64, name: &str, listed: bool, preser
 
 fn last_notice(harness: &Harness) -> (Severity, String) {
     let notice = harness.app.notices().last().unwrap();
-    (notice.severity, notice.message.clone())
+    (notice.severity, notice.message.to_string())
 }
 
 fn options_modal(harness: &Harness) -> (u64, String, bool, SyncDirection, SyncBy, bool, Option<String>) {

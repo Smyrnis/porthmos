@@ -26,7 +26,7 @@ fn starting_the_app_asks_core_to_list_the_local_start_folder() {
 fn a_core_event_is_applied_by_update() {
     let mut harness = Harness::new();
 
-    harness.feed(Event::Notice { severity: Severity::Info, message: "hello".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Info, message: "hello".into() });
 
     assert_eq!(harness.app.notices().len(), 1);
     assert_eq!(harness.app.notices()[0].message, "hello");
@@ -220,12 +220,12 @@ fn a_failed_connection_adds_an_error_notice_and_no_tab() {
     harness.feed(Event::Connecting { name: "alpha".to_string() });
     assert_eq!(harness.app.connecting(), Some("alpha"));
 
-    harness.feed(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".to_string() });
+    harness.feed(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() });
 
     assert!(harness.app.sessions().is_empty());
     assert_eq!(harness.app.connecting(), None);
     let notice = harness.app.notices().last().unwrap();
-    assert_eq!((notice.severity, notice.message.as_str()), (Severity::Error, "refused"));
+    assert_eq!((notice.severity, notice.message.to_string()), (Severity::Error, "refused".to_string()));
 }
 
 #[test]
@@ -243,7 +243,7 @@ fn notices_keep_the_newest_fifty() {
     let mut harness = Harness::new();
 
     for number in 0..60 {
-        harness.feed(Event::Notice { severity: Severity::Info, message: format!("n{number}") });
+        harness.feed(Event::Notice { severity: Severity::Info, message: format!("n{number}").into() });
     }
 
     let notices = harness.app.notices();
@@ -1342,7 +1342,7 @@ fn copy_without_a_connection_says_connect_first_and_sends_nothing() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().expect("a notice");
     assert_eq!(notice.severity, Severity::Info);
-    assert!(notice.message.contains("Connect"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("Connect"), "{}", notice.message);
 }
 
 #[test]
@@ -1969,7 +1969,7 @@ fn a_refused_drop_adds_a_notice_and_sends_nothing() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().expect("a notice");
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("Connect"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("Connect"), "{}", notice.message);
 }
 
 #[test]
@@ -2291,7 +2291,7 @@ fn dropping_with_no_connection_on_the_right_panel_says_connect_first() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().expect("a notice");
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("Connect"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("Connect"), "{}", notice.message);
 }
 
 #[test]
@@ -2304,7 +2304,7 @@ fn dropping_on_the_local_panel_is_refused_with_a_notice() {
     desktop_drop(&mut harness, paths, Some(at));
 
     assert!(harness.sent().is_empty());
-    assert!(harness.app.notices().last().unwrap().message.contains("right panel"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("right panel"));
 }
 
 #[test]
@@ -2317,7 +2317,7 @@ fn dropping_nothing_readable_sends_nothing_and_notes_each_problem() {
     desktop_drop(&mut harness, missing, Some(at));
 
     assert!(harness.sent().is_empty());
-    let notices: Vec<&str> = harness.app.notices().iter().map(|notice| notice.message.as_str()).collect();
+    let notices: Vec<String> = harness.app.notices().iter().map(|notice| notice.message.to_string()).collect();
     assert!(notices.iter().any(|message| message.contains("one")));
     assert!(notices.iter().any(|message| message.contains("two")));
 }
@@ -2333,7 +2333,7 @@ fn readable_files_are_still_sent_when_another_one_is_missing() {
     desktop_drop(&mut harness, paths, Some(at));
 
     assert!(matches!(harness.sent().as_slice(), [Command::Copy { entries, .. }] if entries.len() == 1));
-    assert!(harness.app.notices().last().unwrap().message.contains("gone"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("gone"));
 }
 
 #[test]
@@ -2374,7 +2374,7 @@ fn the_last_pointer_position_is_used_when_the_drop_has_none() {
     desktop_drop(&mut harness, paths, None);
 
     assert!(harness.sent().is_empty());
-    assert!(harness.app.notices().last().unwrap().message.contains("right panel"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("right panel"));
 }
 
 #[test]
@@ -2493,7 +2493,7 @@ fn a_failed_start_adds_a_notice_and_returns_to_idle() {
 
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("the pointer grab was refused"));
+    assert!(notice.message.to_string().contains("the pointer grab was refused"));
     assert!(!harness.app.drag().is_tracking());
     assert!(probe.started().is_empty());
 }
@@ -2805,7 +2805,7 @@ fn a_failed_staging_row_cancels_the_drag_and_tells_the_user() {
 
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("permission denied"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("permission denied"), "{}", notice.message);
     assert!(!harness.app.drag().is_tracking());
     assert!(!root.exists());
     assert!(probe.started().is_empty());
@@ -2869,7 +2869,7 @@ fn a_refused_native_start_after_staging_removes_the_folder_and_tells_the_user() 
 
     feed_rows(&mut harness, staging_rows(RowState::Done));
 
-    assert!(harness.app.notices().last().unwrap().message.contains("no serial"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("no serial"));
     assert!(!root.exists());
     assert!(!harness.app.drag().is_tracking());
 }
@@ -3210,7 +3210,7 @@ fn a_path_that_fails_to_list_leaves_the_panel_and_its_history_alone() {
     harness.press(Message::PathEditStarted(PanelSide::Local));
     harness.press(Message::PathTyped("/nope".to_string()));
     harness.press(Message::PathSubmitted);
-    harness.feed(Event::Notice { severity: Severity::Error, message: "no such folder".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Error, message: "no such folder".into() });
 
     assert_eq!(local_folder(&harness), harness.start_folder());
     assert!(!harness.app.can_go_back(PanelSide::Local));
@@ -3563,7 +3563,7 @@ fn enter_on_the_delete_confirmation_cancels_and_deletes_nothing() {
 
 fn notice_after(harness: &mut Harness, severity: Severity, seconds: u64) -> usize {
     let now = Instant::now() + std::time::Duration::from_secs(seconds);
-    harness.feed(Event::Notice { severity, message: "something".to_string() });
+    harness.feed(Event::Notice { severity, message: "something".into() });
     harness.press(Message::NoticeTick(now));
     harness.app.notices().len()
 }
@@ -3593,19 +3593,19 @@ fn a_warning_outlives_an_info_and_an_error_outlives_a_warning() {
 #[test]
 fn only_the_expired_notices_are_dropped() {
     let mut harness = Harness::new();
-    harness.feed(Event::Notice { severity: Severity::Error, message: "keep".to_string() });
-    harness.feed(Event::Notice { severity: Severity::Info, message: "go".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Error, message: "keep".into() });
+    harness.feed(Event::Notice { severity: Severity::Info, message: "go".into() });
 
     harness.press(Message::NoticeTick(Instant::now() + std::time::Duration::from_secs(6)));
 
-    let messages: Vec<_> = harness.app.notices().iter().map(|notice| notice.message.as_str()).collect();
+    let messages: Vec<_> = harness.app.notices().iter().map(|notice| notice.message.to_string()).collect();
     assert_eq!(messages, ["keep"]);
 }
 
 #[test]
 fn connecting_successfully_clears_the_old_notices() {
     let mut harness = Harness::new();
-    harness.feed(Event::Notice { severity: Severity::Error, message: "old failure".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Error, message: "old failure".into() });
 
     connect(&mut harness, 1, "alpha");
 

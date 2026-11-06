@@ -9,6 +9,7 @@ pub mod history;
 pub mod last_used;
 pub mod listing;
 pub mod logging;
+pub mod message;
 pub mod paths;
 pub mod persist;
 pub mod preview;
@@ -28,7 +29,8 @@ use anyhow::{Context, Result};
 pub use config::{UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
-pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, user_message};
+pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};
+pub use message::Message;
 pub use paths::{ConfigMigration, Paths};
 pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{

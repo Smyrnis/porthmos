@@ -126,7 +126,7 @@ fn connecting_to_an_unreachable_host_reports_failure() {
 
     test.app.apply_core_event(Event::ConnectFailed {
         name: "unreachable".to_string(),
-        message: "Unable to connect to unreachable:\nConnection refused".to_string(),
+        message: "Unable to connect to unreachable:\nConnection refused".into(),
     });
 
     match test.app.connection_status {
@@ -170,7 +170,7 @@ fn panel_event_failed_shows_a_notification_when_the_session_still_exists() {
     let mut test = app();
     test.connect(1, "test");
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".into() });
 
     assert_eq!(test.notification().as_deref(), Some("boom"));
 }
@@ -196,8 +196,7 @@ fn disconnect_selected_reports_a_confirmation_notification() {
     test.app.apply_action(Action::Disconnect);
 
     assert_eq!(test.sent(), vec![Command::Disconnect { session }]);
-    test.app
-        .apply_core_event(Event::Notice { severity: Severity::Info, message: "Disconnected from test".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Info, message: "Disconnected from test".into() });
     test.app.apply_core_event(Event::Disconnected { session, name: "test".to_string() });
     assert!(test.app.sessions.is_empty());
     assert_eq!(test.notification().as_deref(), Some("Disconnected from test"));
@@ -425,7 +424,7 @@ fn add_connection_dialog_stays_open_when_saving_fails() {
     fill_form(&mut test, ["prod", "server.example.com", "22", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "Not a directory".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "Not a directory".into() });
 
     assert!(test.app.dialog.is_some(), "the form must stay open so the user's input isn't lost on a save error");
     assert!(test.app.notifications.current().is_some());

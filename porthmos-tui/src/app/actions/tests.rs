@@ -147,7 +147,7 @@ fn a_failed_listing_leaves_the_panel_where_it_was() {
 
     test.app.apply_core_event(Event::Notice {
         severity: Severity::Error,
-        message: "Permission denied (os error 13)".to_string(),
+        message: "Permission denied (os error 13)".into(),
     });
 
     assert_eq!(test.app.local.path(), &VfsPath::new("/d"));

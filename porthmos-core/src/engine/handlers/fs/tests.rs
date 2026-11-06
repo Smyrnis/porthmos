@@ -47,7 +47,9 @@ async fn a_remote_listing_failure_names_the_folder() {
     t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/gone")) });
 
     match t.next_event().await {
-        Event::Notice { severity: Severity::Error, message } => assert!(message.starts_with("Unable to list /gone:\n")),
+        Event::Notice { severity: Severity::Error, message } => {
+            assert!(message.to_string().starts_with("Unable to list /gone:\n"))
+        }
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -136,7 +138,7 @@ async fn a_failed_remote_mkdir_says_what_failed() {
     });
 
     match t.next_event().await {
-        Event::Notice { message, .. } => assert!(message.starts_with("Unable to create directory:\n")),
+        Event::Notice { message, .. } => assert!(message.to_string().starts_with("Unable to create directory:\n")),
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -257,7 +259,7 @@ async fn deleting_stops_at_the_first_failure() {
     });
 
     match t.next_event().await {
-        Event::Notice { message, .. } => assert!(message.starts_with("Unable to delete:\n")),
+        Event::Notice { message, .. } => assert!(message.to_string().starts_with("Unable to delete:\n")),
         other => panic!("unexpected {other:?}"),
     }
     assert!(!remote.exists("/a"));
@@ -295,8 +297,8 @@ fn each_failure_is_logged_at_the_line_that_reported_it() {
     let reporter = Reporter::new(events);
 
     let logs = crate::engine::testing::capture_logs(|| {
-        send_failure(&reporter, "first".to_string(), &"cause");
-        send_failure(&reporter, "second".to_string(), &"cause");
+        send_failure(&reporter, "first".into(), &"cause");
+        send_failure(&reporter, "second".into(), &"cause");
     });
 
     let places: Vec<&str> =
@@ -547,4 +549,33 @@ async fn navigating_to_the_folder_already_shown_only_lists_it() {
 
     assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
     assert!(revealed_names(&events).is_empty());
+}
+
+#[tokio::test]
+async fn a_remote_listing_failure_keeps_what_failed_apart_from_why() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/gone")) });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => {
+            assert_eq!(message.summary(), "Unable to list /gone");
+            assert!(message.cause().is_some_and(|cause| !cause.is_empty()), "{message:?}");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_local_listing_failure_has_no_summary_to_separate() {
+    let mut t = test_engine();
+    let missing = t.dir.path().join("missing");
+
+    t.engine.handle_command(Command::List { location: Location::Local, path: Some(from_os_path(&missing)) });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => assert_eq!(message.cause(), None),
+        other => panic!("unexpected {other:?}"),
+    }
 }

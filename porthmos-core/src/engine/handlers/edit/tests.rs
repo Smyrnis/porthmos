@@ -38,7 +38,7 @@ fn notices_of(events: &[Event]) -> Vec<(Severity, String)> {
     events
         .iter()
         .filter_map(|event| match event {
-            Event::Notice { severity, message } => Some((*severity, message.clone())),
+            Event::Notice { severity, message } => Some((*severity, message.to_string())),
             _ => None,
         })
         .collect()

@@ -32,11 +32,11 @@ pub(crate) use sync::SyncState;
 pub(crate) use update::UpdateEngine;
 
 use super::Location;
-use crate::user_message;
+use crate::{Message, failure_report};
 
-fn failure_message(location: Location, context: impl AsRef<str>, err: &dyn Display) -> String {
+fn failure_message(location: Location, context: impl AsRef<str>, err: &dyn Display) -> Message {
     match location {
-        Location::Local => err.to_string(),
-        Location::Session(_) => user_message(context, err),
+        Location::Local => Message::new(err.to_string()),
+        Location::Session(_) => failure_report(context, err),
     }
 }

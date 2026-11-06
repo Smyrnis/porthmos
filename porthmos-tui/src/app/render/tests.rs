@@ -307,7 +307,7 @@ fn connecting_status_is_shown_on_the_right_in_the_muted_colour() {
 #[test]
 fn failed_status_is_shown_only_without_a_session() {
     let (mut app, theme) = themed_app();
-    app.connection_status = ConnectionStatus::Failed("boom".to_string());
+    app.connection_status = ConnectionStatus::Failed("boom".into());
 
     let without_session = render_app(&app, 80, 12);
     let (x, y) = find_text(&without_session, "Connection failed: boom").expect("status is drawn");
@@ -515,7 +515,7 @@ fn a_long_connecting_status_is_truncated_so_the_active_tab_keeps_its_name() {
 #[test]
 fn a_long_failure_without_a_session_is_truncated_instead_of_dropped() {
     let (mut app, _) = themed_app();
-    app.connection_status = ConnectionStatus::Failed(format!("handshake failed: {}", "x".repeat(200)));
+    app.connection_status = ConnectionStatus::Failed(format!("handshake failed: {}", "x".repeat(200)).into());
 
     let terminal = render_app(&app, 80, 12);
 
@@ -1144,10 +1144,10 @@ fn a_connect_failure_is_remembered_for_the_list_and_cleared_by_a_later_success()
 
     app.apply_core_event(Event::ConnectFailed {
         name: "prod".to_string(),
-        message: "Authentication failed for prod".to_string(),
+        message: "Authentication failed for prod".into(),
     });
 
-    assert_eq!(app.last_failure.get("prod").map(String::as_str), Some("Authentication failed for prod"));
+    assert_eq!(app.last_failure.get("prod"), Some(&"Authentication failed for prod".into()));
     let failed = render_app(&app, 120, 24);
     let line = row_symbols(&failed, 4);
     let x = line
@@ -1167,7 +1167,7 @@ fn a_connect_failure_is_remembered_for_the_list_and_cleared_by_a_later_success()
 #[test]
 fn a_failure_of_one_connection_does_not_touch_the_others() {
     let (mut app, _) = connections_app();
-    app.apply_core_event(Event::ConnectFailed { name: "prod".to_string(), message: "boom".to_string() });
+    app.apply_core_event(Event::ConnectFailed { name: "prod".to_string(), message: "boom".into() });
 
     app.apply_core_event(Event::Connected { session: 1, name: "backup".to_string(), shell_available: true });
 
@@ -1178,7 +1178,7 @@ fn a_failure_of_one_connection_does_not_touch_the_others() {
 fn the_top_bar_on_the_connections_screen_counts_connected_and_errors() {
     let (mut app, _) = connections_app();
     add_session(&mut app, 1, "prod");
-    app.last_failure.insert("backup".to_string(), "boom".to_string());
+    app.last_failure.insert("backup".to_string(), "boom".into());
 
     let terminal = render_app(&app, 120, 24);
 
@@ -1192,8 +1192,8 @@ fn zero_parts_are_left_out_of_the_connections_summary() {
     let (mut app, _) = connections_app();
     assert!(!row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("error"));
 
-    app.last_failure.insert("backup".to_string(), "boom".to_string());
-    app.last_failure.insert("prod".to_string(), "boom".to_string());
+    app.last_failure.insert("backup".to_string(), "boom".into());
+    app.last_failure.insert("prod".to_string(), "boom".into());
 
     assert!(row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("2 errors"));
 }
@@ -1202,7 +1202,7 @@ fn zero_parts_are_left_out_of_the_connections_summary() {
 fn the_connections_screen_never_panics_at_any_size() {
     let (mut app, _) = connections_app();
     add_session(&mut app, 1, "prod");
-    app.last_failure.insert("backup".to_string(), "boom\nline two".to_string());
+    app.last_failure.insert("backup".to_string(), "boom\nline two".into());
 
     for width in 0..=130 {
         for height in 0..=14 {
@@ -1503,8 +1503,8 @@ fn the_connections_screen_shows_a_connection_in_progress() {
 #[test]
 fn a_failure_of_a_profile_that_no_longer_exists_is_forgotten_when_the_list_reloads() {
     let (mut app, _) = connections_app();
-    app.last_failure.insert("gone".to_string(), "boom".to_string());
-    app.last_failure.insert("prod".to_string(), "boom".to_string());
+    app.last_failure.insert("gone".to_string(), "boom".into());
+    app.last_failure.insert("prod".to_string(), "boom".into());
 
     app.apply_core_event(Event::Profiles(vec![saved_connection("prod", "sftp")]));
 

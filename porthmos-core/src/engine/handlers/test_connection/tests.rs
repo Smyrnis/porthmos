@@ -85,7 +85,7 @@ async fn a_login_failure_is_failed_at_login() {
     match outcome_of(&mut t, draft()).await {
         TestOutcome::Failed { stage, message } => {
             assert_eq!(stage, TestStage::Login);
-            assert!(message.contains("Authentication failed for box"), "{message}");
+            assert!(message.to_string().contains("Authentication failed for box"), "{message}");
         }
         other => panic!("{other:?}"),
     }
@@ -98,7 +98,7 @@ async fn a_refused_connection_is_failed_at_connect() {
     match outcome_of(&mut t, draft()).await {
         TestOutcome::Failed { stage, message } => {
             assert_eq!(stage, TestStage::Connect);
-            assert!(message.contains("connection refused"), "{message}");
+            assert!(message.to_string().contains("connection refused"), "{message}");
         }
         other => panic!("{other:?}"),
     }
@@ -144,7 +144,7 @@ async fn a_changed_host_key_error_is_failed_at_connect_with_the_message() {
 
     match outcome_of(&mut t, draft()).await {
         TestOutcome::Failed { stage: TestStage::Connect, message } => {
-            assert!(message.contains("REMOTE HOST IDENTIFICATION HAS CHANGED"), "{message}");
+            assert!(message.to_string().contains("REMOTE HOST IDENTIFICATION HAS CHANGED"), "{message}");
         }
         other => panic!("{other:?}"),
     }
@@ -367,7 +367,7 @@ mod hardening {
 
         let outcome = outcome_of(&mut t, draft).await;
 
-        assert_eq!(outcome, TestOutcome::Failed { stage: TestStage::Settings, message: expected });
+        assert_eq!(outcome, TestOutcome::Failed { stage: TestStage::Settings, message: expected.into() });
     }
 
     #[tokio::test]
@@ -379,7 +379,7 @@ mod hardening {
 
         assert_eq!(
             outcome_of(&mut t, draft).await,
-            TestOutcome::Failed { stage: TestStage::Settings, message: expected }
+            TestOutcome::Failed { stage: TestStage::Settings, message: expected.into() }
         );
     }
 

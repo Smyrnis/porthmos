@@ -73,7 +73,10 @@ fn f4_without_a_connection_warns() {
 
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().unwrap();
-    assert_eq!((notice.severity, notice.message.as_str()), (Severity::Warning, "Connect to a server first"));
+    assert_eq!(
+        (notice.severity, notice.message.to_string()),
+        (Severity::Warning, "Connect to a server first".to_string())
+    );
 }
 
 #[test]
@@ -86,8 +89,8 @@ fn f4_on_a_connection_without_shell_support_warns() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(
-        (notice.severity, notice.message.as_str()),
-        (Severity::Warning, "This connection doesn't support a terminal session")
+        (notice.severity, notice.message.to_string()),
+        (Severity::Warning, "This connection doesn't support a terminal session".to_string())
     );
 }
 
@@ -179,7 +182,7 @@ fn a_missing_terminal_shows_an_error_notice_with_the_hint() {
         notice.message,
         "Couldn't open a terminal: No terminal program found. Set $TERMINAL to your terminal's command."
     );
-    assert!(!notice.message.contains("s3cr3t-value"));
+    assert!(!notice.message.to_string().contains("s3cr3t-value"));
     let leftovers = std::fs::read_dir(harness.scratch().join("handover")).map_or(0, |dir| dir.count());
     assert_eq!(leftovers, 0);
 }
@@ -197,7 +200,7 @@ fn a_launch_failure_becomes_an_error_notice_without_the_secret() {
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(notice.severity, Severity::Error);
     assert_eq!(notice.message, "Couldn't open a terminal: xterm: not found");
-    assert!(!notice.message.contains("s3cr3t-value"));
+    assert!(!notice.message.to_string().contains("s3cr3t-value"));
     assert!(harness.sent().is_empty());
 }
 

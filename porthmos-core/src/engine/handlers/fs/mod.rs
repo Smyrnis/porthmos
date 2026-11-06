@@ -7,10 +7,10 @@ use super::{
     super::{Engine, Event, Internal, Location, Reporter, SessionId},
     failure_message,
 };
-use crate::{Severity, tasks::Scope, user_message};
+use crate::{Message, Severity, failure_report, tasks::Scope};
 
 #[track_caller]
-fn send_failure(reporter: &Reporter, message: String, cause: &dyn std::fmt::Debug) {
+fn send_failure(reporter: &Reporter, message: Message, cause: &dyn std::fmt::Debug) {
     reporter.report_cause(Severity::Error, message, cause);
 }
 
@@ -129,7 +129,7 @@ async fn list_start_into(
         }
         Err(err) => {
             let context = format!("Unable to open {} on {name}, showing the home directory instead", path);
-            reporter.report_cause(Severity::Warning, user_message(context, &err), &err);
+            reporter.report_cause(Severity::Warning, failure_report(context, &err), &err);
             list_into(fs, location, None, None, events, internal, reporter).await;
         }
     }

@@ -19,7 +19,7 @@ pub(crate) use report::Reporter;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    ConnectionState, Paths, Severity,
+    ConnectionState, Message, Paths, Severity,
     config::{
         bookmarks::Bookmarks,
         settings::{EditSettings, TransferSettings},
@@ -70,7 +70,7 @@ pub(crate) enum Internal {
     },
     ConnectFailed {
         name: String,
-        message: String,
+        message: Message,
     },
     Transfer(TransferEvent),
     Edit(handlers::EditEvent),
@@ -490,9 +490,10 @@ impl Engine {
     }
 
     #[track_caller]
-    pub(crate) fn connect_failed(&self, name: String, message: String) {
+    pub(crate) fn connect_failed(&self, name: String, message: impl Into<Message>) {
+        let message = message.into();
         let severity = if message == crate::CONNECTION_CANCELLED { Severity::Info } else { Severity::Error };
-        self.reporter.log(severity, &message);
+        self.reporter.log(severity, &message.to_string());
         self.publish_connection_state(&name, ConnectionState::Disconnected);
         self.emit(Event::ConnectFailed { name, message });
     }
@@ -505,7 +506,7 @@ impl Engine {
     }
 
     #[track_caller]
-    pub(crate) fn report(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn report(&self, severity: Severity, message: impl Into<Message>) {
         self.reporter.report(severity, message);
     }
 
@@ -517,11 +518,11 @@ impl Engine {
         }
     }
 
-    pub(crate) fn announce(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn announce(&self, severity: Severity, message: impl Into<Message>) {
         self.reporter.show(severity, message);
     }
 
-    pub(crate) fn info(&self, message: impl Into<String>) {
+    pub(crate) fn info(&self, message: impl Into<Message>) {
         self.emit(Event::Notice { severity: Severity::Info, message: message.into() });
     }
 

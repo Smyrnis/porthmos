@@ -271,10 +271,9 @@ impl App {
             ConnectionStatus::Connecting(name) => {
                 (format!("Connecting to {}\u{2026}", printable(name)), self.theme.muted())
             }
-            ConnectionStatus::Failed(message) if self.sessions.is_empty() => (
-                format!("Connection failed: {}", printable(message.lines().next().unwrap_or(""))),
-                self.theme.err_text(),
-            ),
+            ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
+                (format!("Connection failed: {}", printable(message.summary())), self.theme.err_text())
+            }
             _ => return Line::default(),
         };
         Line::styled(truncate_with_ellipsis(&text, budget), style)
@@ -410,10 +409,9 @@ impl App {
             _ => 0,
         };
         let (state, failure) = match &selection {
-            Some(crate::widgets::connections_view::Selection::Connection(entry)) => (
-                self.connection_states.get(&entry.name).copied(),
-                self.last_failure.get(&entry.name).map(String::as_str),
-            ),
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
+                (self.connection_states.get(&entry.name).copied(), self.last_failure.get(&entry.name))
+            }
             _ => (None, None),
         };
         let last_used = match &selection {

@@ -119,7 +119,7 @@ impl TestEngine {
         self.drain()
             .into_iter()
             .filter_map(|event| match event {
-                Event::Notice { severity, message } => Some((severity, message)),
+                Event::Notice { severity, message } => Some((severity, message.to_string())),
                 _ => None,
             })
             .collect()

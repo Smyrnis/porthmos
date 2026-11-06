@@ -41,11 +41,13 @@ async fn a_broken_history_file_is_set_aside_with_a_warning_at_start() {
     let warning = loop {
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv()).await;
         match event.unwrap().unwrap() {
-            Event::Notice { severity: Severity::Warning, message } if message.contains("history") => break message,
+            Event::Notice { severity: Severity::Warning, message } if message.to_string().contains("history") => {
+                break message;
+            }
             _ => {}
         }
     };
-    assert!(warning.contains("history.toml.broken"), "{warning}");
+    assert!(warning.to_string().contains("history.toml.broken"), "{warning}");
     assert!(paths.history_file().with_extension("toml.broken").exists());
 }
 
@@ -101,11 +103,13 @@ async fn a_broken_last_used_file_is_set_aside_with_a_warning_at_start() {
     let warning = loop {
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv()).await;
         match event.unwrap().unwrap() {
-            Event::Notice { severity: Severity::Warning, message } if message.contains("last-used") => break message,
+            Event::Notice { severity: Severity::Warning, message } if message.to_string().contains("last-used") => {
+                break message;
+            }
             _ => {}
         }
     };
-    assert!(warning.contains("last_used.toml.broken"), "{warning}");
+    assert!(warning.to_string().contains("last_used.toml.broken"), "{warning}");
     assert!(paths.last_used_file().with_extension("toml.broken").exists());
 }
 
@@ -126,7 +130,7 @@ async fn the_history_warning_comes_before_the_bookmark_warnings() {
             break message;
         }
     };
-    assert!(first.contains("history"), "{first}");
+    assert!(first.to_string().contains("history"), "{first}");
 }
 
 #[tokio::test]
