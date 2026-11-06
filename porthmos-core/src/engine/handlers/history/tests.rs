@@ -923,7 +923,7 @@ fn later_history_write_failures_stay_out_of_the_notices_but_remain_in_the_debug_
 }
 
 fn fixed_clock() -> chrono::DateTime<chrono::Utc> {
-    chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, 2, 3, 4, 5).unwrap()
+    crate::engine::testing::utc(2026, 1, 2, 3, 4, 5)
 }
 
 #[test]

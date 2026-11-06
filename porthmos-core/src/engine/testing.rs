@@ -277,3 +277,9 @@ mod fake_updater {
         }
     }
 }
+
+pub(crate) fn utc(
+    year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32,
+) -> chrono::DateTime<chrono::Utc> {
+    chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, year, month, day, hour, minute, second).unwrap()
+}

@@ -514,6 +514,10 @@ impl Engine {
         self.reporter.report(severity, message);
     }
 
+    pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        (self.clock)()
+    }
+
     pub(crate) fn persist_failed(&mut self, path: PathBuf, message: String, tag: u64) {
         if path == self.last_used.store.path() {
             self.last_used_write_failed(message);

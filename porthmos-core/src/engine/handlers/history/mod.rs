@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
 use porthmos_vfs::VfsPath;
 
 use super::super::{Engine, Event};
@@ -73,26 +72,26 @@ fn history_result(state: RowState) -> HistoryResult {
     }
 }
 
-fn new_entry(
-    finished_at: DateTime<Utc>, connection: String, direction: Direction, label: String, result: HistoryResult,
-) -> HistoryEntry {
-    HistoryEntry {
-        finished_at,
-        connection,
-        direction,
-        label,
-        local_path: String::new(),
-        remote_path: String::new(),
-        files_done: 0,
-        files_total: 0,
-        bytes: 0,
-        result,
-        failed_count: 0,
-        failed_files: Vec::new(),
-    }
-}
-
 impl Engine {
+    fn history_entry(
+        &self, connection: String, direction: Direction, label: String, result: HistoryResult,
+    ) -> HistoryEntry {
+        HistoryEntry {
+            finished_at: self.now(),
+            connection,
+            direction,
+            label,
+            local_path: String::new(),
+            remote_path: String::new(),
+            files_done: 0,
+            files_total: 0,
+            bytes: 0,
+            result,
+            failed_count: 0,
+            failed_files: Vec::new(),
+        }
+    }
+
     pub(crate) fn publish_history(&self) {
         self.emit(Event::History(self.history.store.newest_first()));
     }
@@ -247,14 +246,15 @@ impl Engine {
                 .sum(),
             failed_count: failed.len(),
             failed_files: failed.iter().take(MAX_FAILED_FILES).map(|job| job.display_name.clone()).collect(),
-            ..new_entry((self.clock)(), connection, row.direction, row.label.clone(), history_result(row.state))
+            ..self.history_entry(connection, row.direction, row.label.clone(), history_result(row.state))
         }
     }
 
     pub(crate) fn record_failed_scan(&mut self, session_id: u64, direction: Direction, label: String, message: &str) {
         let connection = self.session_name(session_id);
         tracing::error!(target: "porthmos::transfers", connection = %connection, file = %label, "{message}");
-        self.store_entry(new_entry((self.clock)(), connection, direction, label, HistoryResult::Failed));
+        let entry = self.history_entry(connection, direction, label, HistoryResult::Failed);
+        self.store_entry(entry);
         self.publish_history();
     }
 

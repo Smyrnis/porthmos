@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use porthmos_vfs::testing::{FakeFs, FakeProtocol};
 
 use crate::{
@@ -13,11 +13,11 @@ use crate::{
 };
 
 fn morning() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 22, 9, 0, 0).unwrap()
+    crate::engine::testing::utc(2026, 10, 22, 9, 0, 0)
 }
 
 fn evening() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 22, 18, 30, 0).unwrap()
+    crate::engine::testing::utc(2026, 10, 22, 18, 30, 0)
 }
 
 fn engine_with_profile(name: &str) -> TestEngine {

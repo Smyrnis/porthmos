@@ -121,7 +121,7 @@ impl Engine {
 
     fn first_check_delay(&self) -> Duration {
         let interval = chrono::Duration::from_std(self.update.timing.interval).unwrap_or(chrono::Duration::MAX);
-        let now = (self.clock)();
+        let now = self.now();
         let remaining = self
             .update
             .record
@@ -316,7 +316,7 @@ impl Engine {
     }
 
     fn remember_update_check(&mut self) {
-        let now = (self.clock)();
+        let now = self.now();
         self.update.record.set_last_checked(now);
         self.persist_update_record();
     }

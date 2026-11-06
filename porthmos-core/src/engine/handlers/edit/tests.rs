@@ -4,7 +4,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
 
-use chrono::Utc;
 use porthmos_lfs::from_os_path;
 use porthmos_vfs::VfsPath;
 use porthmos_vfs::{FileSystem, testing::FakeFs};
@@ -659,7 +658,7 @@ async fn a_session_lost_before_the_upload_keeps_the_copy() {
 #[tokio::test]
 async fn a_conflict_copy_name_that_already_exists_fails_the_upload_and_overwrites_nothing() {
     let mut t = test_engine();
-    t.engine.clock = || chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 9, 30, 10, 15, 0).unwrap();
+    t.engine.clock = || crate::engine::testing::utc(2026, 9, 30, 10, 15, 0);
     t.engine.local_offset = || chrono::FixedOffset::east_opt(0).unwrap();
     let (session, fs) = remote_session(&mut t);
     let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
@@ -817,7 +816,7 @@ async fn finishing_before_the_editor_was_ever_started_is_ignored() {
 #[tokio::test]
 async fn an_existing_temporary_folder_is_never_reused() {
     let mut t = test_engine();
-    t.engine.clock = || chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 9, 30, 10, 15, 0).unwrap();
+    t.engine.clock = || crate::engine::testing::utc(2026, 9, 30, 10, 15, 0);
     let (session, _fs) = remote_session(&mut t);
     let taken = t.engine.paths.edit_dir().join(format!("{}-0", (t.engine.clock)().timestamp_millis()));
     std::fs::create_dir_all(&taken).unwrap();
@@ -961,7 +960,7 @@ async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_fo
 #[tokio::test]
 async fn the_conflict_copy_is_stamped_with_the_local_time() {
     let mut t = test_engine();
-    t.engine.clock = || chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 10, 31, 15, 22, 19).unwrap();
+    t.engine.clock = || crate::engine::testing::utc(2026, 10, 31, 15, 22, 19);
     t.engine.local_offset = || chrono::FixedOffset::east_opt(2 * 3600).unwrap();
     let (session, fs) = remote_session(&mut t);
     let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;

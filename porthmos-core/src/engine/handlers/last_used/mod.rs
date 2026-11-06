@@ -20,7 +20,7 @@ impl Engine {
     }
 
     pub(crate) fn record_use(&mut self, name: &str) {
-        let now = (self.clock)();
+        let now = self.now();
         self.last_used.store.record(name, now);
         self.last_used_changed();
     }
