@@ -40,8 +40,8 @@ async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsP
 }
 
 async fn list_into(
-    fs: Arc<dyn FileSystem>, location: Location, path: Option<VfsPath>, events: UnboundedSender<Event>,
-    reporter: Reporter,
+    fs: Arc<dyn FileSystem>, location: Location, path: Option<VfsPath>, reveal: Option<String>,
+    events: UnboundedSender<Event>, reporter: Reporter,
 ) {
     let path = match path {
         Some(path) => path,
@@ -55,7 +55,11 @@ async fn list_into(
     };
     match fs.list(&path).await {
         Ok(entries) => {
+            let revealed = reveal.filter(|name| entries.iter().any(|entry| &entry.name == name));
             let _ = events.send(Event::Listed { location, path: path.clone(), entries });
+            if let Some(name) = revealed {
+                let _ = events.send(Event::Revealed { location, folder: path.clone(), name });
+            }
             announce_free_space(fs.as_ref(), location, path, &events).await;
         }
         Err(err) => {
@@ -99,7 +103,7 @@ async fn list_start_into(
         Err(err) => {
             let context = format!("Unable to open {} on {name}, showing the home directory instead", path);
             reporter.report_cause(Severity::Warning, user_message(context, &err), &err);
-            list_into(fs, location, None, events, reporter).await;
+            list_into(fs, location, None, None, events, reporter).await;
         }
     }
 }
@@ -144,7 +148,19 @@ impl Engine {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };
-        let work = list_into(fs, location, path, self.events.clone(), self.reporter.clone());
+        let work = list_into(fs, location, path, None, self.events.clone(), self.reporter.clone());
+        self.tasks.spawn("list", scope_for(location), move |_| work);
+    }
+
+    pub(crate) fn reveal(&mut self, location: Location, path: VfsPath) {
+        let Some(fs) = self.filesystem_or_drop(location) else {
+            return;
+        };
+        let (folder, name) = match (path.parent(), path.file_name()) {
+            (Some(parent), Some(name)) => (parent, Some(name.to_string_lossy().to_string())),
+            _ => (path, None),
+        };
+        let work = list_into(fs, location, Some(folder), name, self.events.clone(), self.reporter.clone());
         self.tasks.spawn("list", scope_for(location), move |_| work);
     }
 

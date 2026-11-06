@@ -1,12 +1,13 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, stack, svg, text_input, tooltip};
 use iced::{Alignment, Border, Element, Font, Length, Size, alignment};
+use porthmos_core::ConnectionState;
 use porthmos_core::connections_tree::TreeRow;
 use porthmos_core::profiles::ConnectionSource;
 
 use super::button::{Look, flat, hinted, text_button};
 use super::{bold_label, filled, hairline_across, hairline_down, label, wrapped_label};
 use crate::app::{App, Message};
-use crate::connections::{LinkState, details_lines, subtitle};
+use crate::connections::{details_lines, subtitle};
 use crate::geometry::ROW_HEIGHT;
 use crate::icons::{self, Icon};
 use crate::theme::Palette;
@@ -86,9 +87,10 @@ fn connection_row<'a>(app: &'a App, row_index: usize, entry_index: usize, depth:
         (false, false) => palette.fg,
     };
     let dot = match app.link_state(&entry.name) {
-        LinkState::Live => label("●", palette.ok),
-        LinkState::Lost => label("●", palette.err),
-        LinkState::Off => label(" ", palette.fg_dim),
+        ConnectionState::Connected => label("●", palette.ok),
+        ConnectionState::Connecting => label("●", palette.accent),
+        ConnectionState::Lost => label("●", palette.err),
+        ConnectionState::Disconnected => label(" ", palette.fg_dim),
     };
     let name = if orphan { format!("⚠ {}", entry.name) } else { entry.name.clone() };
     let line = row![

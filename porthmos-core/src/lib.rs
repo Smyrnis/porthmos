@@ -1,4 +1,5 @@
 pub mod config;
+mod connection_state;
 pub mod connections_tree;
 pub mod edit;
 mod engine;
@@ -25,6 +26,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 pub use config::{UpdateMode, UpdateSettings};
+pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, user_message};
 pub use paths::{ConfigMigration, Paths};

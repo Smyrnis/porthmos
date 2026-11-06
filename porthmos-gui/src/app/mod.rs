@@ -8,7 +8,8 @@ use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::transfer::conflicts::Resolution;
 use porthmos_core::transfer::rows::RowKind;
 use porthmos_core::{
-    Answer, Command, CoreHandle, Event, Location, SessionId, Severity, VfsPath, from_os_path, to_os_path,
+    Answer, Command, ConnectionState, CoreHandle, Event, Location, SessionId, Severity, VfsPath, from_os_path,
+    to_os_path,
 };
 
 use porthmos_core::config::bookmarks::Bookmark;
@@ -49,9 +50,6 @@ const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const STAGING_TICK: Duration = Duration::from_secs(1);
 const NOTICE_TICK: Duration = Duration::from_secs(1);
-const NOTICE_INFO_LIFETIME: Duration = Duration::from_secs(4);
-const NOTICE_WARNING_LIFETIME: Duration = Duration::from_secs(8);
-const NOTICE_ERROR_LIFETIME: Duration = Duration::from_secs(15);
 const STAGING_LINGER: Duration = if cfg!(target_os = "linux") { Duration::ZERO } else { Duration::from_secs(10 * 60) };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,16 +60,8 @@ pub struct Notice {
 }
 
 impl Notice {
-    fn lifetime(&self) -> Duration {
-        match self.severity {
-            Severity::Info => NOTICE_INFO_LIFETIME,
-            Severity::Warning => NOTICE_WARNING_LIFETIME,
-            Severity::Error => NOTICE_ERROR_LIFETIME,
-        }
-    }
-
     fn expired(&self, now: Instant) -> bool {
-        now.saturating_duration_since(self.raised) >= self.lifetime()
+        now.saturating_duration_since(self.raised) >= self.severity.lifetime()
     }
 }
 
@@ -250,6 +240,7 @@ pub struct App {
     local: Pane,
     sessions: Sessions,
     connecting: Option<String>,
+    connection_states: std::collections::HashMap<String, ConnectionState>,
     active: PanelSide,
     modifiers: keyboard::Modifiers,
     shortcuts: Shortcuts,
@@ -317,6 +308,7 @@ impl App {
             local: Pane::new(local_start.clone()),
             sessions: Sessions::default(),
             connecting: None,
+            connection_states: std::collections::HashMap::new(),
             active: PanelSide::Local,
             modifiers: keyboard::Modifiers::empty(),
             shortcuts,
@@ -378,6 +370,14 @@ impl App {
         };
         pane.expect(path.clone());
         self.core.send(Command::List { location, path });
+    }
+
+    pub fn reveal(&mut self, location: Location, folder: VfsPath, path: VfsPath) {
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        pane.expect(Some(folder));
+        self.core.send(Command::Reveal { location, path });
     }
 
     pub fn local(&self) -> &Pane {
@@ -694,6 +694,9 @@ impl App {
     pub fn apply(&mut self, event: Event) {
         match event {
             Event::Notice { severity, message } => self.push_notice(severity, message),
+            Event::ConnectionState { name, state } => {
+                self.connection_states.insert(name, state);
+            }
             Event::Connecting { name } => self.connecting = Some(name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
@@ -743,6 +746,11 @@ impl App {
             Event::FreeSpace { location, path, bytes } => {
                 if let Some(pane) = self.pane_mut(location) {
                     pane.panel.set_free_space(path, bytes);
+                }
+            }
+            Event::Revealed { location, folder, name } => {
+                if let Some(pane) = self.pane_mut(location) {
+                    pane.reveal(&folder, &name);
                 }
             }
             Event::LocationChanged { location } => self.relist(location),

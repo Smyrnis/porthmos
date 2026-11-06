@@ -9,8 +9,7 @@ const MAX_QUEUED: usize = 20;
 
 fn ttl_for(severity: Severity) -> Option<Duration> {
     match severity {
-        Severity::Info => Some(Duration::from_secs(4)),
-        Severity::Warning => Some(Duration::from_secs(8)),
+        Severity::Info | Severity::Warning => Some(severity.lifetime()),
         Severity::Error => None,
     }
 }

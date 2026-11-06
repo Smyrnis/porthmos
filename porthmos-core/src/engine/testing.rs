@@ -105,6 +105,16 @@ impl TestEngine {
         std::iter::from_fn(|| self.events.try_recv().ok()).collect()
     }
 
+    pub(crate) fn connection_states(events: &[Event]) -> Vec<(String, crate::ConnectionState)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::ConnectionState { name, state } => Some((name.clone(), *state)),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(crate) fn notices(&mut self) -> Vec<(Severity, String)> {
         self.drain()
             .into_iter()

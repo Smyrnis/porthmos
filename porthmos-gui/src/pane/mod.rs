@@ -50,8 +50,10 @@ impl Pane {
         }
     }
 
-    pub fn focus_when_listed(&mut self, folder: VfsPath, name: String) {
-        self.pending_focus = Some((folder, name));
+    pub fn reveal(&mut self, folder: &VfsPath, name: &str) {
+        if self.panel.path() == folder {
+            self.reveal_cursor = self.panel.focus_name(name);
+        }
     }
 
     pub fn take_reveal_request(&mut self) -> bool {

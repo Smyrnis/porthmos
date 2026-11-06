@@ -6,7 +6,7 @@ use porthmos_vfs::{Entry, Question, ShellInvocation, VfsPath};
 
 use super::{Location, RequestId, SessionId};
 use crate::{
-    Severity,
+    ConnectionState, Severity,
     config::bookmarks::Bookmark,
     edit::{EditQuestionKind, EditorCommand},
     history::HistoryEntry,
@@ -30,8 +30,10 @@ pub enum Event {
     TestFinished { test_id: u64, outcome: TestOutcome },
     Disconnected { session: SessionId, name: String },
     SessionHealth { session: SessionId, healthy: bool },
+    ConnectionState { name: String, state: ConnectionState },
     ShellReady { session: SessionId, invocation: ShellInvocation },
     Listed { location: Location, path: VfsPath, entries: Vec<Entry> },
+    Revealed { location: Location, folder: VfsPath, name: String },
     FreeSpace { location: Location, path: VfsPath, bytes: Option<u64> },
     LocationChanged { location: Location },
     Profiles(Vec<ConnectionEntry>),

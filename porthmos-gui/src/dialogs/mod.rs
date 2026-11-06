@@ -25,12 +25,13 @@ impl std::fmt::Debug for Typed {
 
 #[derive(Debug, Clone)]
 pub enum Dialog {
-    Confirm { request_id: RequestId, title: String, body: String },
+    Confirm { request_id: RequestId, title: String, body: String, risky: bool },
     Password { request_id: RequestId, title: String, prompt: String, text: Typed, save: Option<bool> },
 }
 
 impl Dialog {
     pub fn from_question(request_id: RequestId, question: Question, save: Option<bool>) -> Dialog {
+        let risky = question.is_risky_to_confirm();
         match question {
             Question::Password { username, name } => Dialog::Password {
                 request_id,
@@ -41,6 +42,7 @@ impl Dialog {
             },
             Question::TrustHostKey { name, host, port, key_type, fingerprint } => Dialog::Confirm {
                 request_id,
+                risky,
                 title: "Unknown host".to_string(),
                 body: format!(
                     "{name} ({host}:{port}) is not a known host.\n{key_type} {fingerprint}\n\
@@ -49,6 +51,7 @@ impl Dialog {
             },
             Question::TrustCertificate { name, host, port, fingerprint, subject, expires } => Dialog::Confirm {
                 request_id,
+                risky,
                 title: "Untrusted certificate".to_string(),
                 body: format!(
                     "{name} ({host}:{port}) presented a certificate that isn't trusted.\n\

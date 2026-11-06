@@ -139,7 +139,7 @@ fn arrow_keys_move_the_result_selection_not_the_panel_cursor() {
 }
 
 #[test]
-fn results_arrive_and_enter_lists_the_parent_and_closes() {
+fn results_arrive_and_enter_reveals_the_result_and_closes() {
     let mut harness = Harness::new();
     open_search(&mut harness);
     search(&mut harness, "a");
@@ -151,7 +151,9 @@ fn results_arrive_and_enter_lists_the_parent_and_closes() {
     assert!(harness.app.tool().is_none());
     let sent = harness.sent();
     assert!(sent.contains(&Command::CancelSearch), "{sent:?}");
-    assert!(sent.contains(&Command::List { location: Location::Local, path: Some(VfsPath::new("/home/tester/deep")) }));
+    assert!(
+        sent.contains(&Command::Reveal { location: Location::Local, path: VfsPath::new("/home/tester/deep/a.txt") })
+    );
 }
 
 #[test]
@@ -180,7 +182,7 @@ fn double_clicking_a_row_opens_that_result() {
     assert!(
         harness
             .sent()
-            .contains(&Command::List { location: Location::Local, path: Some(VfsPath::new("/home/tester/y")) })
+            .contains(&Command::Reveal { location: Location::Local, path: VfsPath::new("/home/tester/y/a2") })
     );
 }
 
@@ -297,7 +299,7 @@ fn searching_a_remote_panel_lists_in_that_session() {
     assert!(
         harness
             .sent()
-            .contains(&Command::List { location: Location::Session(1), path: Some(VfsPath::new("/srv/sub")) })
+            .contains(&Command::Reveal { location: Location::Session(1), path: VfsPath::new("/srv/sub/a.txt") })
     );
 }
 
@@ -911,7 +913,7 @@ fn cursor_name(harness: &Harness) -> Option<String> {
 }
 
 #[test]
-fn opening_a_result_in_another_folder_puts_the_cursor_on_the_file_once_it_is_listed() {
+fn opening_a_result_in_another_folder_puts_the_cursor_on_the_file_once_core_reveals_it() {
     let mut harness = Harness::new();
     list_local_folder(&mut harness, "/home/tester", &["deep"]);
     open_search(&mut harness);
@@ -921,12 +923,17 @@ fn opening_a_result_in_another_folder_puts_the_cursor_on_the_file_once_it_is_lis
     assert_eq!(cursor_name(&harness), None);
 
     list_local_folder(&mut harness, "/home/tester/deep", &["f1.txt", "f19.txt", "f198.txt"]);
+    harness.feed(Event::Revealed {
+        location: Location::Local,
+        folder: VfsPath::new("/home/tester/deep"),
+        name: "f19.txt".to_string(),
+    });
 
     assert_eq!(cursor_name(&harness).as_deref(), Some("f19.txt"));
 }
 
 #[test]
-fn opening_a_result_in_the_folder_already_shown_moves_the_cursor_after_the_relisting() {
+fn opening_a_result_in_the_folder_already_shown_moves_the_cursor_once_core_reveals_it() {
     let mut harness = Harness::new();
     list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt", "c.txt"]);
     open_search(&mut harness);
@@ -935,6 +942,11 @@ fn opening_a_result_in_the_folder_already_shown_moves_the_cursor_after_the_relis
     named(&mut harness, Named::Enter);
 
     list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt", "c.txt"]);
+    harness.feed(Event::Revealed {
+        location: Location::Local,
+        folder: VfsPath::new("/home/tester"),
+        name: "c.txt".to_string(),
+    });
 
     assert_eq!(cursor_name(&harness).as_deref(), Some("c.txt"));
 }

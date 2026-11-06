@@ -8,8 +8,8 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation, UpdateMode,
-    UpdateState, VfsPath,
+    Command, ConnectionState, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation,
+    UpdateMode, UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
@@ -139,12 +139,6 @@ struct ConflictPrompt {
     answers: Vec<Option<Resolution>>,
 }
 
-struct PendingFocus {
-    location: Location,
-    folder: VfsPath,
-    name: String,
-}
-
 pub struct App {
     should_quit: bool,
     screen: Screen,
@@ -173,7 +167,6 @@ pub struct App {
     reselect_row: Option<RowKind>,
     connection_status: ConnectionStatus,
     search: Option<SearchSession>,
-    pending_focus: Option<PendingFocus>,
     transfers: TransferSnapshot,
     history: HistoryView,
     sync_view: SyncView,
@@ -190,6 +183,7 @@ pub struct App {
     details_popup: bool,
     body_width: std::cell::Cell<u16>,
     last_failure: HashMap<String, String>,
+    connection_states: HashMap<String, ConnectionState>,
     last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
@@ -231,7 +225,6 @@ impl App {
             reselect_row: None,
             connection_status: ConnectionStatus::Disconnected,
             search: None,
-            pending_focus: None,
             transfers: TransferSnapshot::default(),
             history: HistoryView::new(),
             sync_view: SyncView::new(),
@@ -248,6 +241,7 @@ impl App {
             details_popup: false,
             body_width: std::cell::Cell::new(0),
             last_failure: HashMap::new(),
+            connection_states: HashMap::new(),
             last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
@@ -397,6 +391,9 @@ impl App {
     fn apply_core_event(&mut self, event: Event) {
         match event {
             Event::Notice { severity, message } => self.notifications.push(severity, message),
+            Event::ConnectionState { name, state } => {
+                self.connection_states.insert(name, state);
+            }
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
             Event::ConnectFailed { name, message } => {
@@ -412,6 +409,7 @@ impl App {
             }
             Event::ShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
+            Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
             Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
             Event::LocationChanged { location } => self.relist(location),
@@ -498,7 +496,6 @@ impl App {
     }
 
     fn apply_listing(&mut self, location: Location, path: VfsPath, entries: Vec<porthmos_core::Entry>) {
-        let focus = self.pending_focus.take_if(|pending| pending.location == location && pending.folder == path);
         match location {
             Location::Local => {
                 if &path != self.local.path() {
@@ -515,13 +512,15 @@ impl App {
                 }
             }
         }
-        if let Some(focus) = focus {
-            match location {
-                Location::Local => self.local.focus_name(&focus.name),
-                Location::Session(id) => {
-                    self.sessions.by_id_mut(id).is_some_and(|session| session.panel.focus_name(&focus.name))
-                }
-            };
+    }
+
+    fn apply_revealed(&mut self, location: Location, folder: &VfsPath, name: &str) {
+        let panel = match location {
+            Location::Local => Some(&mut self.local),
+            Location::Session(id) => self.sessions.by_id_mut(id).map(|session| &mut session.panel),
+        };
+        if let Some(panel) = panel.filter(|panel| panel.path() == folder) {
+            panel.focus_name(name);
         }
     }
 

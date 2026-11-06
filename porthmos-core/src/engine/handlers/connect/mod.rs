@@ -10,7 +10,7 @@ use super::{
     profiles::{SecretOwner, profile_account, ssh_account},
 };
 use crate::{
-    Severity, connect_failure_message,
+    ConnectionState, Severity, connect_failure_message,
     profiles::{ConnectionEntry, ConnectionSource, PASSWORD_MARKER},
     secrets::Secrets,
     tasks::Scope,
@@ -59,6 +59,7 @@ async fn secured_target(entry: &ConnectionEntry, secret_keys: &[&'static str], s
 impl Engine {
     fn emit_connected(&self, session: u64, name: String, shell_available: bool) {
         let preserves_times = self.sessions.get(&session).is_some_and(|live| live.fs.can_set_modified());
+        self.publish_connection_state(&name, ConnectionState::Connected);
         self.emit(Event::Connected { session, name, shell_available });
         self.emit(Event::SessionCapabilities { session, preserves_times });
     }
@@ -101,6 +102,7 @@ impl Engine {
             return;
         };
 
+        self.publish_connection_state(&entry.name, ConnectionState::Connecting);
         self.emit(Event::Connecting { name: entry.name.clone() });
         self.connecting.insert(entry.name.clone());
         let secret_keys = secret_option_keys(protocol.as_ref(), &entry);
@@ -191,6 +193,7 @@ impl Engine {
         }
 
         self.info(format!("Disconnected from {}", live.name));
+        self.publish_connection_state(&live.name, ConnectionState::Disconnected);
         self.emit(Event::Disconnected { session, name: live.name });
     }
 

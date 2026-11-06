@@ -2,10 +2,10 @@ use iced::Task;
 use iced::keyboard;
 use iced::widget::{Id, operation};
 use porthmos_core::profiles::ConnectionSource;
-use porthmos_core::{Command, Severity};
+use porthmos_core::{Command, ConnectionState, Severity};
 
 use super::{App, Message};
-use crate::connections::{LinkState, Manager, ManagerButtons, Screen};
+use crate::connections::{Manager, ManagerButtons, Screen};
 use crate::shortcuts::KeyPress;
 
 impl App {
@@ -25,12 +25,8 @@ impl App {
         self.manager.buttons()
     }
 
-    pub fn link_state(&self, name: &str) -> LinkState {
-        match self.sessions.by_name(name) {
-            None => LinkState::Off,
-            Some(session) if session.healthy => LinkState::Live,
-            Some(_) => LinkState::Lost,
-        }
+    pub fn link_state(&self, name: &str) -> ConnectionState {
+        self.connection_states.get(name).copied().unwrap_or(ConnectionState::Disconnected)
     }
 
     pub fn protocol_name(&self, id: &str) -> String {

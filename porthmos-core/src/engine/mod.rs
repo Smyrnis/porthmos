@@ -19,7 +19,7 @@ pub(crate) use report::Reporter;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    Paths, Severity,
+    ConnectionState, Paths, Severity,
     config::{
         bookmarks::Bookmarks,
         settings::{EditSettings, TransferSettings},
@@ -368,6 +368,7 @@ impl Engine {
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
             Command::List { location, path } => self.list(location, path),
+            Command::Reveal { location, path } => self.reveal(location, path),
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),
             Command::Delete { location, paths } => self.delete(location, paths),
@@ -474,10 +475,15 @@ impl Engine {
         let _ = self.events.send(event);
     }
 
+    pub(crate) fn publish_connection_state(&self, name: &str, state: ConnectionState) {
+        self.emit(Event::ConnectionState { name: name.to_string(), state });
+    }
+
     #[track_caller]
     pub(crate) fn connect_failed(&self, name: String, message: String) {
         let severity = if message == crate::CONNECTION_CANCELLED { Severity::Info } else { Severity::Error };
         self.reporter.log(severity, &message);
+        self.publish_connection_state(&name, ConnectionState::Disconnected);
         self.emit(Event::ConnectFailed { name, message });
     }
 

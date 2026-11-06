@@ -170,10 +170,7 @@ impl App {
         let parent = result_parent(&entry);
         self.close_tool();
         if self.show_location(location) {
-            self.list(location, Some(parent.clone()));
-            if let Some(pane) = self.pane_mut(location) {
-                pane.focus_when_listed(parent, entry.name.clone());
-            }
+            self.reveal(location, parent, entry.path);
         }
     }
 

@@ -25,6 +25,7 @@ pub enum Command {
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
     List { location: Location, path: Option<VfsPath> },
+    Reveal { location: Location, path: VfsPath },
     CreateDir { location: Location, path: VfsPath },
     Rename { location: Location, from: VfsPath, to: VfsPath },
     Delete { location: Location, paths: Vec<VfsPath> },

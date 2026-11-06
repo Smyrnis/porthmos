@@ -64,7 +64,6 @@ impl App {
             return;
         };
         let location = session.location;
-        let parent = entry.path.parent().unwrap_or_else(|| entry.path.clone());
 
         self.search = None;
         self.core.send(Command::CancelSearch);
@@ -77,8 +76,7 @@ impl App {
                 ActivePanel::Remote
             }
         };
-        self.pending_focus = Some(PendingFocus { location, folder: parent.clone(), name: entry.name });
-        self.core.send(Command::List { location, path: Some(parent) });
+        self.core.send(Command::Reveal { location, path: entry.path });
     }
 }
 

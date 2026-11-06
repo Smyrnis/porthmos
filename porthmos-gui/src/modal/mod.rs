@@ -73,7 +73,7 @@ impl Modal {
     pub fn is_risky_to_accept(&self) -> bool {
         matches!(
             self,
-            Modal::Question(Dialog::Confirm { .. })
+            Modal::Question(Dialog::Confirm { risky: true, .. })
                 | Modal::ConfirmDelete { .. }
                 | Modal::ConfirmClearHistory
                 | Modal::ConfirmQuit { .. }

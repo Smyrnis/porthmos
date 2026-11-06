@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::Duration};
 
 use porthmos_vfs::{ErrorKind, ProtocolError};
 
@@ -7,6 +7,16 @@ pub enum Severity {
     Info,
     Warning,
     Error,
+}
+
+impl Severity {
+    pub fn lifetime(self) -> Duration {
+        match self {
+            Severity::Info => Duration::from_secs(4),
+            Severity::Warning => Duration::from_secs(8),
+            Severity::Error => Duration::from_secs(15),
+        }
+    }
 }
 
 pub fn user_message(context: impl AsRef<str>, err: &dyn Display) -> String {

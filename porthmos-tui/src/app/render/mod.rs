@@ -377,14 +377,14 @@ impl App {
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
-        let name_set = |healthy: bool| -> std::collections::HashSet<&str> {
-            self.sessions
+        let name_set = |wanted: ConnectionState| -> std::collections::HashSet<&str> {
+            self.connection_states
                 .iter()
-                .filter(|session| session.healthy == healthy)
-                .map(|session| session.name.as_str())
+                .filter(|(_, state)| **state == wanted)
+                .map(|(name, _)| name.as_str())
                 .collect()
         };
-        let (connected_names, lost_names) = (name_set(true), name_set(false));
+        let (connected_names, lost_names) = (name_set(ConnectionState::Connected), name_set(ConnectionState::Lost));
         let context = connections_list::ConnectionsContext {
             connected: &connected_names,
             lost: &lost_names,
@@ -409,9 +409,9 @@ impl App {
             Some(porthmos_core::connections_tree::TreeRow::Group { count, .. }) => *count,
             _ => 0,
         };
-        let (session_health, failure) = match &selection {
+        let (state, failure) = match &selection {
             Some(crate::widgets::connections_view::Selection::Connection(entry)) => (
-                self.sessions.by_name(&entry.name).map(|session| session.healthy),
+                self.connection_states.get(&entry.name).copied(),
                 self.last_failure.get(&entry.name).map(String::as_str),
             ),
             _ => (None, None),
@@ -424,8 +424,8 @@ impl App {
         };
         let context = connection_details::DetailsContext {
             protocols: self.core.protocols(),
-            connected: session_health == Some(true),
-            lost: session_health == Some(false),
+            connected: state == Some(ConnectionState::Connected),
+            lost: state == Some(ConnectionState::Lost),
             failure,
             last_used,
             now: self.clock.now().with_timezone(&chrono::Utc),

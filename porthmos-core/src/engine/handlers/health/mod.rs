@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::super::{Engine, Event, Internal, SessionId};
 use crate::{
-    Severity,
+    ConnectionState, Severity,
     health::{PROBE_INTERVAL, wait_unless_cancelled},
     tasks::Scope,
 };
@@ -60,6 +60,8 @@ impl Engine {
             self.lost_sessions.insert(session);
             self.report(Severity::Warning, format!("{name}: connection lost"));
         }
+        let state = if healthy { ConnectionState::Connected } else { ConnectionState::Lost };
+        self.publish_connection_state(&name, state);
         self.emit(Event::SessionHealth { session, healthy });
     }
 }

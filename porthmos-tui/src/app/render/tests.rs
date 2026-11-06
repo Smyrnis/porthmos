@@ -1803,3 +1803,22 @@ fn the_badge_never_squeezes_the_tabs() {
     }
     assert!(seen > 20, "the badge was almost never shown ({seen})");
 }
+
+#[test]
+fn the_connections_screen_shows_the_state_core_published_for_a_connection() {
+    let (mut app, _) = connections_app();
+    assert!(find_text(&render_app(&app, 120, 24), "connection lost").is_none());
+
+    app.apply_core_event(Event::ConnectionState { name: "prod".to_string(), state: ConnectionState::Lost });
+    assert!(find_text(&render_app(&app, 120, 24), "connection lost").is_some());
+
+    app.apply_core_event(Event::ConnectionState { name: "prod".to_string(), state: ConnectionState::Connected });
+    let terminal = render_app(&app, 120, 24);
+    assert!(find_text(&terminal, "connection lost").is_none());
+    assert!(find_text(&terminal, "connected").is_some());
+
+    app.apply_core_event(Event::ConnectionState { name: "prod".to_string(), state: ConnectionState::Disconnected });
+    let terminal = render_app(&app, 120, 24);
+    assert!(find_text(&terminal, "connection lost").is_none());
+    assert!(find_text(&terminal, "\u{2022} connected").is_none());
+}

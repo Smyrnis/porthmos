@@ -413,3 +413,62 @@ fn a_rename_that_only_changes_the_case_is_not_a_collision() {
     assert!(differs_only_in_case(&VfsPath::new("/d/readme.md"), &VfsPath::new("/d/README.md")));
     assert!(!differs_only_in_case(&VfsPath::new("/d/readme.md"), &VfsPath::new("/d/other.md")));
 }
+
+#[tokio::test]
+async fn revealing_a_file_lists_its_folder_then_names_the_row_to_focus() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a.txt", b"", None);
+    remote.file("/data/b.txt", b"", None);
+    let location = Location::Session(session);
+
+    t.engine.handle_command(Command::Reveal { location, path: VfsPath::from("/data/b.txt") });
+
+    assert!(matches!(t.next_event().await, Event::Listed { path, .. } if path == VfsPath::from("/data")));
+    assert!(matches!(
+        t.next_event().await,
+        Event::Revealed { location: revealed, folder, name }
+            if revealed == location && folder == VfsPath::from("/data") && name == "b.txt"
+    ));
+}
+
+#[tokio::test]
+async fn revealing_a_folder_focuses_it_inside_its_parent() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/sub/x", b"", None);
+
+    t.engine.handle_command(Command::Reveal { location: Location::Session(session), path: VfsPath::from("/data/sub") });
+
+    assert!(matches!(t.next_event().await, Event::Listed { path, .. } if path == VfsPath::from("/data")));
+    assert!(matches!(t.next_event().await, Event::Revealed { name, .. } if name == "sub"));
+}
+
+#[tokio::test]
+async fn revealing_a_file_that_is_no_longer_there_only_lists_the_folder() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a.txt", b"", None);
+
+    t.engine
+        .handle_command(Command::Reveal { location: Location::Session(session), path: VfsPath::from("/data/gone") });
+    t.settle().await;
+
+    let events = t.drain();
+    assert!(events.iter().any(|event| matches!(event, Event::Listed { path, .. } if *path == VfsPath::from("/data"))));
+    assert!(!events.iter().any(|event| matches!(event, Event::Revealed { .. })));
+}
+
+#[tokio::test]
+async fn revealing_inside_a_folder_that_cannot_be_listed_reports_the_failure_and_reveals_nothing() {
+    let mut t = test_engine();
+    let (session, _remote) = t.add_session("srv");
+
+    t.engine
+        .handle_command(Command::Reveal { location: Location::Session(session), path: VfsPath::from("/gone/file") });
+    t.settle().await;
+
+    let events = t.drain();
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Error, .. })));
+    assert!(!events.iter().any(|event| matches!(event, Event::Revealed { .. })));
+}

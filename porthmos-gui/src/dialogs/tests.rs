@@ -102,3 +102,23 @@ fn the_password_dialog_debug_never_prints_the_typed_text() {
 
     assert!(!format!("{dialog:?}").contains("hunter2-marker"));
 }
+
+#[test]
+fn a_trust_dialog_is_risky_exactly_when_core_says_the_question_is() {
+    let certificate = Question::TrustCertificate {
+        name: "alpha".to_string(),
+        host: "alpha.example".to_string(),
+        port: 443,
+        fingerprint: "AA:BB".to_string(),
+        subject: "alpha.example".to_string(),
+        expires: "2030-01-01".to_string(),
+    };
+
+    for question in [trust_host(), certificate] {
+        let risky = question.is_risky_to_confirm();
+        match Dialog::from_question(1, question, None) {
+            Dialog::Confirm { risky: dialog_risky, .. } => assert_eq!((risky, dialog_risky), (true, true)),
+            other => panic!("expected a confirmation, got {other:?}"),
+        }
+    }
+}

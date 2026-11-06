@@ -105,7 +105,7 @@ fn ctrl_c_cancels_without_leaving_the_screen() {
 }
 
 #[test]
-fn opening_a_result_lists_its_folder_in_the_right_panel() {
+fn opening_a_result_asks_core_to_reveal_it_in_the_right_panel() {
     let mut test = test_app(&VfsPath::new("/d"));
     let session = test.connect(3, "srv");
     test.list_remote(session, "/srv", Vec::new());
@@ -121,7 +121,7 @@ fn opening_a_result_lists_its_folder_in_the_right_panel() {
         test.sent(),
         vec![
             Command::CancelSearch,
-            Command::List { location: Location::Session(session), path: Some(VfsPath::from("/srv/logs")) },
+            Command::Reveal { location: Location::Session(session), path: VfsPath::from("/srv/logs/x.log") },
         ]
     );
 }
@@ -159,6 +159,11 @@ fn opening_a_result_in_another_folder_puts_the_cursor_on_that_file_once_it_is_li
     test.app.apply_search_key(key(KeyCode::Enter));
 
     test.list_remote(session, "/home/x/many", many_files(&many, 101, 199));
+    test.app.apply_core_event(Event::Revealed {
+        location: Location::Session(session),
+        folder: many.clone(),
+        name: "f198.txt".to_string(),
+    });
 
     let panel = &test.app.sessions.by_id(session).unwrap().panel;
     assert_eq!(cursor_name(panel), Some("f198.txt"));
@@ -175,6 +180,11 @@ fn opening_a_result_in_the_current_folder_puts_the_cursor_on_that_file_once_it_i
     test.app.apply_search_key(key(KeyCode::Enter));
 
     test.list_local(many_files(&dir, 1, 20));
+    test.app.apply_core_event(Event::Revealed {
+        location: Location::Local,
+        folder: dir.clone(),
+        name: "f17.txt".to_string(),
+    });
 
     assert_eq!(cursor_name(&test.app.local), Some("f17.txt"));
 }
@@ -206,6 +216,28 @@ fn the_cursor_moves_to_the_result_without_pulling_the_user_back_to_the_files_scr
     test.app.screen = Screen::Transfers;
 
     test.list_local(many_files(&dir, 1, 20));
+    test.app.apply_core_event(Event::Revealed {
+        location: Location::Local,
+        folder: dir.clone(),
+        name: "f17.txt".to_string(),
+    });
 
     assert_eq!((test.app.screen, cursor_name(&test.app.local)), (Screen::Transfers, Some("f17.txt")));
+}
+
+#[test]
+fn a_reveal_for_a_folder_that_is_not_the_one_shown_leaves_the_cursor_alone() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let dir = VfsPath::new("/d");
+    test.list_local(many_files(&dir, 1, 20));
+    test.app.local.cursor = 2;
+    let before = cursor_name(&test.app.local).map(str::to_string);
+
+    test.app.apply_core_event(Event::Revealed {
+        location: Location::Local,
+        folder: VfsPath::new("/elsewhere"),
+        name: "f17.txt".to_string(),
+    });
+
+    assert_eq!(cursor_name(&test.app.local).map(str::to_string), before);
 }

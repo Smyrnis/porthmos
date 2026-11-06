@@ -10,6 +10,7 @@ use porthmos_vfs::{
 
 use super::*;
 use crate::{
+    ConnectionState,
     engine::{
         Command, Location, PlanningScan,
         testing::{TestEngine, test_engine, test_engine_with_secrets},
@@ -162,6 +163,10 @@ async fn connecting_announces_the_attempt_first() {
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
 
+    assert!(matches!(
+        t.next_event().await,
+        Event::ConnectionState { name, state: ConnectionState::Connecting } if name == "srv"
+    ));
     assert!(matches!(t.next_event().await, Event::Connecting { name } if name == "srv"));
 }
 
@@ -241,8 +246,11 @@ async fn connecting_to_an_already_connected_profile_reuses_the_session() {
 
     assert!(matches!(
         t.drain().as_slice(),
-        [Event::Connected { session: id, .. }, Event::SessionCapabilities { session: capable, .. }]
-            if *id == session && *capable == session
+        [
+            Event::ConnectionState { .. },
+            Event::Connected { session: id, .. },
+            Event::SessionCapabilities { session: capable, .. }
+        ] if *id == session && *capable == session
     ));
     assert_eq!(t.engine.sessions.len(), 1);
 }
@@ -253,7 +261,10 @@ fn an_unknown_profile_fails_without_connecting() {
 
     t.engine.handle_command(Command::Connect { profile: "ghost".into() });
 
-    assert!(matches!(t.drain().as_slice(), [Event::ConnectFailed { name, .. }] if name == "ghost"));
+    assert!(matches!(
+        t.drain().as_slice(),
+        [Event::ConnectionState { .. }, Event::ConnectFailed { name, .. }] if name == "ghost"
+    ));
 }
 
 #[test]
@@ -265,7 +276,7 @@ fn a_profile_whose_protocol_is_missing_fails_with_a_clear_message() {
 
     let events = t.drain();
     assert!(
-        matches!(events.as_slice(), [Event::ConnectFailed { message, .. }] if message == "No \"fake\" protocol is available for srv")
+        matches!(events.as_slice(), [Event::ConnectionState { .. }, Event::ConnectFailed { message, .. }] if message == "No \"fake\" protocol is available for srv")
     );
 }
 
@@ -1009,4 +1020,77 @@ fn a_session_on_a_filesystem_without_time_support_says_so() {
     assert!(t.drain().into_iter().any(
         |event| matches!(event, Event::SessionCapabilities { session: id, preserves_times: false } if id == session)
     ));
+}
+
+async fn events_through(t: &mut TestEngine, mut last: impl FnMut(&Event) -> bool) -> Vec<Event> {
+    let mut seen = Vec::new();
+    loop {
+        let event = t.next_event().await;
+        let done = last(&event);
+        seen.push(event);
+        if done {
+            return seen;
+        }
+    }
+}
+
+fn srv(state: ConnectionState) -> (String, ConnectionState) {
+    ("srv".to_string(), state)
+}
+
+#[tokio::test]
+async fn a_successful_attempt_goes_from_connecting_to_connected() {
+    let (mut t, _remote) = with_fake_profile(FakeProtocol::new);
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let events = events_through(&mut t, |event| matches!(event, Event::Connected { .. })).await;
+
+    assert_eq!(
+        TestEngine::connection_states(&events),
+        vec![srv(ConnectionState::Connecting), srv(ConnectionState::Connected)]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_attempt_goes_from_connecting_to_disconnected() {
+    let (mut t, _remote) = with_fake_profile(|fs| FakeProtocol::new(fs).failing_connect("Connection refused"));
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let events = events_through(&mut t, |event| matches!(event, Event::ConnectFailed { .. })).await;
+
+    assert_eq!(
+        TestEngine::connection_states(&events),
+        vec![srv(ConnectionState::Connecting), srv(ConnectionState::Disconnected)]
+    );
+}
+
+#[test]
+fn a_profile_that_cannot_be_tried_is_reported_disconnected_without_connecting_first() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::Connect { profile: "ghost".into() });
+
+    assert_eq!(TestEngine::connection_states(&t.drain()), vec![("ghost".to_string(), ConnectionState::Disconnected)]);
+}
+
+#[test]
+fn reusing_a_live_session_reports_it_connected_again() {
+    let mut t = test_engine();
+    t.add_session("srv");
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+
+    assert_eq!(TestEngine::connection_states(&t.drain()), vec![srv(ConnectionState::Connected)]);
+}
+
+#[test]
+fn disconnecting_reports_the_connection_disconnected() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    t.engine.handle_command(Command::Disconnect { session });
+
+    assert_eq!(TestEngine::connection_states(&t.drain()), vec![srv(ConnectionState::Disconnected)]);
 }
