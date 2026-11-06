@@ -2,8 +2,10 @@ use std::ffi::OsString;
 
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
+#[cfg(unix)]
+use porthmos_core::Severity;
 use porthmos_core::edit::EditorExit;
-use porthmos_core::{Command, Entry, Event, Location, Severity, ShellInvocation, VfsPath};
+use porthmos_core::{Command, Entry, Event, Location, ShellInvocation, VfsPath};
 
 use crate::menus::{MoreItem, MoreState, more_items};
 use crate::shortcuts::KeyPress;
