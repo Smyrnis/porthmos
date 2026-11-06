@@ -185,12 +185,12 @@ impl App {
             Goto::Local(path) => {
                 self.close_tool();
                 self.show_location(Location::Local);
-                self.list(Location::Local, Some(path));
+                self.navigate(Location::Local, path);
             }
             Goto::Session { id, path } => {
                 self.close_tool();
                 if self.show_location(Location::Session(id)) {
-                    self.list(Location::Session(id), Some(path));
+                    self.navigate(Location::Session(id), path);
                 }
             }
             Goto::NotConnected(host) => self.push_notice(Severity::Warning, format!("Connect to {host} first")),

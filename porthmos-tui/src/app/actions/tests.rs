@@ -88,7 +88,10 @@ fn opening_a_local_folder_asks_for_its_listing() {
 
     test.app.apply_action(Action::Open);
 
-    assert_eq!(test.sent(), vec![Command::List { location: Location::Local, path: Some(VfsPath::from("/d/child")) }]);
+    assert_eq!(
+        test.sent(),
+        vec![Command::Navigate { location: Location::Local, from: VfsPath::from("/d"), to: VfsPath::from("/d/child") }]
+    );
 }
 
 #[test]
@@ -103,7 +106,11 @@ fn opening_a_remote_folder_asks_that_session_for_its_listing() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::List { location: Location::Session(session), path: Some(VfsPath::from("/home/user/child")) }]
+        vec![Command::Navigate {
+            location: Location::Session(session),
+            from: VfsPath::from("/home/user"),
+            to: VfsPath::from("/home/user/child")
+        }]
     );
 }
 
@@ -585,4 +592,35 @@ fn the_help_overlay_closes_on_any_other_key_without_acting() {
         assert!(!test.app.help_visible, "{character:?}");
         test.assert_inert(Screen::Files);
     }
+}
+
+#[test]
+fn opening_the_parent_row_navigates_up_from_the_current_folder() {
+    let mut test = app_in("/d/sub");
+    test.list_local(vec![entry(&VfsPath::new("/d/sub"), "a", false)]);
+    test.app.local.cursor = 0;
+
+    test.app.apply_action(Action::Open);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Navigate { location: Location::Local, from: VfsPath::from("/d/sub"), to: VfsPath::from("/d") }]
+    );
+}
+
+#[test]
+fn going_up_puts_the_cursor_on_the_folder_core_says_was_left() {
+    let mut test = app_in("/d/sub");
+    test.list_local(vec![entry(&VfsPath::new("/d/sub"), "a", false)]);
+    test.app.apply_action(Action::Open);
+    let parent = VfsPath::from("/d");
+
+    test.app.apply_core_event(Event::Listed {
+        location: Location::Local,
+        path: parent.clone(),
+        entries: vec![entry(&parent, "alpha", true), entry(&parent, "sub", true), entry(&parent, "zed", true)],
+    });
+    test.app.apply_core_event(Event::Revealed { location: Location::Local, folder: parent, name: "sub".to_string() });
+
+    assert_eq!(crate::app::testing::cursor_name(&test.app.local), Some("sub"));
 }

@@ -1094,3 +1094,102 @@ fn disconnecting_reports_the_connection_disconnected() {
 
     assert_eq!(TestEngine::connection_states(&t.drain()), vec![srv(ConnectionState::Disconnected)]);
 }
+
+async fn connect_and_open(t: &mut TestEngine, folder: &str) -> u64 {
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let session = next_matching(t, |event| match event {
+        Event::Connected { session, .. } => Some(*session),
+        _ => None,
+    })
+    .await;
+    t.settle().await;
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from(folder)) });
+    t.settle().await;
+    t.drain();
+    session
+}
+
+async fn reconnect_listing(t: &mut TestEngine) -> (VfsPath, Vec<Event>) {
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let mut seen = Vec::new();
+    loop {
+        let event = t.next_event().await;
+        let listed = match &event {
+            Event::Listed { location: Location::Session(_), path, .. } => Some(path.clone()),
+            _ => None,
+        };
+        seen.push(event);
+        if let Some(path) = listed {
+            return (path, seen);
+        }
+    }
+}
+
+#[tokio::test]
+async fn reconnecting_a_lost_connection_reopens_the_folder_it_was_in() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn reconnecting_after_a_deliberate_disconnect_opens_the_start_folder() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/home/user"));
+}
+
+#[tokio::test]
+async fn a_remembered_folder_that_can_no_longer_be_read_falls_back_to_the_start_folder_quietly() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.engine.resume_folders.insert("srv".to_string(), VfsPath::from("/srv/gone"));
+    t.drain();
+
+    let (path, seen) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/home/user"));
+    assert!(!seen.iter().any(|event| matches!(event, Event::Notice { .. })), "{seen:?}");
+}
+
+#[tokio::test]
+async fn a_folder_is_resumed_only_once() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+    let (_, _) = reconnect_listing(&mut t).await;
+    t.settle().await;
+    let again = t.drain().into_iter().find_map(|event| match event {
+        Event::Connected { session, .. } => Some(session),
+        _ => None,
+    });
+    assert_eq!(again, None);
+    let reconnected = t.engine.sessions.keys().copied().next().unwrap();
+    t.engine.handle_command(Command::Disconnect { session: reconnected });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/home/user"));
+}

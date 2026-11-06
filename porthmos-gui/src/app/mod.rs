@@ -372,6 +372,15 @@ impl App {
         self.core.send(Command::List { location, path });
     }
 
+    pub fn navigate(&mut self, location: Location, to: VfsPath) {
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        let from = pane.panel.path().clone();
+        pane.expect(Some(to.clone()));
+        self.core.send(Command::Navigate { location, from, to });
+    }
+
     pub fn reveal(&mut self, location: Location, folder: VfsPath, path: VfsPath) {
         let Some(pane) = self.pane_mut(location) else {
             return;
@@ -843,7 +852,7 @@ impl App {
 
     fn go_to(&mut self, side: PanelSide, path: VfsPath) {
         if let Some(location) = self.location_of(side) {
-            self.list(location, Some(path));
+            self.navigate(location, path);
         }
     }
 
@@ -864,7 +873,8 @@ impl App {
         let target = if back { pane.history.back(current) } else { pane.history.forward(current) };
         if let Some(target) = target {
             pane.expect_unrecorded(Some(target.clone()));
-            self.core.send(Command::List { location, path: Some(target) });
+            let from = pane.panel.path().clone();
+            self.core.send(Command::Navigate { location, from, to: target });
         }
     }
 
@@ -1573,7 +1583,7 @@ impl App {
         };
         let target = self.side_mut(side).and_then(|pane| pane.panel.open_target(row));
         if let Some(path) = target {
-            self.list(location, Some(path));
+            self.navigate(location, path);
         }
     }
 

@@ -26,6 +26,7 @@ pub enum Command {
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
     List { location: Location, path: Option<VfsPath> },
     Reveal { location: Location, path: VfsPath },
+    Navigate { location: Location, from: VfsPath, to: VfsPath },
     CreateDir { location: Location, path: VfsPath },
     Rename { location: Location, from: VfsPath, to: VfsPath },
     Delete { location: Location, paths: Vec<VfsPath> },

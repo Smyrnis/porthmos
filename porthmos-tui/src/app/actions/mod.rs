@@ -147,7 +147,13 @@ impl App {
                 panel.cycle_sort();
                 return;
             }
-            Action::Open => panel.target_path_for_open(),
+            Action::Open => {
+                let from = panel.path().clone();
+                if let Some(to) = panel.target_path_for_open() {
+                    self.core.send(Command::Navigate { location, from, to });
+                }
+                return;
+            }
             Action::Refresh => Some(panel.path().clone()),
             _ => return,
         };

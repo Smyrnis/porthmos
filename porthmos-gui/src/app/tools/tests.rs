@@ -516,11 +516,13 @@ fn go_local_lists_the_local_folder_and_closes() {
     ctrl(&mut harness, "b");
     harness.sent();
 
+    let from = harness.app.local().panel.path().clone();
+
     harness.press(Message::BookmarkGoPressed);
 
     assert!(harness.app.tool().is_none());
     assert_eq!(harness.app.active_side(), PanelSide::Local);
-    assert_eq!(harness.sent(), vec![Command::List { location: Location::Local, path: Some(VfsPath::new("/data")) }]);
+    assert_eq!(harness.sent(), vec![Command::Navigate { location: Location::Local, from, to: VfsPath::new("/data") }]);
 }
 
 #[test]
@@ -537,7 +539,11 @@ fn go_remote_activates_the_session_and_lists() {
     assert_eq!(harness.app.active_side(), PanelSide::Remote);
     assert_eq!(
         harness.sent(),
-        vec![Command::List { location: Location::Session(1), path: Some(VfsPath::new("/var/www")) }]
+        vec![Command::Navigate {
+            location: Location::Session(1),
+            from: VfsPath::new("/srv"),
+            to: VfsPath::new("/var/www")
+        }]
     );
 }
 

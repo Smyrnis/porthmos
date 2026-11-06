@@ -472,3 +472,79 @@ async fn revealing_inside_a_folder_that_cannot_be_listed_reports_the_failure_and
     assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Error, .. })));
     assert!(!events.iter().any(|event| matches!(event, Event::Revealed { .. })));
 }
+
+async fn navigated(from: &str, to: &str) -> Vec<Event> {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a/b/deep.txt", b"", None);
+    remote.file("/data/other/x", b"", None);
+    remote.file("/data/top.txt", b"", None);
+
+    t.engine.handle_command(Command::Navigate {
+        location: Location::Session(session),
+        from: VfsPath::from(from),
+        to: VfsPath::from(to),
+    });
+    t.settle().await;
+    t.drain()
+}
+
+fn revealed_names(events: &[Event]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Revealed { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn listed_folders(events: &[Event]) -> Vec<VfsPath> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Listed { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn going_up_lists_the_parent_and_names_the_folder_just_left() {
+    let events = navigated("/data/a", "/data").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
+    assert_eq!(revealed_names(&events), vec!["a".to_string()]);
+}
+
+#[tokio::test]
+async fn going_up_several_levels_names_the_branch_you_came_out_of() {
+    let events = navigated("/data/a/b", "/data").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
+    assert_eq!(revealed_names(&events), vec!["a".to_string()]);
+}
+
+#[tokio::test]
+async fn going_into_a_folder_only_lists_it() {
+    let events = navigated("/data", "/data/a").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data/a")]);
+    assert!(revealed_names(&events).is_empty());
+}
+
+#[tokio::test]
+async fn going_sideways_only_lists_the_target() {
+    let events = navigated("/data/a", "/data/other").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data/other")]);
+    assert!(revealed_names(&events).is_empty());
+}
+
+#[tokio::test]
+async fn navigating_to_the_folder_already_shown_only_lists_it() {
+    let events = navigated("/data", "/data").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
+    assert!(revealed_names(&events).is_empty());
+}

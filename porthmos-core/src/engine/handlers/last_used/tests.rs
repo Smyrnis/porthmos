@@ -150,6 +150,7 @@ async fn reusing_an_open_session_keeps_the_time_of_the_connection_that_opened_it
 async fn reconnecting_after_a_disconnect_records_the_newer_time() {
     let mut t = engine_with_profile("srv");
     connect(&mut t, "srv").await;
+    t.settle().await;
     let session = *t.engine.sessions.keys().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session });
     t.drain();

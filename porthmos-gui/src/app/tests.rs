@@ -437,6 +437,14 @@ fn list_of(location: Location, path: &str) -> Command {
     Command::List { location, path: Some(VfsPath::new(path)) }
 }
 
+fn navigate_of(location: Location, from: &str, to: &str) -> Command {
+    Command::Navigate { location, from: VfsPath::new(from), to: VfsPath::new(to) }
+}
+
+fn revealed_local(harness: &mut Harness, folder: &str, name: &str) {
+    harness.feed(Event::Revealed { location: Location::Local, folder: VfsPath::new(folder), name: name.to_string() });
+}
+
 #[test]
 fn double_clicking_a_folder_asks_core_to_list_it() {
     let mut harness = Harness::new();
@@ -446,7 +454,7 @@ fn double_clicking_a_folder_asks_core_to_list_it() {
 
     harness.press(Message::PanelDoubleClicked(PanelSide::Local, 1));
 
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester/sub")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home/tester/sub")]);
 }
 
 #[test]
@@ -486,7 +494,7 @@ fn enter_on_the_parent_row_lists_the_parent() {
 
     plain(&mut harness, Named::Enter);
 
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home")]);
 }
 
 #[test]
@@ -498,7 +506,7 @@ fn enter_on_a_folder_lists_it_and_on_a_file_does_nothing_in_stage_one() {
 
     plain(&mut harness, Named::ArrowDown);
     plain(&mut harness, Named::Enter);
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester/sub")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home/tester/sub")]);
 
     plain(&mut harness, Named::ArrowDown);
     plain(&mut harness, Named::Enter);
@@ -512,7 +520,7 @@ fn backspace_lists_the_parent_folder() {
 
     plain(&mut harness, Named::Backspace);
 
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home")]);
 }
 
 #[test]
@@ -3098,7 +3106,9 @@ fn local_folder(harness: &Harness) -> VfsPath {
 fn listed_paths(sent: &[Command]) -> Vec<String> {
     sent.iter()
         .filter_map(|command| match command {
-            Command::List { path: Some(path), .. } => Some(path.to_string_lossy().into_owned()),
+            Command::List { path: Some(path), .. } | Command::Navigate { to: path, .. } => {
+                Some(path.to_string_lossy().into_owned())
+            }
             _ => None,
         })
         .collect()
@@ -3609,6 +3619,7 @@ fn going_up_puts_the_cursor_on_the_folder_that_was_left() {
 
     harness.press(Message::NavigateUp(PanelSide::Local));
     list_local_at(&mut harness, "/home", &["alpha", "tester", "zed"]);
+    revealed_local(&mut harness, "/home", "tester");
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
 }
@@ -3620,6 +3631,7 @@ fn the_parent_row_puts_the_cursor_on_the_folder_that_was_left() {
 
     harness.press(Message::PanelDoubleClicked(PanelSide::Local, 0));
     list_local_at(&mut harness, "/home", &["alpha", "tester", "zed"]);
+    revealed_local(&mut harness, "/home", "tester");
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
 }
@@ -3634,6 +3646,7 @@ fn going_back_to_an_ancestor_puts_the_cursor_on_the_folder_toward_where_you_were
     list_local_at(&mut harness, "/home/tester", &["a"]);
     harness.press(Message::NavigateForward(PanelSide::Local));
     list_local_at(&mut harness, "/home", &["alpha", "tester"]);
+    revealed_local(&mut harness, "/home", "tester");
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
 }
