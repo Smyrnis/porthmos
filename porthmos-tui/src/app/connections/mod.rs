@@ -33,8 +33,23 @@ fn ssh_exit_failure(code: Option<i32>, via_sshpass: bool) -> String {
     }
 }
 
+fn local_shell_failure(
+    program: &str, result: Result<std::io::Result<std::process::ExitStatus>, String>,
+) -> Option<String> {
+    match result {
+        Ok(Ok(_)) => None,
+        Ok(Err(io_error)) => Some(format!("Failed to launch {program}: {io_error}")),
+        Err(join_error) => Some(format!("terminal task failed: {join_error}")),
+    }
+}
+
 impl App {
     pub(super) fn request_shell(&mut self) {
+        if self.active_panel == ActivePanel::Local {
+            let directory = self.panel(Location::Local).map(|panel| panel.path().clone()).unwrap_or_default();
+            self.core.send(Command::PrepareLocalShell { directory });
+            return;
+        }
         let Some(session) = self.sessions.active() else {
             self.notifications.push(Severity::Warning, "Connect to a server first");
             return;
@@ -45,6 +60,24 @@ impl App {
         }
         let directory = Some(session.panel.path().clone());
         self.core.send(Command::PrepareShell { session: session.id, directory });
+    }
+
+    pub(super) async fn launch_local_shell(
+        &mut self, terminal: &mut ratatui::Terminal<Backend>, invocation: ShellInvocation,
+    ) -> Result<()> {
+        terminal::restore()?;
+
+        let program = invocation.program.to_string_lossy().into_owned();
+        let result = tokio::task::spawn_blocking(move || invocation.to_command().status())
+            .await
+            .map_err(|join_error| join_error.to_string());
+
+        *terminal = terminal::init()?;
+
+        if let Some(message) = local_shell_failure(&program, result) {
+            self.error(message);
+        }
+        Ok(())
     }
 
     pub(super) async fn launch_shell(

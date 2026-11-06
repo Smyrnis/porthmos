@@ -295,8 +295,31 @@ fn rename_action_on_connections_screen_opens_the_edit_connection_form() {
 }
 
 #[test]
-fn f4_without_a_session_warns() {
+fn f4_without_a_session_opens_a_local_shell_in_the_local_folder() {
     let mut test = app_in("/d");
+
+    test.app.apply_action(Action::OpenTerminal);
+
+    assert_eq!(test.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::from("/d") }]);
+    assert_eq!(test.notification(), None);
+}
+
+#[test]
+fn f4_on_the_local_panel_opens_a_local_shell_even_with_a_connection_open() {
+    let mut test = app_in("/d");
+    test.connect(8, "srv");
+    test.app.active_panel = ActivePanel::Local;
+    test.sent();
+
+    test.app.apply_action(Action::OpenTerminal);
+
+    assert_eq!(test.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::from("/d") }]);
+}
+
+#[test]
+fn f4_on_the_remote_panel_without_a_session_warns_and_sends_nothing() {
+    let mut test = app_in("/d");
+    test.app.active_panel = ActivePanel::Remote;
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -308,6 +331,8 @@ fn f4_without_a_session_warns() {
 fn f4_on_a_connection_without_a_shell_warns_and_sends_nothing() {
     let mut test = app_in("/d");
     test.app.apply_core_event(Event::Connected { session: 1, name: "bucket".to_string(), shell_available: false });
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -319,6 +344,8 @@ fn f4_on_a_connection_without_a_shell_warns_and_sends_nothing() {
 fn f4_on_a_connection_with_a_shell_asks_the_core_for_it() {
     let mut test = app_in("/d");
     let session = test.connect(8, "srv");
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -330,6 +357,8 @@ fn f4_opens_the_shell_in_the_folder_shown_on_the_remote_panel() {
     let mut test = app_in("/d");
     let session = test.connect(8, "srv");
     test.list_remote(session, "/home/tester/docs", Vec::new());
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
 
     test.app.apply_action(Action::OpenTerminal);
 

@@ -22,6 +22,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         frontend: toml::Table::new(),
         transfers: TransferSettingsFile::default(),
         edit: EditSettingsFile::default(),
+        terminal: TerminalSettingsFile::default(),
         update: UpdateSettingsFile::default(),
     };
 
@@ -40,6 +41,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         frontend: toml::Table::new(),
         transfers: TransferSettingsFile::default(),
         edit: EditSettingsFile::default(),
+        terminal: TerminalSettingsFile::default(),
         update: UpdateSettingsFile::default(),
     };
 
@@ -216,6 +218,47 @@ fn a_blank_editor_setting_means_unset() {
 fn an_edit_setting_of_the_wrong_type_does_not_parse() {
     assert!(toml::from_str::<SettingsFile>("[edit]\nauto_upload = \"yes\"\n").is_err());
     assert!(toml::from_str::<SettingsFile>("[edit]\neditor = 3\n").is_err());
+}
+
+#[test]
+fn the_terminal_command_is_unset_by_default() {
+    let (settings, warnings) = settings_from_file(SettingsFile::default());
+
+    assert!(warnings.is_empty());
+    assert_eq!(settings.terminal, TerminalSettings { command: None });
+}
+
+#[test]
+fn the_terminal_command_is_read_from_the_file_and_trimmed() {
+    let file: SettingsFile = toml::from_str("[terminal]\ncommand = \"  kitty --single-instance  \"\n").unwrap();
+
+    let (settings, warnings) = settings_from_file(file);
+
+    assert!(warnings.is_empty());
+    assert_eq!(settings.terminal.command.as_deref(), Some("kitty --single-instance"));
+}
+
+#[test]
+fn a_blank_terminal_command_means_unset() {
+    let file: SettingsFile = toml::from_str("[terminal]\ncommand = \"   \"\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert_eq!(settings.terminal.command, None);
+}
+
+#[test]
+fn a_terminal_command_of_the_wrong_type_does_not_parse() {
+    assert!(toml::from_str::<SettingsFile>("[terminal]\ncommand = 3\n").is_err());
+}
+
+#[test]
+fn the_terminal_table_is_not_left_in_the_front_end_settings() {
+    let file: SettingsFile = toml::from_str("[terminal]\ncommand = \"xterm\"\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(!settings.frontend.contains_key("terminal"));
 }
 
 fn parsed(text: &str) -> (Settings, Vec<String>) {

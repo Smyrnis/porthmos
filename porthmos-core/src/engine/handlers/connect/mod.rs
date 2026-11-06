@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, OptionKind, Protocol, Target, VfsPath};
+use porthmos_vfs::{FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
 
 use super::{
     super::{
@@ -196,6 +196,11 @@ impl Engine {
         self.info(format!("Disconnected from {}", live.name));
         self.publish_connection_state(&live.name, ConnectionState::Disconnected);
         self.emit(Event::Disconnected { session, name: live.name });
+    }
+
+    pub(crate) fn prepare_local_shell(&mut self, directory: &VfsPath) {
+        let invocation = ShellInvocation::local(directory, &self.env);
+        self.emit(Event::LocalShellReady { invocation });
     }
 
     pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<VfsPath>) {

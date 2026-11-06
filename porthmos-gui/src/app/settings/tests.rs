@@ -10,6 +10,7 @@ use crate::tools::Tool;
 use super::super::*;
 
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
+const APPLIED_NOTE: &str = "Saved.";
 
 fn press(harness: &mut Harness, key: Key, modifiers: Modifiers) {
     let text = match &key {
@@ -89,7 +90,12 @@ fn settings_is_ignored_behind_a_modal() {
 
 #[test]
 fn opening_shows_the_saved_editor() {
-    let settings = GuiSettings { editor: Some("vi".to_string()), auto_upload: false, update_mode: UpdateMode::Off };
+    let settings = GuiSettings {
+        editor: Some("vi".to_string()),
+        terminal: None,
+        auto_upload: false,
+        update_mode: UpdateMode::Off,
+    };
     let mut harness = Harness::with_gui_settings(settings);
 
     open(&mut harness);
@@ -249,6 +255,66 @@ fn the_editor_applies_on_enter_and_on_the_button_and_writes_edit_editor() {
     assert_eq!(config_text(&harness), "[edit]\neditor = \"code --wait\"\n");
     assert_eq!(harness.app.gui_settings().editor.as_deref(), Some("code --wait"));
     assert_eq!(state(&harness).message, Some(SettingsMessage::Note(RESTART_NOTE.to_string())));
+}
+
+#[test]
+fn the_terminal_command_applies_and_writes_terminal_command() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsTerminalTyped("  kitty --single-instance ".to_string()));
+    harness.press(Message::SettingsTerminalApplied);
+
+    assert_eq!(config_text(&harness), "[terminal]\ncommand = \"kitty --single-instance\"\n");
+    assert_eq!(harness.app.gui_settings().terminal.as_deref(), Some("kitty --single-instance"));
+}
+
+#[test]
+fn a_blank_terminal_command_removes_the_key() {
+    let mut harness =
+        Harness::with_gui_settings(GuiSettings { terminal: Some("xterm".to_string()), ..GuiSettings::default() });
+    std::fs::write(config_path(&harness), "[terminal]\ncommand = \"xterm\"\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsTerminalTyped("  ".to_string()));
+    harness.press(Message::SettingsTerminalApplied);
+
+    assert_eq!(config_text(&harness), "");
+    assert_eq!(harness.app.gui_settings().terminal, None);
+}
+
+#[test]
+fn a_saved_terminal_command_is_used_by_the_next_terminal_without_restarting() {
+    let mut harness = Harness::new();
+    harness.install_terminals(&["kitty", "xterm"]);
+    open(&mut harness);
+    harness.press(Message::SettingsTerminalTyped("kitty".to_string()));
+    harness.press(Message::SettingsTerminalApplied);
+    harness.launched();
+
+    harness.feed(porthmos_core::Event::ShellReady {
+        session: 3,
+        invocation: porthmos_core::ShellInvocation {
+            program: "ssh".into(),
+            args: vec!["host".into()],
+            env: Vec::new(),
+        },
+    });
+
+    let jobs = harness.launched();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].spec.program, std::ffi::OsString::from("kitty"));
+}
+
+#[test]
+fn applying_the_terminal_command_says_it_took_effect_at_once() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    harness.press(Message::SettingsTerminalTyped("kitty".to_string()));
+
+    harness.press(Message::SettingsTerminalApplied);
+
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
 }
 
 #[test]

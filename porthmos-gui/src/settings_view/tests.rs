@@ -3,7 +3,12 @@ use porthmos_core::UpdateMode;
 use super::{GuiSettings, SettingsState, editor_from_text};
 
 fn settings(editor: Option<&str>) -> GuiSettings {
-    GuiSettings { editor: editor.map(str::to_string), auto_upload: true, update_mode: UpdateMode::Notify }
+    GuiSettings {
+        editor: editor.map(str::to_string),
+        terminal: None,
+        auto_upload: true,
+        update_mode: UpdateMode::Notify,
+    }
 }
 
 #[test]
@@ -30,4 +35,13 @@ fn the_defaults_match_the_core_defaults() {
     assert_eq!(defaults.editor, None);
     assert!(defaults.auto_upload);
     assert_eq!(defaults.update_mode, UpdateMode::Auto);
+}
+
+#[test]
+fn the_state_starts_with_the_saved_terminal_command() {
+    let settings = GuiSettings { terminal: Some("kitty".to_string()), ..GuiSettings::default() };
+
+    assert_eq!(SettingsState::new(&settings).terminal_text, "kitty");
+    assert_eq!(SettingsState::new(&GuiSettings::default()).terminal_text, "");
+    assert_eq!(GuiSettings::default().terminal, None);
 }

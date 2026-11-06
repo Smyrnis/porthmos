@@ -24,6 +24,7 @@ pub enum Command {
     CancelTest,
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
+    PrepareLocalShell { directory: VfsPath },
     List { location: Location, path: Option<VfsPath> },
     Reveal { location: Location, path: VfsPath },
     Navigate { location: Location, from: VfsPath, to: VfsPath },

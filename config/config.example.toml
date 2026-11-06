@@ -29,6 +29,15 @@ auto_upload = true
 # backslashes stay literal: editor = 'C:\Program Files\Notepad++\notepad++.exe'
 editor = ""
 
+[terminal]
+# Terminal program the window app opens for "Open terminal here". Empty means
+# $TERMINAL, then x-terminal-emulator, then a list of common terminals. Write the
+# program with any arguments ("kitty --single-instance"); the command to run
+# is added after them. Put {command} where it belongs when the program needs it
+# elsewhere: command = "wt.exe new-tab {command}". Not used by the terminal app,
+# which opens the shell in the terminal it runs in.
+command = ""
+
 [update]
 # What Porthmos does about new versions:
 #   "auto"   download new versions in the background and install them when you quit.

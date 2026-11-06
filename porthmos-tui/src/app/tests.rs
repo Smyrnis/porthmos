@@ -250,6 +250,12 @@ fn shell_ready() -> Event {
     }
 }
 
+fn local_shell_ready() -> Event {
+    Event::LocalShellReady {
+        invocation: porthmos_core::ShellInvocation { program: "sh".into(), args: Vec::new(), env: Vec::new() },
+    }
+}
+
 fn search_results(test: &testing::TestApp) -> usize {
     test.app.search.as_ref().unwrap().view.results.len()
 }
@@ -289,6 +295,21 @@ fn a_shell_hand_over_is_returned_to_the_caller_and_later_events_wait() {
     assert_eq!(search_results(&test), 2);
     assert!(matches!(rx.try_recv(), Ok(Event::SearchFound(_))));
     assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn a_local_shell_hand_over_is_returned_to_the_caller_and_later_events_wait() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    let (tx, mut rx) = waiting_events(2);
+    tx.send(local_shell_ready()).unwrap();
+    tx.send(found_event(9)).unwrap();
+
+    let special = test.app.apply_ready_events(&mut rx);
+
+    assert!(matches!(special, Some(Event::LocalShellReady { .. })));
+    assert_eq!(search_results(&test), 2);
+    assert!(matches!(rx.try_recv(), Ok(Event::SearchFound(_))));
 }
 
 #[test]

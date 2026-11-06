@@ -62,6 +62,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     let (shortcuts, key_warnings) = Shortcuts::from_frontend(&settings.frontend);
     let gui_settings = GuiSettings {
         editor: settings.edit.editor.clone(),
+        terminal: settings.terminal.command.clone(),
         auto_upload: settings.edit.auto_upload,
         update_mode: settings.update.mode,
     };

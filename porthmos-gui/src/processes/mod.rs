@@ -12,7 +12,7 @@ use porthmos_core::edit::EditorExit;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::editing::{CommandSpec, Platform, editor_exit};
-use crate::terminal::{TerminalError, TerminalLaunch, launch};
+use crate::terminal::{TerminalChoice, TerminalError, TerminalLaunch, launch};
 
 #[derive(Clone)]
 pub struct ProcessJob {
@@ -165,9 +165,10 @@ impl Launcher {
     }
 
     pub fn terminal(
-        &self, inner: CommandSpec, env: Vec<(OsString, OsString)>, wait: bool,
+        &self, inner: CommandSpec, env: Vec<(OsString, OsString)>, wait: bool, setting: Option<&str>,
     ) -> Result<TerminalLaunch, TerminalError> {
-        launch(inner, env, wait, self.platform, &*self.lookup, self.terminal_variable.as_deref(), &self.state_dir)
+        let choice = TerminalChoice { setting, variable: self.terminal_variable.as_deref() };
+        launch(inner, env, wait, self.platform, &*self.lookup, &choice, &self.state_dir)
     }
 }
 

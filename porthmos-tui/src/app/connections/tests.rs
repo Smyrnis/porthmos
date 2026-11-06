@@ -1763,3 +1763,34 @@ fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
 fn exit_code_six_without_sshpass_is_just_an_exit_code() {
     assert_eq!(ssh_exit_failure(Some(6), false), "ssh exited with code 6");
 }
+
+fn exited(code: i32) -> std::io::Result<std::process::ExitStatus> {
+    let program = if cfg!(windows) { "cmd" } else { "sh" };
+    let flag = if cfg!(windows) { "/c" } else { "-c" };
+    std::process::Command::new(program).args([flag, &format!("exit {code}")]).status()
+}
+
+#[test]
+fn a_local_shell_that_ends_with_a_failing_status_says_nothing() {
+    assert_eq!(local_shell_failure("sh", Ok(exited(3))), None);
+    assert_eq!(local_shell_failure("sh", Ok(exited(0))), None);
+}
+
+#[test]
+fn a_local_shell_that_cannot_start_names_the_program_and_the_error() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    let message = local_shell_failure("powershell.exe", Ok(Err(error)));
+
+    assert_eq!(
+        message,
+        Some(format!("Failed to launch powershell.exe: {}", std::io::Error::from(std::io::ErrorKind::NotFound)))
+    );
+}
+
+#[test]
+fn a_local_shell_task_that_fails_to_join_is_reported() {
+    let message = local_shell_failure("sh", Err("panicked".to_string()));
+
+    assert_eq!(message.as_deref(), Some("terminal task failed: panicked"));
+}

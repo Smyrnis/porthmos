@@ -266,7 +266,7 @@ fn commands_that_cannot_act_are_not_listed() {
     list_local(&mut harness, vec![file(&start, "a.txt")]);
     open(&mut harness);
     let without = labels(&harness);
-    for missing in ["Edit", "Preview", "Synchronize…", "Open terminal here", "Copy to other panel", "Rename"] {
+    for missing in ["Edit", "Preview", "Synchronize…", "Copy to other panel", "Rename"] {
         assert!(!without.contains(&missing.to_string()), "{missing} listed in {without:?}");
     }
 
@@ -276,6 +276,7 @@ fn commands_that_cannot_act_are_not_listed() {
     harness.press(Message::PanelClicked(PanelSide::Local, 1));
     open(&mut harness);
     let with = labels(&harness);
+    assert!(without.contains(&"Open terminal here".to_string()), "{without:?}");
 
     for present in ["Edit", "Preview", "Synchronize…", "Open terminal here", "Copy to other panel", "Rename"] {
         assert!(with.contains(&present.to_string()), "{present} missing from {with:?}");

@@ -23,6 +23,11 @@ impl Default for EditSettings {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TerminalSettings {
+    pub command: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum UpdateMode {
     #[default]
@@ -66,6 +71,7 @@ pub struct Settings {
     pub panel: PanelSettings,
     pub transfers: TransferSettings,
     pub edit: EditSettings,
+    pub terminal: TerminalSettings,
     pub update: UpdateSettings,
     pub frontend: toml::Table,
 }
@@ -78,6 +84,8 @@ pub(crate) struct SettingsFile {
     pub transfers: TransferSettingsFile,
     #[serde(default)]
     pub edit: EditSettingsFile,
+    #[serde(default)]
+    pub terminal: TerminalSettingsFile,
     #[serde(default)]
     pub update: UpdateSettingsFile,
     #[serde(flatten)]
@@ -100,6 +108,11 @@ pub(crate) struct UpdateSettingsFile {
 pub(crate) struct EditSettingsFile {
     pub auto_upload: Option<bool>,
     pub editor: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct TerminalSettingsFile {
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -185,6 +198,13 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             edit: EditSettings {
                 auto_upload: file.edit.auto_upload.unwrap_or(true),
                 editor: file.edit.editor.map(|editor| editor.trim().to_string()).filter(|editor| !editor.is_empty()),
+            },
+            terminal: TerminalSettings {
+                command: file
+                    .terminal
+                    .command
+                    .map(|command| command.trim().to_string())
+                    .filter(|command| !command.is_empty()),
             },
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
             frontend: file.frontend,

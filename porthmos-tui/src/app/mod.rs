@@ -314,6 +314,11 @@ impl App {
                             let launched = self.launch_shell(terminal, invocation).await;
                             events = EventStream::new();
                             launched?;
+                        } else if let Event::LocalShellReady { invocation } = core_event {
+                            drop(events);
+                            let launched = self.launch_local_shell(terminal, invocation).await;
+                            events = EventStream::new();
+                            launched?;
                         } else if let Event::EditReady { edit_id, file, editor } = core_event {
                             drop(events);
                             let launched = self.launch_editor(terminal, edit_id, file, editor).await;
@@ -407,7 +412,7 @@ impl App {
             Event::Disconnected { session, .. } => {
                 self.sessions.remove(session);
             }
-            Event::ShellReady { .. } => {}
+            Event::ShellReady { .. } | Event::LocalShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
             Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
@@ -562,7 +567,7 @@ impl App {
 }
 
 fn needs_terminal(event: &Event) -> bool {
-    matches!(event, Event::ShellReady { .. } | Event::EditReady { .. })
+    matches!(event, Event::ShellReady { .. } | Event::LocalShellReady { .. } | Event::EditReady { .. })
 }
 
 async fn sleep_until_or_pending(deadline: Option<Instant>) {

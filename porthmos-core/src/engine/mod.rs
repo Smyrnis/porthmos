@@ -375,6 +375,7 @@ impl Engine {
             Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
+            Command::PrepareLocalShell { directory } => self.prepare_local_shell(&directory),
             Command::List { location, path } => self.list(location, path),
             Command::Reveal { location, path } => self.reveal(location, path),
             Command::Navigate { location, from, to } => self.navigate(location, &from, to),

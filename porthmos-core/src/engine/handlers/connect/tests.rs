@@ -488,6 +488,27 @@ fn preparing_a_shell_in_a_directory_starts_the_shell_there() {
 }
 
 #[test]
+fn preparing_a_local_shell_hands_back_the_users_shell_in_that_folder() {
+    let mut t = test_engine();
+    t.engine.env.shell = Some("/usr/bin/fish".to_string());
+
+    t.engine.handle_command(Command::PrepareLocalShell { directory: VfsPath::from("/home/tester/it's mine") });
+
+    let expected = ShellInvocation::local(&VfsPath::new("/home/tester/it's mine"), &t.engine.env);
+    assert!(matches!(t.drain().as_slice(), [Event::LocalShellReady { invocation }] if *invocation == expected));
+}
+
+#[test]
+fn preparing_a_local_shell_needs_no_connection() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::PrepareLocalShell { directory: VfsPath::from("/x") });
+
+    assert!(t.notices().is_empty());
+    assert!(t.engine.sessions.is_empty());
+}
+
+#[test]
 fn preparing_a_shell_for_a_protocol_without_one_warns() {
     let mut t = test_engine();
     let (session, _) = t.add_session("srv");

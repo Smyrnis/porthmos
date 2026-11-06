@@ -167,6 +167,8 @@ pub enum Message {
     SettingsResetPressed(Action),
     SettingsEditorTyped(String),
     SettingsEditorApplied,
+    SettingsTerminalTyped(String),
+    SettingsTerminalApplied,
     SettingsAutoUploadToggled(bool),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
     SettingsScrolled(f32),
@@ -777,6 +779,7 @@ impl App {
             Event::SearchDone { truncated } => self.search_done(truncated),
             Event::SearchFailed(message) => self.search_failed(message),
             Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
+            Event::LocalShellReady { invocation } => self.shell_ready(invocation),
             Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
             Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
             Event::EditsBusy(busy) => self.edits_busy = busy,
@@ -1054,6 +1057,8 @@ impl App {
             | Message::SettingsResetPressed(_)
             | Message::SettingsEditorTyped(_)
             | Message::SettingsEditorApplied
+            | Message::SettingsTerminalTyped(_)
+            | Message::SettingsTerminalApplied
             | Message::SettingsAutoUploadToggled(_)
             | Message::SettingsUpdateModeChosen(_)
             | Message::SettingsScrolled(_)) => return self.settings_message(message),

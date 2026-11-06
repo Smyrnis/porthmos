@@ -13,6 +13,7 @@ pub enum Edit {
     SetKey { action: String, chords: Vec<String> },
     ResetKey { action: String },
     SetEditor(Option<String>),
+    SetTerminal(Option<String>),
     SetAutoUpload(bool),
     SetUpdateMode(UpdateMode),
 }
@@ -123,6 +124,10 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
         Edit::SetEditor(editor) => match editor.as_deref().map(str::trim).filter(|editor| !editor.is_empty()) {
             Some(editor) => set_in(&mut document, &["edit"], "editor", Value::from(editor))?,
             None => remove_in(&mut document, &["edit"], "editor")?,
+        },
+        Edit::SetTerminal(command) => match command.as_deref().map(str::trim).filter(|command| !command.is_empty()) {
+            Some(command) => set_in(&mut document, &["terminal"], "command", Value::from(command))?,
+            None => remove_in(&mut document, &["terminal"], "command")?,
         },
         Edit::SetAutoUpload(on) => set_in(&mut document, &["edit"], "auto_upload", Value::from(*on))?,
         Edit::SetUpdateMode(mode) => set_in(&mut document, &["update"], "mode", Value::from(mode_text(*mode)))?,

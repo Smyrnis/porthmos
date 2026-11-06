@@ -32,6 +32,7 @@ pub enum Event {
     SessionHealth { session: SessionId, healthy: bool },
     ConnectionState { name: String, state: ConnectionState },
     ShellReady { session: SessionId, invocation: ShellInvocation },
+    LocalShellReady { invocation: ShellInvocation },
     Listed { location: Location, path: VfsPath, entries: Vec<Entry> },
     Revealed { location: Location, folder: VfsPath, name: String },
     FreeSpace { location: Location, path: VfsPath, bytes: Option<u64> },

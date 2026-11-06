@@ -44,9 +44,10 @@ fn strings(values: &[OsString]) -> Vec<String> {
 }
 
 #[test]
-fn f4_requests_a_shell_in_the_active_folder() {
+fn f4_on_the_remote_panel_requests_the_remote_shell() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     named(&mut harness, Named::F4);
 
@@ -54,44 +55,75 @@ fn f4_requests_a_shell_in_the_active_folder() {
 }
 
 #[test]
-fn f4_from_the_local_panel_still_targets_the_connection() {
+fn f4_on_the_local_panel_requests_a_local_shell_even_with_a_connection_open() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
     harness.press(Message::PanelClicked(PanelSide::Local, 0));
 
     named(&mut harness, Named::F4);
 
-    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
 }
 
 #[test]
-fn f4_without_a_connection_warns() {
+fn f4_without_a_connection_opens_a_local_shell() {
     let mut harness = Harness::new();
     harness.sent();
 
     named(&mut harness, Named::F4);
 
-    assert!(harness.sent().is_empty());
-    let notice = harness.app.notices().last().unwrap();
-    assert_eq!(
-        (notice.severity, notice.message.to_string()),
-        (Severity::Warning, "Connect to a server first".to_string())
-    );
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
+    assert!(harness.app.notices().is_empty());
 }
 
 #[test]
-fn f4_on_a_connection_without_shell_support_warns() {
+fn f4_on_the_remote_panel_of_a_connection_without_shell_support_still_warns() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", false);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     named(&mut harness, Named::F4);
 
     assert!(harness.sent().is_empty());
-    let notice = harness.app.notices().last().unwrap();
     assert_eq!(
-        (notice.severity, notice.message.to_string()),
-        (Severity::Warning, "This connection doesn't support a terminal session".to_string())
+        harness.app.notices().last().unwrap().message.to_string(),
+        "This connection doesn't support a terminal session"
     );
+}
+
+#[test]
+fn a_local_shell_is_spawned_like_a_remote_one() {
+    let mut harness = Harness::new();
+    harness.launched();
+
+    harness.feed(Event::LocalShellReady {
+        invocation: ShellInvocation {
+            program: OsString::from("sh"),
+            args: ["-c", "cd", "sh", "/x", "/bin/sh"].map(OsString::from).to_vec(),
+            env: Vec::new(),
+        },
+    });
+
+    let jobs = harness.launched();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].spec.program, OsString::from("xterm"));
+    assert_eq!(strings(&jobs[0].spec.args), ["-e", "sh", "-c", "cd", "sh", "/x", "/bin/sh"]);
+}
+
+#[test]
+fn the_terminal_is_possible_on_the_local_panel_without_any_connection() {
+    let harness = Harness::new();
+
+    assert!(harness.app.terminal_possible());
+}
+
+#[test]
+fn the_terminal_on_the_remote_panel_needs_shell_support() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", false);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+
+    assert!(!harness.app.terminal_possible());
 }
 
 #[test]
@@ -99,15 +131,11 @@ fn shell_available_is_remembered_per_session() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "with", true);
     connect(&mut harness, 2, "without", false);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     assert!(!harness.app.terminal_possible());
     harness.app.sessions.activate(1);
     assert!(harness.app.terminal_possible());
-}
-
-#[test]
-fn no_connection_means_no_terminal() {
-    assert!(!Harness::new().app.terminal_possible());
 }
 
 #[test]
@@ -128,6 +156,8 @@ fn the_more_item_is_disabled_without_shell_support() {
 fn the_more_item_requests_the_shell() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    harness.sent();
 
     harness.press(Message::MoreItemChosen(MoreItem::Terminal));
 

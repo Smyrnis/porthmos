@@ -13,6 +13,8 @@ use crate::theme::Palette;
 const UNBOUND: &str = "\u{2014}";
 const CAPTURE_HINT: &str = "Press the new shortcut, Esc to cancel";
 const EDITOR_PLACEHOLDER: &str = "Editor command, for example: code --wait";
+const TERMINAL_PLACEHOLDER: &str = "Terminal command, for example: kitty";
+const TERMINAL_HELP: &str = "Used by Open terminal here. Leave empty to use $TERMINAL or a terminal found on this system. Put {command} where the command to run belongs if the program needs it elsewhere.";
 const EDITOR_HELP: &str = "Leave empty to use $VISUAL, $EDITOR or the system default.";
 
 pub fn reset_enabled(shortcuts: &Shortcuts, action: Action) -> bool {
@@ -89,6 +91,25 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
     .into()
 }
 
+fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
+    let palette = app.palette();
+    let input = text_input(TERMINAL_PLACEHOLDER, &state.terminal_text)
+        .id(App::settings_terminal_id())
+        .on_input(Message::SettingsTerminalTyped)
+        .on_submit(Message::SettingsTerminalApplied)
+        .size(13.0)
+        .font(Font::DEFAULT);
+    column![
+        section("Terminal", palette),
+        row![input, text_button("Apply", Some(Message::SettingsTerminalApplied), Look::Normal, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        label(TERMINAL_HELP, palette.fg_dim),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn updates_section<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     column![
@@ -116,7 +137,9 @@ pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> 
     for action in Action::all() {
         shortcuts = shortcuts.push(shortcut_row(app, state, action));
     }
-    let content = column![shortcuts, editing_section(app, state), updates_section(app)].spacing(16).padding([0, 12]);
+    let content = column![shortcuts, editing_section(app, state), terminal_section(app, state), updates_section(app)]
+        .spacing(16)
+        .padding([0, 12]);
     let list = scrollable(content)
         .id(App::tool_list_id())
         .on_scroll(|viewport| Message::SettingsScrolled(viewport.absolute_offset().y))

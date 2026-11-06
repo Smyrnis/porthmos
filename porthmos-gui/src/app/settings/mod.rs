@@ -13,6 +13,7 @@ use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effectiv
 use crate::tools::Tool;
 
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
+const APPLIED_NOTE: &str = "Saved.";
 const RESERVED_TEXT: &str = "That shortcut is reserved by the system.";
 const NO_CONFIG_TEXT: &str = "The location of the configuration file is unknown.";
 
@@ -29,6 +30,10 @@ impl App {
 
     pub fn gui_settings(&self) -> &GuiSettings {
         &self.gui_settings
+    }
+
+    pub fn settings_terminal_id() -> Id {
+        Id::new("settings-terminal")
     }
 
     pub fn settings_editor_id() -> Id {
@@ -158,6 +163,21 @@ impl App {
                 };
                 let editor = editor_from_text(&state.editor_text);
                 self.core_setting_saved(Edit::SetEditor(editor.clone()), |settings| settings.editor = editor);
+            }
+            Message::SettingsTerminalTyped(text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.terminal_text = text;
+                }
+            }
+            Message::SettingsTerminalApplied => {
+                let Some(Tool::Settings(state)) = self.tool.as_ref() else {
+                    return Task::none();
+                };
+                let terminal = editor_from_text(&state.terminal_text);
+                if self.save_setting(Edit::SetTerminal(terminal.clone())) {
+                    self.gui_settings.terminal = terminal;
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
             }
             Message::SettingsAutoUploadToggled(on) => {
                 self.core_setting_saved(Edit::SetAutoUpload(on), |settings| settings.auto_upload = on);

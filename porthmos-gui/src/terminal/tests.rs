@@ -1,7 +1,7 @@
 use crate::editing::{CommandSpec, Platform};
 use std::ffi::OsString;
 
-use super::{TerminalError, TerminalLaunch, launch, quote_for_shell};
+use super::{TerminalChoice, TerminalError, TerminalLaunch, launch, quote_for_shell};
 
 fn inner() -> CommandSpec {
     CommandSpec {
@@ -24,7 +24,8 @@ fn only(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
 
 fn run(platform: Platform, wait: bool, names: &'static [&'static str], variable: Option<&str>) -> TerminalLaunch {
     let dir = tempfile::tempdir().unwrap();
-    launch(inner(), Vec::new(), wait, platform, &only(names), variable, dir.path()).unwrap()
+    launch(inner(), Vec::new(), wait, platform, &only(names), &TerminalChoice { setting: None, variable }, dir.path())
+        .unwrap()
 }
 
 fn argv(launch: &TerminalLaunch) -> Vec<String> {
@@ -90,6 +91,105 @@ fn a_terminal_variable_that_is_not_installed_falls_through() {
     assert_eq!(launch.spec.program, OsString::from("xterm"));
 }
 
+fn choose(platform: Platform, names: &'static [&'static str], setting: &str, variable: Option<&str>) -> TerminalLaunch {
+    let dir = tempfile::tempdir().unwrap();
+    let choice = TerminalChoice { setting: Some(setting), variable };
+    launch(inner(), Vec::new(), false, platform, &only(names), &choice, dir.path()).unwrap()
+}
+
+#[test]
+fn the_setting_wins_over_the_terminal_variable_and_the_table() {
+    let launched = choose(Platform::Linux, &["kitty", "foot", "xterm"], "kitty", Some("foot"));
+
+    assert_eq!(launched.spec.program, OsString::from("kitty"));
+}
+
+#[test]
+fn the_setting_may_carry_arguments_and_a_known_name_picks_its_flags() {
+    let launched = choose(Platform::Linux, &["alacritty"], "alacritty --title 'My Term'", None);
+
+    assert_eq!(launched.spec.program, OsString::from("alacritty"));
+    assert_eq!(argv(&launched)[..3], ["--title", "My Term", "-e"]);
+}
+
+#[test]
+fn a_setting_that_is_not_installed_falls_through_to_the_variable() {
+    let launched = choose(Platform::Linux, &["foot"], "missing-term", Some("foot"));
+
+    assert_eq!(launched.spec.program, OsString::from("foot"));
+}
+
+#[test]
+fn a_setting_that_cannot_be_split_falls_through() {
+    let launched = choose(Platform::Linux, &["xterm"], "kitty \"unclosed", None);
+
+    assert_eq!(launched.spec.program, OsString::from("xterm"));
+}
+
+#[test]
+fn a_blank_setting_is_ignored() {
+    let launched = choose(Platform::Linux, &["xterm"], "   ", None);
+
+    assert_eq!(launched.spec.program, OsString::from("xterm"));
+}
+
+#[test]
+fn a_command_placeholder_is_replaced_by_the_command_with_no_flags_added() {
+    let launched = choose(Platform::Linux, &["kitty"], "kitty --class porthmos {command} --done", None);
+
+    assert_eq!(launched.spec.program, OsString::from("kitty"));
+    assert_eq!(argv(&launched), ["--class", "porthmos", "ssh", "-p", "22", "host", "--done"]);
+}
+
+#[test]
+fn a_placeholder_in_the_setting_beats_the_flags_of_a_known_program() {
+    let launched = choose(Platform::Linux, &["gnome-terminal"], "gnome-terminal -x {command}", None);
+
+    assert_eq!(argv(&launched), ["-x", "ssh", "-p", "22", "host"]);
+}
+
+#[test]
+fn the_setting_is_used_on_macos_without_looking_the_program_up() {
+    let program = "/Applications/Alacritty.app/Contents/MacOS/alacritty";
+    let launched = choose(Platform::MacOs, &[], program, None);
+
+    assert_eq!(launched.spec.program, OsString::from(program));
+    assert_eq!(argv(&launched), ["-e", "ssh", "-p", "22", "host"]);
+}
+
+#[test]
+fn the_setting_is_used_on_windows_and_keeps_backslashes_in_a_path() {
+    let launched = choose(Platform::Windows, &[], r"C:\Tools\wt.exe new-tab {command}", None);
+
+    assert_eq!(launched.spec.program, OsString::from(r"C:\Tools\wt.exe"));
+    assert_eq!(argv(&launched), ["new-tab", "ssh", "-p", "22", "host"]);
+}
+
+#[test]
+fn the_setting_on_windows_still_hands_the_environment_to_the_launcher_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let choice = TerminalChoice { setting: Some("wt.exe {command}"), variable: None };
+
+    let launched = launch(inner(), secret_env(), true, Platform::Windows, &only(&[]), &choice, dir.path()).unwrap();
+
+    assert_eq!(launched.env, secret_env());
+    assert!(!argv(&launched).iter().any(|arg| arg.contains("s3cr3t")));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_setting_on_macos_hands_the_environment_over_through_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let choice = TerminalChoice { setting: Some("/opt/term/kitty"), variable: None };
+
+    let launched = launch(inner(), secret_env(), true, Platform::MacOs, &only(&[]), &choice, dir.path()).unwrap();
+
+    assert!(launched.env.is_empty());
+    assert_eq!(launched.cleanup.len(), 1);
+    assert_eq!(launched.spec.program, OsString::from("/opt/term/kitty"));
+    assert!(!format!("{launched:?}").contains("s3cr3t-value"));
+}
+
 #[test]
 fn x_terminal_emulator_comes_before_the_table() {
     let dir = tempfile::tempdir().unwrap();
@@ -99,7 +199,8 @@ fn x_terminal_emulator_comes_before_the_table() {
         _ => None,
     };
 
-    let launch = launch(inner(), Vec::new(), true, Platform::Linux, &lookup, None, dir.path()).unwrap();
+    let launch =
+        launch(inner(), Vec::new(), true, Platform::Linux, &lookup, &TerminalChoice::default(), dir.path()).unwrap();
 
     assert_eq!(launch.spec.program, OsString::from("x-terminal-emulator"));
     assert_eq!(argv(&launch), expected(&["-s", "--"]));
@@ -109,7 +210,8 @@ fn x_terminal_emulator_comes_before_the_table() {
 fn no_terminal_found_is_an_error_with_the_hint() {
     let dir = tempfile::tempdir().unwrap();
 
-    let error = launch(inner(), Vec::new(), true, Platform::Linux, &only(&[]), None, dir.path()).unwrap_err();
+    let error = launch(inner(), Vec::new(), true, Platform::Linux, &only(&[]), &TerminalChoice::default(), dir.path())
+        .unwrap_err();
 
     assert_eq!(error, TerminalError::NoneFound);
     assert_eq!(error.to_string(), "No terminal program found. Set $TERMINAL to your terminal's command.");
@@ -129,7 +231,9 @@ fn windows_wraps_in_cmd_start_with_and_without_wait() {
 fn windows_hands_the_environment_to_the_launcher_process() {
     let dir = tempfile::tempdir().unwrap();
 
-    let launched = launch(inner(), secret_env(), true, Platform::Windows, &only(&[]), None, dir.path()).unwrap();
+    let launched =
+        launch(inner(), secret_env(), true, Platform::Windows, &only(&[]), &TerminalChoice::default(), dir.path())
+            .unwrap();
 
     assert_eq!(launched.env, secret_env());
     assert!(launched.cleanup.is_empty());
@@ -141,7 +245,8 @@ fn macos_wraps_in_osascript_and_quotes_the_command() {
     let dir = tempfile::tempdir().unwrap();
     let tricky = CommandSpec { program: OsString::from("vim"), args: vec![OsString::from("it's a \"file\".txt")] };
 
-    let launched = launch(tricky, Vec::new(), false, Platform::MacOs, &only(&[]), None, dir.path()).unwrap();
+    let launched =
+        launch(tricky, Vec::new(), false, Platform::MacOs, &only(&[]), &TerminalChoice::default(), dir.path()).unwrap();
 
     assert_eq!(launched.spec.program, OsString::from("osascript"));
     let script = argv(&launched).join("\n");
@@ -155,7 +260,8 @@ fn macos_wraps_in_osascript_and_quotes_the_command() {
 fn macos_waits_on_the_busy_flag_when_asked() {
     let dir = tempfile::tempdir().unwrap();
 
-    let launched = launch(inner(), Vec::new(), true, Platform::MacOs, &only(&[]), None, dir.path()).unwrap();
+    let launched =
+        launch(inner(), Vec::new(), true, Platform::MacOs, &only(&[]), &TerminalChoice::default(), dir.path()).unwrap();
 
     assert!(argv(&launched).join("\n").contains("busy of"));
 }
@@ -177,7 +283,9 @@ fn env_values_never_appear_in_the_argv() {
     for &platform in platforms {
         let dir = tempfile::tempdir().unwrap();
 
-        let launched = launch(inner(), secret_env(), true, platform, &only(&["xterm"]), None, dir.path()).unwrap();
+        let launched =
+            launch(inner(), secret_env(), true, platform, &only(&["xterm"]), &TerminalChoice::default(), dir.path())
+                .unwrap();
 
         let all = format!("{} {}", launched.spec.program.to_string_lossy(), argv(&launched).join(" "));
         assert!(!all.contains("s3cr3t-value"), "{platform:?}: {all}");
@@ -187,7 +295,9 @@ fn env_values_never_appear_in_the_argv() {
 #[test]
 fn the_debug_text_redacts_env_values() {
     let dir = tempfile::tempdir().unwrap();
-    let launched = launch(inner(), secret_env(), true, Platform::Windows, &only(&[]), None, dir.path()).unwrap();
+    let launched =
+        launch(inner(), secret_env(), true, Platform::Windows, &only(&[]), &TerminalChoice::default(), dir.path())
+            .unwrap();
 
     let text = format!("{launched:?}");
 
@@ -200,7 +310,9 @@ fn the_debug_text_redacts_env_values() {
 fn no_env_means_no_file_and_no_wrapper() {
     let dir = tempfile::tempdir().unwrap();
 
-    let launched = launch(inner(), Vec::new(), true, Platform::Linux, &only(&["xterm"]), None, dir.path()).unwrap();
+    let launched =
+        launch(inner(), Vec::new(), true, Platform::Linux, &only(&["xterm"]), &TerminalChoice::default(), dir.path())
+            .unwrap();
 
     assert!(launched.cleanup.is_empty());
     assert!(launched.env.is_empty());
@@ -261,8 +373,16 @@ mod unix_handover {
     fn cleanup_lists_the_env_file() {
         let dir = tempfile::tempdir().unwrap();
 
-        let launched =
-            launch(inner(), secret_env(), true, Platform::Linux, &only(&["xterm"]), None, dir.path()).unwrap();
+        let launched = launch(
+            inner(),
+            secret_env(),
+            true,
+            Platform::Linux,
+            &only(&["xterm"]),
+            &TerminalChoice::default(),
+            dir.path(),
+        )
+        .unwrap();
 
         assert_eq!(launched.cleanup.len(), 1);
         assert!(launched.cleanup[0].exists());
@@ -338,7 +458,9 @@ mod unix_handover {
     fn no_terminal_found_leaves_no_env_file_behind() {
         let dir = tempfile::tempdir().unwrap();
 
-        let error = launch(inner(), secret_env(), true, Platform::Linux, &only(&[]), None, dir.path()).unwrap_err();
+        let error =
+            launch(inner(), secret_env(), true, Platform::Linux, &only(&[]), &TerminalChoice::default(), dir.path())
+                .unwrap_err();
 
         assert_eq!(error, TerminalError::NoneFound);
         let leftovers = std::fs::read_dir(dir.path().join("handover")).unwrap().count();
@@ -348,8 +470,16 @@ mod unix_handover {
     #[test]
     fn a_failed_launch_can_delete_what_it_wrote() {
         let dir = tempfile::tempdir().unwrap();
-        let launched =
-            launch(inner(), secret_env(), true, Platform::Linux, &only(&["xterm"]), None, dir.path()).unwrap();
+        let launched = launch(
+            inner(),
+            secret_env(),
+            true,
+            Platform::Linux,
+            &only(&["xterm"]),
+            &TerminalChoice::default(),
+            dir.path(),
+        )
+        .unwrap();
 
         for file in &launched.cleanup {
             std::fs::remove_file(file).unwrap();
