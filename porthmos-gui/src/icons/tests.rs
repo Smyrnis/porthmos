@@ -7,6 +7,10 @@ fn assets() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons")
 }
 
+fn main_assets() -> PathBuf {
+    assets().join("main")
+}
+
 fn svgs(folder: &Path, found: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(folder).unwrap() {
         let path = entry.unwrap().path();
@@ -23,12 +27,27 @@ fn every_vendored_svg_is_listed_in_sources_and_carries_the_apache_header() {
     let sources = fs::read_to_string(assets().join("SOURCES.md")).unwrap();
     let mut found = Vec::new();
     svgs(&assets(), &mut found);
+    found.retain(|path| !path.starts_with(main_assets()));
     assert!(!found.is_empty());
     for path in found {
         let relative = path.strip_prefix(assets()).unwrap().to_string_lossy().replace('\\', "/");
         assert!(sources.contains(&format!("| {relative} |")), "{relative} is not listed in SOURCES.md");
         let head: String = fs::read_to_string(&path).unwrap().lines().take(3).collect::<Vec<_>>().join("\n");
         assert!(head.contains("Apache"), "{relative} has no Apache header");
+    }
+}
+
+#[test]
+fn every_svg_drawn_for_porthmos_is_listed_in_sources_and_carries_the_project_header() {
+    let sources = fs::read_to_string(assets().join("SOURCES.md")).unwrap();
+    let mut found = Vec::new();
+    svgs(&main_assets(), &mut found);
+    assert!(!found.is_empty());
+    for path in found {
+        let relative = path.strip_prefix(assets()).unwrap().to_string_lossy().replace('\\', "/");
+        assert!(sources.contains(&format!("| {relative} |")), "{relative} is not listed in SOURCES.md");
+        let head = fs::read_to_string(&path).unwrap().lines().next().unwrap_or_default().to_string();
+        assert!(head.contains("Drawn for Porthmos"), "{relative} has no Porthmos header");
     }
 }
 

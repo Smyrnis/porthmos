@@ -200,6 +200,7 @@ pub enum Message {
     SyncRunPressed,
     SyncScrolled(f32),
     ActionRequested(Action),
+    TerminalRequested(PanelSide),
     QueueRowPressed(RowKind, RowButton),
     QueueClearFinished,
     QueueCancelAll,
@@ -489,6 +490,8 @@ impl App {
             refresh: self.location_of(side).is_some(),
             filter: true,
             transfers: true,
+            local_terminal: self.terminal_possible_on(PanelSide::Local),
+            remote_terminal: self.terminal_possible_on(PanelSide::Remote),
         }
     }
 
@@ -1062,7 +1065,6 @@ impl App {
                         MoreItem::ToggleHidden => Action::ToggleHidden,
                         MoreItem::Preview => Action::Preview,
                         MoreItem::Edit => Action::Edit,
-                        MoreItem::Terminal => Action::Terminal,
                         MoreItem::Search => Action::Search,
                         MoreItem::Bookmarks => Action::Bookmarks,
                         MoreItem::History => Action::History,
@@ -1209,6 +1211,11 @@ impl App {
             Message::ActionRequested(action) => {
                 if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
                     return self.perform(action);
+                }
+            }
+            Message::TerminalRequested(side) => {
+                if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
+                    self.request_terminal_on(side);
                 }
             }
         }

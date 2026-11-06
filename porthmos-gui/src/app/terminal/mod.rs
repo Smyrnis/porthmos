@@ -8,14 +8,22 @@ use crate::processes::ProcessJob;
 
 impl App {
     pub fn terminal_possible(&self) -> bool {
-        match self.active_side() {
+        self.terminal_possible_on(self.active_side())
+    }
+
+    pub fn terminal_possible_on(&self, side: PanelSide) -> bool {
+        match side {
             PanelSide::Local => true,
             PanelSide::Remote => self.sessions.active().is_some_and(|session| session.shell_available),
         }
     }
 
     pub(in crate::app) fn request_terminal(&mut self) {
-        if self.active_side() == PanelSide::Local {
+        self.request_terminal_on(self.active_side());
+    }
+
+    pub(in crate::app) fn request_terminal_on(&mut self, side: PanelSide) {
+        if side == PanelSide::Local {
             let directory = self.local.panel.path().clone();
             self.core.send(Command::PrepareLocalShell { directory });
             return;

@@ -1,0 +1,14 @@
+<!-- Drawn for Porthmos, MIT license. -->
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
+<rect width="16" height="16" fill="white"/>
+<circle cx="12" cy="11.5" r="4" fill="black"/>
+</mask>
+<g mask="url(#cut)">
+<rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="#CED0D6"/>
+<path d="M4 5.5L6 7.5L4 9.5" stroke="#CED0D6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<circle cx="12" cy="11.5" r="2.5" stroke="#CED0D6"/>
+<path d="M9.5 11.5H14.5" stroke="#CED0D6"/>
+<ellipse cx="12" cy="11.5" rx="1" ry="2.5" stroke="#CED0D6"/>
+</svg>

@@ -7,7 +7,6 @@ use porthmos_core::Severity;
 use porthmos_core::edit::EditorExit;
 use porthmos_core::{Command, Entry, Event, Location, ShellInvocation, VfsPath};
 
-use crate::menus::{MoreItem, MoreState, more_items};
 use crate::shortcuts::KeyPress;
 use crate::testing::Harness;
 
@@ -141,32 +140,6 @@ fn shell_available_is_remembered_per_session() {
 }
 
 #[test]
-fn the_more_item_is_disabled_without_shell_support() {
-    let enabled_for = |terminal: bool| {
-        more_items(MoreState { hidden_shown: false, file: true, terminal, sync: true })
-            .into_iter()
-            .find(|(item, _, _)| *item == MoreItem::Terminal)
-            .map(|(_, title, enabled)| (title, enabled))
-            .unwrap()
-    };
-
-    assert_eq!(enabled_for(true), ("Open terminal here".to_string(), true));
-    assert_eq!(enabled_for(false), ("Open terminal here".to_string(), false));
-}
-
-#[test]
-fn the_more_item_requests_the_shell() {
-    let mut harness = Harness::new();
-    connect(&mut harness, 3, "alpha", true);
-    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
-    harness.sent();
-
-    harness.press(Message::MoreItemChosen(MoreItem::Terminal));
-
-    assert_eq!(harness.sent().len(), 1);
-}
-
-#[test]
 fn shell_ready_spawns_the_terminal_without_waiting() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
@@ -249,4 +222,81 @@ fn a_terminal_that_closes_normally_or_with_a_status_says_nothing() {
     }
 
     assert_eq!(harness.app.notices().len(), notices);
+}
+
+#[test]
+fn the_local_terminal_button_opens_a_local_shell_while_the_remote_panel_is_active() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    harness.sent();
+
+    harness.press(Message::TerminalRequested(PanelSide::Local));
+
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
+}
+
+#[test]
+fn the_remote_terminal_button_opens_the_remote_shell_while_the_local_panel_is_active() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Local, 0));
+    harness.sent();
+
+    harness.press(Message::TerminalRequested(PanelSide::Remote));
+
+    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+}
+
+#[test]
+fn the_remote_terminal_is_not_possible_without_a_connection() {
+    let harness = Harness::new();
+
+    assert!(harness.app.terminal_possible_on(PanelSide::Local));
+    assert!(!harness.app.terminal_possible_on(PanelSide::Remote));
+}
+
+#[test]
+fn the_remote_terminal_is_not_possible_on_a_connection_without_shell_support() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", false);
+
+    assert!(!harness.app.terminal_possible_on(PanelSide::Remote));
+    assert!(harness.app.terminal_possible_on(PanelSide::Local));
+}
+
+#[test]
+fn the_toolbar_enables_each_terminal_button_independently_of_the_active_panel() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    for side in [PanelSide::Local, PanelSide::Remote] {
+        harness.press(Message::PanelClicked(side, 0));
+
+        let state = harness.app.toolbar_state();
+
+        assert!(state.local_terminal && state.remote_terminal, "{side:?}");
+    }
+}
+
+#[test]
+fn the_toolbar_mutes_the_remote_terminal_button_without_a_usable_shell() {
+    let mut harness = Harness::new();
+    assert!(harness.app.toolbar_state().local_terminal);
+    assert!(!harness.app.toolbar_state().remote_terminal);
+
+    connect(&mut harness, 3, "alpha", false);
+
+    assert!(harness.app.toolbar_state().local_terminal);
+    assert!(!harness.app.toolbar_state().remote_terminal);
+}
+
+#[test]
+fn a_terminal_request_for_a_side_that_cannot_open_one_only_warns() {
+    let mut harness = Harness::new();
+    harness.sent();
+
+    harness.press(Message::TerminalRequested(PanelSide::Remote));
+
+    assert!(harness.sent().is_empty());
+    assert_eq!(harness.app.notices().last().unwrap().message.to_string(), "Connect to a server first");
 }

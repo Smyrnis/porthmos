@@ -57,3 +57,10 @@ JetBrains product logos and trademarks are not used.
 | actions/moveToRight.svg | platform/icons/src/expui/actions/moveToRight_dark.svg | Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license. |
 
 Not vendored because the upstream file has no license header: fileTypes/c, cpp, h, Csharp, swiftLang, jupyter, rst. Those file types use the generic text icon.
+
+Drawn for Porthmos (MIT license, same as the project; each file carries that in its header):
+
+| file | what it is |
+|---|---|
+| main/terminal.svg | terminal window with a prompt, the button that opens a terminal on this computer |
+| main/remoteTerminal.svg | the same window with a globe badge, the button that opens a terminal on the connection |

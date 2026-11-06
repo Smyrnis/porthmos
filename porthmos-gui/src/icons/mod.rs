@@ -71,6 +71,8 @@ icons! {
     Transfers => "actions/upload.svg",
     Rename => "actions/edit.svg",
     NewFolder => "actions/addDirectory.svg",
+    Terminal => "main/terminal.svg",
+    RemoteTerminal => "main/remoteTerminal.svg",
 }
 
 static HANDLES: OnceLock<Vec<Handle>> = OnceLock::new();
