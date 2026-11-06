@@ -175,7 +175,8 @@ fn state_with_local_folder(folder: &Path) -> (tempfile::TempDir, Paths) {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::in_dir(dir.path());
     std::fs::create_dir_all(&paths.state_dir).unwrap();
-    std::fs::write(paths.state_file(), format!("local_folder = {:?}\n", folder.to_string_lossy())).unwrap();
+    std::fs::write(paths.state_file(), format!("local_folder = {:?}\n", from_os_path(folder).to_string_lossy()))
+        .unwrap();
     (dir, paths)
 }
 

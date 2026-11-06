@@ -112,7 +112,11 @@ async fn started_offers_the_folder_the_last_run_ended_in() {
     let folder = tempfile::tempdir().unwrap();
     let paths = Paths::in_dir(root.path());
     std::fs::create_dir_all(&paths.state_dir).unwrap();
-    std::fs::write(paths.state_file(), format!("local_folder = {:?}\n", folder.path().to_string_lossy())).unwrap();
+    std::fs::write(
+        paths.state_file(),
+        format!("local_folder = {:?}\n", porthmos_core::from_os_path(folder.path()).to_string_lossy()),
+    )
+    .unwrap();
 
     let started = start(Environment::from_process(), paths).unwrap();
 
