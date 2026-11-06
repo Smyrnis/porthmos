@@ -21,7 +21,7 @@ different screens. The tables below are the defaults.
 | `Space` | Toggle selection |
 | `/` | Filter the list |
 | `F9` | Connections screen |
-| `F4` | Terminal on the active connection |
+| `F4` | Terminal in the active panel's folder: your shell on the local panel, `ssh` on the remote panel |
 | `Ctrl+R` | Refresh |
 | `Ctrl+C` | Cancel the active transfer |
 | `Ctrl+H` | Toggle hidden files |
@@ -87,7 +87,7 @@ defaults are below. On macOS `Cmd` stands in for `Ctrl` where the table says
 | `Delete` / `F8` | Delete |
 | `e` / `F3` | Edit |
 | `p` | Preview |
-| `F4` | Open a terminal here |
+| `F4` | Open a terminal here: your shell on the local panel, `ssh` on the remote panel |
 | `Ctrl+T` | Show or hide transfers |
 | `Ctrl+F` | Search |
 | `Ctrl+B` / `Ctrl+D` | Bookmarks / bookmark this folder |

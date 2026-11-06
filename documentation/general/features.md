@@ -32,6 +32,9 @@
 - **Bookmarks** — jump back to a local or remote folder on a given host.
 - **Command palette** — `Ctrl+P` finds actions, hosts to connect or
   disconnect, and files in the open folders, by name.
-- **Terminal hand-off** — on SFTP and SCP connections, `F4` drops to a full
-  `ssh` session in the folder you are looking at, and returns to the browser
-  when you exit it.
+- **Terminal hand-off** — `F4` follows the panel you are in. On the local panel
+  it opens your shell (`$SHELL`, or PowerShell on Windows) in that folder. On
+  the remote panel of an SFTP or SCP connection it opens a full `ssh` session
+  in the folder you are looking at. The terminal app suspends itself and
+  returns when you exit; the window app opens a separate terminal, which you
+  can choose with `[terminal] command` in `config.toml`.
