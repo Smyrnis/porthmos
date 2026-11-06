@@ -91,3 +91,31 @@ fn the_mode_on_exit_falls_back_to_the_startup_mode_when_the_config_cannot_be_rea
     std::fs::create_dir(paths.config_file()).unwrap();
     assert_eq!(update_mode_on_exit(&paths, UpdateMode::Off), UpdateMode::Off);
 }
+
+#[test]
+fn the_window_starts_in_the_remembered_folder_when_there_is_one() {
+    let start = local_start(Some(VfsPath::new("/work/notes")), Some("/home/me".into()), Some("/cwd".into()));
+
+    assert_eq!(start, VfsPath::new("/work/notes"));
+}
+
+#[test]
+fn without_a_remembered_folder_the_window_starts_at_home_then_the_current_folder_then_the_root() {
+    assert_eq!(local_start(None, Some("/home/me".into()), Some("/cwd".into())), VfsPath::new("/home/me"));
+    assert_eq!(local_start(None, None, Some("/cwd".into())), VfsPath::new("/cwd"));
+    assert_eq!(local_start(None, None, None), VfsPath::root());
+}
+
+#[tokio::test]
+async fn started_offers_the_folder_the_last_run_ended_in() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(root.path());
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), format!("local_folder = {:?}\n", folder.path().to_string_lossy())).unwrap();
+
+    let started = start(Environment::from_process(), paths).unwrap();
+
+    assert_eq!(started.core.remembered_local_folder(), Some(porthmos_core::from_os_path(folder.path())));
+    started.core.shutdown().await;
+}

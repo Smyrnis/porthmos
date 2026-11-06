@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use porthmos_core::config::settings::PanelSettings;
 use porthmos_core::listing::{Listing, Row, SortKey, SortOrder, SortSpec};
 use porthmos_core::{Entry, VfsPath};
 
@@ -123,6 +124,13 @@ impl Panel {
             self.anchor = 0;
             self.selection.clear();
         }
+    }
+
+    pub fn apply(&mut self, settings: PanelSettings) {
+        self.reshape(|listing| {
+            listing.set_sort_spec(settings.sort);
+            listing.set_show_hidden(settings.show_hidden);
+        });
     }
 
     pub fn toggle_hidden(&mut self) {

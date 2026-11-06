@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use porthmos_core::{Command, CoreHandle, Event, ProtocolInfo, VfsPath};
+use porthmos_core::config::settings::PanelSettings;
+use porthmos_core::{Command, CoreHandle, Event, PanelKind, ProtocolInfo, VfsPath};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app::{App, Message};
@@ -52,8 +53,19 @@ impl Harness {
         Harness::build(protocols, GuiSettings::default())
     }
 
+    pub fn with_remembered_panels(local: PanelSettings, remote: PanelSettings) -> Harness {
+        Harness::build_remembering(Vec::new(), GuiSettings::default(), local, remote)
+    }
+
     fn build(protocols: Vec<ProtocolInfo>, settings: GuiSettings) -> Harness {
+        Harness::build_remembering(protocols, settings, PanelSettings::default(), PanelSettings::default())
+    }
+
+    fn build_remembering(
+        protocols: Vec<ProtocolInfo>, settings: GuiSettings, local: PanelSettings, remote: PanelSettings,
+    ) -> Harness {
         let (core, commands) = CoreHandle::detached_with(protocols);
+        let core = core.with_panel_settings(PanelKind::Local, local).with_panel_settings(PanelKind::Remote, remote);
         let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let start = VfsPath::new("/home/tester");
         let palette = Palette::new(&ThemeSettings::default());

@@ -5,7 +5,7 @@ use crate::{
     transfer::conflicts::ConflictPolicy,
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PanelSettings {
     pub show_hidden: bool,
     pub sort: SortSpec,

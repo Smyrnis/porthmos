@@ -1,7 +1,9 @@
 use porthmos_vfs::{Answer, Entry, VfsPath};
 
 use crate::{
+    config::settings::PanelSettings,
     edit::{EditChoice, EditorExit},
+    panel_memory::PanelKind,
     profiles::ProfileDraft,
     sync::{SyncAction, SyncOptions},
     transfer::{conflicts::Resolution, rows::RowKind},
@@ -25,6 +27,7 @@ pub enum Command {
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
     PrepareLocalShell { directory: VfsPath },
+    RememberPanel { kind: PanelKind, settings: PanelSettings },
     List { location: Location, path: Option<VfsPath> },
     Reveal { location: Location, path: VfsPath },
     Navigate { location: Location, from: VfsPath, to: VfsPath },

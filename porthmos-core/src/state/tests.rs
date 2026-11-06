@@ -115,7 +115,8 @@ fn a_state_file_that_cannot_be_moved_aside_is_protected() {
 fn the_speed_limit_round_trips_beside_the_choice() {
     let (_dir, paths) = paths();
 
-    save(&paths, &UiState { save_passwords_in_keyring: true, speed_limit: Some(2_097_152) }).unwrap();
+    save(&paths, &UiState { save_passwords_in_keyring: true, speed_limit: Some(2_097_152), ..UiState::default() })
+        .unwrap();
 
     let loaded = load(&paths).state;
     assert!(loaded.save_passwords_in_keyring);
@@ -138,7 +139,7 @@ fn a_state_file_written_before_the_limit_existed_loads_without_one() {
 fn no_limit_writes_no_limit_key() {
     let (_dir, paths) = paths();
 
-    save(&paths, &UiState { save_passwords_in_keyring: false, speed_limit: None }).unwrap();
+    save(&paths, &UiState { save_passwords_in_keyring: false, ..UiState::default() }).unwrap();
 
     assert!(!std::fs::read_to_string(paths.state_file()).unwrap().contains("speed_limit"));
 }
@@ -153,4 +154,52 @@ fn a_limit_of_the_wrong_type_breaks_the_file_and_is_set_aside() {
 
     assert_eq!(loaded.state.speed_limit, None);
     assert!(loaded.warning.unwrap().contains("state.toml.broken"));
+}
+
+#[test]
+fn the_local_folder_round_trips_and_is_absent_by_default() {
+    let (_dir, paths) = paths();
+    assert_eq!(load(&paths).state.local_folder, None);
+
+    save(&paths, &UiState { local_folder: Some("/home/me/it's here".to_string()), ..UiState::default() }).unwrap();
+
+    assert_eq!(load(&paths).state.local_folder.as_deref(), Some("/home/me/it's here"));
+}
+
+#[test]
+fn no_local_folder_leaves_no_key_in_the_file() {
+    let (_dir, paths) = paths();
+
+    save(&paths, &UiState::default()).unwrap();
+
+    assert!(!std::fs::read_to_string(paths.state_file()).unwrap().contains("local_folder"));
+}
+
+#[test]
+fn each_panels_choices_round_trip_beside_the_other_keys() {
+    let (_dir, paths) = paths();
+    let state = UiState {
+        save_passwords_in_keyring: true,
+        speed_limit: Some(5),
+        local_folder: Some("/x".to_string()),
+        local_panel: Some(PanelMemory { show_hidden: Some(true), ..PanelMemory::default() }),
+        remote_panel: Some(PanelMemory { sort_key: Some("size".to_string()), ..PanelMemory::default() }),
+    };
+
+    save(&paths, &state).unwrap();
+
+    assert_eq!(load(&paths).state, state);
+}
+
+#[test]
+fn a_panel_table_with_an_unknown_sort_word_does_not_break_the_rest_of_the_file() {
+    let (_dir, paths) = paths();
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), "save_passwords_in_keyring = true\n[local_panel]\nsort_key = \"date\"\n")
+        .unwrap();
+
+    let loaded = load(&paths);
+
+    assert!(loaded.warning.is_none());
+    assert!(loaded.state.save_passwords_in_keyring);
 }

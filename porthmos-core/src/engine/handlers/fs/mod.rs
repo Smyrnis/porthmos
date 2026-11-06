@@ -40,9 +40,7 @@ async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsP
 }
 
 fn announce_folder(internal: &UnboundedSender<Internal>, location: Location, path: &VfsPath) {
-    if let Location::Session(session) = location {
-        let _ = internal.send(Internal::FolderShown { session, path: path.clone() });
-    }
+    let _ = internal.send(Internal::FolderShown { location, path: path.clone() });
 }
 
 async fn list_into(
@@ -94,13 +92,14 @@ struct StartFolder {
     name: String,
     requested: Option<String>,
     resume: Option<VfsPath>,
+    remembered: Option<VfsPath>,
 }
 
 async fn list_start_into(
     fs: Arc<dyn FileSystem>, session: SessionId, start: StartFolder, events: UnboundedSender<Event>,
     internal: UnboundedSender<Internal>, reporter: Reporter,
 ) {
-    let StartFolder { name, requested, resume } = start;
+    let StartFolder { name, requested, resume, remembered } = start;
     let location = Location::Session(session);
     if let Some(folder) = resume
         && let Ok(entries) = fs.list(&folder).await
@@ -111,6 +110,14 @@ async fn list_start_into(
         return;
     }
     let Some(requested) = requested else {
+        if let Some(folder) = remembered
+            && let Ok(entries) = fs.list(&folder).await
+        {
+            announce_folder(&internal, location, &folder);
+            let _ = events.send(Event::Listed { location, path: folder.clone(), entries });
+            announce_free_space(fs.as_ref(), location, folder, &events).await;
+            return;
+        }
         list_into(fs, location, None, None, events, internal, reporter).await;
         return;
     };
@@ -151,6 +158,7 @@ impl Engine {
             name: live.name.clone(),
             requested: live.entry.start_path().map(str::to_string),
             resume: self.resume_folders.remove(&live.name),
+            remembered: self.last_used.store.folder(&live.name),
         };
         let work = list_start_into(
             live.fs.clone(),
@@ -163,10 +171,20 @@ impl Engine {
         self.tasks.spawn("list-start", Scope::Session(session), move |_| work);
     }
 
-    pub(crate) fn remember_folder(&mut self, session: SessionId, path: VfsPath) {
-        if self.sessions.contains_key(&session) {
-            self.session_folders.insert(session, path);
+    pub(crate) fn remember_folder(&mut self, location: Location, path: VfsPath) {
+        match location {
+            Location::Local => self.remember_local_folder(&path),
+            Location::Session(session) => self.remember_session_folder(session, path),
         }
+    }
+
+    fn remember_session_folder(&mut self, session: SessionId, path: VfsPath) {
+        let Some(live) = self.sessions.get(&session) else {
+            return;
+        };
+        let name = live.name.clone();
+        self.record_last_folder(&name, &path);
+        self.session_folders.insert(session, path);
     }
 
     pub(crate) fn keep_folder_for_reconnect(&mut self, session: SessionId, name: &str, was_lost: bool) {

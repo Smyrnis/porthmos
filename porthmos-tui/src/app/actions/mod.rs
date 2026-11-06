@@ -139,12 +139,18 @@ impl App {
                 panel.toggle_selection();
                 return;
             }
-            Action::ToggleHidden => {
-                panel.toggle_hidden();
-                return;
-            }
-            Action::CycleSort => {
-                panel.cycle_sort();
+            Action::ToggleHidden | Action::CycleSort => {
+                if action == Action::ToggleHidden {
+                    panel.toggle_hidden();
+                } else {
+                    panel.cycle_sort();
+                }
+                let settings = PanelSettings { show_hidden: panel.show_hidden(), sort: panel.sort_spec() };
+                let kind = match location {
+                    Location::Local => PanelKind::Local,
+                    Location::Session(_) => PanelKind::Remote,
+                };
+                self.core.send(Command::RememberPanel { kind, settings });
                 return;
             }
             Action::Open => {

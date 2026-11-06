@@ -8,8 +8,8 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, ConnectionState, CoreHandle, Event, Location, Message, Question, RequestId, SessionId, Severity,
-    ShellInvocation, UpdateMode, UpdateState, VfsPath,
+    Command, ConnectionState, CoreHandle, Event, Location, Message, PanelKind, Question, RequestId, SessionId,
+    Severity, ShellInvocation, UpdateMode, UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},

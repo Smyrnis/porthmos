@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::Result;
-use porthmos_core::{Environment, Paths, from_os_path};
+use porthmos_core::{Environment, Paths};
 
 mod app;
 mod bookmarks;
@@ -90,10 +90,7 @@ fn run_window() -> Result<()> {
     let started = runtime::start(env, paths)?;
     let update_mode = started.settings.update_mode;
     let palette = theme::Palette::new(&started.theme);
-    let local_start = match home.or_else(|| std::env::current_dir().ok()) {
-        Some(folder) => from_os_path(&folder),
-        None => porthmos_core::VfsPath::root(),
-    };
+    let local_start = runtime::local_start(started.core.remembered_local_folder(), home, std::env::current_dir().ok());
     let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts)
         .with_update_mode(update_mode)
         .with_settings(started.settings, started.config_file);

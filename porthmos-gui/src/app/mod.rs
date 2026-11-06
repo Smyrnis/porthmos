@@ -8,11 +8,12 @@ use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::transfer::conflicts::Resolution;
 use porthmos_core::transfer::rows::RowKind;
 use porthmos_core::{
-    Answer, Command, ConnectionState, CoreHandle, Event, Location, SessionId, Severity, VfsPath, from_os_path,
-    to_os_path,
+    Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath,
+    from_os_path, to_os_path,
 };
 
 use porthmos_core::config::bookmarks::Bookmark;
+use porthmos_core::config::settings::PanelSettings;
 use porthmos_core::sync::SyncOptions;
 
 pub use self::sync::SyncChoice;
@@ -299,6 +300,7 @@ impl App {
     pub fn new(
         core: CoreHandle, events: EventSource, local_start: VfsPath, palette: Palette, shortcuts: Shortcuts,
     ) -> App {
+        let local_panel = core.panel_settings(PanelKind::Local);
         let (desktop_sender, desktop) = native::channel();
         let (process_sender, processes) = crate::processes::channel();
         let mut app = App {
@@ -362,6 +364,7 @@ impl App {
             gui_settings: GuiSettings::default(),
             config_file: None,
         };
+        app.local.panel.apply(local_panel);
         app.list(Location::Local, Some(local_start));
         app
     }
@@ -627,6 +630,18 @@ impl App {
         self.connecting.as_deref()
     }
 
+    fn remember_panel(&mut self, side: PanelSide) {
+        let Some(pane) = self.pane_ref(side) else {
+            return;
+        };
+        let settings = PanelSettings { show_hidden: pane.panel.show_hidden(), sort: pane.panel.sort_spec() };
+        let kind = match side {
+            PanelSide::Local => PanelKind::Local,
+            PanelSide::Remote => PanelKind::Remote,
+        };
+        self.core.send(Command::RememberPanel { kind, settings });
+    }
+
     fn side_mut(&mut self, side: PanelSide) -> Option<&mut Pane> {
         match side {
             PanelSide::Local => Some(&mut self.local),
@@ -715,6 +730,10 @@ impl App {
                 self.set_screen(None);
                 if !self.sessions.activate(session) {
                     self.sessions.insert(session, name);
+                    let remote = self.core.panel_settings(PanelKind::Remote);
+                    if let Some(session) = self.sessions.active_mut() {
+                        session.pane.panel.apply(remote);
+                    }
                 }
                 self.sessions.set_shell_available(session, shell_available);
             }
@@ -966,6 +985,7 @@ impl App {
                 if let Some(pane) = self.side_mut(side) {
                     pane.panel.sort_by(key);
                 }
+                self.remember_panel(side);
             }
             Message::TransferArrowPressed(from) => {
                 if self.transfer_possible(from) {
@@ -1800,11 +1820,13 @@ impl App {
                 if let Some(pane) = self.side_mut(side) {
                     pane.panel.toggle_hidden();
                 }
+                self.remember_panel(side);
             }
             Action::CycleSort => {
                 if let Some(pane) = self.side_mut(side) {
                     pane.panel.cycle_sort();
                 }
+                self.remember_panel(side);
             }
             Action::Refresh => {
                 if let Some(location) = self.location_of(side) {

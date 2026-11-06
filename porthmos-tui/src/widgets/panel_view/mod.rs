@@ -67,6 +67,7 @@ impl PanelView {
         }
     }
 
+    #[cfg(test)]
     pub fn from_listing(path: VfsPath, entries: Vec<Entry>) -> Self {
         let mut panel = Self::new(VfsPath::default(), SortSpec::default(), false);
         panel.replace_listing(path, entries);
@@ -120,6 +121,10 @@ impl PanelView {
 
     pub fn sort_spec(&self) -> SortSpec {
         self.listing.sort_spec()
+    }
+
+    pub fn show_hidden(&self) -> bool {
+        self.listing.show_hidden()
     }
 
     fn apply_filter(&mut self, text: Option<String>) {

@@ -1,7 +1,8 @@
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
-use porthmos_core::listing::{SortKey, SortOrder};
-use porthmos_core::{Command, Event, Location, Severity};
+use porthmos_core::config::settings::PanelSettings;
+use porthmos_core::listing::{SortKey, SortOrder, SortSpec};
+use porthmos_core::{Command, Event, Location, PanelKind, Severity};
 
 use crate::geometry::{ROW_HEIGHT, list_viewport};
 use crate::shortcuts::KeyPress;
@@ -3662,4 +3663,76 @@ fn going_into_a_folder_does_not_move_the_cursor_anywhere_special() {
     list_local_at(&mut harness, "/home/tester/sub", &["x", "y"]);
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "..");
+}
+
+fn remembered_panels(commands: Vec<Command>) -> Vec<(PanelKind, PanelSettings)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberPanel { kind, settings } => Some((kind, settings)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_local_panel_starts_with_the_remembered_choices() {
+    let local =
+        PanelSettings { show_hidden: true, sort: SortSpec { key: SortKey::Size, order: SortOrder::Descending } };
+
+    let harness = Harness::with_remembered_panels(local, PanelSettings::default());
+
+    assert!(harness.app.local().panel.show_hidden());
+    assert_eq!(harness.app.local().panel.sort_spec(), local.sort);
+}
+
+#[test]
+fn a_new_connection_starts_with_the_remembered_remote_choices_and_not_the_local_ones() {
+    let local = PanelSettings { show_hidden: true, sort: SortSpec::default() };
+    let remote =
+        PanelSettings { show_hidden: false, sort: SortSpec { key: SortKey::Size, order: SortOrder::Ascending } };
+    let mut harness = Harness::with_remembered_panels(local, remote);
+
+    connect(&mut harness, 1, "alpha");
+
+    let panel = &harness.app.sessions().active().unwrap().pane.panel;
+    assert_eq!((panel.show_hidden(), panel.sort_spec()), (false, remote.sort));
+}
+
+#[test]
+fn clicking_a_sort_header_tells_the_core_to_remember_the_panels_choices() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+    harness.sent();
+
+    harness.press(Message::HeaderClicked(PanelSide::Local, SortKey::Size));
+
+    let expected =
+        PanelSettings { show_hidden: false, sort: SortSpec { key: SortKey::Size, order: SortOrder::Ascending } };
+    assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Local, expected)]);
+}
+
+#[test]
+fn toggling_hidden_files_on_the_remote_panel_is_remembered_for_remote() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    harness.sent();
+
+    harness.press(Message::MoreItemChosen(crate::menus::MoreItem::ToggleHidden));
+
+    let expected = PanelSettings { show_hidden: true, sort: SortSpec::default() };
+    assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Remote, expected)]);
+}
+
+#[test]
+fn cycling_the_sort_from_the_keyboard_is_remembered() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.sent();
+
+    let _ = harness.app.perform(Action::CycleSort);
+
+    let expected = PanelSettings { show_hidden: false, sort: SortSpec::default().cycled() };
+    assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Local, expected)]);
 }

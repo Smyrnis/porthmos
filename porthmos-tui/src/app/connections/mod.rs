@@ -423,7 +423,8 @@ impl App {
         if self.sessions.activate(session) {
             return;
         }
-        let placeholder_panel = PanelView::from_listing(VfsPath::root(), Vec::new());
+        let remembered = self.core.panel_settings(PanelKind::Remote);
+        let placeholder_panel = PanelView::new(VfsPath::root(), remembered.sort, remembered.show_hidden);
         self.sessions.insert(session, name, shell_available, placeholder_panel);
     }
 }

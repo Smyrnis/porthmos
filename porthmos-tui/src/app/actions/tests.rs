@@ -1,7 +1,7 @@
-use porthmos_core::VfsPath;
+use porthmos_core::{PanelKind, VfsPath, config::settings::PanelSettings, listing::SortSpec};
 
 use super::*;
-use crate::app::testing::{TestApp, entry, test_app};
+use crate::app::testing::{TestApp, entry, test_app, test_app_remembering};
 
 fn app_in(dir: &str) -> TestApp {
     test_app(&VfsPath::new(dir))
@@ -652,4 +652,57 @@ fn going_up_puts_the_cursor_on_the_folder_core_says_was_left() {
     test.app.apply_core_event(Event::Revealed { location: Location::Local, folder: parent, name: "sub".to_string() });
 
     assert_eq!(crate::app::testing::cursor_name(&test.app.local), Some("sub"));
+}
+
+fn remembered_panel_commands(commands: Vec<Command>) -> Vec<(PanelKind, PanelSettings)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberPanel { kind, settings } => Some((kind, settings)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn toggling_hidden_files_on_the_local_panel_tells_the_core_to_remember_it() {
+    let mut test = app_in("/d");
+
+    test.app.apply_action(Action::ToggleHidden);
+
+    let expected = PanelSettings { show_hidden: true, sort: SortSpec::default() };
+    assert_eq!(remembered_panel_commands(test.sent()), vec![(PanelKind::Local, expected)]);
+}
+
+#[test]
+fn cycling_the_sort_on_the_remote_panel_tells_the_core_to_remember_it_for_remote() {
+    let mut test = app_in("/d");
+    test.connect(8, "srv");
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
+
+    test.app.apply_action(Action::CycleSort);
+
+    let expected = PanelSettings { show_hidden: false, sort: SortSpec::default().cycled() };
+    assert_eq!(remembered_panel_commands(test.sent()), vec![(PanelKind::Remote, expected)]);
+}
+
+#[test]
+fn a_new_connections_panel_starts_with_the_remembered_remote_choices() {
+    let remote = PanelSettings { show_hidden: true, sort: SortSpec::default().cycled().cycled() };
+    let mut test = test_app_remembering(&VfsPath::new("/d"), PanelSettings::default(), remote);
+
+    test.connect(8, "srv");
+
+    let panel = &test.app.sessions.active().unwrap().panel;
+    assert_eq!((panel.show_hidden(), panel.sort_spec()), (remote.show_hidden, remote.sort));
+}
+
+#[test]
+fn the_local_panel_starts_with_the_remembered_local_choices() {
+    let local = PanelSettings { show_hidden: true, sort: SortSpec::default().cycled() };
+
+    let test = test_app_remembering(&VfsPath::new("/d"), local, PanelSettings::default());
+
+    assert_eq!((test.app.local.show_hidden(), test.app.local.sort_spec()), (local.show_hidden, local.sort));
 }

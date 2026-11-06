@@ -1164,7 +1164,7 @@ async fn reconnecting_a_lost_connection_reopens_the_folder_it_was_in() {
 }
 
 #[tokio::test]
-async fn reconnecting_after_a_deliberate_disconnect_opens_the_start_folder() {
+async fn reconnecting_after_a_deliberate_disconnect_opens_the_last_folder() {
     let (mut t, remote) = with_fake_profile(FakeProtocol::new);
     remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
     let session = connect_and_open(&mut t, "/srv/logs").await;
@@ -1173,7 +1173,75 @@ async fn reconnecting_after_a_deliberate_disconnect_opens_the_start_folder() {
 
     let (path, _) = reconnect_listing(&mut t).await;
 
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn a_configured_start_folder_wins_over_the_last_folder_after_a_deliberate_disconnect() {
+    let (mut t, remote) = with_fake_profile_lines("remote_path = \"/var/www\"\n", FakeProtocol::new);
+    remote.file("/var/www/index.html", b"", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/var/www"));
+}
+
+#[tokio::test]
+async fn a_lost_connection_resumes_its_folder_even_when_a_start_folder_is_configured() {
+    let (mut t, remote) = with_fake_profile_lines("remote_path = \"/var/www\"\n", FakeProtocol::new);
+    remote.file("/var/www/index.html", b"", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn the_last_folder_of_a_connection_is_remembered_across_a_restart() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_command(Command::Disconnect { session });
+    t.engine.writer.flush().await;
+    let (reloaded, warning) = crate::last_used::LastUsed::load(&t.engine.paths);
+    assert!(warning.is_none());
+    t.engine.last_used = crate::engine::handlers::LastUsedLog::new(reloaded);
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn a_folder_that_is_gone_since_the_last_visit_falls_back_to_the_home_folder_quietly() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None);
+    t.engine.last_used.store.record_folder("srv", &VfsPath::from("/srv/gone"));
+
+    let (path, seen) = reconnect_listing(&mut t).await;
+
     assert_eq!(path, VfsPath::from("/home/user"));
+    assert!(!seen.iter().any(|event| matches!(event, Event::Notice { .. })), "{seen:?}");
+}
+
+#[tokio::test]
+async fn browsing_writes_the_folder_next_to_the_last_used_time() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/srv/logs/a.log", b"", None);
+    connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.writer.flush().await;
+
+    let text = std::fs::read_to_string(t.engine.paths.last_used_file()).unwrap_or_default();
+
+    assert!(text.contains("[last_folder]") && text.contains("srv = \"/srv/logs\""), "{text}");
 }
 
 #[tokio::test]
@@ -1184,6 +1252,7 @@ async fn a_remembered_folder_that_can_no_longer_be_read_falls_back_to_the_start_
     t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
     t.engine.handle_command(Command::Disconnect { session });
     t.engine.resume_folders.insert("srv".to_string(), VfsPath::from("/srv/gone"));
+    t.engine.last_used.store.forget("srv");
     t.drain();
 
     let (path, seen) = reconnect_listing(&mut t).await;
@@ -1193,27 +1262,23 @@ async fn a_remembered_folder_that_can_no_longer_be_read_falls_back_to_the_start_
 }
 
 #[tokio::test]
-async fn a_folder_is_resumed_only_once() {
-    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
-    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+async fn a_lost_connections_folder_is_resumed_only_once() {
+    let (mut t, remote) = with_fake_profile_lines("remote_path = \"/var/www\"\n", FakeProtocol::new);
+    remote.file("/var/www/index.html", b"", None).file("/srv/logs/a.log", b"", None);
     let session = connect_and_open(&mut t, "/srv/logs").await;
     t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
     t.engine.handle_command(Command::Disconnect { session });
     t.drain();
     let (_, _) = reconnect_listing(&mut t).await;
     t.settle().await;
-    let again = t.drain().into_iter().find_map(|event| match event {
-        Event::Connected { session, .. } => Some(session),
-        _ => None,
-    });
-    assert_eq!(again, None);
+    t.drain();
     let reconnected = t.engine.sessions.keys().copied().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session: reconnected });
     t.drain();
 
     let (path, _) = reconnect_listing(&mut t).await;
 
-    assert_eq!(path, VfsPath::from("/home/user"));
+    assert_eq!(path, VfsPath::from("/var/www"));
 }
 
 #[tokio::test]

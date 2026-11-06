@@ -8,7 +8,7 @@ use anyhow::Result;
 use iced::Subscription;
 use iced::futures::StreamExt;
 use iced::futures::stream::unfold;
-use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, UpdateMode, config};
+use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, UpdateMode, VfsPath, config, from_os_path};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::settings_view::GuiSettings;
@@ -53,6 +53,10 @@ pub fn update_mode_on_exit(paths: &Paths, started_with: UpdateMode) -> UpdateMod
         Ok((settings, warnings)) if warnings.is_empty() => settings.update.mode,
         _ => started_with,
     }
+}
+
+pub fn local_start(remembered: Option<VfsPath>, home: Option<PathBuf>, current: Option<PathBuf>) -> VfsPath {
+    remembered.or_else(|| home.or(current).map(|folder| from_os_path(&folder))).unwrap_or_else(VfsPath::root)
 }
 
 pub fn start(env: Environment, paths: Paths) -> Result<Started> {

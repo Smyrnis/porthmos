@@ -10,6 +10,7 @@ pub mod last_used;
 pub mod listing;
 pub mod logging;
 pub mod message;
+pub mod panel_memory;
 pub mod paths;
 pub mod persist;
 pub mod preview;
@@ -31,6 +32,7 @@ pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};
 pub use message::Message;
+pub use panel_memory::PanelKind;
 pub use paths::{ConfigMigration, Paths};
 pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{
@@ -112,9 +114,36 @@ pub struct CoreHandle {
     commands: UnboundedSender<Command>,
     protocols: Arc<[ProtocolInfo]>,
     finished: tokio::sync::watch::Receiver<bool>,
+    local_folder: Option<VfsPath>,
+    panels: Panels,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Panels {
+    local: config::settings::PanelSettings,
+    remote: config::settings::PanelSettings,
 }
 
 impl CoreHandle {
+    pub fn with_panel_settings(mut self, kind: PanelKind, settings: config::settings::PanelSettings) -> Self {
+        match kind {
+            PanelKind::Local => self.panels.local = settings,
+            PanelKind::Remote => self.panels.remote = settings,
+        }
+        self
+    }
+
+    pub fn panel_settings(&self, kind: PanelKind) -> config::settings::PanelSettings {
+        match kind {
+            PanelKind::Local => self.panels.local,
+            PanelKind::Remote => self.panels.remote,
+        }
+    }
+
+    pub fn remembered_local_folder(&self) -> Option<VfsPath> {
+        self.local_folder.clone()
+    }
+
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
     }
@@ -130,7 +159,16 @@ impl CoreHandle {
     pub fn detached_with(protocols: Vec<ProtocolInfo>) -> (CoreHandle, UnboundedReceiver<Command>) {
         let (commands, receiver) = unbounded_channel();
         let (_sender, finished) = tokio::sync::watch::channel(false);
-        (CoreHandle { commands, protocols: protocols.into(), finished }, receiver)
+        (
+            CoreHandle {
+                commands,
+                protocols: protocols.into(),
+                finished,
+                local_folder: None,
+                panels: Panels::default(),
+            },
+            receiver,
+        )
     }
 
     pub async fn shutdown(&self) {
@@ -242,6 +280,7 @@ impl CoreBuilder {
 
     pub fn start(self) -> Result<(CoreHandle, UnboundedReceiver<Event>)> {
         let paths = self.paths.context("the core needs its configuration paths")?;
+        let configured_panel = self.settings.panel;
         #[cfg(feature = "update")]
         update::legacy::remove(&paths);
         let (history, history_warning) = history::History::load(&paths);
@@ -307,10 +346,20 @@ impl CoreBuilder {
         engine.publish_bookmarks();
         engine.publish_last_used();
         engine.load_ui_state();
+        let local_folder =
+            engine.ui_state.local_folder.as_deref().map(VfsPath::new).filter(|folder| to_os_path(folder).is_dir());
+        let remembered = |memory: &Option<panel_memory::PanelMemory>| match memory {
+            Some(memory) => memory.applied_to(&configured_panel),
+            None => configured_panel,
+        };
+        let panels = Panels {
+            local: remembered(&engine.ui_state.local_panel),
+            remote: remembered(&engine.ui_state.remote_panel),
+        };
         engine.start_keyring_probe();
         engine.start_updates();
         tokio::spawn(engine.run(command_receiver, internal_receiver));
-        Ok((CoreHandle { commands, protocols: infos, finished }, event_receiver))
+        Ok((CoreHandle { commands, protocols: infos, finished, local_folder, panels }, event_receiver))
     }
 }
 

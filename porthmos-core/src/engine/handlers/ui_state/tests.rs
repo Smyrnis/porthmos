@@ -1,13 +1,26 @@
 use std::sync::Arc;
 
+use porthmos_vfs::VfsPath;
+
 use crate::{
-    Severity,
+    Location, Severity,
+    config::settings::PanelSettings,
     engine::{
-        Command, Event,
+        Command, Event, Internal,
         testing::{test_engine, test_engine_with_secrets},
     },
+    listing::{SortKey, SortOrder, SortSpec},
+    panel_memory::PanelKind,
     secrets::TestBackend,
 };
+
+fn local_folder_shown(path: &str) -> Internal {
+    Internal::FolderShown { location: Location::Local, path: VfsPath::new(path) }
+}
+
+fn saved_local_folder(t: &crate::engine::testing::TestEngine) -> Option<String> {
+    crate::state::load(&t.engine.paths).state.local_folder
+}
 
 fn choices(events: &[Event]) -> Vec<bool> {
     events
@@ -69,4 +82,149 @@ fn a_protected_state_file_is_never_overwritten_by_remembering_the_choice() {
     assert!(!t.engine.paths.state_file().exists());
     let notice = t.first_notice().expect("a notice");
     assert_eq!(notice.0, Severity::Warning);
+}
+
+#[test]
+fn the_local_folder_shown_is_remembered_in_the_state_file() {
+    let mut t = test_engine();
+
+    t.engine.handle_internal(local_folder_shown("/home/tester/docs"));
+
+    assert_eq!(saved_local_folder(&t).as_deref(), Some("/home/tester/docs"));
+    assert!(t.first_notice().is_none());
+}
+
+#[test]
+fn remembering_the_local_folder_keeps_the_other_saved_choices() {
+    let backend = Arc::new(TestBackend::new());
+    let mut t = test_engine_with_secrets(backend);
+    t.engine.handle_command(Command::RememberSaveChoice { save: true });
+
+    t.engine.handle_internal(local_folder_shown("/x"));
+
+    let state = crate::state::load(&t.engine.paths).state;
+    assert!(state.save_passwords_in_keyring);
+    assert_eq!(state.local_folder.as_deref(), Some("/x"));
+}
+
+#[test]
+fn showing_the_same_local_folder_again_writes_nothing() {
+    let mut t = test_engine();
+    t.engine.handle_internal(local_folder_shown("/x"));
+    std::fs::remove_file(t.engine.paths.state_file()).unwrap();
+
+    t.engine.handle_internal(local_folder_shown("/x"));
+
+    assert!(!t.engine.paths.state_file().exists());
+}
+
+#[test]
+fn a_protected_state_file_is_left_alone_without_a_notice_when_the_local_folder_changes() {
+    let mut t = test_engine();
+    t.engine.state_protected = true;
+
+    t.engine.handle_internal(local_folder_shown("/x"));
+
+    assert!(!t.engine.paths.state_file().exists());
+    assert!(t.first_notice().is_none());
+}
+
+#[test]
+fn a_local_folder_that_cannot_be_written_warns_once() {
+    let mut t = test_engine();
+    std::fs::remove_dir_all(&t.engine.paths.state_dir).ok();
+    std::fs::create_dir_all(t.engine.paths.state_dir.parent().unwrap()).unwrap();
+    std::fs::write(&t.engine.paths.state_dir, b"a file").unwrap();
+
+    t.engine.handle_internal(local_folder_shown("/a"));
+    t.engine.handle_internal(local_folder_shown("/b"));
+
+    let warnings: Vec<_> = t
+        .drain()
+        .into_iter()
+        .filter(|event| matches!(event, Event::Notice { severity: Severity::Warning, .. }))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+}
+
+#[test]
+fn a_session_folder_does_not_touch_the_state_file() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    t.engine.handle_internal(Internal::FolderShown { location: Location::Session(session), path: VfsPath::new("/x") });
+
+    assert!(!t.engine.paths.state_file().exists());
+}
+
+fn size_descending(show_hidden: bool) -> PanelSettings {
+    PanelSettings { show_hidden, sort: SortSpec { key: SortKey::Size, order: SortOrder::Descending } }
+}
+
+#[test]
+fn a_panels_choices_are_remembered_in_the_state_file() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Remote, settings: size_descending(false) });
+
+    let state = crate::state::load(&t.engine.paths).state;
+    let configured = PanelSettings::default();
+    assert_eq!(state.local_panel.unwrap().applied_to(&configured), size_descending(true));
+    assert_eq!(state.remote_panel.unwrap().applied_to(&configured), size_descending(false));
+    assert!(t.first_notice().is_none());
+}
+
+#[test]
+fn remembering_a_panel_keeps_the_folder_and_the_other_choices() {
+    let mut t = test_engine();
+    t.engine.handle_internal(local_folder_shown("/x"));
+
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
+
+    let state = crate::state::load(&t.engine.paths).state;
+    assert_eq!(state.local_folder.as_deref(), Some("/x"));
+    assert!(state.local_panel.is_some());
+    assert!(state.remote_panel.is_none());
+}
+
+#[test]
+fn a_panel_choice_that_cannot_be_saved_warns_once_together_with_the_folder() {
+    let mut t = test_engine();
+    std::fs::remove_dir_all(&t.engine.paths.state_dir).ok();
+    std::fs::create_dir_all(t.engine.paths.state_dir.parent().unwrap()).unwrap();
+    std::fs::write(&t.engine.paths.state_dir, b"a file").unwrap();
+
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Remote, settings: size_descending(true) });
+    t.engine.handle_internal(local_folder_shown("/a"));
+
+    let warnings = t
+        .drain()
+        .into_iter()
+        .filter(|event| matches!(event, Event::Notice { severity: Severity::Warning, .. }))
+        .count();
+    assert_eq!(warnings, 1);
+}
+
+#[test]
+fn a_protected_state_file_is_left_alone_when_a_panel_choice_changes() {
+    let mut t = test_engine();
+    t.engine.state_protected = true;
+
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
+
+    assert!(!t.engine.paths.state_file().exists());
+    assert!(t.first_notice().is_none());
+}
+
+#[test]
+fn the_same_panel_choice_again_writes_nothing() {
+    let mut t = test_engine();
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
+    std::fs::remove_file(t.engine.paths.state_file()).unwrap();
+
+    t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
+
+    assert!(!t.engine.paths.state_file().exists());
 }
