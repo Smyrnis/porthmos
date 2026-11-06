@@ -1,18 +1,8 @@
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Instant};
 
 pub use porthmos_core::Severity;
 
 const MAX_QUEUED: usize = 20;
-
-fn ttl_for(severity: Severity) -> Option<Duration> {
-    match severity {
-        Severity::Info | Severity::Warning => Some(severity.lifetime()),
-        Severity::Error => None,
-    }
-}
 
 fn without_count(message: &str) -> (&str, usize) {
     message
@@ -25,7 +15,7 @@ fn without_count(message: &str) -> (&str, usize) {
 pub struct Notification {
     pub severity: Severity,
     pub message: String,
-    expires_at: Option<Instant>,
+    expires_at: Instant,
 }
 
 #[derive(Default)]
@@ -36,7 +26,7 @@ pub struct Notifications {
 impl Notifications {
     pub fn push(&mut self, severity: Severity, message: impl Into<String>) {
         let message = message.into();
-        let expires_at = ttl_for(severity).map(|ttl| Instant::now() + ttl);
+        let expires_at = Instant::now() + severity.lifetime();
         if let Some(last) = self.queue.back_mut()
             && last.severity == severity
             && without_count(&last.message).0 == message
@@ -61,18 +51,13 @@ impl Notifications {
     }
 
     pub fn expire(&mut self, now: Instant) {
-        while let Some(front) = self.queue.front() {
-            match front.expires_at {
-                Some(at) if at <= now => {
-                    self.queue.pop_front();
-                }
-                _ => break,
-            }
+        while self.queue.front().is_some_and(|front| front.expires_at <= now) {
+            self.queue.pop_front();
         }
     }
 
     pub fn next_wake(&self) -> Option<Instant> {
-        self.queue.front().and_then(|n| n.expires_at)
+        self.queue.front().map(|n| n.expires_at)
     }
 }
 
