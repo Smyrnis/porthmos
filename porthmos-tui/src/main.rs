@@ -42,6 +42,7 @@ fn start_app(
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
     let (theme_settings, theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
     let update_mode = settings.update.mode;
+    let search_preview = settings.search.preview;
     let exit_update = ExitUpdate { paths: paths.clone(), mode: update_mode };
     let (core, events) = Core::builder()
         .paths(paths)
@@ -55,7 +56,8 @@ fn start_app(
     let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &local_panel, key_bindings)
         .with_theme(theme)
         .with_home(home)
-        .with_update_mode(update_mode);
+        .with_update_mode(update_mode)
+        .with_search_preview(search_preview);
     for warning in config_warnings {
         app.warn(warning.0);
     }

@@ -241,3 +241,251 @@ fn a_reveal_for_a_folder_that_is_not_the_one_shown_leaves_the_cursor_alone() {
 
     assert_eq!(cursor_name(&test.app.local).map(str::to_string), before);
 }
+
+fn open_search_with_preview(test: &mut crate::app::testing::TestApp) {
+    test.app.search_preview = true;
+    test.app.apply_action(Action::OpenSearch);
+    test.sent();
+}
+
+fn found(test: &mut crate::app::testing::TestApp, name: &str, is_dir: bool) {
+    test.app.apply_core_event(Event::SearchFound(entry(&VfsPath::new("/d"), name, is_dir)));
+}
+
+fn hints(commands: Vec<Command>) -> Vec<(u64, VfsPath)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::PreviewHint { request_id, path, .. } => Some((request_id, path)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_first_result_arriving_is_hinted_when_the_setting_is_on() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+
+    found(&mut test, "a.txt", false);
+
+    let sent = hints(test.sent());
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].1, VfsPath::from("/d/a.txt"));
+}
+
+#[test]
+fn more_results_arriving_do_not_hint_again_while_the_selection_stays() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    test.sent();
+
+    found(&mut test, "b.txt", false);
+
+    assert!(hints(test.sent()).is_empty());
+}
+
+#[test]
+fn moving_the_cursor_hints_the_new_file_with_a_fresh_request_id() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    found(&mut test, "b.txt", false);
+    let first = hints(test.sent());
+
+    test.app.apply_search_key(key(KeyCode::Down));
+
+    let second = hints(test.sent());
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].1, VfsPath::from("/d/b.txt"));
+    assert!(second[0].0 > first[0].0);
+}
+
+#[test]
+fn no_hint_is_sent_when_the_setting_is_off() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    test.sent();
+
+    found(&mut test, "a.txt", false);
+    found(&mut test, "b.txt", false);
+    test.app.apply_search_key(key(KeyCode::Down));
+    test.app.apply_search_key(key(KeyCode::PageDown));
+
+    assert!(test.sent().is_empty());
+    assert!(test.app.search.as_ref().unwrap().view.pane.is_none());
+}
+
+#[test]
+fn moving_onto_a_folder_cancels_the_preview_and_requests_nothing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    found(&mut test, "sub", true);
+    test.sent();
+
+    test.app.apply_search_key(key(KeyCode::Down));
+
+    assert_eq!(test.sent(), vec![Command::CancelPreview]);
+}
+
+#[test]
+fn a_new_pattern_clears_the_pane_and_cancels_the_preview() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    test.sent();
+
+    test.app.apply_search_key(key(KeyCode::Char('a')));
+
+    assert!(test.app.search.as_ref().unwrap().view.pane.is_none());
+    assert!(test.sent().contains(&Command::CancelPreview));
+}
+
+#[test]
+fn closing_the_search_cancels_a_running_preview() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    test.sent();
+
+    test.app.apply_search_key(key(KeyCode::Esc));
+
+    let sent = test.sent();
+    assert_eq!(sent.len(), 2);
+    assert!(sent.contains(&Command::CancelSearch));
+    assert!(sent.contains(&Command::CancelPreview));
+}
+
+#[test]
+fn opening_a_result_cancels_a_running_preview() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    test.sent();
+
+    test.app.apply_search_key(key(KeyCode::Enter));
+
+    assert!(test.sent().contains(&Command::CancelPreview));
+}
+
+#[test]
+fn a_ready_answer_for_the_current_request_fills_the_pane() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    let (request_id, _) = hints(test.sent()).remove(0);
+
+    test.app.apply_core_event(Event::PreviewReady {
+        request_id,
+        name: "a.txt".to_string(),
+        result: Ok(std::sync::Arc::new(porthmos_core::preview::Preview {
+            size: Some(5),
+            shown: 5,
+            truncated: false,
+            content: porthmos_core::preview::PreviewContent::Text("hello".to_string()),
+        })),
+    });
+
+    let pane = test.app.search.as_ref().unwrap().view.pane.as_ref().unwrap();
+    assert!(!pane.is_loading());
+}
+
+#[test]
+fn an_answer_for_a_file_the_cursor_already_left_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    found(&mut test, "b.txt", false);
+    let (old_id, _) = hints(test.sent()).remove(0);
+    test.app.apply_search_key(key(KeyCode::Down));
+
+    test.app.apply_core_event(Event::PreviewReady {
+        request_id: old_id,
+        name: "a.txt".to_string(),
+        result: Err("stale".to_string()),
+    });
+
+    let pane = test.app.search.as_ref().unwrap().view.pane.as_ref().unwrap();
+    assert!(pane.is_loading());
+}
+
+#[test]
+fn page_down_scrolls_the_pane_not_the_list() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    found(&mut test, "b.txt", false);
+    let (request_id, _) = hints(test.sent()).remove(0);
+    test.app.apply_core_event(Event::PreviewReady {
+        request_id,
+        name: "a.txt".to_string(),
+        result: Ok(std::sync::Arc::new(porthmos_core::preview::Preview {
+            size: Some(400),
+            shown: 400,
+            truncated: false,
+            content: porthmos_core::preview::PreviewContent::Text("x\n".repeat(200)),
+        })),
+    });
+    crate::app::testing::render_app(&test.app, 80, 30);
+
+    test.app.apply_search_key(key(KeyCode::PageDown));
+
+    let view = &test.app.search.as_ref().unwrap().view;
+    assert_eq!(view.selected, 0);
+    assert!(view.pane.as_ref().unwrap().top() > 0);
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_tall_terminal_draws_the_file_below_the_results() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    found(&mut test, "a.txt", false);
+    let (request_id, _) = hints(test.sent()).remove(0);
+    test.app.apply_core_event(Event::PreviewReady {
+        request_id,
+        name: "a.txt".to_string(),
+        result: Ok(std::sync::Arc::new(porthmos_core::preview::Preview {
+            size: Some(11),
+            shown: 11,
+            truncated: false,
+            content: porthmos_core::preview::PreviewContent::Text("hello world".to_string()),
+        })),
+    });
+
+    let terminal = crate::app::testing::render_app(&test.app, 80, 30);
+
+    let (_, list_row) = crate::app::testing::find_text(&terminal, "a.txt").unwrap();
+    let (_, content_row) = crate::app::testing::find_text(&terminal, "hello world").unwrap();
+    assert!(content_row > list_row + 3, "{list_row} {content_row}");
+}
+
+#[test]
+fn a_short_terminal_keeps_every_result_visible_and_draws_no_pane() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    open_search_with_preview(&mut test);
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        found(&mut test, name, false);
+    }
+
+    let terminal = crate::app::testing::render_app(&test.app, 80, 12);
+
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        assert!(crate::app::testing::find_text(&terminal, name).is_some(), "{name}");
+    }
+    assert!(crate::app::testing::find_text(&terminal, "preview \u{b7}").is_none());
+}
+
+#[test]
+fn the_hint_bar_mentions_scrolling_the_preview_only_while_the_setting_is_on() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    let off = crate::app::testing::render_app(&test.app, 100, 30);
+    test.app.search_preview = true;
+    let on = crate::app::testing::render_app(&test.app, 100, 30);
+
+    assert!(crate::app::testing::find_text(&off, "scroll preview").is_none());
+    assert!(crate::app::testing::find_text(&on, "scroll preview").is_some());
+}

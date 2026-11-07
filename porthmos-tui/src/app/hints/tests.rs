@@ -138,7 +138,7 @@ fn transfers_list_retry_cancel_and_clear_done() {
 
 #[test]
 fn the_search_screen_hints_are_move_open_and_esc_close() {
-    let hints = search_hints();
+    let hints = search_hints(false);
 
     assert_eq!(keys_and_labels(&hints), vec![pair("\u{2191}\u{2193}", "move"), pair("enter", "open")]);
     assert_eq!(hints.right, Some(Hint { key: "esc".to_string(), label: "close" }));
@@ -146,7 +146,7 @@ fn the_search_screen_hints_are_move_open_and_esc_close() {
 
 #[test]
 fn the_search_hints_have_no_help_key_because_a_question_mark_is_typed() {
-    assert_eq!(search_hints().pinned, None);
+    assert_eq!(search_hints(false).pinned, None);
 }
 
 fn section<'a>(sections: &'a [HelpSection], title: &str) -> &'a HelpSection {

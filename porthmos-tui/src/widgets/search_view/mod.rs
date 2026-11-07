@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use porthmos_core::Entry;
+use porthmos_core::{Entry, VfsPath};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -14,6 +14,7 @@ use crate::{
         form_fields::render_caret_value,
         frame::{accent_underline, hairline},
         history_view::printable,
+        preview_view::PreviewView,
         text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
     },
 };
@@ -21,6 +22,7 @@ use crate::{
 const MARKER_WIDTH: usize = 2;
 const COUNT_GAP: usize = 3;
 const HEADER_ROWS: u16 = 2;
+pub const PREVIEW_PANE_MIN_BODY: u16 = 12;
 
 pub struct SearchView {
     pub pattern: String,
@@ -28,6 +30,15 @@ pub struct SearchView {
     pub results: Vec<Entry>,
     pub selected: usize,
     pub truncated: bool,
+    pub pane: Option<PreviewView>,
+    previewed: Option<VfsPath>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaneSync {
+    Keep,
+    Cancel,
+    Request { path: VfsPath },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +51,15 @@ pub enum SearchOutcome {
 
 impl SearchView {
     pub fn new() -> Self {
-        Self { pattern: String::new(), cursor: 0, results: Vec::new(), selected: 0, truncated: false }
+        Self {
+            pattern: String::new(),
+            cursor: 0,
+            results: Vec::new(),
+            selected: 0,
+            truncated: false,
+            pane: None,
+            previewed: None,
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> SearchOutcome {
@@ -54,6 +73,13 @@ impl SearchView {
             KeyCode::Down => {
                 if self.selected + 1 < self.results.len() {
                     self.selected += 1;
+                }
+                SearchOutcome::Pending
+            }
+            KeyCode::PageUp | KeyCode::PageDown => {
+                let pages = if key.code == KeyCode::PageUp { -1 } else { 1 };
+                if let Some(pane) = self.pane.as_mut() {
+                    pane.page(pages);
                 }
                 SearchOutcome::Pending
             }
@@ -95,6 +121,28 @@ impl SearchView {
         self.results.clear();
         self.selected = 0;
         self.truncated = false;
+        self.pane = None;
+        self.previewed = None;
+    }
+
+    pub fn sync_pane(&mut self, enabled: bool) -> PaneSync {
+        if !enabled {
+            return PaneSync::Keep;
+        }
+        let Some(entry) = self.results.get(self.selected) else {
+            self.previewed = None;
+            return if self.pane.take().is_some() { PaneSync::Cancel } else { PaneSync::Keep };
+        };
+        if self.previewed.as_ref() == Some(&entry.path) {
+            return PaneSync::Keep;
+        }
+        self.previewed = Some(entry.path.clone());
+        if entry.is_dir {
+            self.pane = Some(PreviewView::folder(entry.name.clone()));
+            return PaneSync::Cancel;
+        }
+        self.pane = Some(PreviewView::loading(entry.name.clone()));
+        PaneSync::Request { path: entry.path.clone() }
     }
 
     pub fn push_result(&mut self, entry: Entry) {
@@ -143,6 +191,16 @@ fn result_line(entry: &Entry, focused: bool, width: usize, theme: &Theme) -> Lin
     };
     let name_style = if focused { theme.focused_name() } else { theme.text() };
     Line::from(vec![marker, Span::styled(directory, theme.dim()), Span::styled(name, name_style)])
+}
+
+pub fn split_for_pane(area: Rect) -> (Rect, Option<Rect>) {
+    let body = area.height.saturating_sub(HEADER_ROWS);
+    if body < PREVIEW_PANE_MIN_BODY {
+        return (area, None);
+    }
+    let pane_height = body / 2;
+    let list = Rect::new(area.x, area.y, area.width, area.height - pane_height);
+    (list, Some(Rect::new(area.x, list.y + list.height, area.width, pane_height)))
 }
 
 pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView, theme: &Theme) {

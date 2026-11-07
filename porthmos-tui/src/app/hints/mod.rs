@@ -68,15 +68,15 @@ pub(super) fn form_hints() -> Hints {
     }
 }
 
-pub(super) fn search_hints() -> Hints {
-    Hints {
-        entries: vec![
-            Hint { key: "\u{2191}\u{2193}".to_string(), label: "move" },
-            Hint { key: "enter".to_string(), label: "open" },
-        ],
-        pinned: None,
-        right: Some(Hint { key: "esc".to_string(), label: "close" }),
+pub(super) fn search_hints(with_preview: bool) -> Hints {
+    let mut entries = vec![
+        Hint { key: "\u{2191}\u{2193}".to_string(), label: "move" },
+        Hint { key: "enter".to_string(), label: "open" },
+    ];
+    if with_preview {
+        entries.push(Hint { key: "PgUp/PgDn".to_string(), label: "scroll preview" });
     }
+    Hints { entries, pinned: None, right: Some(Hint { key: "esc".to_string(), label: "close" }) }
 }
 
 const REORDER_LABELS: [&str; 2] = ["move earlier", "move later"];

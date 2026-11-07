@@ -516,3 +516,43 @@ fn a_size_the_server_did_not_tell_is_left_out_of_the_header() {
     assert!(cut[0].trim_end().ends_with("first 256.0K"), "{:?}", cut[0]);
     assert!(whole[0].trim_end().ends_with("text \u{b7} 5 B"), "{:?}", whole[0]);
 }
+
+fn draw_pane(view: &PreviewView, width: u16, height: u16) -> Terminal<TestBackend> {
+    let theme = indexed();
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render_preview_pane(frame, frame.area(), view, &theme)).unwrap();
+    terminal
+}
+
+#[test]
+fn a_folder_view_names_the_folder_and_says_folder() {
+    let view = PreviewView::folder("sub".to_string());
+
+    let rows = screen_rows(&draw_pane(&view, 60, 8));
+
+    assert!(rows[0].starts_with("preview \u{b7} sub"), "{:?}", rows[0]);
+    assert!(rows.iter().any(|row| row.trim() == "folder"), "{rows:?}");
+    assert!(!view.is_loading());
+}
+
+#[test]
+fn the_pane_has_no_footer_hints_and_uses_the_last_row_for_content() {
+    let view = ready("a.txt", text_preview(&lines(30)));
+
+    let rows = screen_rows(&draw_pane(&view, 60, 8));
+
+    assert!(rows.iter().all(|row| !row.contains("esc close")), "{rows:?}");
+    assert!(rows[7].contains("line 6"), "{:?}", rows[7]);
+}
+
+#[test]
+fn the_pane_scrolls_by_page_like_the_full_view() {
+    let view = ready("a.txt", text_preview(&lines(30)));
+    draw_pane(&view, 60, 8);
+    let mut view = view;
+
+    view.page(1);
+    let rows = screen_rows(&draw_pane(&view, 60, 8));
+
+    assert!(rows[2].contains("line 6"), "{:?}", rows[2]);
+}

@@ -41,7 +41,7 @@ use crate::{
         layout,
         notifications::Notifications,
         panel_view::{self, ActivePanel, PanelView},
-        search_view::{self, SearchOutcome, SearchView},
+        search_view::{self, PaneSync, SearchOutcome, SearchView},
         sync_view::{self, SyncView},
         transfer_list,
         update_badge::BadgeKind,
@@ -188,6 +188,7 @@ pub struct App {
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     update_mode: UpdateMode,
+    search_preview: bool,
     home: Option<VfsPath>,
     update_state: Option<UpdateState>,
     ready_update: Option<String>,
@@ -246,6 +247,7 @@ impl App {
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             update_mode: UpdateMode::default(),
+            search_preview: false,
             home: None,
             update_state: None,
             ready_update: None,
@@ -268,6 +270,11 @@ impl App {
 
     pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
         self.update_mode = mode;
+        self
+    }
+
+    pub fn with_search_preview(mut self, enabled: bool) -> Self {
+        self.search_preview = enabled;
         self
     }
 
@@ -444,6 +451,7 @@ impl App {
             Event::SearchFound(entry) => {
                 if let Some(search) = self.search.as_mut() {
                     search.view.push_result(entry);
+                    self.sync_search_pane();
                 }
             }
             Event::SearchDone { truncated } => {

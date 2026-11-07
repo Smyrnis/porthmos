@@ -5,6 +5,7 @@ use porthmos_core::Entry;
 use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
+use crate::widgets::preview_view::render_preview_pane;
 use crate::{
     app::testing::{cell_bg, cell_fg, find_text, has_unprintable_cell, screen_rows},
     theme::{ColorDepth, ThemeSettings},
@@ -283,4 +284,130 @@ fn the_source_no_longer_uses_the_reversed_modifier_or_a_box() {
 
     assert!(!source.contains("REVERSED"));
     assert!(!source.contains("Borders"));
+}
+
+fn folder(name: &str) -> Entry {
+    Entry { is_dir: true, ..entry(name) }
+}
+
+#[test]
+fn sync_pane_requests_the_selected_file() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+
+    let outcome = view.sync_pane(true);
+
+    assert_eq!(outcome, PaneSync::Request { path: VfsPath::from("/a") });
+    assert!(view.pane.as_ref().unwrap().is_loading());
+}
+
+#[test]
+fn sync_pane_keeps_when_the_selection_did_not_change() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+    view.sync_pane(true);
+    view.push_result(entry("b"));
+
+    assert_eq!(view.sync_pane(true), PaneSync::Keep);
+}
+
+#[test]
+fn sync_pane_follows_the_selection_to_the_next_file() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+    view.push_result(entry("b"));
+    view.sync_pane(true);
+    view.handle_key(key(KeyCode::Down));
+
+    assert_eq!(view.sync_pane(true), PaneSync::Request { path: VfsPath::from("/b") });
+}
+
+#[test]
+fn sync_pane_shows_folder_and_cancels_for_a_directory() {
+    let mut view = SearchView::new();
+    view.push_result(folder("d"));
+
+    assert_eq!(view.sync_pane(true), PaneSync::Cancel);
+    let pane = view.pane.as_ref().unwrap();
+    assert!(!pane.is_loading());
+    assert_eq!(pane.name, "d");
+}
+
+#[test]
+fn sync_pane_cancels_and_clears_when_there_is_no_selection() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+    view.sync_pane(true);
+    view.start();
+
+    assert!(view.pane.is_none());
+    assert_eq!(view.sync_pane(true), PaneSync::Keep);
+}
+
+#[test]
+fn sync_pane_does_nothing_when_disabled() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+
+    assert_eq!(view.sync_pane(false), PaneSync::Keep);
+    assert!(view.pane.is_none());
+}
+
+#[test]
+fn start_clears_the_pane_so_the_same_file_is_requested_again() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+    view.sync_pane(true);
+    view.start();
+    view.push_result(entry("a"));
+
+    assert_eq!(view.sync_pane(true), PaneSync::Request { path: VfsPath::from("/a") });
+}
+
+#[test]
+fn page_keys_scroll_the_pane_and_never_move_the_selection() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+    view.push_result(entry("b"));
+    view.sync_pane(true);
+    view.pane.as_mut().unwrap().finish(Ok(std::sync::Arc::new(porthmos_core::preview::Preview {
+        size: Some(10),
+        shown: 10,
+        truncated: false,
+        content: porthmos_core::preview::PreviewContent::Text("x\n".repeat(200)),
+    })));
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
+    let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    terminal.draw(|frame| render_preview_pane(frame, frame.area(), view.pane.as_ref().unwrap(), &theme)).unwrap();
+
+    assert_eq!(view.handle_key(key(KeyCode::PageDown)), SearchOutcome::Pending);
+
+    assert_eq!(view.selected, 0);
+    assert!(view.pane.as_ref().unwrap().top() > 0);
+}
+
+#[test]
+fn page_keys_do_nothing_without_a_pane() {
+    let mut view = SearchView::new();
+    view.push_result(entry("a"));
+
+    assert_eq!(view.handle_key(key(KeyCode::PageDown)), SearchOutcome::Pending);
+    assert_eq!(view.selected, 0);
+}
+
+#[test]
+fn a_tall_body_splits_off_half_for_the_pane() {
+    let area = Rect::new(0, 0, 80, 24);
+
+    let (list, pane) = split_for_pane(area);
+
+    assert_eq!(pane, Some(Rect::new(0, 13, 80, 11)));
+    assert_eq!(list, Rect::new(0, 0, 80, 13));
+}
+
+#[test]
+fn a_short_body_gets_no_pane() {
+    let area = Rect::new(0, 0, 80, HEADER_ROWS + PREVIEW_PANE_MIN_BODY - 1);
+
+    assert_eq!(split_for_pane(area), (area, None));
 }

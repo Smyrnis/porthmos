@@ -487,8 +487,16 @@ impl App {
     }
 
     fn render_search(&self, frame: &mut Frame, area: Rect) {
-        if let Some(session) = &self.search {
-            search_view::render_search(frame, area, &session.view, &self.theme);
+        let Some(session) = &self.search else {
+            return;
+        };
+        let (list_area, pane_area) = match self.search_preview {
+            true => search_view::split_for_pane(area),
+            false => (area, None),
+        };
+        search_view::render_search(frame, list_area, &session.view, &self.theme);
+        if let (Some(pane_area), Some(pane)) = (pane_area, session.view.pane.as_ref()) {
+            preview_view::render_preview_pane(frame, pane_area, pane, &self.theme);
         }
     }
 
@@ -498,7 +506,7 @@ impl App {
         } else if self.screen_form().is_some() {
             hint_bar(frame, area, &form_hints(), &self.theme);
         } else if self.screen == Screen::Search {
-            hint_bar(frame, area, &search_hints(), &self.theme);
+            hint_bar(frame, area, &search_hints(self.search_preview), &self.theme);
         } else {
             let mut hints = hints_for(self.screen, &self.key_bindings);
             if self.screen == Screen::Connections && !self.details_pane_visible() {
