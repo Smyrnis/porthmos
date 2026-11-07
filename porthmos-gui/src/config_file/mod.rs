@@ -16,6 +16,7 @@ pub enum Edit {
     SetTerminal(Option<String>),
     SetAutoUpload(bool),
     SetUpdateMode(UpdateMode),
+    SetSearchPreview(bool),
 }
 
 fn syntax_error(text: &str, error: &toml_edit::TomlError) -> String {
@@ -131,6 +132,7 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
         },
         Edit::SetAutoUpload(on) => set_in(&mut document, &["edit"], "auto_upload", Value::from(*on))?,
         Edit::SetUpdateMode(mode) => set_in(&mut document, &["update"], "mode", Value::from(mode_text(*mode)))?,
+        Edit::SetSearchPreview(on) => set_in(&mut document, &["search"], "preview", Value::from(*on))?,
     }
     Ok(document.to_string())
 }

@@ -182,6 +182,12 @@ impl App {
             Message::SettingsAutoUploadToggled(on) => {
                 self.core_setting_saved(Edit::SetAutoUpload(on), |settings| settings.auto_upload = on);
             }
+            Message::SettingsSearchPreviewToggled(on) => {
+                if self.save_setting(Edit::SetSearchPreview(on)) {
+                    self.gui_settings.search_preview = on;
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
+            }
             Message::SettingsUpdateModeChosen(mode) => {
                 self.core_setting_saved(Edit::SetUpdateMode(mode), |settings| settings.update_mode = mode);
             }

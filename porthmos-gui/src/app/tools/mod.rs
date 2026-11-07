@@ -10,7 +10,7 @@ use crate::bookmarks::{BookmarksState, Goto, default_label, goto};
 use crate::geometry::{ROW_HEIGHT, scroll_to_show};
 use crate::history_view::{HistoryState, details};
 use crate::modal::Modal;
-use crate::search::{SearchState, result_parent};
+use crate::search::{PreviewSync, SearchState, result_parent};
 use crate::shortcuts::KeyPress;
 use crate::tools::Tool;
 use crate::view::tools::list_height;
@@ -27,6 +27,14 @@ impl App {
     #[cfg(test)]
     pub fn bookmarks(&self) -> &[Bookmark] {
         &self.bookmarks
+    }
+
+    pub fn search_preview_scroll(&self) -> f32 {
+        self.search_preview_scroll
+    }
+
+    pub fn search_preview_id() -> Id {
+        Id::new("search-preview")
     }
 
     pub fn search_input_id() -> Id {
@@ -68,7 +76,7 @@ impl App {
         let Some(root) = self.panel_of(side).map(|panel| panel.path().clone()) else {
             return;
         };
-        self.open_tool(Tool::Search(SearchState::new(location, root)));
+        self.open_tool(Tool::Search(SearchState::new(location, root).with_preview(self.gui_settings.search_preview)));
     }
 
     pub(in crate::app) fn open_bookmarks(&mut self) {
@@ -101,7 +109,12 @@ impl App {
 
     pub(in crate::app) fn close_tool(&mut self) {
         match self.tool.take() {
-            Some(Tool::Search(_)) => self.core.send(Command::CancelSearch),
+            Some(Tool::Search(state)) => {
+                self.core.send(Command::CancelSearch);
+                if state.preview().is_some() {
+                    self.core.send(Command::CancelPreview);
+                }
+            }
             Some(Tool::Preview(state)) if state.is_loading() => self.core.send(Command::CancelPreview),
             Some(Tool::Sync) => self.cancel_sync_review(),
             _ => {}
@@ -131,6 +144,27 @@ impl App {
     pub(in crate::app) fn search_found(&mut self, entry: Entry) {
         if let Some(state) = self.search_mut() {
             state.found(entry);
+        }
+        self.sync_search_preview();
+    }
+
+    fn sync_search_preview(&mut self) {
+        let request_id = self.next_preview_id;
+        let Some(state) = self.search_mut() else {
+            return;
+        };
+        let location = state.location();
+        match state.sync_preview(request_id) {
+            PreviewSync::Keep => {}
+            PreviewSync::Cancel => {
+                self.search_preview_scroll = 0.0;
+                self.core.send(Command::CancelPreview);
+            }
+            PreviewSync::Request { path } => {
+                self.search_preview_scroll = 0.0;
+                self.next_preview_id += 1;
+                self.core.send(Command::PreviewHint { request_id, location, path });
+            }
         }
     }
 
@@ -237,7 +271,10 @@ impl App {
 
     fn move_tool_selection(&mut self, down: bool) {
         match self.tool.as_mut() {
-            Some(Tool::Search(state)) => state.move_selection(down),
+            Some(Tool::Search(state)) => {
+                state.move_selection(down);
+                self.sync_search_preview();
+            }
             Some(Tool::Bookmarks(state)) => state.move_selection(down),
             Some(Tool::History(state)) => state.move_selection(down),
             Some(Tool::Sync) => self.sync_view.move_cursor(if down { 1 } else { -1 }),
@@ -256,7 +293,10 @@ impl App {
 
     fn select_tool_row(&mut self, row: usize) {
         match self.tool.as_mut() {
-            Some(Tool::Search(state)) => state.select(row),
+            Some(Tool::Search(state)) => {
+                state.select(row);
+                self.sync_search_preview();
+            }
             Some(Tool::Bookmarks(state)) => state.select(row),
             Some(Tool::History(state)) => state.select(row),
             Some(Tool::Preview(_) | Tool::Palette(_) | Tool::Settings(_) | Tool::Sync) | None => {}
@@ -313,6 +353,7 @@ impl App {
                 let Some(state) = self.search_mut() else {
                     return Task::none();
                 };
+                let had_preview = state.preview().is_some();
                 let command = match state.set_pattern(text) {
                     Some(request) => {
                         Command::Search { location: request.location, root: request.root, pattern: request.pattern }
@@ -320,6 +361,10 @@ impl App {
                     None => Command::CancelSearch,
                 };
                 self.core.send(command);
+                if had_preview {
+                    self.core.send(Command::CancelPreview);
+                }
+                self.search_preview_scroll = 0.0;
                 self.tool_scroll = 0.0;
                 return operation::scroll_to(App::tool_list_id(), operation::AbsoluteOffset { x: None, y: Some(0.0) });
             }
@@ -331,6 +376,7 @@ impl App {
                 return operation::scroll_to(App::tool_list_id(), operation::AbsoluteOffset { x: None, y: Some(0.0) });
             }
             Message::PreviewScrolled(offset) | Message::SyncScrolled(offset) => self.tool_scroll = offset,
+            Message::SearchPreviewScrolled(offset) => self.search_preview_scroll = offset,
             Message::HistoryDetailsPressed => self.show_history_details(),
             Message::HistoryClearPressed => self.ask_clear_history(),
             Message::SearchRowPressed(row) | Message::BookmarkRowPressed(row) | Message::HistoryRowPressed(row) => {

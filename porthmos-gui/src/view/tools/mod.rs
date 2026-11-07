@@ -60,7 +60,7 @@ pub fn frame_size(tool: &Tool, window: Size) -> Size {
 
 pub fn list_height(tool: &Tool, window: Size) -> f32 {
     match tool {
-        Tool::Search(_) => results_height(window),
+        Tool::Search(state) => search_list_height(window, state.preview_enabled()),
         Tool::Bookmarks(_) => bookmarks_list_height(window),
         Tool::History(_) => history_list_height(window),
         Tool::Preview(_) => preview_list_height(window),
@@ -112,6 +112,28 @@ pub fn results_height(window: Size) -> f32 {
     (panel_size(window).height - CHROME_HEIGHT).max(ROW_HEIGHT)
 }
 
+const PREVIEW_PANE_SHARE: f32 = 0.4;
+const PREVIEW_PANE_MIN_ROWS: f32 = 4.0;
+const PREVIEW_PANE_GAP: f32 = 10.0;
+const PREVIEW_LIST_MIN_ROWS: f32 = 3.0;
+
+pub fn search_preview_pane_height(window: Size, enabled: bool) -> Option<f32> {
+    if !enabled {
+        return None;
+    }
+    let base = results_height(window);
+    let pane = (base * PREVIEW_PANE_SHARE).max(PREVIEW_PANE_MIN_ROWS * ROW_HEIGHT);
+    (base - pane - PREVIEW_PANE_GAP >= PREVIEW_LIST_MIN_ROWS * ROW_HEIGHT).then_some(pane)
+}
+
+pub fn search_list_height(window: Size, enabled: bool) -> f32 {
+    let base = results_height(window);
+    match search_preview_pane_height(window, enabled) {
+        Some(pane) => base - pane - PREVIEW_PANE_GAP,
+        None => base,
+    }
+}
+
 fn result_row<'a>(app: &App, state: &SearchState, index: usize, entry: &Entry, selected: bool) -> Element<'a, Message> {
     let palette = app.palette();
     let name_color = if selected { palette.fg_focus } else { palette.fg };
@@ -156,25 +178,29 @@ fn search_body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message>
     let results = scrollable(rows)
         .id(App::tool_list_id())
         .width(Length::Fill)
-        .height(Length::Fixed(results_height(app.window_size())));
+        .height(Length::Fixed(search_list_height(app.window_size(), state.preview_enabled())));
     let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
     let boxed = container(results).style(move |_| container::Style { border, ..container::Style::default() });
     let open = state.selected().is_some().then_some(Message::SearchOpenPressed);
-    column![
-        bold_label("Search", palette.fg_bright),
-        input,
-        boxed,
-        label(state.status_text(), status_color(state, palette)),
-        hairline_across(palette),
-        row![
-            space().width(Length::Fill),
-            text_button("Close", Some(Message::ToolClosed), Look::Normal, palette),
-            text_button("Open", open, Look::Primary, palette),
-        ]
-        .spacing(8),
-    ]
-    .spacing(10)
-    .into()
+    let mut body = column![bold_label("Search", palette.fg_bright), input, boxed].spacing(10);
+    if let Some(height) = search_preview_pane_height(app.window_size(), state.preview_enabled()) {
+        let pane = match state.preview() {
+            Some(preview) => super::preview::pane(app, preview, height),
+            None => container(space()).width(Length::Fill).height(Length::Fixed(height)).into(),
+        };
+        body = body.push(pane);
+    }
+    body.push(label(state.status_text(), status_color(state, palette)))
+        .push(hairline_across(palette))
+        .push(
+            row![
+                space().width(Length::Fill),
+                text_button("Close", Some(Message::ToolClosed), Look::Normal, palette),
+                text_button("Open", open, Look::Primary, palette),
+            ]
+            .spacing(8),
+        )
+        .into()
 }
 
 const BOOKMARK_ROW_CHROME: f32 = 2.0 + 6.0 + ICON_SIZE + 6.0 + 2.0 * MARGIN;

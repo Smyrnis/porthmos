@@ -151,6 +151,23 @@ fn a_terminal_command_with_backslashes_is_written_so_it_reads_back_the_same() {
 }
 
 #[test]
+fn set_search_preview_writes_a_bool_under_search() {
+    assert_eq!(apply("", &Edit::SetSearchPreview(true)).unwrap(), "[search]\npreview = true\n");
+    assert_eq!(
+        apply("[search]\npreview = true\n", &Edit::SetSearchPreview(false)).unwrap(),
+        "[search]\npreview = false\n"
+    );
+}
+
+#[test]
+fn set_search_preview_keeps_the_other_tables_and_comments() {
+    let kept = apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetSearchPreview(true)).unwrap();
+
+    assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
+    assert!(kept.contains("[search]\npreview = true\n"), "{kept}");
+}
+
+#[test]
 fn set_auto_upload_writes_a_bool() {
     assert_eq!(apply("", &Edit::SetAutoUpload(false)).unwrap(), "[edit]\nauto_upload = false\n");
     assert_eq!(

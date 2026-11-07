@@ -8,11 +8,12 @@ pub struct GuiSettings {
     pub terminal: Option<String>,
     pub auto_upload: bool,
     pub update_mode: UpdateMode,
+    pub search_preview: bool,
 }
 
 impl Default for GuiSettings {
     fn default() -> Self {
-        Self { editor: None, terminal: None, auto_upload: true, update_mode: UpdateMode::Auto }
+        Self { editor: None, terminal: None, auto_upload: true, update_mode: UpdateMode::Auto, search_preview: false }
     }
 }
 

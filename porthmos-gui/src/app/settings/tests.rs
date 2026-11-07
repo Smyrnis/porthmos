@@ -94,6 +94,7 @@ fn opening_shows_the_saved_editor() {
         editor: Some("vi".to_string()),
         terminal: None,
         auto_upload: false,
+        search_preview: false,
         update_mode: UpdateMode::Off,
     };
     let mut harness = Harness::with_gui_settings(settings);
@@ -433,4 +434,29 @@ fn settings_can_be_rebound_by_name() {
 
     assert_eq!(defaults.label_for(Action::Settings).as_deref(), Some("Ctrl+,"));
     assert_eq!(Action::Settings.name(), "settings");
+}
+
+#[test]
+fn the_search_preview_checkbox_writes_the_setting_and_applies_it_at_once() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    assert!(!harness.app.gui_settings().search_preview);
+
+    harness.press(Message::SettingsSearchPreviewToggled(true));
+
+    assert_eq!(config_text(&harness), "[search]\npreview = true\n");
+    assert!(harness.app.gui_settings().search_preview);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+}
+
+#[test]
+fn a_failed_save_leaves_the_search_preview_setting_unchanged() {
+    let mut harness = Harness::new();
+    std::fs::write(config_path(&harness), "[search\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsSearchPreviewToggled(true));
+
+    assert!(!harness.app.gui_settings().search_preview);
+    assert!(matches!(state(&harness).message, Some(SettingsMessage::Error(_))));
 }

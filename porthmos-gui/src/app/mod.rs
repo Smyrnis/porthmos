@@ -171,6 +171,8 @@ pub enum Message {
     SettingsTerminalTyped(String),
     SettingsTerminalApplied,
     SettingsAutoUploadToggled(bool),
+    SettingsSearchPreviewToggled(bool),
+    SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
     SettingsScrolled(f32),
     MoreMenuToggled,
@@ -264,6 +266,7 @@ pub struct App {
     bookmarks: Vec<Bookmark>,
     tool: Option<Tool>,
     tool_scroll: f32,
+    search_preview_scroll: f32,
     sync_view: SyncView,
     tool_version: u64,
     next_preview_id: u64,
@@ -333,6 +336,7 @@ impl App {
             bookmarks: Vec::new(),
             tool: None,
             tool_scroll: 0.0,
+            search_preview_scroll: 0.0,
             sync_view: SyncView::default(),
             tool_version: 0,
             next_preview_id: 1,
@@ -1082,6 +1086,7 @@ impl App {
             | Message::SettingsTerminalTyped(_)
             | Message::SettingsTerminalApplied
             | Message::SettingsAutoUploadToggled(_)
+            | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsUpdateModeChosen(_)
             | Message::SettingsScrolled(_)) => return self.settings_message(message),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
@@ -1114,6 +1119,7 @@ impl App {
             | Message::HistoryDetailsPressed
             | Message::HistoryClearPressed
             | Message::PreviewScrolled(_)
+            | Message::SearchPreviewScrolled(_)
             | Message::SyncFilterTyped(_)
             | Message::SyncRowPressed(_)
             | Message::SyncTickAllPressed

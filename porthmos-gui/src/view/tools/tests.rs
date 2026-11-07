@@ -103,3 +103,30 @@ fn a_long_bookmark_path_is_shortened_with_an_ellipsis_to_the_column() {
     assert!(unicode_width::UnicodeWidthStr::width(shown.as_str()) <= 20);
     assert_eq!(fit_place("/short", 20), "/short");
 }
+
+#[test]
+fn the_list_height_is_unchanged_when_the_preview_is_off() {
+    let window = Size::new(1100.0, 700.0);
+
+    assert_eq!(search_list_height(window, false), results_height(window));
+    assert_eq!(search_preview_pane_height(window, false), None);
+}
+
+#[test]
+fn the_pane_takes_room_from_the_list_when_the_preview_is_on() {
+    let window = Size::new(1100.0, 700.0);
+
+    let pane = search_preview_pane_height(window, true).unwrap();
+
+    assert!(pane >= 4.0 * ROW_HEIGHT);
+    assert!(search_list_height(window, true) + pane < results_height(window));
+    assert!(search_list_height(window, true) >= 3.0 * ROW_HEIGHT);
+}
+
+#[test]
+fn a_small_window_keeps_the_whole_list_and_has_no_pane() {
+    let window = Size::new(480.0, 320.0);
+
+    assert_eq!(search_preview_pane_height(window, true), None);
+    assert_eq!(search_list_height(window, true), results_height(window));
+}

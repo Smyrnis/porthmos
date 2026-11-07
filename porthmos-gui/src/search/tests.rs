@@ -1,6 +1,6 @@
 use porthmos_core::{Entry, Location, VfsPath};
 
-use super::{SearchState, SearchStatus, result_parent};
+use super::{PreviewSync, SearchPreview, SearchState, SearchStatus, result_parent};
 
 fn root() -> VfsPath {
     VfsPath::new("/data")
@@ -191,4 +191,88 @@ fn the_selection_stays_on_the_same_result_when_an_earlier_one_arrives() {
 
     assert_eq!(state.selected().map(|entry| entry.name.clone()).as_deref(), Some("z.txt"));
     assert_eq!(state.selected_row(), Some(2));
+}
+
+fn previewing() -> SearchState {
+    let mut state = SearchState::new(Location::Local, root()).with_preview(true);
+    state.set_pattern("a".to_string());
+    state
+}
+
+fn folder_hit(path: &str) -> Entry {
+    Entry { is_dir: true, ..hit(path) }
+}
+
+#[test]
+fn sync_preview_requests_the_selected_file() {
+    let mut state = previewing();
+    state.found(hit("/data/a.txt"));
+
+    let outcome = state.sync_preview(7);
+
+    assert_eq!(outcome, PreviewSync::Request { path: VfsPath::new("/data/a.txt") });
+    assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if file.is_loading()));
+}
+
+#[test]
+fn sync_preview_keeps_when_the_selected_file_is_unchanged() {
+    let mut state = previewing();
+    state.found(hit("/data/b.txt"));
+    state.sync_preview(1);
+    state.found(hit("/data/a.txt"));
+
+    assert_eq!(state.sync_preview(2), PreviewSync::Keep);
+}
+
+#[test]
+fn sync_preview_shows_folder_and_cancels_for_a_directory() {
+    let mut state = previewing();
+    state.found(folder_hit("/data/sub"));
+
+    assert_eq!(state.sync_preview(1), PreviewSync::Cancel);
+    assert!(matches!(state.preview(), Some(SearchPreview::Folder(name)) if name == "sub"));
+}
+
+#[test]
+fn sync_preview_is_inert_when_the_setting_is_off() {
+    let mut state = searching();
+    state.found(hit("/data/a.txt"));
+
+    assert_eq!(state.sync_preview(1), PreviewSync::Keep);
+    assert!(state.preview().is_none());
+}
+
+#[test]
+fn a_new_pattern_clears_the_preview_so_the_same_file_is_requested_again() {
+    let mut state = previewing();
+    state.found(hit("/data/a.txt"));
+    state.sync_preview(1);
+
+    state.set_pattern("ab".to_string());
+    assert!(state.preview().is_none());
+    state.found(hit("/data/a.txt"));
+
+    assert_eq!(state.sync_preview(2), PreviewSync::Request { path: VfsPath::new("/data/a.txt") });
+}
+
+#[test]
+fn preview_arrived_ignores_an_old_request_id() {
+    let mut state = previewing();
+    state.found(hit("/data/a.txt"));
+    state.sync_preview(5);
+
+    state.preview_arrived(4, Err("stale".to_string()));
+
+    assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if file.is_loading()));
+}
+
+#[test]
+fn preview_arrived_fills_the_pane_for_the_current_request() {
+    let mut state = previewing();
+    state.found(hit("/data/a.txt"));
+    state.sync_preview(5);
+
+    state.preview_arrived(5, Err("denied".to_string()));
+
+    assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if !file.is_loading()));
 }

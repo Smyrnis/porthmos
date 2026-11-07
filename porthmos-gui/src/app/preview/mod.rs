@@ -40,8 +40,12 @@ impl App {
     }
 
     pub(in crate::app) fn preview_arrived(&mut self, request_id: u64, result: Result<Arc<Preview>, String>) {
-        if let Some(Tool::Preview(state)) = self.tool.as_mut() {
-            state.finish(request_id, result);
+        match self.tool.as_mut() {
+            Some(Tool::Preview(state)) => {
+                state.finish(request_id, result);
+            }
+            Some(Tool::Search(state)) => state.preview_arrived(request_id, result),
+            _ => {}
         }
     }
 

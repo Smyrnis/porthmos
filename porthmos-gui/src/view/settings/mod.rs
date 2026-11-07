@@ -91,6 +91,14 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
     .into()
 }
 
+fn search_section<'a>(app: &'a App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let preview = checkbox(app.gui_settings().search_preview)
+        .label("Show a preview of the file under the cursor")
+        .on_toggle(Message::SettingsSearchPreviewToggled);
+    column![section("Search", palette), preview].spacing(8).into()
+}
+
 fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
     let input = text_input(TERMINAL_PLACEHOLDER, &state.terminal_text)
@@ -137,9 +145,15 @@ pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> 
     for action in Action::all() {
         shortcuts = shortcuts.push(shortcut_row(app, state, action));
     }
-    let content = column![shortcuts, editing_section(app, state), terminal_section(app, state), updates_section(app)]
-        .spacing(16)
-        .padding([0, 12]);
+    let content = column![
+        shortcuts,
+        editing_section(app, state),
+        search_section(app),
+        terminal_section(app, state),
+        updates_section(app)
+    ]
+    .spacing(16)
+    .padding([0, 12]);
     let list = scrollable(content)
         .id(App::tool_list_id())
         .on_scroll(|viewport| Message::SettingsScrolled(viewport.absolute_offset().y))

@@ -8,6 +8,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         terminal: None,
         auto_upload: true,
         update_mode: UpdateMode::Notify,
+        search_preview: false,
     }
 }
 
@@ -35,6 +36,7 @@ fn the_defaults_match_the_core_defaults() {
     assert_eq!(defaults.editor, None);
     assert!(defaults.auto_upload);
     assert_eq!(defaults.update_mode, UpdateMode::Auto);
+    assert!(!defaults.search_preview);
 }
 
 #[test]

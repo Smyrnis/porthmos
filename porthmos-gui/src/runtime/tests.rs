@@ -123,3 +123,23 @@ async fn started_offers_the_folder_the_last_run_ended_in() {
     assert_eq!(started.core.remembered_local_folder(), Some(porthmos_core::from_os_path(folder.path())));
     started.core.shutdown().await;
 }
+
+#[tokio::test]
+async fn started_carries_the_search_preview_setting() {
+    for (text, expected) in [("true", true), ("false", false)] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::in_dir(root.path());
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(paths.config_file(), format!("[search]\npreview = {text}\n")).unwrap();
+
+        let started = start(Environment::from_process(), paths).unwrap();
+
+        assert_eq!(started.settings.search_preview, expected, "{text}");
+        started.core.shutdown().await;
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let started = start(Environment::from_process(), Paths::in_dir(root.path())).unwrap();
+    assert!(!started.settings.search_preview);
+    started.core.shutdown().await;
+}

@@ -972,3 +972,200 @@ fn the_cursor_is_not_pulled_back_by_a_later_unrelated_listing() {
 
     assert_eq!(cursor_name(&harness).as_deref(), Some("a.txt"));
 }
+
+fn previewing_harness() -> Harness {
+    Harness::with_gui_settings(crate::settings_view::GuiSettings {
+        search_preview: true,
+        ..crate::settings_view::GuiSettings::default()
+    })
+}
+
+fn hints(commands: Vec<Command>) -> Vec<(u64, VfsPath)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::PreviewHint { request_id, path, .. } => Some((request_id, path)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_first_result_is_hinted_when_the_setting_is_on() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    harness.sent();
+
+    found(&mut harness, "/data/a.txt");
+
+    let sent = hints(harness.sent());
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].1, VfsPath::new("/data/a.txt"));
+}
+
+#[test]
+fn no_hint_is_sent_when_the_setting_is_off() {
+    let mut harness = Harness::new();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    found(&mut harness, "/data/b.txt");
+    named(&mut harness, Named::ArrowDown);
+    harness.press(Message::SearchRowPressed(0));
+
+    assert!(hints(harness.sent()).is_empty());
+    assert!(search_state(&harness).preview().is_none());
+}
+
+#[test]
+fn moving_the_selection_with_the_keyboard_hints_the_new_file() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    found(&mut harness, "/data/b.txt");
+    let first = hints(harness.sent());
+
+    named(&mut harness, Named::ArrowDown);
+
+    let second = hints(harness.sent());
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].1, VfsPath::new("/data/b.txt"));
+    assert!(second[0].0 > first[0].0);
+}
+
+#[test]
+fn clicking_a_row_hints_that_row() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    found(&mut harness, "/data/b.txt");
+    harness.sent();
+
+    harness.press(Message::SearchRowPressed(1));
+
+    let sent = hints(harness.sent());
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].1, VfsPath::new("/data/b.txt"));
+}
+
+#[test]
+fn clicking_the_row_that_is_already_shown_does_not_hint_again() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    harness.sent();
+
+    harness.press(Message::SearchRowPressed(0));
+
+    assert!(hints(harness.sent()).is_empty());
+}
+
+#[test]
+fn typing_a_new_pattern_cancels_the_preview_and_clears_the_pane() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    harness.sent();
+
+    search(&mut harness, "ab");
+
+    assert!(harness.sent().contains(&Command::CancelPreview));
+    assert!(search_state(&harness).preview().is_none());
+}
+
+#[test]
+fn closing_the_search_cancels_a_running_preview() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    harness.sent();
+
+    named(&mut harness, Named::Escape);
+
+    let sent = harness.sent();
+    assert!(sent.contains(&Command::CancelSearch), "{sent:?}");
+    assert!(sent.contains(&Command::CancelPreview), "{sent:?}");
+}
+
+#[test]
+fn an_answer_for_the_current_request_fills_the_pane() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    let (request_id, _) = hints(harness.sent()).remove(0);
+
+    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("denied".to_string()) });
+
+    assert!(matches!(
+        search_state(&harness).preview(),
+        Some(crate::search::SearchPreview::File(file)) if !file.is_loading()
+    ));
+}
+
+#[test]
+fn an_answer_for_a_file_the_selection_already_left_is_ignored() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    found(&mut harness, "/data/b.txt");
+    let (old_id, _) = hints(harness.sent()).remove(0);
+    named(&mut harness, Named::ArrowDown);
+
+    harness.feed(Event::PreviewReady {
+        request_id: old_id,
+        name: "a.txt".to_string(),
+        result: Err("stale".to_string()),
+    });
+
+    assert!(matches!(
+        search_state(&harness).preview(),
+        Some(crate::search::SearchPreview::File(file)) if file.is_loading()
+    ));
+}
+
+#[test]
+fn moving_the_selection_resets_the_pane_scroll() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    found(&mut harness, "/data/b.txt");
+    harness.press(Message::SearchPreviewScrolled(240.0));
+    assert_eq!(harness.app.search_preview_scroll(), 240.0);
+
+    named(&mut harness, Named::ArrowDown);
+
+    assert_eq!(harness.app.search_preview_scroll(), 0.0);
+}
+
+#[test]
+fn the_search_view_builds_for_every_state_of_the_pane() {
+    let mut harness = previewing_harness();
+    open_search(&mut harness);
+    drop(harness.app.view());
+    search(&mut harness, "a");
+    found(&mut harness, "/data/a.txt");
+    drop(harness.app.view());
+    let (request_id, _) = hints(harness.sent()).remove(0);
+    let text = std::sync::Arc::new(porthmos_core::preview::Preview {
+        size: Some(12),
+        shown: 12,
+        truncated: false,
+        content: porthmos_core::preview::PreviewContent::Text("hello\nworld\n".to_string()),
+    });
+    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Ok(text) });
+    drop(harness.app.view());
+    harness.feed(Event::SearchFound(Entry { is_dir: true, ..hit("/data/sub") }));
+    named(&mut harness, Named::ArrowDown);
+    drop(harness.app.view());
+    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("denied".to_string()) });
+    drop(harness.app.view());
+}
