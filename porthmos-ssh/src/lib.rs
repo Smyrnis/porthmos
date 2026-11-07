@@ -1,3 +1,4 @@
+pub mod askpass;
 pub mod client;
 mod connect;
 mod discovery;
@@ -7,6 +8,7 @@ pub mod shell;
 pub mod ssh_config;
 #[cfg(feature = "testing")]
 pub mod testing;
+mod version;
 
 pub use connect::{ConnectOptions, Session, connect};
 pub use discovery::{DEFAULT_PORT, discover, identity_path, shell_command};

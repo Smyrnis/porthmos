@@ -5,7 +5,7 @@ use std::{
 
 use porthmos_vfs::{Environment, ProtocolError, ShellInvocation, Target};
 
-use crate::{shell, ssh_config};
+use crate::{shell, ssh_config, version::installed_ssh_version};
 
 pub const DEFAULT_PORT: u16 = 22;
 const FALLBACK_USERNAME: &str = "root";
@@ -54,8 +54,11 @@ pub fn discover(env: &Environment) -> Result<Vec<Target>, ProtocolError> {
 
 pub fn shell_command(target: &Target, env: &Environment) -> ShellInvocation {
     let sshpass = env.path.as_deref().and_then(shell::find_sshpass_in);
+    let helper = shell::live_helper(std::env::current_exe().ok());
+    let version = target.password.as_ref().and_then(|_| installed_ssh_version());
+    let login = shell::password_login(target.password.as_deref(), helper, version, sshpass);
     let alias = matches_its_ssh_config_alias(target, env).then_some(target.name.as_str());
-    shell::invocation_for(target, alias, sshpass)
+    shell::invocation_for(target, alias, login)
 }
 
 #[cfg(test)]
