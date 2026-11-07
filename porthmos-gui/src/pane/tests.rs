@@ -141,3 +141,43 @@ fn a_reveal_for_a_name_that_is_not_listed_asks_for_no_scrolling() {
 
     assert!(!pane.take_reveal_request());
 }
+
+#[test]
+fn a_typed_path_accepts_the_folder_core_resolved_and_records_the_history() {
+    let mut pane = Pane::new(VfsPath::new("/a"));
+    pane.expect_typed();
+
+    assert!(pane.accept(VfsPath::new("/home/u/docs"), Vec::new()));
+
+    assert_eq!(pane.panel.path(), &VfsPath::new("/home/u/docs"));
+    assert_eq!(pane.history.back(VfsPath::new("/home/u/docs")), Some(VfsPath::new("/a")));
+}
+
+#[test]
+fn a_typed_path_keeps_waiting_through_a_listing_of_the_current_folder() {
+    let mut pane = Pane::new(VfsPath::new("/a"));
+    pane.expect_typed();
+
+    assert!(pane.accept(VfsPath::new("/a"), Vec::new()));
+    assert!(pane.accept(VfsPath::new("/b"), Vec::new()));
+    assert_eq!(pane.panel.path(), &VfsPath::new("/b"));
+}
+
+#[test]
+fn finishing_a_typed_path_goes_back_to_accepting_only_the_current_folder() {
+    let mut pane = Pane::new(VfsPath::new("/a"));
+    pane.expect_typed();
+    pane.finish_typed();
+
+    assert!(!pane.accept(VfsPath::new("/b"), Vec::new()));
+    assert!(pane.accept(VfsPath::new("/a"), Vec::new()));
+}
+
+#[test]
+fn finishing_leaves_a_pending_folder_request_alone() {
+    let mut pane = Pane::new(VfsPath::new("/a"));
+    pane.expect(Some(VfsPath::new("/b")));
+    pane.finish_typed();
+
+    assert!(pane.accept(VfsPath::new("/b"), Vec::new()));
+}

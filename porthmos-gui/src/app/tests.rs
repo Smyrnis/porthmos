@@ -3164,8 +3164,17 @@ fn a_crumb_press_lists_that_folder() {
     assert_eq!(listed_paths(&harness.sent()), ["/home"]);
 }
 
+fn go_to_paths(sent: &[Command]) -> Vec<(Location, VfsPath, String)> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::GoToPath { location, from, text } => Some((*location, from.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
-fn submitting_a_path_lists_it_and_closes_the_editor() {
+fn submitting_a_path_hands_the_text_to_core_and_closes_the_editor() {
     let mut harness = Harness::new();
     fill_local(&mut harness, &["a"]);
     harness.sent();
@@ -3175,12 +3184,14 @@ fn submitting_a_path_lists_it_and_closes_the_editor() {
     harness.press(Message::PathTyped("/tmp".to_string()));
     harness.press(Message::PathSubmitted);
 
-    assert_eq!(listed_paths(&harness.sent()), ["/tmp"]);
+    let sent = harness.sent();
+    assert_eq!(go_to_paths(&sent), vec![(Location::Local, harness.start_folder(), "/tmp".to_string())]);
+    assert!(listed_paths(&sent).is_empty());
     assert!(harness.app.path_edit().is_none());
 }
 
 #[test]
-fn a_leading_tilde_means_the_local_start_folder() {
+fn a_typed_tilde_is_left_for_core_to_resolve() {
     let mut harness = Harness::new();
     harness.sent();
 
@@ -3188,7 +3199,71 @@ fn a_leading_tilde_means_the_local_start_folder() {
     harness.press(Message::PathTyped("~/docs".to_string()));
     harness.press(Message::PathSubmitted);
 
-    assert_eq!(listed_paths(&harness.sent()), ["/home/tester/docs"]);
+    let sent = harness.sent();
+    assert_eq!(go_to_paths(&sent).into_iter().map(|(_, _, text)| text).collect::<Vec<_>>(), ["~/docs"]);
+    assert!(listed_paths(&sent).is_empty());
+}
+
+#[test]
+fn the_folder_core_resolved_is_shown_and_recorded_in_the_history() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("~/docs".to_string()));
+    harness.press(Message::PathSubmitted);
+
+    harness.feed(Event::Listed {
+        location: Location::Local,
+        path: VfsPath::new("/home/tester/docs"),
+        entries: Vec::new(),
+    });
+    harness.feed(Event::PathOpened { location: Location::Local });
+
+    assert_eq!(local_folder(&harness), VfsPath::new("/home/tester/docs"));
+    assert!(harness.app.can_go_back(PanelSide::Local));
+}
+
+#[test]
+fn a_refresh_of_the_old_folder_does_not_hide_the_resolved_folder() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("/tmp".to_string()));
+    harness.press(Message::PathSubmitted);
+
+    fill_local(&mut harness, &["a"]);
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/tmp"), entries: Vec::new() });
+
+    assert_eq!(local_folder(&harness), VfsPath::new("/tmp"));
+}
+
+#[test]
+fn a_listing_of_another_folder_is_dropped_again_once_the_path_is_opened() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("/tmp".to_string()));
+    harness.press(Message::PathSubmitted);
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/tmp"), entries: Vec::new() });
+    harness.feed(Event::PathOpened { location: Location::Local });
+
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/elsewhere"), entries: Vec::new() });
+
+    assert_eq!(local_folder(&harness), VfsPath::new("/tmp"));
+}
+
+#[test]
+fn a_rejected_path_stops_the_pane_from_accepting_other_folders() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("/nope".to_string()));
+    harness.press(Message::PathSubmitted);
+    harness.feed(Event::PathRejected { location: Location::Local });
+
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/elsewhere"), entries: Vec::new() });
+
+    assert_eq!(local_folder(&harness), harness.start_folder());
 }
 
 #[test]

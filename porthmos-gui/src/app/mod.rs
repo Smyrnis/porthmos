@@ -8,8 +8,7 @@ use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::transfer::conflicts::Resolution;
 use porthmos_core::transfer::rows::RowKind;
 use porthmos_core::{
-    Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath,
-    from_os_path, to_os_path,
+    Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath, to_os_path,
 };
 
 use porthmos_core::config::bookmarks::Bookmark;
@@ -279,7 +278,6 @@ pub struct App {
     more_open: bool,
     context_menu: Option<ContextMenu>,
     path_edit: Option<PathEdit>,
-    local_home: VfsPath,
     modals: ModalQueue,
     transfers: TransferState,
     queue: QueuePane,
@@ -349,7 +347,6 @@ impl App {
             more_open: false,
             context_menu: None,
             path_edit: None,
-            local_home: local_start.clone(),
             modals: ModalQueue::default(),
             transfers: TransferState::default(),
             queue: QueuePane::default(),
@@ -791,6 +788,11 @@ impl App {
                 }
             }
             Event::LocationChanged { location } => self.relist(location),
+            Event::PathOpened { location } | Event::PathRejected { location } => {
+                if let Some(pane) = self.pane_mut(location) {
+                    pane.finish_typed();
+                }
+            }
             Event::Profiles(entries) => self.profiles_arrived(entries),
             Event::ProfileSaved => self.profile_saved(),
             Event::KeyringStatus { available } => self.keyring_available = available,
@@ -907,19 +909,16 @@ impl App {
         }
     }
 
-    fn parse_path(&self, side: PanelSide, text: &str) -> VfsPath {
-        let home = (side == PanelSide::Local).then(|| text.strip_prefix('~')).flatten();
-        let parsed = match (home, side) {
-            (Some(rest), _) if rest.is_empty() || rest.starts_with('/') => {
-                self.local_home.join(VfsPath::new(rest.trim_start_matches('/')))
-            }
-            (_, PanelSide::Local) => from_os_path(std::path::Path::new(text)),
-            (_, PanelSide::Remote) => VfsPath::new(text),
+    fn go_to_typed(&mut self, side: PanelSide, text: String) {
+        let Some(location) = self.location_of(side) else {
+            return;
         };
-        match self.panel_of(side) {
-            Some(panel) if !parsed.is_absolute() => panel.path().join(parsed),
-            _ => parsed,
-        }
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        let from = pane.panel.path().clone();
+        pane.expect_typed();
+        self.core.send(Command::GoToPath { location, from, text });
     }
 
     fn relist(&mut self, location: Location) {
@@ -1055,8 +1054,7 @@ impl App {
                 if let Some(edit) = self.path_edit.take() {
                     let text = edit.text.trim();
                     if !text.is_empty() {
-                        let path = self.parse_path(edit.side, text);
-                        self.go_to(edit.side, path);
+                        self.go_to_typed(edit.side, text.to_string());
                     }
                 }
             }

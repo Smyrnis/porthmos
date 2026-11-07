@@ -8,6 +8,7 @@ use crate::panel::Panel;
 enum Expected {
     Current,
     Anything,
+    Typed,
     Folder(VfsPath),
 }
 
@@ -74,17 +75,28 @@ impl Pane {
         };
     }
 
+    pub fn expect_typed(&mut self) {
+        self.recording = true;
+        self.expected = Expected::Typed;
+    }
+
+    pub fn finish_typed(&mut self) {
+        if self.expected == Expected::Typed {
+            self.expected = Expected::Current;
+        }
+    }
+
     pub fn accept(&mut self, path: VfsPath, entries: Vec<Entry>) -> bool {
         let requested = match &self.expected {
-            Expected::Anything => true,
+            Expected::Anything | Expected::Typed => true,
             Expected::Folder(folder) => folder == &path,
             Expected::Current => false,
         };
         if !requested && &path != self.panel.path() {
             return false;
         }
-        let navigating = matches!(self.expected, Expected::Folder(_));
-        if requested {
+        let navigating = matches!(self.expected, Expected::Folder(_) | Expected::Typed);
+        if requested && self.expected != Expected::Typed {
             self.expected = Expected::Current;
         }
         if &path != self.panel.path() {
