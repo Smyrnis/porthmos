@@ -46,6 +46,7 @@ impl App {
             Action::BookmarkHere => self.open_bookmark_add_dialog(),
             Action::OpenBookmarks => self.open_bookmarks_dialog(),
             Action::OpenSearch => self.open_search_screen(),
+            Action::GoToPath => self.open_path_edit(),
             Action::Filter => self.start_filter(),
             Action::OpenTransfers => self.open_transfers_screen(),
             Action::OpenHistory => self.open_history_screen(),

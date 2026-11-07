@@ -68,6 +68,14 @@ pub(super) fn form_hints() -> Hints {
     }
 }
 
+pub(super) fn path_edit_hints() -> Hints {
+    Hints {
+        entries: vec![Hint { key: "enter".to_string(), label: "go" }],
+        pinned: None,
+        right: Some(Hint { key: "esc".to_string(), label: "cancel" }),
+    }
+}
+
 pub(super) fn search_hints(with_preview: bool) -> Hints {
     let mut entries = vec![
         Hint { key: "\u{2191}\u{2193}".to_string(), label: "move" },
@@ -150,6 +158,7 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
         .collect();
     if let Some(files) = sections.first_mut() {
         files.rows.extend(session_rows(bindings));
+        files.rows.push(HelpRow { key: key_text(bindings, Scope::Files, Action::GoToPath), action: "go to path" });
     }
 
     let listed = |action: &Action| {

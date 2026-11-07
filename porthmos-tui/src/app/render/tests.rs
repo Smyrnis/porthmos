@@ -381,9 +381,9 @@ fn the_hint_bar_and_the_help_overlay_agree_on_a_remapped_help_key() {
     assert!(bottom_row(&hints).contains("Ctrl+G help"), "{:?}", bottom_row(&hints));
 
     app.help_visible = true;
-    let overlay = render_app(&app, 100, 60);
+    let overlay = render_app(&app, 100, 70);
     let (_, y) = find_text(&overlay, "Ctrl+G").expect("overlay lists the remapped key");
-    assert!(y < 59);
+    assert!(y < 69);
     assert!(find_text(&overlay, &format!("Ctrl+G{}help", " ".repeat(6))).is_some());
 }
 
@@ -1821,4 +1821,90 @@ fn the_connections_screen_shows_the_state_core_published_for_a_connection() {
     let terminal = render_app(&app, 120, 24);
     assert!(find_text(&terminal, "connection lost").is_none());
     assert!(find_text(&terminal, "\u{2022} connected").is_none());
+}
+
+fn rendered_rows(app: &App, width: u16, height: u16) -> Vec<String> {
+    let terminal = render_app(app, width, height);
+    let buffer = terminal.backend().buffer();
+    (0..buffer.area.height)
+        .map(|y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol().to_string()).collect())
+        .collect()
+}
+
+fn typing_in_the_path_field(app: &mut App, text: &str) {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    app.apply_key(KeyEvent::new(KeyCode::Char('\''), KeyModifiers::CONTROL));
+    for _ in 0..app.path_edit.as_ref().map_or(0, |edit| edit.field.text.len()) {
+        app.apply_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    for character in text.chars() {
+        app.apply_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+}
+
+#[test]
+fn the_field_replaces_the_folder_in_the_active_panel_header() {
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/typed/where");
+
+    let rows = rendered_rows(&app, 100, 20);
+
+    let header = rows.iter().find(|row| row.contains("/typed/where")).expect("typed text in a header");
+    assert!(header.trim_start().starts_with("local"), "{header}");
+    assert_eq!(header.matches("/typed/where").count(), 1);
+    assert!(!header.contains("/d "), "{header}");
+}
+
+#[test]
+fn the_other_panel_header_stays_while_the_field_is_open() {
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/typed/where");
+
+    let rows = rendered_rows(&app, 100, 20);
+
+    let header = rows.iter().find(|row| row.contains("/typed/where")).unwrap();
+    assert!(header.contains("remote"), "{header}");
+}
+
+#[test]
+fn a_long_path_in_the_field_keeps_the_caret_visible() {
+    let (_dir, mut app) = app_in_temp_dir();
+    let long = format!("/{}", "x".repeat(99));
+    typing_in_the_path_field(&mut app, &long);
+
+    let mut terminal = render_app(&app, 100, 12);
+
+    let position = terminal.get_cursor_position().unwrap();
+    let rows = rendered_rows(&app, 100, 12);
+    let header_row = rows.iter().position(|row| row.contains("xxxxx")).expect("typed text in a header");
+    assert_eq!(usize::from(position.y), header_row);
+    assert!(position.x < 50, "caret column {} not inside the left panel", position.x);
+}
+
+#[test]
+fn the_hint_bar_shows_enter_go_and_esc_cancel_while_editing() {
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/x");
+
+    let text = hint_bar_text(&app);
+
+    assert!(text.contains("enter"), "{text}");
+    assert!(text.contains("go"), "{text}");
+    assert!(text.contains("esc"), "{text}");
+    assert!(text.contains("cancel"), "{text}");
+}
+
+#[test]
+fn the_folder_comes_back_after_the_field_closes() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/typed/where");
+    app.apply_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    let rows = rendered_rows(&app, 100, 20);
+
+    assert!(!rows.iter().any(|row| row.contains("/typed/where")));
+    assert!(rows.iter().any(|row| row.trim_start().starts_with("local") && row.contains("/d")));
 }

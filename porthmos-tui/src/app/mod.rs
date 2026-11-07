@@ -58,6 +58,7 @@ mod filter;
 mod hints;
 mod history;
 mod palette;
+mod path_edit;
 mod preview;
 mod render;
 mod search;
@@ -188,6 +189,7 @@ pub struct App {
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     update_mode: UpdateMode,
+    path_edit: Option<path_edit::PathEdit>,
     search_preview: bool,
     home: Option<VfsPath>,
     update_state: Option<UpdateState>,
@@ -247,6 +249,7 @@ impl App {
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             update_mode: UpdateMode::default(),
+            path_edit: None,
             search_preview: false,
             home: None,
             update_state: None,
@@ -362,6 +365,9 @@ impl App {
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
+        if self.drop_stale_path_edit() {
+            return;
+        }
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
@@ -376,6 +382,8 @@ impl App {
         } else if self.dialog.is_some() {
             self.apply_dialog_key(key);
             self.after_dialog_key();
+        } else if self.path_edit.is_some() {
+            self.apply_path_key(key);
         } else if self.screen == Screen::Search {
             if self.opens_palette(key) {
                 self.open_palette();
@@ -401,6 +409,11 @@ impl App {
     }
 
     fn apply_core_event(&mut self, event: Event) {
+        self.route_core_event(event);
+        self.drop_stale_path_edit();
+    }
+
+    fn route_core_event(&mut self, event: Event) {
         match event {
             Event::Notice { severity, message } => self.notifications.push(severity, message.to_string()),
             Event::ConnectionState { name, state } => {
@@ -421,6 +434,7 @@ impl App {
             }
             Event::ShellReady { .. } | Event::LocalShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
+            Event::PathOpened { location } => self.finish_path_edit(location),
             Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
             Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
@@ -465,6 +479,7 @@ impl App {
                     self.notifications.push(Severity::Error, message);
                 }
             }
+            Event::PathRejected { location } => self.reject_path_edit(location),
             Event::KeyringStatus { available } => self.keyring_available = available,
             Event::KeyringWaiting { waiting } => self.keyring_waiting = waiting,
             Event::SaveChoice { save } => self.save_choice = save,

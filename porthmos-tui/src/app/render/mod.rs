@@ -5,7 +5,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use super::{
-    hints::{form_hints, help_sections, hints_for, search_hints},
+    hints::{form_hints, help_sections, hints_for, path_edit_hints, search_hints},
     *,
 };
 use crate::widgets::{
@@ -301,6 +301,7 @@ impl App {
                 active: local_active,
                 show_modified,
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
+                editing: self.editing_field(Location::Local),
                 now: &now,
             };
             panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
@@ -316,6 +317,7 @@ impl App {
                         active: !local_active,
                         show_modified,
                         switch_hint,
+                        editing: self.editing_field(Location::Session(session.id)),
                         now: &now,
                     };
                     panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
@@ -327,6 +329,7 @@ impl App {
                         active: !local_active,
                         show_modified,
                         switch_hint,
+                        editing: None,
                         now: &now,
                     };
                     let lines = self.remote_placeholder_lines();
@@ -505,6 +508,8 @@ impl App {
             frame.render_widget(Paragraph::new(printable(&text)).style(self.theme.muted()), area);
         } else if self.screen_form().is_some() {
             hint_bar(frame, area, &form_hints(), &self.theme);
+        } else if self.path_edit.is_some() {
+            hint_bar(frame, area, &path_edit_hints(), &self.theme);
         } else if self.screen == Screen::Search {
             hint_bar(frame, area, &search_hints(self.search_preview), &self.theme);
         } else {
@@ -548,7 +553,7 @@ impl App {
     }
 }
 
-fn abbreviate_home(path: &VfsPath, home: Option<&VfsPath>) -> String {
+pub(super) fn abbreviate_home(path: &VfsPath, home: Option<&VfsPath>) -> String {
     let usable_home = home.filter(|home| !home.is_empty() && !home.is_root());
     match usable_home.and_then(|home| path.strip_prefix(home)) {
         Some(rest) if rest.is_empty() => "~".to_string(),

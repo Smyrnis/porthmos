@@ -28,6 +28,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::BookmarkHere, "Bookmark this folder", Availability::On(Screen::Files)),
     (Action::OpenBookmarks, "Bookmarks", Availability::On(Screen::Files)),
     (Action::OpenSearch, "Search files", Availability::On(Screen::Files)),
+    (Action::GoToPath, "Go to folder path", Availability::On(Screen::Files)),
     (Action::OpenSync, "Synchronize folders", Availability::On(Screen::Files)),
     (Action::CycleSession, "Next session", Availability::On(Screen::Files)),
     (Action::OpenTerminal, "Open a terminal in the active folder", Availability::On(Screen::Files)),

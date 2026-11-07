@@ -19,8 +19,10 @@ use crate::{
     widgets::{
         file_list,
         filter_line::{self, FilterLine},
+        form_fields::render_caret_value,
         frame::{accent_underline, hairline},
         history_view::printable,
+        path_field::PathField,
         text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
     },
 };
@@ -251,6 +253,7 @@ pub struct PanelContext<'a> {
     pub active: bool,
     pub show_modified: bool,
     pub switch_hint: Option<String>,
+    pub editing: Option<&'a PathField>,
     pub now: &'a DateTime<Local>,
 }
 
@@ -319,6 +322,10 @@ fn render_header(frame: &mut Frame, area: Rect, sort: Option<String>, context: &
     let sort_reserved = sort.as_ref().map_or(0, |sort| sort.width() + HEADER_GAP);
     let location_budget = width.saturating_sub(protocol_width + HEADER_GAP + sort_reserved);
     let location = truncate_start_with_ellipsis(&printable(&context.location), location_budget);
+    if let Some(field) = context.editing {
+        render_editing_header(frame, area, &protocol, field, location_budget, theme);
+        return;
+    }
 
     let location_style = if context.active { theme.bright() } else { theme.muted() };
     let mut spans = vec![Span::styled(protocol, theme.dim())];
@@ -333,6 +340,22 @@ fn render_header(frame: &mut Frame, area: Rect, sort: Option<String>, context: &
         let x = area.x + area.width - sort_width;
         frame.render_widget(Paragraph::new(Span::styled(sort, theme.dim())), Rect::new(x, area.y, sort_width, 1));
     }
+}
+
+fn render_editing_header(
+    frame: &mut Frame, area: Rect, protocol: &str, field: &PathField, budget: usize, theme: &Theme,
+) {
+    let protocol_width = protocol.width() as u16;
+    let offset = protocol_width + HEADER_GAP as u16;
+    if budget == 0 || offset >= area.width {
+        let whole = Rect::new(area.x, area.y, area.width, 1);
+        render_caret_value(frame, whole, &field.text, Some(field.cursor), theme.bright());
+        return;
+    }
+    let row = Rect::new(area.x, area.y, area.width, 1);
+    frame.render_widget(Paragraph::new(Span::styled(protocol.to_string(), theme.dim())), row);
+    let field_area = Rect::new(area.x + offset, area.y, area.width - offset, 1);
+    render_caret_value(frame, field_area, &field.text, Some(field.cursor), theme.bright());
 }
 
 fn footer_left(panel: &PanelView, width: usize) -> String {

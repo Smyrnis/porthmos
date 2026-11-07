@@ -35,6 +35,8 @@ pub enum Event {
     LocalShellReady { invocation: ShellInvocation },
     Listed { location: Location, path: VfsPath, entries: Vec<Entry> },
     Revealed { location: Location, folder: VfsPath, name: String },
+    PathOpened { location: Location },
+    PathRejected { location: Location },
     FreeSpace { location: Location, path: VfsPath, bytes: Option<u64> },
     LocationChanged { location: Location },
     Profiles(Vec<ConnectionEntry>),

@@ -7,7 +7,11 @@ use super::{
     super::{Engine, Event, Internal, Location, Reporter, SessionId},
     failure_message,
 };
-use crate::{Message, Severity, failure_report, tasks::Scope};
+use crate::{
+    Message, Severity, failure_report,
+    path_text::{needs_home, resolve_path_text},
+    tasks::Scope,
+};
 
 #[track_caller]
 fn send_failure(reporter: &Reporter, message: Message, cause: &dyn std::fmt::Debug) {
@@ -46,14 +50,14 @@ fn announce_folder(internal: &UnboundedSender<Internal>, location: Location, pat
 async fn list_into(
     fs: Arc<dyn FileSystem>, location: Location, path: Option<VfsPath>, reveal: Option<String>,
     events: UnboundedSender<Event>, internal: UnboundedSender<Internal>, reporter: Reporter,
-) {
+) -> bool {
     let path = match path {
         Some(path) => path,
         None => match fs.home().await {
             Ok(home) => home,
             Err(err) => {
                 send_failure(&reporter, failure_message(location, "Unable to list home directory", &err), &err);
-                return;
+                return false;
             }
         },
     };
@@ -66,9 +70,11 @@ async fn list_into(
                 let _ = events.send(Event::Revealed { location, folder: path.clone(), name });
             }
             announce_free_space(fs.as_ref(), location, path, &events).await;
+            true
         }
         Err(err) => {
             send_failure(&reporter, failure_message(location, format!("Unable to list {}", path), &err), &err);
+            false
         }
     }
 }
@@ -210,13 +216,47 @@ impl Engine {
         fs
     }
 
+    pub(crate) fn go_to_path(&mut self, location: Location, from: VfsPath, text: String) {
+        let fs = if text.trim().is_empty() { None } else { self.filesystem_or_drop(location) };
+        let Some(fs) = fs else {
+            self.emit(Event::PathRejected { location });
+            return;
+        };
+        let events = self.events.clone();
+        let internal = self.internal.clone();
+        let reporter = self.reporter.clone();
+        self.tasks.spawn("go-to-path", scope_for(location), move |_| async move {
+            let home = if needs_home(&text) {
+                match fs.home().await {
+                    Ok(home) => home,
+                    Err(err) => {
+                        send_failure(
+                            &reporter,
+                            failure_message(location, "Unable to find the home directory", &err),
+                            &err,
+                        );
+                        let _ = events.send(Event::PathRejected { location });
+                        return;
+                    }
+                }
+            } else {
+                from.clone()
+            };
+            let target = resolve_path_text(location, &text, &from, &home);
+            let opened = list_into(fs, location, Some(target), None, events.clone(), internal, reporter).await;
+            let _ = events.send(if opened { Event::PathOpened { location } } else { Event::PathRejected { location } });
+        });
+    }
+
     pub(crate) fn list(&mut self, location: Location, path: Option<VfsPath>) {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };
         let work =
             list_into(fs, location, path, None, self.events.clone(), self.internal.clone(), self.reporter.clone());
-        self.tasks.spawn("list", scope_for(location), move |_| work);
+        self.tasks.spawn("list", scope_for(location), move |_| async move {
+            work.await;
+        });
     }
 
     pub(crate) fn reveal(&mut self, location: Location, path: VfsPath) {
@@ -236,7 +276,9 @@ impl Engine {
             self.internal.clone(),
             self.reporter.clone(),
         );
-        self.tasks.spawn("list", scope_for(location), move |_| work);
+        self.tasks.spawn("list", scope_for(location), move |_| async move {
+            work.await;
+        });
     }
 
     pub(crate) fn create_dir(&mut self, location: Location, path: VfsPath) {

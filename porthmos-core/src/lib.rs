@@ -11,6 +11,7 @@ pub mod listing;
 pub mod logging;
 pub mod message;
 pub mod panel_memory;
+mod path_text;
 pub mod paths;
 pub mod persist;
 pub mod preview;

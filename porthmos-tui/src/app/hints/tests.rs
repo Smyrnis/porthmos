@@ -395,3 +395,25 @@ fn both_reorder_keys_unbound_leave_no_reorder_hint() {
 
     assert!(keys_and_labels(&hints).iter().all(|(_, label)| *label != "reorder"));
 }
+
+#[test]
+fn the_files_help_lists_go_to_path_with_its_key() {
+    let sections = help_sections(&KeyBindings::defaults());
+
+    assert!(rows_of(section(&sections, "files")).contains(&(Some("Ctrl+'"), "go to path")));
+}
+
+#[test]
+fn an_unbound_go_to_path_is_left_out_of_the_files_help() {
+    let sections = help_sections(&configured("[keys.files]\ngo_to_path = []\n"));
+
+    assert!(rows_of(section(&sections, "files")).contains(&(None, "go to path")));
+}
+
+#[test]
+fn editing_a_path_shows_enter_go_and_esc_cancel() {
+    let hints = path_edit_hints();
+
+    assert_eq!(keys_and_labels(&hints), vec![pair("enter", "go")]);
+    assert_eq!(hints.right.map(|hint| (hint.key, hint.label)), Some(("esc".to_string(), "cancel")));
+}

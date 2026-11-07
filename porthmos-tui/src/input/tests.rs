@@ -815,3 +815,39 @@ fn the_audit_recognises_every_key_windows_terminal_keeps() {
     assert!(!kept_by_windows_terminal(with(KeyCode::Char('r'), KeyModifiers::CONTROL)));
     assert!(!kept_by_windows_terminal(with(KeyCode::F(4), KeyModifiers::NONE)));
 }
+
+#[test]
+fn ctrl_apostrophe_parses_and_formats() {
+    let spec = parse_key_spec("ctrl+'").unwrap();
+
+    assert_eq!(spec, KeySpec { code: KeyCode::Char('\''), modifiers: KeyModifiers::CONTROL });
+    assert_eq!(format_key_spec(spec), "Ctrl+'");
+}
+
+#[test]
+fn a_plain_apostrophe_is_not_the_ctrl_apostrophe_spec() {
+    let ctrl_spec = parse_key_spec("ctrl+'").unwrap();
+    let plain = KeySpec { code: KeyCode::Char('\''), modifiers: KeyModifiers::NONE };
+
+    assert_ne!(ctrl_spec, plain);
+}
+
+#[test]
+fn every_default_binding_is_reachable_by_the_event_the_terminal_delivers_for_it() {
+    let bindings = KeyBindings::defaults();
+
+    for (scope, action, specs) in defaults_table() {
+        for spec in specs {
+            let event = key_with_modifiers(spec.code, spec.modifiers);
+            assert_ne!(bindings.map_key(scope, event), Action::Noop, "{scope:?} {action:?} {spec:?}");
+        }
+    }
+}
+
+#[test]
+fn go_to_path_defaults_to_ctrl_apostrophe_in_the_files_scope() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.key_for(Scope::Files, Action::GoToPath).map(format_key_spec).as_deref(), Some("Ctrl+'"));
+    assert_eq!(Action::from_name("go_to_path"), Some(Action::GoToPath));
+}

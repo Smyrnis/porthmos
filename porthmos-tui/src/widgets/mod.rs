@@ -15,6 +15,7 @@ pub mod layout;
 pub mod notifications;
 pub mod palette_view;
 pub mod panel_view;
+pub mod path_field;
 pub mod popup;
 pub mod preview_view;
 pub mod search_view;
