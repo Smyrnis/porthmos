@@ -1736,24 +1736,24 @@ fn another_launch_error_on_windows_keeps_the_plain_message() {
 
 #[test]
 fn a_failed_ssh_names_its_exit_code() {
-    assert_eq!(ssh_exit_failure(Some(255), false), "ssh exited with code 255");
+    assert_eq!(ssh_exit_failure(Some(255), LoginKind::Other), "ssh exited with code 255");
 }
 
 #[test]
 fn an_ssh_killed_by_a_signal_has_no_code_to_name() {
-    assert_eq!(ssh_exit_failure(None, false), "ssh was stopped before it finished");
+    assert_eq!(ssh_exit_failure(None, LoginKind::Other), "ssh was stopped before it finished");
 }
 
 #[test]
 fn sshpass_reports_a_wrong_password_as_a_hint() {
-    let message = ssh_exit_failure(Some(5), true);
+    let message = ssh_exit_failure(Some(5), LoginKind::Sshpass);
 
     assert!(message.contains("password") && message.contains("incorrect"), "{message}");
 }
 
 #[test]
 fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
-    let message = ssh_exit_failure(Some(6), true);
+    let message = ssh_exit_failure(Some(6), LoginKind::Sshpass);
 
     assert!(message.contains("known_hosts"), "{message}");
     assert!(!message.contains("status"), "{message}");
@@ -1761,7 +1761,46 @@ fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
 
 #[test]
 fn exit_code_six_without_sshpass_is_just_an_exit_code() {
-    assert_eq!(ssh_exit_failure(Some(6), false), "ssh exited with code 6");
+    assert_eq!(ssh_exit_failure(Some(6), LoginKind::Other), "ssh exited with code 6");
+}
+
+#[test]
+fn askpass_with_exit_code_255_says_the_password_may_be_wrong_or_a_question_was_refused() {
+    let message = ssh_exit_failure(Some(255), LoginKind::Askpass);
+
+    assert!(message.starts_with("ssh exited with code 255"), "{message}");
+    assert!(
+        message.contains("password") && message.contains("host key") && message.contains("passphrase"),
+        "{message}"
+    );
+}
+
+#[test]
+fn askpass_with_another_exit_code_names_only_the_code() {
+    assert_eq!(ssh_exit_failure(Some(1), LoginKind::Askpass), "ssh exited with code 1");
+    assert_eq!(ssh_exit_failure(Some(5), LoginKind::Askpass), "ssh exited with code 5");
+}
+
+#[test]
+fn askpass_with_no_code_is_reported_as_stopped() {
+    assert_eq!(ssh_exit_failure(None, LoginKind::Askpass), "ssh was stopped before it finished");
+}
+
+fn invocation_with(program: &str, env: &[&str]) -> ShellInvocation {
+    ShellInvocation {
+        program: program.into(),
+        args: Vec::new(),
+        env: env.iter().map(|name| ((*name).into(), "x".into())).collect(),
+    }
+}
+
+#[test]
+fn the_login_kind_comes_from_the_program_and_the_askpass_variable() {
+    assert_eq!(login_kind(&invocation_with("sshpass", &["SSHPASS"])), LoginKind::Sshpass);
+    assert_eq!(login_kind(&invocation_with("/usr/bin/sshpass", &[])), LoginKind::Sshpass);
+    assert_eq!(login_kind(&invocation_with("ssh", &["SSH_ASKPASS_REQUIRE", "SSH_ASKPASS"])), LoginKind::Askpass);
+    assert_eq!(login_kind(&invocation_with("ssh", &[])), LoginKind::Other);
+    assert_eq!(login_kind(&invocation_with("ssh", &["SSHPASS"])), LoginKind::Other);
 }
 
 fn exited(code: i32) -> std::io::Result<std::process::ExitStatus> {

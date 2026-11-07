@@ -173,6 +173,32 @@ fn the_invocation_env_reaches_the_launcher_but_not_the_argv() {
 
 #[test]
 #[cfg(unix)]
+fn the_askpass_variables_are_handed_over_in_the_file_and_nowhere_else() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    let env = [
+        ("SSH_ASKPASS", "/opt/porthmos/porthmos"),
+        ("SSH_ASKPASS_REQUIRE", "force"),
+        ("PORTHMOS_ASKPASS", "1"),
+        ("PORTHMOS_ASKPASS_USER", "deploy"),
+        ("PORTHMOS_ASKPASS_PASSWORD", "s3cr3t-value"),
+    ];
+
+    harness.feed(Event::ShellReady { session: 3, invocation: invocation(&env) });
+
+    let jobs = harness.launched();
+    assert_eq!(jobs.len(), 1);
+    assert!(jobs[0].env.is_empty());
+    assert!(!strings(&jobs[0].spec.args).join(" ").contains("s3cr3t-value"));
+    assert!(!format!("{:?}", jobs[0]).contains("s3cr3t-value"));
+    let handed_over = std::fs::read_to_string(&jobs[0].cleanup[0]).unwrap();
+    for (name, value) in env {
+        assert!(handed_over.contains(&format!("export {name}='{value}'")), "{name}");
+    }
+}
+
+#[test]
+#[cfg(unix)]
 fn a_missing_terminal_shows_an_error_notice_with_the_hint() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);

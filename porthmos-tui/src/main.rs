@@ -73,6 +73,9 @@ fn start_app(
 const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn main() -> Result<()> {
+    if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
+        std::process::exit(code);
+    }
     match cli::interpret(std::env::args().skip(1)) {
         cli::Invocation::Run => {}
         cli::Invocation::Print(text) => {

@@ -17,14 +17,34 @@ fn ssh_launch_failure(error: &std::io::Error, windows: bool) -> String {
     }
 }
 
-fn ssh_exit_failure(code: Option<i32>, via_sshpass: bool) -> String {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LoginKind {
+    Sshpass,
+    Askpass,
+    Other,
+}
+
+fn login_kind(invocation: &ShellInvocation) -> LoginKind {
+    let via_sshpass = std::path::Path::new(&invocation.program).file_stem().is_some_and(|name| name == "sshpass");
+    let via_askpass = invocation.env.iter().any(|(name, _)| name == "SSH_ASKPASS_REQUIRE");
+    match (via_sshpass, via_askpass) {
+        (true, _) => LoginKind::Sshpass,
+        (false, true) => LoginKind::Askpass,
+        (false, false) => LoginKind::Other,
+    }
+}
+
+fn ssh_exit_failure(code: Option<i32>, login: LoginKind) -> String {
     let Some(code) = code else {
         return "ssh was stopped before it finished".to_string();
     };
-    let hint = match (via_sshpass, code) {
-        (true, 5) => Some("the password is incorrect"),
-        (true, 6) => Some("the host key is not known to ssh; add it to ~/.ssh/known_hosts"),
-        (true, 7) => Some("the host key has changed; check ~/.ssh/known_hosts"),
+    let hint = match (login, code) {
+        (LoginKind::Sshpass, 5) => Some("the password is incorrect"),
+        (LoginKind::Sshpass, 6) => Some("the host key is not known to ssh; add it to ~/.ssh/known_hosts"),
+        (LoginKind::Sshpass, 7) => Some("the host key has changed; check ~/.ssh/known_hosts"),
+        (LoginKind::Askpass, 255) => Some(
+            "the saved password may be wrong, or ssh asked something that is not answered for you (a host key question or a key passphrase); try ssh once in a plain terminal",
+        ),
         _ => None,
     };
     match hint {
@@ -85,14 +105,14 @@ impl App {
     ) -> Result<()> {
         terminal::restore()?;
 
-        let via_sshpass = std::path::Path::new(&invocation.program).file_stem().is_some_and(|name| name == "sshpass");
+        let login = login_kind(&invocation);
         let ssh_result = tokio::task::spawn_blocking(move || invocation.to_command().status()).await;
 
         *terminal = terminal::init()?;
 
         match ssh_result {
             Ok(Ok(status)) if !status.success() => {
-                self.error(ssh_exit_failure(status.code(), via_sshpass));
+                self.error(ssh_exit_failure(status.code(), login));
             }
             Ok(Ok(_)) => {}
             Ok(Err(io_err)) => {
