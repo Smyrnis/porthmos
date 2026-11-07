@@ -595,7 +595,7 @@ fn resizing_the_window_changes_how_far_the_list_scrolls() {
     let names: Vec<String> = (0..100).map(|index| format!("f{index:03}")).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     fill_local(&mut harness, &names);
-    harness.press(Message::WindowResized(iced::Size::new(800.0, 334.0)));
+    harness.resize(iced::Size::new(800.0, 334.0));
 
     plain(&mut harness, Named::End);
 
@@ -1875,7 +1875,7 @@ fn other_keys_do_nothing_while_a_conflict_is_open() {
     assert!(harness.sent().is_empty());
 }
 
-fn drag_point(harness: &Harness, side: PanelSide, row: usize) -> iced::Point {
+pub(super) fn drag_point(harness: &Harness, side: PanelSide, row: usize) -> iced::Point {
     let width = harness.app.window_size().width;
     let x = match side {
         PanelSide::Local => 100.0,
@@ -1892,7 +1892,7 @@ fn press_and_drag(harness: &mut Harness, from: (PanelSide, usize), to: iced::Poi
     harness.press(Message::CursorMoved(to));
 }
 
-fn drop_ready(harness: &mut Harness, local: &[&str]) {
+pub(super) fn drop_ready(harness: &mut Harness, local: &[&str]) {
     fill_local(harness, local);
     upload_target(harness);
     harness.sent();
@@ -2204,7 +2204,7 @@ fn a_press_with_shift_held_starts_no_drag() {
     assert!(!harness.app.drag().is_active());
 }
 
-fn desktop_files(names: &[&str]) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
+pub(super) fn desktop_files(names: &[&str]) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
     let root = tempfile::tempdir().unwrap();
     let paths = names
         .iter()
@@ -3575,9 +3575,10 @@ fn a_disabled_menu_item_does_nothing_when_delivered() {
 }
 
 fn tab_task_units(harness: &mut Harness, modifiers: Modifiers) -> usize {
+    let window = harness.key_target();
     let key = Key::Named(Named::Tab);
     let press = KeyPress { key: key.clone(), modified_key: key, modifiers, text: None };
-    harness.app.update(Message::KeyPressed(press)).units()
+    harness.app.update(Message::WindowKey(window, press)).units()
 }
 
 #[test]

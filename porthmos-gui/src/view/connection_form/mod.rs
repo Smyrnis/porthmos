@@ -257,7 +257,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             ("Labelled ssh host".to_string(), missing_body(app, name, *shadowed), SMALL_WIDTH, 300.0)
         }
     };
-    let size = dialog_size(app.window_size(), width, height);
+    let size = dialog_size(app.connections_window_size(), width, height);
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
     let content =

@@ -48,6 +48,7 @@ mod tools;
 mod transfers;
 mod update_view;
 mod view;
+mod windows;
 
 fn main() -> Result<()> {
     if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
@@ -102,21 +103,20 @@ fn run_window() -> Result<()> {
     }
     app.set_state_dir(state_dir);
     app.set_window_size(main_window::INITIAL_SIZE);
-    let slot = Mutex::new(Some(app));
-    let settings = main_window::settings();
-    let result = iced::application(
+    let (main_id, open_main) = iced::window::open(main_window::settings());
+    let app = app.with_main_window(main_id);
+    let slot = Mutex::new(Some((app, open_main)));
+    let result = iced::daemon(
         move || {
-            let app = slot.lock().unwrap().take().expect("the application boots once");
-            let attach = app.native_task();
-            (app, attach)
+            let (app, open_main) = slot.lock().unwrap().take().expect("the application boots once");
+            (app, open_main.map(|_| app::Message::MainWindowOpened))
         },
         app::App::update,
-        app::App::view,
+        app::App::view_of,
     )
     .subscription(app::App::subscription)
-    .theme(|app: &app::App| app.palette().iced_theme())
-    .title("Porthmos")
-    .window(settings)
+    .theme(|app: &app::App, _window| app.palette().iced_theme())
+    .title(app::App::title_of)
     .run();
     drop(guard);
     runtime.shutdown_timeout(RUNTIME_GRACE);

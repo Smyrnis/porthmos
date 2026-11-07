@@ -22,6 +22,7 @@ pub struct Harness {
     scratch: tempfile::TempDir,
     launched: Arc<Mutex<Vec<ProcessJob>>>,
     installed: Arc<Mutex<Vec<String>>>,
+    main: iced::window::Id,
 }
 
 struct FakeSpawner(Arc<Mutex<Vec<ProcessJob>>>);
@@ -70,7 +71,9 @@ impl Harness {
         let start = VfsPath::new("/home/tester");
         let palette = Palette::new(&ThemeSettings::default());
         let scratch = tempfile::tempdir().unwrap();
+        let main = iced::window::Id::unique();
         let mut app = App::new(core, EventSource::new(receiver), start.clone(), palette, Shortcuts::default())
+            .with_main_window(main)
             .with_update_mode(settings.update_mode)
             .with_settings(settings, scratch.path().join("config.toml"));
         app.set_staging_parent(scratch.path().to_path_buf());
@@ -89,7 +92,31 @@ impl Harness {
             scratch.path().to_path_buf(),
         );
         app.set_launcher(launcher);
-        Harness { app, commands, start, scratch, launched, installed }
+        Harness { app, commands, start, scratch, launched, installed, main }
+    }
+
+    pub fn main_id(&self) -> iced::window::Id {
+        self.main
+    }
+
+    pub fn settings_id(&self) -> Option<iced::window::Id> {
+        self.app.window_id_of(crate::windows::WindowKind::Settings)
+    }
+
+    pub fn connections_id(&self) -> Option<iced::window::Id> {
+        self.app.window_id_of(crate::windows::WindowKind::Connections)
+    }
+
+    pub fn search_id(&self) -> Option<iced::window::Id> {
+        self.app.window_id_of(crate::windows::WindowKind::Search)
+    }
+
+    pub fn key_target(&self) -> iced::window::Id {
+        self.connections_id().or_else(|| self.settings_id()).or_else(|| self.search_id()).unwrap_or(self.main)
+    }
+
+    pub fn resize(&mut self, size: iced::Size) {
+        self.press(Message::WindowSized(self.main, size));
     }
 
     pub fn launched(&mut self) -> Vec<ProcessJob> {

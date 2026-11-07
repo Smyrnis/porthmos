@@ -74,6 +74,16 @@ impl SearchState {
         self.preview_enabled
     }
 
+    pub fn set_preview_enabled(&mut self, enabled: bool) {
+        self.preview_enabled = enabled;
+        self.reset_preview();
+    }
+
+    pub fn reset_preview(&mut self) {
+        self.preview = None;
+        self.previewed = None;
+    }
+
     pub fn preview(&self) -> Option<&SearchPreview> {
         self.preview.as_ref()
     }
@@ -106,6 +116,11 @@ impl SearchState {
 
     pub fn location(&self) -> Location {
         self.location
+    }
+
+    #[cfg(test)]
+    pub fn root(&self) -> &VfsPath {
+        &self.root
     }
 
     pub fn pattern(&self) -> &str {

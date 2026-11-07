@@ -162,3 +162,65 @@ fn a_close_request_while_closing_is_ignored() {
 
     assert!(harness.app.modal().is_none());
 }
+
+#[test]
+fn closing_with_no_secondary_window_open_starts_only_the_shutdown() {
+    let mut harness = Harness::new();
+
+    let units = harness.app.update(Message::CloseRequested).units();
+
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn closing_the_main_window_with_secondary_windows_open_also_closes_them() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+    harness.press(Message::ManagerToggled);
+    assert!(harness.settings_id().is_some());
+    assert!(harness.connections_id().is_some());
+    let main = harness.main_id();
+
+    let units = harness.app.update(Message::WindowCloseRequested(main)).units();
+
+    assert!(harness.app.is_closing());
+    assert_eq!(units, 3);
+}
+
+#[test]
+fn the_quit_confirmation_raises_the_main_window() {
+    let mut harness = Harness::new();
+    running_transfer(&mut harness, RowState::Running);
+    harness.press(Message::ManagerToggled);
+    let main = harness.main_id();
+
+    let units = harness.app.update(Message::WindowCloseRequested(main)).units();
+
+    assert!(matches!(harness.app.modal(), Some(Modal::ConfirmQuit { .. })));
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn asking_twice_does_not_raise_the_main_window_again() {
+    let mut harness = Harness::new();
+    running_transfer(&mut harness, RowState::Running);
+    harness.press(Message::CloseRequested);
+
+    let units = harness.app.update(Message::CloseRequested).units();
+
+    assert_eq!(units, 0);
+}
+
+#[test]
+fn closing_the_main_window_with_search_open_cancels_the_search_and_closes_its_window() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Search));
+    harness.press(Message::SearchTyped("a".to_string()));
+    harness.sent();
+    let main = harness.main_id();
+
+    let units = harness.app.update(Message::WindowCloseRequested(main)).units();
+
+    assert_eq!(units, 2);
+    assert!(harness.sent().contains(&Command::CancelSearch));
+}

@@ -2,7 +2,7 @@ use iced::keyboard::key::Named;
 use porthmos_core::{Answer, Command, Event, Question};
 
 use super::super::super::*;
-use super::super::tests::{named, open_manager, with_profiles};
+use super::super::tests::{named_in_main, open_manager, with_profiles};
 use crate::connections::Screen;
 use crate::dialogs::{Dialog, Typed};
 use crate::testing::Harness;
@@ -188,7 +188,7 @@ fn a_question_over_an_open_form_shows_on_top_and_returns_to_the_form() {
 
     ask(&mut harness, 4);
     assert!(harness.app.dialog().is_some());
-    named(&mut harness, Named::Escape);
+    named_in_main(&mut harness, Named::Escape);
 
     assert!(harness.app.dialog().is_none());
     assert!(matches!(harness.app.screen(), Some(Screen::Form(_))));
@@ -204,4 +204,15 @@ fn a_question_over_the_manager_leaves_it_open() {
     harness.press(Message::ModalDeclined);
 
     assert!(harness.app.manager_open());
+}
+
+#[test]
+fn a_question_raises_the_main_window_over_the_open_connections_window() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+
+    let units =
+        harness.app.update(Message::Core(Event::Question { request_id: 9, question: password_question() })).units();
+
+    assert_eq!(units, 2);
 }

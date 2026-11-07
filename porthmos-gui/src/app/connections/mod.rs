@@ -1,16 +1,52 @@
-use iced::Task;
 use iced::keyboard;
 use iced::widget::{Id, operation};
+use iced::{Size, Task, window};
 use porthmos_core::profiles::ConnectionSource;
 use porthmos_core::{Command, ConnectionState, Severity};
 
 use super::{App, Message};
 use crate::connections::{Manager, ManagerButtons, Screen};
 use crate::shortcuts::KeyPress;
+use crate::windows::{CONNECTIONS_WINDOW_SIZE, WindowKind};
 
 impl App {
     pub fn manager_open(&self) -> bool {
         self.connections_screen.is_some()
+    }
+
+    pub fn connections_window_size(&self) -> Size {
+        self.windows
+            .id_of(WindowKind::Connections)
+            .and_then(|id| self.windows.size_of(id))
+            .unwrap_or(CONNECTIONS_WINDOW_SIZE)
+    }
+
+    pub(in crate::app) fn reconcile_connections_window(&mut self) -> Task<Message> {
+        let wanted = self.connections_screen.is_some();
+        match (wanted, self.windows.id_of(WindowKind::Connections)) {
+            (true, None) => {
+                let mut opening = None;
+                self.windows.open(WindowKind::Connections, |settings| {
+                    let (id, task) = window::open(settings);
+                    opening = Some(task);
+                    id
+                });
+                opening.map_or_else(Task::none, |task| task.map(Message::WindowOpened))
+            }
+            (false, Some(id)) => {
+                self.windows.close(id);
+                window::close(id)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    pub(in crate::app) fn focus_new_window(&mut self, id: window::Id) -> Task<Message> {
+        match (self.windows.kind_of(id), &self.connections_screen) {
+            (Some(WindowKind::Connections), Some(Screen::List)) => operation::focus(App::filter_input_id()),
+            (Some(WindowKind::Search), _) => operation::focus(App::search_input_id()),
+            _ => Task::none(),
+        }
     }
 
     pub fn manager(&self) -> &Manager {
@@ -61,6 +97,9 @@ impl App {
         if !matches!(screen, Some(Screen::Form(_))) {
             self.cancel_running_test();
         }
+        if screen.is_none() {
+            self.manager.set_filter(String::new());
+        }
         self.connections_screen = screen;
     }
 
@@ -71,21 +110,17 @@ impl App {
         let Some(name) = self.manager.selected_entry().map(|entry| entry.name.clone()) else {
             return;
         };
-        if self.connect_profile(&name) {
-            self.set_screen(None);
-        }
+        self.connect_profile(&name);
     }
 
     pub(in crate::app) fn manager_message(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ManagerToggled => {
-                if self.connections_screen.is_some() {
-                    self.set_screen(None);
-                } else {
-                    self.set_screen(Some(Screen::List));
-                    self.core.send(Command::ListProfiles);
-                    return operation::focus(App::filter_input_id());
+                if let Some(id) = self.windows.id_of(WindowKind::Connections) {
+                    return window::gain_focus(id);
                 }
+                self.set_screen(Some(Screen::List));
+                self.core.send(Command::ListProfiles);
             }
             Message::ManagerClosed => self.set_screen(None),
             Message::ManagerFilterTyped(text) => self.manager.set_filter(text),

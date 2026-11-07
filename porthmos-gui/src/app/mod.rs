@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use iced::widget::{Id, operation};
-use iced::{Element, Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
+use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
 use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::transfer::conflicts::Resolution;
 use porthmos_core::transfer::rows::RowKind;
@@ -34,8 +34,9 @@ use crate::pane::Pane;
 use crate::panel::{Modifiers, Panel};
 use crate::processes::{Launcher, ProcessEvent, ProcessSource};
 use crate::runtime::{self, EventSource};
+use crate::search::SearchState;
 use crate::sessions::Sessions;
-use crate::settings_view::GuiSettings;
+use crate::settings_view::{GuiSettings, SettingsState};
 use crate::shortcuts::{self, Action, KeyPress, Shortcuts};
 use crate::staging::{Job, Stage, Staging};
 use crate::sync_view::SyncView;
@@ -44,6 +45,7 @@ use crate::tools::Tool;
 use crate::transfers::{QUEUE_HEIGHT, QueuePane, RowButton, TransferState, transfer_command};
 use crate::update_view::UpdateView;
 use crate::view::toolbar::ToolbarState;
+use crate::windows::Windows;
 
 const NOTICE_LIMIT: usize = 50;
 const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);
@@ -98,6 +100,12 @@ impl PanelSide {
 pub enum Message {
     Core(Event),
     CloseRequested,
+    WindowCloseRequested(window::Id),
+    WindowKey(window::Id, KeyPress),
+    WindowSized(window::Id, Size),
+    FromWindow(window::Id, Box<Message>),
+    MainWindowOpened,
+    WindowOpened(window::Id),
     ShutdownFinished,
     ModifiersChanged(keyboard::Modifiers),
     PanelClicked(PanelSide, usize),
@@ -108,7 +116,6 @@ pub enum Message {
     TabClosed(usize),
     PanelDoubleClicked(PanelSide, usize),
     KeyPressed(KeyPress),
-    WindowResized(Size),
     ManagerToggled,
     ManagerClosed,
     ManagerFilterTyped(String),
@@ -150,6 +157,7 @@ pub enum Message {
     SearchRowPressed(usize),
     SearchRowActivated(usize),
     SearchOpenPressed,
+    SearchClosed,
     BookmarkRowPressed(usize),
     BookmarkRowActivated(usize),
     BookmarkGoPressed,
@@ -173,7 +181,7 @@ pub enum Message {
     SettingsSearchPreviewToggled(bool),
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
-    SettingsScrolled(f32),
+    SettingsClosed,
     MoreMenuToggled,
     RowRightPressed(PanelSide, usize),
     BackgroundRightPressed(PanelSide),
@@ -252,6 +260,8 @@ pub struct App {
     filtering: Option<PanelSide>,
     filter_text: String,
     window_size: Size,
+    windows: Windows,
+    settings_state: Option<SettingsState>,
     manager: Manager,
     reveal: Option<String>,
     keyring_available: bool,
@@ -265,6 +275,8 @@ pub struct App {
     bookmarks: Vec<Bookmark>,
     tool: Option<Tool>,
     tool_scroll: f32,
+    search: Option<SearchState>,
+    search_scroll: f32,
     search_preview_scroll: f32,
     sync_view: SyncView,
     tool_version: u64,
@@ -321,6 +333,8 @@ impl App {
             filtering: None,
             filter_text: String::new(),
             window_size: Size::new(1100.0, 700.0),
+            windows: Windows::new(window::Id::unique(), Size::new(1100.0, 700.0)),
+            settings_state: None,
             manager: Manager::default(),
             reveal: None,
             keyring_available: true,
@@ -334,6 +348,8 @@ impl App {
             bookmarks: Vec::new(),
             tool: None,
             tool_scroll: 0.0,
+            search: None,
+            search_scroll: 0.0,
             search_preview_scroll: 0.0,
             sync_view: SyncView::default(),
             tool_version: 0,
@@ -566,11 +582,7 @@ impl App {
 
     pub fn native_task(&self) -> Task<Message> {
         let sender = self.desktop_sender.clone();
-        window::oldest()
-            .and_then(move |id| {
-                let sender = sender.clone();
-                window::run(id, move |window| native::attach(window, sender).map(Arc::new))
-            })
+        window::run(self.windows.main(), move |window| native::attach(window, sender).map(Arc::new))
             .map(Message::NativeAttached)
     }
 
@@ -731,7 +743,6 @@ impl App {
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
                 self.notices.clear();
-                self.set_screen(None);
                 if !self.sessions.activate(session) {
                     self.sessions.insert(session, name);
                     let remote = self.core.panel_settings(PanelKind::Remote);
@@ -752,7 +763,6 @@ impl App {
                 if staging_from_it {
                     self.abort_staging();
                 }
-                self.close_search_on(Location::Session(session));
                 self.sessions.remove(session);
                 if self.sessions.is_empty() {
                     self.active = PanelSide::Local;
@@ -835,7 +845,6 @@ impl App {
 
     fn menus_allowed(&self) -> bool {
         self.modals.is_empty()
-            && self.connections_screen.is_none()
             && self.tool.is_none()
             && self.filtering.is_none()
             && !self.closing
@@ -945,6 +954,7 @@ impl App {
             }
         };
         self.show_next_conflict();
+        let task = Task::batch([task, self.reconcile_connections_window()]);
         let task = if self.prompt_version == prompt_before {
             task
         } else {
@@ -953,6 +963,10 @@ impl App {
         if self.modals.version() == shown_before {
             return task;
         }
+        let task = match self.modals.front() {
+            Some(Modal::Question(_)) => Task::batch([task, window::gain_focus(self.windows.main())]),
+            _ => task,
+        };
         let focus = match self.modals.front() {
             Some(Modal::Question(Dialog::Password { .. }) | Modal::NewFolder { .. }) => {
                 operation::focus(App::dialog_input_id())
@@ -969,10 +983,24 @@ impl App {
         let before = self.shown();
         match message {
             Message::Core(event) => {
+                let search_closed = match &event {
+                    Event::Disconnected { session, .. } => self.close_search_on(Location::Session(*session)),
+                    _ => Task::none(),
+                };
                 self.apply(event);
-                return Task::batch([self.reveal_focused(), self.resync_scroll(&before)]);
+                return Task::batch([search_closed, self.reveal_focused(), self.resync_scroll(&before)]);
             }
             Message::CloseRequested => return self.request_close(),
+            Message::WindowCloseRequested(id) => return self.window_close_requested(id),
+            Message::WindowKey(id, press) => return self.window_key(id, press),
+            Message::WindowSized(id, size) => self.window_sized(id, size),
+            Message::FromWindow(id, inner) => {
+                if self.is_main(id) {
+                    return self.handle(*inner);
+                }
+            }
+            Message::MainWindowOpened => return self.native_task(),
+            Message::WindowOpened(id) => return self.focus_new_window(id),
             Message::ShutdownFinished => return iced::exit(),
             Message::ModifiersChanged(modifiers) => self.modifiers = modifiers,
             Message::PanelClicked(side, row) => {
@@ -1011,7 +1039,6 @@ impl App {
                 let reveal = self.press_key(press);
                 return Task::batch([reveal, self.resync_scroll(&before)]);
             }
-            Message::WindowResized(size) => self.window_size = size,
             Message::MoreMenuToggled => self.more_open = !self.more_open,
             Message::PointerMoved(point) => self.pointer = Some(point),
             Message::RowRightPressed(side, row) => self.open_row_menu(side, row),
@@ -1085,8 +1112,8 @@ impl App {
             | Message::SettingsTerminalApplied
             | Message::SettingsAutoUploadToggled(_)
             | Message::SettingsSearchPreviewToggled(_)
-            | Message::SettingsUpdateModeChosen(_)
-            | Message::SettingsScrolled(_)) => return self.settings_message(message),
+            | Message::SettingsClosed
+            | Message::SettingsUpdateModeChosen(_)) => return self.settings_message(message),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
                 return self.palette_message(message);
             }
@@ -1102,11 +1129,13 @@ impl App {
             Message::ProcessFinished(event) => self.process_finished(event),
             Message::EditAnswered(choice) => self.edit_answered(choice),
             Message::EditDoneEditing => self.answer_modal(true),
-            message @ (Message::ToolClosed
+            message @ (Message::SearchClosed
             | Message::SearchTyped(_)
             | Message::SearchRowPressed(_)
             | Message::SearchRowActivated(_)
             | Message::SearchOpenPressed
+            | Message::SearchPreviewScrolled(_)) => return self.search_message(message),
+            message @ (Message::ToolClosed
             | Message::BookmarkRowPressed(_)
             | Message::BookmarkRowActivated(_)
             | Message::BookmarkGoPressed
@@ -1117,7 +1146,6 @@ impl App {
             | Message::HistoryDetailsPressed
             | Message::HistoryClearPressed
             | Message::PreviewScrolled(_)
-            | Message::SearchPreviewScrolled(_)
             | Message::SyncFilterTyped(_)
             | Message::SyncRowPressed(_)
             | Message::SyncTickAllPressed
@@ -1254,7 +1282,7 @@ impl App {
     }
 
     fn press_row(&mut self, side: PanelSide, row: usize) {
-        if self.connections_screen.is_some() || self.tool.is_some() {
+        if self.tool.is_some() {
             return;
         }
         let plain = !self.modifiers.command() && !self.modifiers.shift();
@@ -1624,11 +1652,7 @@ impl App {
     }
 
     fn text_fields_are_shown(&self) -> bool {
-        !self.modals.is_empty()
-            || self.queue.speed_text().is_some()
-            || self.path_edit.is_some()
-            || self.connections_screen.is_some()
-            || self.tool.is_some()
+        !self.modals.is_empty() || self.queue.speed_text().is_some() || self.path_edit.is_some() || self.tool.is_some()
     }
 
     fn press_key(&mut self, press: KeyPress) -> Task<Message> {
@@ -1691,10 +1715,6 @@ impl App {
                 self.more_open = false;
                 self.context_menu = None;
             }
-            return Task::none();
-        }
-        if self.connections_screen.is_some() {
-            self.manager_key(&press);
             return Task::none();
         }
         if self.tool.is_some() {
@@ -1881,12 +1901,12 @@ impl App {
             Action::Preview => self.open_preview(),
             Action::Edit => self.start_edit(),
             Action::Terminal => self.request_terminal(),
-            Action::Search => self.open_search(),
+            Action::Search => return self.open_search(),
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),
             Action::Sync => self.request_sync(),
             Action::Palette => self.open_palette(),
-            Action::Settings => self.open_settings(),
+            Action::Settings => return self.open_settings(),
             Action::CheckForUpdates => self.check_for_updates(),
             Action::BookmarkHere => self.open_bookmark_dialog(),
             Action::NextTab => self.sessions.next(),
@@ -1900,17 +1920,22 @@ impl App {
         if !self.drag.is_tracking() && self.desktop_hover.is_none() {
             return Subscription::none();
         }
-        event::listen_with(|event, _, _| match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Message::CursorMoved(position)),
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Message::MouseReleased),
-            iced::Event::Mouse(mouse::Event::CursorLeft) => Some(Message::WindowLeft),
-            _ => None,
+        event::listen_with(|event, _, window| {
+            let message = match event {
+                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Message::CursorMoved(position),
+                iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Message::MouseReleased,
+                iced::Event::Mouse(mouse::Event::CursorLeft) => Message::WindowLeft,
+                _ => return None,
+            };
+            Some(Message::FromWindow(window, Box::new(message)))
         })
     }
 
     fn pointer_position_subscription() -> Subscription<Message> {
-        event::listen_with(|event, _, _| match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Message::PointerMoved(position)),
+        event::listen_with(|event, _, window| match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                Some(Message::FromWindow(window, Box::new(Message::PointerMoved(position))))
+            }
             _ => None,
         })
     }
@@ -1942,8 +1967,8 @@ impl App {
     pub fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
             runtime::subscription(&self.events).map(Message::Core),
-            window::close_requests().map(|_| Message::CloseRequested),
-            event::listen_with(|event, status, _| match event {
+            window::close_requests().map(Message::WindowCloseRequested),
+            event::listen_with(|event, status, window| match event {
                 iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                     Some(Message::ModifiersChanged(modifiers))
                 }
@@ -1952,11 +1977,11 @@ impl App {
                         || key == keyboard::Key::Named(keyboard::key::Named::Escape) =>
                 {
                     let text = text.map(|text| text.to_string());
-                    Some(Message::KeyPressed(KeyPress { key, modified_key, modifiers, text }))
+                    Some(Message::WindowKey(window, KeyPress { key, modified_key, modifiers, text }))
                 }
                 _ => None,
             }),
-            window::resize_events().map(|(_, size)| Message::WindowResized(size)),
+            window::resize_events().map(|(id, size)| Message::WindowSized(id, size)),
             self.pointer_subscription(),
             Self::pointer_position_subscription(),
             self.native_subscription(),
@@ -1964,21 +1989,23 @@ impl App {
             self.notice_subscription(),
             self.desktop.subscription().map(Message::Desktop),
             self.processes.subscription().map(Message::ProcessFinished),
-            event::listen_with(|event, _, _| match event {
-                iced::Event::Window(window::Event::FileHovered(path)) => {
-                    Some(Message::Desktop(DesktopEvent::Hover(vec![path])))
-                }
-                iced::Event::Window(window::Event::FileDropped(path)) => {
-                    Some(Message::Desktop(DesktopEvent::Dropped { paths: vec![path], at: None }))
-                }
-                iced::Event::Window(window::Event::FilesHoveredLeft) => Some(Message::Desktop(DesktopEvent::Left)),
-                _ => None,
+            event::listen_with(|event, _, window| {
+                let event = match event {
+                    iced::Event::Window(window::Event::FileHovered(path)) => DesktopEvent::Hover(vec![path]),
+                    iced::Event::Window(window::Event::FileDropped(path)) => {
+                        DesktopEvent::Dropped { paths: vec![path], at: None }
+                    }
+                    iced::Event::Window(window::Event::FilesHoveredLeft) => DesktopEvent::Left,
+                    _ => return None,
+                };
+                Some(Message::FromWindow(window, Box::new(Message::Desktop(event))))
             }),
         ])
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        crate::view::root(self)
+    #[cfg(test)]
+    pub fn pointer_position(&self) -> Option<Point> {
+        self.pointer
     }
 }
 
@@ -1987,11 +2014,13 @@ mod editing;
 mod palette;
 mod preview;
 mod quit;
+mod search_window;
 mod settings;
 mod sync;
 mod terminal;
 mod tools;
 mod update;
+mod window_events;
 
 #[cfg(test)]
 mod tests;

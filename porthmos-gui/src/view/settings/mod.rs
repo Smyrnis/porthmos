@@ -1,8 +1,7 @@
 use iced::widget::{checkbox, column, container, row, scrollable, space, text_input};
-use iced::{Alignment, Border, Element, Font, Length};
+use iced::{Alignment, Border, Element, Font, Length, Size};
 
 use super::button::{Look, text_button};
-use super::tools::settings_list_height;
 use super::{bold_label, hairline_across, label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
@@ -10,6 +9,7 @@ use crate::settings_view::{SettingsMessage, SettingsState};
 use crate::shortcuts::{Action, Shortcuts};
 use crate::theme::Palette;
 
+pub const SETTINGS_CHROME: f32 = 140.0;
 const UNBOUND: &str = "\u{2014}";
 const CAPTURE_HINT: &str = "Press the new shortcut, Esc to cancel";
 const EDITOR_PLACEHOLDER: &str = "Editor command, for example: code --wait";
@@ -139,7 +139,21 @@ fn message_line<'a>(state: &SettingsState, palette: &Palette) -> Element<'a, Mes
     container(line).width(Length::Fill).clip(true).into()
 }
 
-pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
+pub fn window_list_height(window: Size) -> f32 {
+    (window.height - SETTINGS_CHROME).max(ROW_HEIGHT)
+}
+
+pub fn window(app: &App) -> Option<Element<'_, Message>> {
+    let state = app.settings_state()?;
+    let palette = app.palette();
+    let surface = palette.surface;
+    let content = container(body(app, state)).padding(16).width(Length::Fill).height(Length::Fill).style(move |_| {
+        container::Style { background: Some(iced::Background::Color(surface)), ..container::Style::default() }
+    });
+    Some(content.into())
+}
+
+fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
     let mut shortcuts = column![section("Keyboard shortcuts", palette)].spacing(2);
     for action in Action::all() {
@@ -155,10 +169,9 @@ pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> 
     .spacing(16)
     .padding([0, 12]);
     let list = scrollable(content)
-        .id(App::tool_list_id())
-        .on_scroll(|viewport| Message::SettingsScrolled(viewport.absolute_offset().y))
+        .id(App::settings_list_id())
         .width(Length::Fill)
-        .height(Length::Fixed(settings_list_height(app.window_size())));
+        .height(Length::Fixed(window_list_height(app.settings_window_size())));
     let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
     let boxed = container(list).style(move |_| container::Style { border, ..container::Style::default() });
     column![
@@ -166,7 +179,7 @@ pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> 
         boxed,
         message_line(state, palette),
         hairline_across(palette),
-        row![space().width(Length::Fill), text_button("Close", Some(Message::ToolClosed), Look::Primary, palette)]
+        row![space().width(Length::Fill), text_button("Close", Some(Message::SettingsClosed), Look::Primary, palette)]
             .spacing(8),
     ]
     .spacing(10)

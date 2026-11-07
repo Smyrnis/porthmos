@@ -1,5 +1,5 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, stack, svg, text_input, tooltip};
-use iced::{Alignment, Border, Element, Font, Length, Size, alignment};
+use iced::{Alignment, Border, Element, Font, Length};
 use porthmos_core::ConnectionState;
 use porthmos_core::connections_tree::TreeRow;
 use porthmos_core::profiles::ConnectionSource;
@@ -12,8 +12,6 @@ use crate::geometry::ROW_HEIGHT;
 use crate::icons::{self, Icon};
 use crate::theme::Palette;
 
-pub const MANAGER_WIDTH: f32 = 760.0;
-pub const MANAGER_HEIGHT: f32 = 460.0;
 const MARGIN: f32 = 16.0;
 const INDENT: f32 = 16.0;
 const ICON_SIZE: f32 = 16.0;
@@ -21,13 +19,6 @@ const BADGE_WIDTH: f32 = 70.0;
 const DETAILS_WIDTH: f32 = 240.0;
 pub const DETAILS_MIN_PANEL: f32 = 560.0;
 const LABEL_WIDTH: f32 = 104.0;
-
-pub fn panel_size(window: Size) -> Size {
-    Size::new(
-        MANAGER_WIDTH.min((window.width - 2.0 * MARGIN).max(0.0)),
-        MANAGER_HEIGHT.min((window.height - 2.0 * MARGIN).max(0.0)),
-    )
-}
 
 pub fn details_visible(panel_width: f32) -> bool {
     panel_width >= DETAILS_MIN_PANEL
@@ -183,12 +174,12 @@ fn footer<'a>(app: &App) -> Element<'a, Message> {
     .into()
 }
 
-pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
+pub fn window(app: &App) -> Option<Element<'_, Message>> {
     if !app.manager_open() {
         return None;
     }
     let palette = app.palette();
-    let size = panel_size(app.window_size());
+    let size = app.connections_window_size();
     let filter = text_input("Filter connections", app.manager().filter())
         .id(App::filter_input_id())
         .on_input(Message::ManagerFilterTyped)
@@ -209,24 +200,13 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     ]
     .spacing(10);
     let surface = palette.surface;
-    let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let boxed =
-        container(content).padding(16).width(Length::Fixed(size.width)).height(Length::Fixed(size.height)).style(
-            move |_| container::Style {
-                background: Some(iced::Background::Color(surface)),
-                border,
-                ..container::Style::default()
-            },
-        );
-    let blocked = mouse_area(boxed).on_press(Message::ManagerIgnored);
-    let backdrop =
-        mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(Message::ManagerIgnored);
-    let placed = container(blocked)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_x(alignment::Horizontal::Center)
-        .align_y(alignment::Vertical::Center);
-    Some(stack![backdrop, placed].into())
+    let page = container(content).padding(MARGIN).width(Length::Fill).height(Length::Fill).style(move |_| {
+        container::Style { background: Some(iced::Background::Color(surface)), ..container::Style::default() }
+    });
+    match super::connection_form::overlay(app) {
+        Some(dialog) => Some(stack![page, dialog].into()),
+        None => Some(page.into()),
+    }
 }
 
 fn bordered<'a>(palette: &Palette) -> impl Fn(&iced::Theme) -> container::Style + 'a {

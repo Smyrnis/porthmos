@@ -1,6 +1,6 @@
 pub mod button;
 mod connection_form;
-mod connections;
+pub mod connections;
 mod context_menu;
 mod drag_overlay;
 mod file_list;
@@ -10,6 +10,7 @@ mod modal;
 pub mod palette;
 mod path_bar;
 pub mod preview;
+pub mod search;
 pub mod settings;
 mod status;
 pub mod sync;
@@ -54,6 +55,10 @@ pub fn hairline_down<'a>(palette: &Palette) -> Element<'a, Message> {
     container(space()).width(Length::Fixed(1.0)).height(Length::Fill).style(filled(palette.line)).into()
 }
 
+pub fn blank(app: &App) -> Element<'_, Message> {
+    container(space()).width(Length::Fill).height(Length::Fill).style(filled(app.palette().bg)).into()
+}
+
 pub fn root(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
     let panels = row![
@@ -78,12 +83,6 @@ pub fn root(app: &App) -> Element<'_, Message> {
     let page = page.push(status::bar(app));
     let page = container(page).width(Length::Fill).height(Length::Fill).style(filled(palette.bg));
     let mut layers = stack![page];
-    if let Some(manager) = connections::overlay(app) {
-        layers = layers.push(manager);
-    }
-    if let Some(form) = connection_form::overlay(app) {
-        layers = layers.push(form);
-    }
     if let Some(tool) = tools::overlay(app) {
         layers = layers.push(tool);
     }

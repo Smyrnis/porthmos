@@ -1,4 +1,4 @@
-use iced::Task;
+use iced::{Task, window};
 
 use super::{App, Message};
 use crate::modal::Modal;
@@ -14,10 +14,11 @@ impl App {
         if !transfers && !edits {
             return self.begin_close();
         }
-        if !self.modals.any(|modal| matches!(modal, Modal::ConfirmQuit { .. })) {
-            self.modals.push(Modal::ConfirmQuit { transfers, edits });
+        if self.modals.any(|modal| matches!(modal, Modal::ConfirmQuit { .. })) {
+            return Task::none();
         }
-        Task::none()
+        self.modals.push(Modal::ConfirmQuit { transfers, edits });
+        window::gain_focus(self.windows.main())
     }
 
     pub(in crate::app) fn begin_close(&mut self) -> Task<Message> {
@@ -25,11 +26,14 @@ impl App {
             return Task::none();
         }
         self.closing = true;
+        self.cancel_search_work();
         if let Some(job) = self.staging.take() {
             job.staging.remove();
         }
         let core = self.core.clone();
-        Task::perform(runtime::shut_down(core, runtime::SHUTDOWN_BOUND), |()| Message::ShutdownFinished)
+        let shutdown = Task::perform(runtime::shut_down(core, runtime::SHUTDOWN_BOUND), |()| Message::ShutdownFinished);
+        let closing = self.windows.secondary().into_iter().map(window::close);
+        Task::batch(closing.chain(std::iter::once(shutdown)))
     }
 }
 
