@@ -24,6 +24,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         edit: EditSettingsFile::default(),
         terminal: TerminalSettingsFile::default(),
         update: UpdateSettingsFile::default(),
+        search: SearchSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -43,6 +44,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         edit: EditSettingsFile::default(),
         terminal: TerminalSettingsFile::default(),
         update: UpdateSettingsFile::default(),
+        search: SearchSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -320,4 +322,32 @@ fn the_update_table_does_not_leak_into_the_frontend_settings() {
 
     assert!(settings.frontend.contains_key("keys"));
     assert!(!settings.frontend.contains_key("update"));
+}
+
+#[test]
+fn search_preview_defaults_to_off() {
+    let (settings, warnings) = settings_from_file(SettingsFile::default());
+
+    assert!(warnings.is_empty());
+    assert!(!settings.search.preview);
+    assert!(!Settings::default().search.preview);
+}
+
+#[test]
+fn search_preview_reads_true_from_the_search_table() {
+    let file: SettingsFile = toml::from_str("[search]\npreview = true\n").unwrap();
+
+    let (settings, warnings) = settings_from_file(file);
+
+    assert!(warnings.is_empty());
+    assert!(settings.search.preview);
+}
+
+#[test]
+fn search_preview_false_is_kept() {
+    let file: SettingsFile = toml::from_str("[search]\npreview = false\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(!settings.search.preview);
 }

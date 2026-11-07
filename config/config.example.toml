@@ -48,6 +48,12 @@ mode = "auto"
 # Hours between automatic checks, from 1 to 720.
 interval_hours = 24
 
+[search]
+# Show the start of the file under the cursor in a pane below the search
+# results. The pane follows the cursor and scrolls (PageUp and PageDown in the
+# terminal app, the mouse wheel in the window app). Off by default.
+preview = false
+
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with

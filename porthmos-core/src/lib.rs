@@ -27,7 +27,7 @@ pub mod update;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-pub use config::{UpdateMode, UpdateSettings};
+pub use config::{SearchSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};

@@ -52,6 +52,11 @@ impl Default for UpdateSettings {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchSettings {
+    pub preview: bool,
+}
+
 pub const MAX_PARALLEL_CAP: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +78,7 @@ pub struct Settings {
     pub edit: EditSettings,
     pub terminal: TerminalSettings,
     pub update: UpdateSettings,
+    pub search: SearchSettings,
     pub frontend: toml::Table,
 }
 
@@ -88,6 +94,8 @@ pub(crate) struct SettingsFile {
     pub terminal: TerminalSettingsFile,
     #[serde(default)]
     pub update: UpdateSettingsFile,
+    #[serde(default)]
+    pub search: SearchSettingsFile,
     #[serde(flatten)]
     pub frontend: toml::Table,
 }
@@ -96,6 +104,11 @@ pub(crate) struct SettingsFile {
 pub(crate) struct TransferSettingsFile {
     pub max_parallel: Option<i64>,
     pub on_conflict: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct SearchSettingsFile {
+    pub preview: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -207,6 +220,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
                     .filter(|command| !command.is_empty()),
             },
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
+            search: SearchSettings { preview: file.search.preview.unwrap_or(false) },
             frontend: file.frontend,
         },
         warnings,

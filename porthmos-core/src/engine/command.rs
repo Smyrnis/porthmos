@@ -61,6 +61,7 @@ pub enum Command {
     ClearHistory,
     EditFile { location: Location, path: VfsPath },
     Preview { request_id: RequestId, location: Location, path: VfsPath },
+    PreviewHint { request_id: RequestId, location: Location, path: VfsPath },
     CancelPreview,
     FinishEdit { edit_id: u64, exit: EditorExit },
     ResolveEdit { edit_id: u64, choice: EditChoice },

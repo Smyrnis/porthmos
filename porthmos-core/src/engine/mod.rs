@@ -79,6 +79,11 @@ pub(crate) enum Internal {
         name: String,
         result: Result<crate::preview::Preview, String>,
     },
+    PreviewRested {
+        request_id: RequestId,
+        location: Location,
+        path: VfsPath,
+    },
     KeyringProbed {
         available: bool,
     },
@@ -189,6 +194,7 @@ pub(crate) struct Engine {
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     preview_busy: bool,
+    preview_hint: Option<RequestId>,
     preview_next: Option<(u64, Location, VfsPath)>,
     pub(crate) pause_stops: std::collections::HashSet<u64>,
     pub(crate) source_removals: std::collections::HashSet<u64>,
@@ -286,6 +292,7 @@ impl Engine {
             speed_limit: crate::transfer::limit::SpeedLimit::new(),
             preview_request: None,
             preview_busy: false,
+            preview_hint: None,
             preview_next: None,
             pause_stops: std::collections::HashSet::new(),
             source_removals: std::collections::HashSet::new(),
@@ -388,7 +395,11 @@ impl Engine {
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
             Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
             Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),
-            Command::Preview { request_id, location, path } => self.start_preview(request_id, location, path),
+            Command::Preview { request_id, location, path } => {
+                self.preview_hint = None;
+                self.start_preview(request_id, location, path);
+            }
+            Command::PreviewHint { request_id, location, path } => self.hint_preview(request_id, location, path),
             Command::CancelPreview => self.cancel_preview(),
             Command::ResolveConflicts { batch_id, answers } => self.resolve_conflicts(batch_id, answers),
             Command::CancelAllTransfers => self.cancel_all_copies(),
@@ -455,6 +466,11 @@ impl Engine {
             }
             Internal::Edit(event) => self.handle_edit_event(event),
             Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
+            Internal::PreviewRested { request_id, location, path } => {
+                if self.preview_hint.take() == Some(request_id) {
+                    self.start_preview(request_id, location, path);
+                }
+            }
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::FolderShown { location, path } => self.remember_folder(location, path),
