@@ -48,14 +48,12 @@ jobs:
               exit 1
             fi
           done
-          if [ "$(cargo tree -p porthmos-tui -e normal --depth 1 | grep -c 'porthmos-')" != 2 ]; then
-            echo "porthmos-tui must depend on porthmos-core only"
-            exit 1
-          fi
-          if [ "$(cargo tree -p porthmos-gui -e normal --depth 1 | grep -c 'porthmos-')" != 2 ]; then
-            echo "porthmos-gui must depend on porthmos-core only"
-            exit 1
-          fi
+          for frontend in porthmos-tui porthmos-gui; do
+            if [ "$(cargo tree -p "$frontend" -e normal --depth 1 | grep -oE 'porthmos-[a-z0-9]+' | sort -u | grep -vx "$frontend" | tr '\n' ' ')" != "porthmos-core porthmos-ssh " ]; then
+              echo "$frontend must depend on porthmos-core and porthmos-ssh only"
+              exit 1
+            fi
+          done
           forbid_dependency porthmos-gui porthmos-tui
           forbid_dependency porthmos-core iced
       - name: Installer
