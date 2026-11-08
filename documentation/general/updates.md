@@ -4,18 +4,20 @@
 
 Porthmos looks for a newer version in the background and, by default, downloads
 and verifies it while you work. It never replaces the running program. When an
-update is ready, `↑ 0.4.0 installs on quit` appears at the right end of the top
-bar, and the new version is installed when you quit normally (`q` or `F10`);
-Porthmos then prints `Porthmos updated to 0.4.0.` and the next start is the new
-version. Closing the terminal window or killing the process installs nothing; the
-update stays ready for the next normal quit.
+update is ready, `↑ 2026.6.0 installs on quit` appears at the right end of the
+top bar of the terminal app (on the toolbar of the window app), and the new
+version is installed when you quit normally (`q` or `F10` in the terminal app;
+closing the window or `Cmd/Ctrl+Q` in the window app). Porthmos then prints
+`Porthmos updated to 2026.6.0.` to the terminal it was started from, and the
+next start is the new version. Closing the terminal window or killing the
+process installs nothing; the update stays ready for the next normal quit.
 
 Every download is checked against a signature made with a key built into the
 program, so a compromised download host cannot push code. The only request made
 is the one that asks for the latest version, and it carries just
 `User-Agent: porthmos/<version>` (`porthmos-gui/<version>` for the window app).
 A copy owned by a package manager (a system package, Homebrew, `cargo install`)
-is never replaced; the badge then reads `↑ 0.4.0 available`.
+is never replaced; the badge then reads `↑ 2026.6.0 available`.
 
 Set `mode` in the `[update]` table of `config.toml`: `"auto"` (the default),
 `"notify"` (show the badge, download and install nothing) or `"off"` (never

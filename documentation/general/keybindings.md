@@ -38,6 +38,7 @@ different screens. The tables below are the defaults.
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch panel |
+| `Ctrl+'` | Type a path to go to (`Enter` goes, `Esc` cancels) |
 | `c` / `F5` | Copy |
 | `m` / `F6` | Move |
 | `n` / `F7` | New folder |
@@ -47,6 +48,9 @@ different screens. The tables below are the defaults.
 | `p` | Preview |
 | `t` | Transfers |
 | `1`–`9` | Switch to connection 1–9 |
+
+**Search:** `↑` `↓` move, `Enter` open, `Esc` close. With `[search] preview`
+on, `PageUp` / `PageDown` scroll the preview.
 
 **Connections:** `n` / `F6` add, `e` / `F2` edit, `x` / `F8` disconnect,
 `Delete` delete the saved connection.
@@ -61,8 +65,9 @@ live list — it reflects your configured bindings rather than this table.
 
 ## Window app
 
-The window app has one flat table of shortcuts, not one per screen. The
-defaults are below. On macOS `Cmd` stands in for `Ctrl` where the table says
+The window app has one flat table of shortcuts, not one per screen. Settings,
+the connection manager and Search open in their own windows. To go to a typed
+path, click the empty part of a panel's path bar. The defaults are below. On macOS `Cmd` stands in for `Ctrl` where the table says
 `Cmd/Ctrl`.
 
 | Key | Action |

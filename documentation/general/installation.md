@@ -34,6 +34,10 @@ curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/ins
 Run the script again without `--preview` to go back to the stable build.
 Installing one program never touches the other.
 
+On Linux, installing the window app also adds a launcher and an icon, so
+`Porthmos` appears in your applications menu. The programs go to
+`$PORTHMOS_INSTALL_DIR` and the links to `$PORTHMOS_BIN_DIR` if you set them.
+
 ## From source
 
 Requires a Rust toolchain supporting the 2024 edition (stable is fine).
@@ -47,10 +51,10 @@ The binary is written to `target/release/porthmos`.
 To build the window app instead, run `cargo build --release -p porthmos-gui`;
 the binary is `target/release/porthmos-gui`.
 
-Optional on Linux and macOS: install
-[`sshpass`](https://linux.die.net/man/1/sshpass) if you want the F4 terminal
-hand-off to use a saved profile password automatically, instead of prompting
-for it again. On Windows the hand-off always prompts again.
+The F4 terminal hand-off passes a saved profile password to `ssh` by itself
+when `ssh` is OpenSSH 8.4 or newer; no extra program is needed. With an older
+`ssh`, install [`sshpass`](https://linux.die.net/man/1/sshpass) to get the same
+on Linux and macOS, or `ssh` asks for the password again.
 
 ## Platforms
 
@@ -70,8 +74,9 @@ curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/tui-stable/unin
 ```
 
 It removes whichever of `porthmos` and `porthmos-gui` is installed from
-`~/.local/share/porthmos`, with their links in `~/.local/bin` and any previous
-version an update left beside them, and keeps your settings, saved connections,
+`~/.local/share/porthmos`, with their links in `~/.local/bin`, the window
+app's launcher and icon if the installer added them, and any previous version
+an update left beside them, and keeps your settings, saved connections,
 bookmarks, history and saved passwords, telling you where they are. To remove
 those as well, add `--purge`; it lists what it will delete and asks first, or
 skips the question with `--yes` (needed when the script is piped, as above):

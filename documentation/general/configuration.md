@@ -4,8 +4,8 @@ Settings, saved connections, and bookmarks live under
 `$XDG_CONFIG_HOME/porthmos` (or `~/.config/porthmos` if unset) on Linux and
 macOS, and under `%APPDATA%\porthmos` on Windows:
 
-- `config.toml` — panel, transfer, edit, terminal, key-binding and theme
-  settings. See
+- `config.toml` — panel, transfer, edit, terminal, update, search, startup,
+  key-binding and theme settings. See
   [`config/config.example.toml`](../../config/config.example.toml) for every
   option with its default.
 - `connections.toml` — saved connection profiles.
@@ -14,7 +14,9 @@ macOS, and under `%APPDATA%\porthmos` on Windows:
 
 Transfer history and other state live under `$XDG_STATE_HOME/porthmos`
 (or `~/.local/state/porthmos`) on Linux and macOS, and under
-`%LOCALAPPDATA%\porthmos` on Windows.
+`%LOCALAPPDATA%\porthmos` on Windows. That folder holds `state.toml`,
+`last_used.toml`, `history.toml`, `gui-windows.toml` (the window app's window
+sizes and positions) and the log.
 
 If you used this app under its old name, TermConnect, your old
 `termconnect` config folder is moved to the new location on first start,
@@ -49,7 +51,34 @@ Between runs Porthmos keeps, in the state folder:
   in the interface wins over `[panel]` in `config.toml` for that panel. To go
   back to the configured values, delete that table from `state.toml`.
 
+- the size and position of the window app's windows — main, Settings,
+  connection manager and Search (`gui-windows.toml`), written when the app
+  quits normally. Whether a window was maximized is not remembered. On Wayland
+  only the size is restored, because the compositor does not tell the app where
+  a window is;
+- the connections that were open, only when `[startup] reopen` is not `"off"`
+  (`state.toml`, key `reopen`); see below.
+
 A remembered folder that no longer exists is skipped without a message.
+
+## Reopening connections
+
+`[startup] reopen` in `config.toml` chooses what happens to the saved
+connections that were open when you last quit:
+
+- `"off"` (the default) — nothing is remembered and nothing is offered.
+- `"ask"` — the empty remote panel shows a button (the terminal app shows a
+  note and a hint) naming them, and the command palette lists "Reopen last
+  connections". Nothing connects until you choose it.
+- `"auto"` — they are opened one after another when the app starts.
+
+Connections open one at a time, so passwords, key passphrases and host-key
+questions come one by one as usual, and a connection that fails does not stop
+the ones after it. A connection whose password is saved in the keyring opens
+without a prompt, and each one returns to the folder it was last in. Only
+saved connections are remembered, in the order you opened them. Changing the
+setting in the window app's Settings applies at once; in the terminal app edit
+`config.toml` and restart.
 
 ## Notices
 
