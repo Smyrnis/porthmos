@@ -22,9 +22,11 @@
   keyring they are kept only until Porthmos quits.
 - **Background transfers** — copy and move, files or whole folders, queued
   and running in parallel. Transfers can be paused, reordered, cancelled and
-  speed-limited. They are written to a `.part` file first and resume after a
-  cancel, a dropped connection or a restart. A conflict dialog offers
-  overwrite, skip, rename or cancel, for one file or for all of them.
+  speed-limited. They are written to a `.part` file first. After a cancel, a
+  dropped connection or a restart, copy the same file again and choose Resume
+  to continue where it stopped; the queue itself is not restored after a
+  restart. A conflict dialog offers overwrite, skip, rename, resume or cancel,
+  for one file or for all of them.
 - **Folder sync** — compare a local and a remote folder by time or size, one
   way or both ways, review the differences, and run only the ones you tick.
 - **Edit remote files** — open a remote file in `$VISUAL`, `$EDITOR` or the

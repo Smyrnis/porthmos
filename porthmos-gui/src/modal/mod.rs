@@ -133,8 +133,7 @@ impl ModalQueue {
 }
 
 const EDIT_QUIT_TEXT: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left incomplete; your copy stays in the state folder.";
-const TRANSFER_QUIT_TEXT: &str =
-    "Some transfers are still running or queued. Quit anyway? Unfinished transfers can be resumed next time.";
+const TRANSFER_QUIT_TEXT: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
 
 pub fn quit_text(transfers: bool, edits: bool) -> String {
     match (transfers, edits) {

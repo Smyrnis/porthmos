@@ -402,7 +402,7 @@ fn quitting_during_a_transfer_asks_first() {
 
     assert!(!test.app.should_quit);
     match &test.app.dialog {
-        Some(Dialog::Confirm(dialog)) => assert!(dialog.message.contains("transfers"), "{}", dialog.message),
+        Some(Dialog::Confirm(dialog)) => assert_eq!(dialog.message, porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT),
         _ => panic!("expected a confirm dialog"),
     }
     press(&mut test, KeyCode::Char('n'));

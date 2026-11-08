@@ -17,8 +17,7 @@ pub(super) struct EditPrompt {
 
 const EDIT_QUIT_QUESTION: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left \
                                   incomplete; your copy stays in the state folder.";
-const TRANSFER_QUIT_QUESTION: &str =
-    "Some transfers are still running or queued. Quit anyway? Unfinished transfers can be resumed next time.";
+const TRANSFER_QUIT_QUESTION: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
 
 pub(super) fn editor_process(editor: &EditorCommand, file: &Path) -> std::process::Command {
     let mut command = std::process::Command::new(&editor.program);
