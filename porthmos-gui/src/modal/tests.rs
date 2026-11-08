@@ -11,7 +11,7 @@ fn entry(name: &str) -> Entry {
 fn question(id: u64) -> Modal {
     Modal::Question(Dialog::from_question(
         id,
-        Question::Password { username: "u".to_string(), name: "n".to_string() },
+        Question::Password { username: "u".to_string(), name: "n".to_string(), secret: "Password" },
         None,
     ))
 }

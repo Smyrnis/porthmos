@@ -164,7 +164,7 @@ async fn a_password_question_is_forwarded_as_a_test_question_and_the_answer_reac
         }
     };
     assert_eq!(test_id, 5);
-    assert_eq!(question, Question::Password { username: "u".to_string(), name: "box".to_string() });
+    assert_eq!(question, Question::Password { username: "u".to_string(), name: "box".to_string(), secret: "Password" });
     t.engine.handle_command(Command::Answer {
         request_id,
         answer: Some(Answer::Password("secret".to_string())),

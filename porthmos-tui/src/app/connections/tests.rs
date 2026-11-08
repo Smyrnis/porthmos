@@ -208,7 +208,7 @@ fn a_password_question_opens_a_masked_prompt() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 4,
-        question: Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: Question::Password { username: "u".to_string(), name: "srv".to_string(), secret: "Password" },
     });
 
     match test.app.dialog {
@@ -222,11 +222,77 @@ fn a_password_question_opens_a_masked_prompt() {
 }
 
 #[test]
+fn a_secret_that_is_not_a_password_is_named_in_the_prompt() {
+    let mut test = app();
+
+    test.app.apply_core_event(Event::Question {
+        request_id: 4,
+        question: Question::Password {
+            username: "AK".to_string(),
+            name: "s3".to_string(),
+            secret: "Secret access key",
+        },
+    });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref dialog)) => {
+            assert_eq!(dialog.title, "Secret access key for AK@s3");
+            assert_eq!(dialog.fields[0].label, "Secret access key");
+            assert_eq!(dialog.fields[0].key, "password");
+        }
+        _ => panic!("expected the prompt"),
+    }
+}
+
+#[test]
+fn the_whole_name_of_the_secret_is_on_the_screen() {
+    let mut test = app();
+    test.app.apply_core_event(Event::Question {
+        request_id: 4,
+        question: Question::Password {
+            username: "AK".to_string(),
+            name: "s3".to_string(),
+            secret: "Secret access key",
+        },
+    });
+
+    let screen = screen_text(&test);
+
+    assert!(screen.contains("Secret access key for AK@s3"), "{screen}");
+    assert!(screen.matches("Secret access key").count() >= 2, "{screen}");
+}
+
+#[test]
+fn a_connection_test_names_a_secret_that_is_not_a_password_too() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_core_event(Event::TestQuestion {
+        test_id: 0,
+        request_id: 31,
+        question: Question::Password {
+            username: "AK".to_string(),
+            name: "s3".to_string(),
+            secret: "Secret access key",
+        },
+    });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref dialog)) => {
+            assert_eq!(dialog.title, "Secret access key for AK@s3");
+            assert_eq!(dialog.fields[0].label, "Secret access key");
+        }
+        _ => panic!("expected the prompt"),
+    }
+}
+
+#[test]
 fn submitting_the_password_answers_the_question() {
     let mut test = app();
     test.app.apply_core_event(Event::Question {
         request_id: 4,
-        question: Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: Question::Password { username: "u".to_string(), name: "srv".to_string(), secret: "Password" },
     });
 
     for c in "pw".chars() {
@@ -246,7 +312,7 @@ fn escaping_the_password_prompt_cancels_the_connection() {
     test.app.connection_status = ConnectionStatus::Connecting("srv".to_string());
     test.app.apply_core_event(Event::Question {
         request_id: 4,
-        question: Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: Question::Password { username: "u".to_string(), name: "srv".to_string(), secret: "Password" },
     });
 
     test.app.apply_dialog_key(key(KeyCode::Esc));
@@ -860,7 +926,7 @@ fn delete_on_a_shadowed_labels_row_does_not_disconnect_the_same_named_profile() 
 fn ask_password(test: &mut TestApp, request_id: u64) {
     test.app.apply_core_event(Event::Question {
         request_id,
-        question: Question::Password { username: "u".into(), name: "web".into() },
+        question: Question::Password { username: "u".into(), name: "web".into(), secret: "Password" },
     });
 }
 
@@ -1435,7 +1501,7 @@ fn ask_test_password(test: &mut TestApp, test_id: u64, request_id: u64) {
     test.app.apply_core_event(Event::TestQuestion {
         test_id,
         request_id,
-        question: Question::Password { username: "deploy".into(), name: "nas".into() },
+        question: Question::Password { username: "deploy".into(), name: "nas".into(), secret: "Password" },
     });
 }
 

@@ -148,13 +148,9 @@ fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
         text_button("OK", Some(Message::TestPasswordSubmitted), Look::Primary, palette),
     ]
     .spacing(8);
-    let content = column![
-        bold_label("Password", palette.fg_bright),
-        label(format!("Password for {}@{}", prompt.username, prompt.name), palette.fg),
-        field,
-        buttons
-    ]
-    .spacing(12);
+    let content =
+        column![bold_label(prompt.secret, palette.fg_bright), label(prompt.heading(), palette.fg), field, buttons]
+            .spacing(12);
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
     let boxed = container(content).padding(16).width(Length::Fixed(SMALL_WIDTH)).style(move |_| container::Style {

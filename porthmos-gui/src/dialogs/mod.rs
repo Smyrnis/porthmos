@@ -33,10 +33,10 @@ impl Dialog {
     pub fn from_question(request_id: RequestId, question: Question, save: Option<bool>) -> Dialog {
         let risky = question.is_risky_to_confirm();
         match question {
-            Question::Password { username, name } => Dialog::Password {
+            Question::Password { username, name, secret } => Dialog::Password {
                 request_id,
-                title: "Password".to_string(),
-                prompt: format!("Password for {username} on {name}"),
+                title: secret.to_string(),
+                prompt: format!("{secret} for {username} on {name}"),
                 text: Typed::default(),
                 save,
             },

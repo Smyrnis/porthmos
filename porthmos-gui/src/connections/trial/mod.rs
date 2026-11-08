@@ -13,12 +13,17 @@ pub struct TestPrompt {
     pub request_id: RequestId,
     pub username: String,
     pub name: String,
+    pub secret: &'static str,
     pub text: Typed,
 }
 
 impl TestPrompt {
-    pub fn new(request_id: RequestId, username: String, name: String) -> TestPrompt {
-        TestPrompt { request_id, username, name, text: Typed::default() }
+    pub fn heading(&self) -> String {
+        format!("{} for {}@{}", self.secret, self.username, self.name)
+    }
+
+    pub fn new(request_id: RequestId, username: String, name: String, secret: &'static str) -> TestPrompt {
+        TestPrompt { request_id, username, name, secret, text: Typed::default() }
     }
 }
 

@@ -39,5 +39,7 @@ fn trusting_a_new_host_key_or_certificate_is_never_confirmed_by_default() {
 
 #[test]
 fn a_password_prompt_has_nothing_risky_to_confirm() {
-    assert!(!Question::Password { username: "root".into(), name: "box".into() }.is_risky_to_confirm());
+    assert!(
+        !Question::Password { username: "root".into(), name: "box".into(), secret: "Password" }.is_risky_to_confirm()
+    );
 }

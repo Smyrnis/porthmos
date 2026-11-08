@@ -55,7 +55,7 @@ async fn a_wrong_saved_password_asks_once_and_accepts_the_answer() {
 
         assert_eq!(
             prompter.asked,
-            vec![Question::Password { username: USER.to_string(), name: "srv".to_string() }],
+            vec![Question::Password { username: USER.to_string(), name: "srv".to_string(), secret: "Password" }],
             "{auth:?}"
         );
     }

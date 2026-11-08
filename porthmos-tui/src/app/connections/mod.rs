@@ -290,20 +290,24 @@ impl App {
         (!self.keyring_available).then(|| NO_KEYRING_HINT.to_string())
     }
 
-    pub(super) fn open_password_prompt(&mut self, request_id: RequestId, username: String, name: String) {
-        let mut fields = vec![FormField::masked("password", "Password", "")];
+    pub(super) fn open_password_prompt(
+        &mut self, request_id: RequestId, username: String, name: String, secret: &'static str,
+    ) {
+        let mut fields = vec![FormField::masked("password", secret, "")];
         if self.keyring_available {
             let choices = vec![("true".to_string(), "Yes".to_string()), ("false".to_string(), "No".to_string())];
             let current = if self.save_choice { "true" } else { "false" };
             fields.push(FormField::choice("save", "Save in keyring", choices, current));
         }
-        self.dialog = Some(Dialog::Form(FormDialog::new(format!("Password for {username}@{name}"), fields)));
+        self.dialog = Some(Dialog::Form(FormDialog::new(format!("{secret} for {username}@{name}"), fields)));
         self.pending_action = Some(PendingAction::SubmitPassword { request_id });
     }
 
-    pub(super) fn open_test_password_prompt(&mut self, request_id: RequestId, username: String, name: String) {
-        let fields = vec![FormField::masked("password", "Password", "")];
-        self.dialog = Some(Dialog::Form(FormDialog::new(format!("Password for {username}@{name}"), fields)));
+    pub(super) fn open_test_password_prompt(
+        &mut self, request_id: RequestId, username: String, name: String, secret: &'static str,
+    ) {
+        let fields = vec![FormField::masked("password", secret, "")];
+        self.dialog = Some(Dialog::Form(FormDialog::new(format!("{secret} for {username}@{name}"), fields)));
         self.pending_action = Some(PendingAction::SubmitTestPassword { request_id });
     }
 
@@ -312,9 +316,9 @@ impl App {
             return;
         }
         match question {
-            Question::Password { username, name } => {
+            Question::Password { username, name, secret } => {
                 self.make_room_for_question();
-                self.open_test_password_prompt(request_id, username, name);
+                self.open_test_password_prompt(request_id, username, name, secret);
             }
             Question::TrustHostKey { .. } | Question::TrustCertificate { .. } => {
                 self.core.send(Command::Answer { request_id, answer: None, save: false });

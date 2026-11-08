@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-pub const LABEL_WIDTH: usize = 15;
+pub const LABEL_WIDTH: usize = 19;
 const SAVED_SECRET: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022} (saved)";
 
 struct Item {

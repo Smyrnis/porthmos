@@ -371,7 +371,11 @@ fn a_password_question_that_arrives_while_the_viewer_is_open_can_be_answered() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 9,
-        question: porthmos_core::Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: porthmos_core::Question::Password {
+            username: "u".to_string(),
+            name: "srv".to_string(),
+            secret: "Password",
+        },
     });
     for character in "pw".chars() {
         press(&mut test, KeyCode::Char(character));

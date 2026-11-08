@@ -331,7 +331,11 @@ fn a_password_prompt_does_not_strand_an_open_edit_question() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 9,
-        question: porthmos_core::Question::Password { username: "me".to_string(), name: "prod".to_string() },
+        question: porthmos_core::Question::Password {
+            username: "me".to_string(),
+            name: "prod".to_string(),
+            secret: "Password",
+        },
     });
     assert!(!matches!(test.app.dialog, Some(Dialog::Confirm(_))));
     press(&mut test, KeyCode::Esc);

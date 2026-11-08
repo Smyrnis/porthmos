@@ -503,7 +503,9 @@ impl App {
     fn ask(&mut self, request_id: RequestId, question: Question) {
         self.make_room_for_question();
         match question {
-            Question::Password { username, name } => self.open_password_prompt(request_id, username, name),
+            Question::Password { username, name, secret } => {
+                self.open_password_prompt(request_id, username, name, secret)
+            }
             Question::TrustHostKey { name, host, port, key_type, fingerprint } => {
                 let message = format!(
                     "{name} ({host}:{port}) is not a known host.\n\

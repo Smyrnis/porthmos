@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEventKind, KeyEventState, KeyModifiers};
 
 use super::*;
+use crate::widgets::form_fields::LABEL_WIDTH;
 use crate::{
     app::testing::{cell_fg, find_text, has_unprintable_cell},
     theme::{ColorDepth, ThemeSettings},
@@ -654,10 +655,10 @@ fn the_focused_field_has_a_bright_label_and_an_accent_underline() {
 
     let (x, y) = find_text(&terminal, "Name").unwrap();
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
-    assert_eq!(cell_fg(&terminal, x + 15, y + 1), theme.accent);
+    assert_eq!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.accent);
     let (x, y) = find_text(&terminal, "Host").unwrap();
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
-    assert_eq!(cell_fg(&terminal, x + 15, y + 1), theme.line_strong);
+    assert_eq!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.line_strong);
 }
 
 #[test]

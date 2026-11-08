@@ -59,7 +59,11 @@ async fn a_wrong_saved_secret_asks_once_then_connects() {
 
     assert_eq!(
         prompter.asked,
-        vec![Question::Password { username: ACCESS_KEY.to_string(), name: "store".to_string() }]
+        vec![Question::Password {
+            username: ACCESS_KEY.to_string(),
+            name: "store".to_string(),
+            secret: "Secret access key"
+        }]
     );
 }
 

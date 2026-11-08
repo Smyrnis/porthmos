@@ -842,7 +842,7 @@ fn question(request_id: u64, question: porthmos_core::Question) -> Event {
 }
 
 fn password_question() -> porthmos_core::Question {
-    porthmos_core::Question::Password { username: "me".to_string(), name: "alpha".to_string() }
+    porthmos_core::Question::Password { username: "me".to_string(), name: "alpha".to_string(), secret: "Password" }
 }
 
 fn host_question() -> porthmos_core::Question {

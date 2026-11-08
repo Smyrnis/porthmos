@@ -3,6 +3,9 @@ use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 use unicode_width::UnicodeWidthStr;
 
 use super::*;
+use crate::widgets::form_fields::LABEL_WIDTH;
+
+const LABEL_COLUMN: u16 = LABEL_WIDTH as u16;
 use crate::{
     app::testing::{cell_bg, cell_fg, find_text},
     theme::{ColorDepth, Theme, ThemeSettings},
@@ -194,10 +197,10 @@ fn fields_are_a_label_a_value_and_an_underline_row() {
     let terminal = draw(&sample(), 120, 20);
 
     assert!(right_part(&terminal, 2, 46).starts_with("Name"), "{:?}", right_part(&terminal, 2, 46));
-    assert_eq!(column_of(&terminal, 2, "backups"), Some(61));
-    assert_eq!(terminal.backend().buffer()[(61, 3)].symbol(), "\u{2500}");
+    assert_eq!(column_of(&terminal, 2, "backups"), Some(46 + LABEL_COLUMN));
+    assert_eq!(terminal.backend().buffer()[(46 + LABEL_COLUMN, 3)].symbol(), "\u{2500}");
     assert_eq!(terminal.backend().buffer()[(119, 3)].symbol(), "\u{2500}");
-    assert_eq!(terminal.backend().buffer()[(60, 3)].symbol(), " ");
+    assert_eq!(terminal.backend().buffer()[(45 + LABEL_COLUMN, 3)].symbol(), " ");
     assert!(right_part(&terminal, 4, 46).starts_with("Endpoint"));
 }
 
@@ -209,11 +212,11 @@ fn the_focused_field_has_a_bright_label_and_an_accent_underline() {
     let bucket_row = 6;
     assert!(right_part(&terminal, bucket_row, 46).starts_with("Bucket"));
     assert_eq!(cell_fg(&terminal, 46, bucket_row), theme.fg_bright);
-    assert_eq!(cell_fg(&terminal, 62, bucket_row + 1), theme.accent);
+    assert_eq!(cell_fg(&terminal, 47 + LABEL_COLUMN, bucket_row + 1), theme.accent);
     assert_eq!(cell_fg(&terminal, 46, 2), theme.fg_dim);
-    assert_eq!(cell_fg(&terminal, 62, 3), theme.line_strong);
-    assert_eq!(cell_fg(&terminal, 62, bucket_row), theme.fg_bright);
-    assert_eq!(cell_fg(&terminal, 62, 2), theme.fg);
+    assert_eq!(cell_fg(&terminal, 47 + LABEL_COLUMN, 3), theme.line_strong);
+    assert_eq!(cell_fg(&terminal, 47 + LABEL_COLUMN, bucket_row), theme.fg_bright);
+    assert_eq!(cell_fg(&terminal, 47 + LABEL_COLUMN, 2), theme.fg);
 }
 
 #[test]
@@ -248,7 +251,7 @@ fn the_caret_is_the_terminal_cursor_at_the_caret_column_in_display_width() {
     let mut terminal = draw(&form, 120, 20);
 
     let cursor = terminal.get_cursor_position().unwrap();
-    assert_eq!((cursor.x, cursor.y), (61 + 4 + 1, 2));
+    assert_eq!((cursor.x, cursor.y), (46 + LABEL_COLUMN + 4 + 1, 2));
 }
 
 #[test]
@@ -281,7 +284,7 @@ fn toggles_are_drawn_as_checkboxes_after_the_text_fields() {
     assert!(on > 8);
     let on_x = column_of(&terminal, on, "[x]").unwrap();
     let off_x = column_of(&terminal, off, "[ ]").unwrap();
-    assert_eq!((on_x, off_x), (61, 61));
+    assert_eq!((on_x, off_x), (46 + LABEL_COLUMN, 46 + LABEL_COLUMN));
     assert_eq!(cell_fg(&terminal, on_x + 1, on), theme.accent);
     assert_eq!(cell_fg(&terminal, off_x + 1, off), theme.fg_dim);
 }
@@ -444,7 +447,7 @@ fn the_caret_and_the_visible_text_follow_the_cursor_in_a_long_value() {
 
         let position = terminal.get_cursor_position().unwrap();
         assert_eq!(position.y, 2, "cursor {cursor}");
-        assert!(position.x >= 36 + 15 && position.x < 80, "cursor {cursor}: {position:?}");
+        assert!(position.x >= 36 + LABEL_COLUMN && position.x < 80, "cursor {cursor}: {position:?}");
         if cursor < 100 {
             let expected = ((cursor % 10) as u8 + b'0') as char;
             assert_eq!(

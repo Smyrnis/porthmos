@@ -98,7 +98,11 @@ pub async fn connect(
         Err(err) => return Err(ProtocolError::new(ErrorKind::Auth, err)),
     }
 
-    let question = Question::Password { username: target.username.clone(), name: target.name.clone() };
+    let question = Question::Password {
+        username: target.username.clone(),
+        name: target.name.clone(),
+        secret: porthmos_vfs::PASSWORD_LABEL,
+    };
     let Some(Answer::Password(password)) = prompter.ask(question).await else {
         return Err(ProtocolError::new(ErrorKind::Cancelled, anyhow!("Connection cancelled")));
     };

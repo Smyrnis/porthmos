@@ -16,7 +16,7 @@ pub use form::{Choice, CommonField, ConnectionForm, OptionField, OptionKind, Por
 pub use fs::{FileSystem, Reader, Writer};
 pub use names::{NameProblem, NameRules};
 pub use path::VfsPath;
-pub use prompt::{Answer, Prompter, Question};
+pub use prompt::{Answer, PASSWORD_LABEL, Prompter, Question};
 pub use protocol::{Environment, Protocol, ShellInvocation, Target};
 pub use search::{
     Glob, MAX_SEARCH_DEPTH, MAX_SEARCH_RESULTS, SearchEvent, SearchQuery, SearchSender, glob_match, walk_search,
