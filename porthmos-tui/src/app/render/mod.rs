@@ -1,4 +1,5 @@
 use porthmos_core::offer_summary;
+use porthmos_core::transfer::limit::speed_limit_note;
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -276,7 +277,10 @@ impl App {
             ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
                 (format!("Connection failed: {}", printable(message.summary())), self.theme.err_text())
             }
-            _ => return Line::default(),
+            _ => match speed_limit_note(self.transfers.speed_limit) {
+                Some(note) => (note, self.theme.muted()),
+                None => return Line::default(),
+            },
         };
         Line::styled(truncate_with_ellipsis(&text, budget), style)
     }

@@ -305,6 +305,27 @@ fn connecting_status_is_shown_on_the_right_in_the_muted_colour() {
 }
 
 #[test]
+fn an_active_speed_limit_is_shown_on_the_files_screen() {
+    let (mut app, theme) = themed_app();
+    app.transfers.speed_limit = Some(512 * 1024);
+
+    let terminal = render_app(&app, 80, 12);
+
+    let (x, y) = find_text(&terminal, "speed limit 512k").expect("limit is drawn");
+    assert_eq!(y, 0);
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_muted);
+}
+
+#[test]
+fn no_speed_limit_leaves_the_files_screen_status_empty() {
+    let (app, _) = themed_app();
+
+    let terminal = render_app(&app, 80, 12);
+
+    assert!(find_text(&terminal, "speed limit").is_none());
+}
+
+#[test]
 fn failed_status_is_shown_only_without_a_session() {
     let (mut app, theme) = themed_app();
     app.connection_status = ConnectionStatus::Failed("boom".into());
