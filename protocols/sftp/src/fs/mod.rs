@@ -14,20 +14,28 @@ use russh_sftp::{
     extensions::Statvfs,
     protocol::{FileAttributes, OpenFlags, Status, StatusCode},
 };
-use tokio::io::AsyncSeekExt;
+use tokio::{io::AsyncSeekExt, sync::OnceCell};
 
-use crate::subsystem::{SFTP_MAX_CONCURRENT_WRITES, SFTP_MAX_WRITE_PACKET_LEN};
+use crate::{
+    identities::Identities,
+    subsystem::{SFTP_MAX_CONCURRENT_WRITES, SFTP_MAX_WRITE_PACKET_LEN},
+};
 
 pub const SFTP_RESUME_BACKOFF_BYTES: u64 = SFTP_MAX_CONCURRENT_WRITES as u64 * SFTP_MAX_WRITE_PACKET_LEN as u64;
 
 pub struct SftpFs {
     session: Arc<Session>,
     sftp: Arc<SftpSession>,
+    identities: OnceCell<Arc<Identities>>,
 }
 
 impl SftpFs {
     pub fn new(session: Arc<Session>, sftp: Arc<SftpSession>) -> Self {
-        Self { session, sftp }
+        Self { session, sftp, identities: OnceCell::new() }
+    }
+
+    async fn identities(&self) -> Arc<Identities> {
+        self.identities.get_or_init(|| async { Arc::new(Identities::load(&self.sftp).await) }).await.clone()
     }
 }
 
@@ -62,17 +70,6 @@ pub fn metadata_from_sftp(metadata: &SftpMetadata) -> Metadata {
 
 pub(crate) fn sftp_time(seconds: u64) -> u32 {
     u32::try_from(seconds).unwrap_or(u32::MAX)
-}
-
-fn identity(name: Option<&String>, id: Option<u32>) -> Option<String> {
-    match name {
-        Some(name) if !name.is_empty() => Some(name.clone()),
-        _ => id.map(|id| id.to_string()),
-    }
-}
-
-pub(crate) fn ownership_of(attributes: &FileAttributes) -> (Option<String>, Option<String>) {
-    (identity(attributes.user.as_ref(), attributes.uid), identity(attributes.group.as_ref(), attributes.gid))
 }
 
 fn available_bytes(stats: &Statvfs) -> u64 {
@@ -139,7 +136,10 @@ impl FileSystem for SftpFs {
         let path = remote(dir);
         let mut entries = Vec::new();
 
-        for dir_entry in self.sftp.read_dir(&path).await.map_err(sftp_error)? {
+        let listing = self.sftp.read_dir(&path).await.map_err(sftp_error)?;
+        let identities = self.identities().await;
+
+        for dir_entry in listing {
             let metadata = dir_entry.metadata();
             let name = dir_entry.file_name();
             let entry_path = join_remote(&path, &name);
@@ -155,7 +155,7 @@ impl FileSystem for SftpFs {
             } else {
                 None
             };
-            let (owner, group) = ownership_of(&metadata);
+            let (owner, group) = identities.ownership(&metadata);
 
             entries.push(Entry {
                 path: VfsPath::new(&entry_path),
@@ -274,7 +274,8 @@ impl FileSystem for SftpFs {
     }
 
     async fn search(&self, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>) {
-        crate::search::search_remote(&self.session, &self.sftp, query, tx, cancel).await;
+        let identities = self.identities().await;
+        crate::search::search_remote(&self.session, &self.sftp, &identities, query, tx, cancel).await;
     }
 }
 

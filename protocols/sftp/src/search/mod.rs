@@ -22,7 +22,7 @@ use self::{
     hits::{Outcome, stream_hits},
     lines::LineSplitter,
 };
-use crate::fs::{metadata_from_sftp, ownership_of};
+use crate::{fs::metadata_from_sftp, identities::Identities};
 
 const LOOKUP_CONCURRENCY: usize = 16;
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -55,17 +55,19 @@ struct FindOutput {
 }
 
 pub async fn search_remote(
-    session: &Session, sftp: &SftpSession, query: SearchQuery, tx: mpsc::UnboundedSender<SearchEvent>,
-    cancel: Arc<AtomicBool>,
+    session: &Session, sftp: &SftpSession, identities: &Identities, query: SearchQuery,
+    tx: mpsc::UnboundedSender<SearchEvent>, cancel: Arc<AtomicBool>,
 ) {
     let root = query.root.to_string_lossy().into_owned();
-    let SearchQuery { pattern, max_depth, max_results, .. } = query;
+    let SearchQuery { pattern, max_depth, max_results, .. } = &query;
+    let (max_depth, max_results) = (*max_depth, *max_results);
     let exit = Arc::new(AtomicI64::new(EXIT_UNKNOWN));
 
-    if let Some(channel) = start_find(session, &root, &pattern, max_depth).await {
+    if let Some(channel) = start_find(session, &root, pattern, max_depth).await {
         let paths = Box::pin(find_paths(channel, cancel.clone(), exit.clone()));
         let outcome =
-            stream_hits(paths, |path| describe(sftp, path), LOOKUP_CONCURRENCY, max_results, &tx, &cancel).await;
+            stream_hits(paths, |path| describe(sftp, identities, path), LOOKUP_CONCURRENCY, max_results, &tx, &cancel)
+                .await;
         match outcome {
             Outcome::Cancelled | Outcome::ReceiverGone => return,
             Outcome::Finished { found, truncated } => {
@@ -77,17 +79,17 @@ pub async fn search_remote(
         }
     }
 
-    search_remote_walk(sftp, root, pattern, tx, cancel, max_depth, max_results).await;
+    search_remote_walk(sftp, identities, query, tx, cancel).await;
 }
 
 fn find_completed(exit: &AtomicI64) -> bool {
     matches!(exit.load(Ordering::Relaxed), 0..=FIND_PARTIAL_FAILURE)
 }
 
-async fn describe(sftp: &SftpSession, path: String) -> Option<Entry> {
+async fn describe(sftp: &SftpSession, identities: &Identities, path: String) -> Option<Entry> {
     let metadata = sftp.metadata(&path).await.ok()?;
     let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-    let (owner, group) = ownership_of(&metadata);
+    let (owner, group) = identities.ownership(&metadata);
     Some(Entry {
         name,
         path: VfsPath::new(&path),
@@ -153,9 +155,11 @@ fn find_paths(channel: OwnedChannel, cancel: Arc<AtomicBool>, exit: Arc<AtomicI6
 }
 
 async fn search_remote_walk(
-    sftp: &SftpSession, root: String, pattern: String, tx: mpsc::UnboundedSender<SearchEvent>, cancel: Arc<AtomicBool>,
-    max_depth: usize, max_results: usize,
+    sftp: &SftpSession, identities: &Identities, query: SearchQuery, tx: mpsc::UnboundedSender<SearchEvent>,
+    cancel: Arc<AtomicBool>,
 ) {
+    let root = query.root.to_string_lossy().into_owned();
+    let SearchQuery { pattern, max_depth, max_results, .. } = query;
     let glob = Glob::new(&pattern);
     let mut found = 0usize;
     let mut truncated = false;
@@ -188,7 +192,7 @@ async fn search_remote_walk(
             let path = join_remote(&dir, &name);
 
             if glob.matches(&name) {
-                let (owner, group) = ownership_of(&metadata);
+                let (owner, group) = identities.ownership(&metadata);
                 let _ = tx.send(SearchEvent::Found(Entry {
                     name: name.clone(),
                     path: VfsPath::new(&path),

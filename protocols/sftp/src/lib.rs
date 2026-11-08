@@ -1,4 +1,5 @@
 mod fs;
+mod identities;
 mod search;
 mod subsystem;
 
