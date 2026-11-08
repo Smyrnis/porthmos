@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, mouse_area, row, space, svg};
+use iced::widget::{button, container, mouse_area, row, space, stack, svg};
 use iced::{Alignment, Color, Element, Length};
 
 use super::button::flat;
@@ -37,9 +37,9 @@ pub fn strip(app: &App) -> Element<'_, Message> {
         ]
         .spacing(2)
         .align_y(Alignment::Center);
-        let tab = column![
+        let tab = stack![
+            container(body).padding(iced::Padding { top: ACCENT_EDGE, right: 6.0, ..iced::Padding::ZERO }),
             container(space()).width(Length::Fill).height(Length::Fixed(ACCENT_EDGE)).style(filled(edge)),
-            container(body).padding(iced::Padding { right: 6.0, ..iced::Padding::ZERO }),
         ];
         tabs = tabs.push(mouse_area(tab).on_press(Message::TabClicked(index)));
     }
