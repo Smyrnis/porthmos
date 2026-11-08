@@ -168,7 +168,7 @@ fn footer<'a>(app: &App) -> Element<'a, Message> {
         text_button("Delete", buttons.delete.then_some(Message::ManagerDeletePressed), Look::Normal, palette),
         space().width(Length::Fill),
         text_button("Close", Some(Message::ManagerClosed), Look::Normal, palette),
-        text_button("Connect", buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),
+        text_button(app.connect_label(), buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),
     ]
     .spacing(8)
     .into()

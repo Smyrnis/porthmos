@@ -259,6 +259,7 @@ pub struct App {
     sessions: Sessions,
     connecting: Option<String>,
     connection_states: std::collections::HashMap<String, ConnectionState>,
+    manager_connecting: Option<String>,
     active: PanelSide,
     modifiers: keyboard::Modifiers,
     shortcuts: Shortcuts,
@@ -334,6 +335,7 @@ impl App {
             sessions: Sessions::default(),
             connecting: None,
             connection_states: std::collections::HashMap::new(),
+            manager_connecting: None,
             active: PanelSide::Local,
             modifiers: keyboard::Modifiers::empty(),
             shortcuts,
@@ -752,6 +754,7 @@ impl App {
             Event::Connecting { name } => self.connecting = Some(name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
+                self.manager_connection_finished(&name, true);
                 self.notices.clear();
                 if !self.sessions.activate(session) {
                     self.sessions.insert(session, name);
@@ -763,8 +766,9 @@ impl App {
                 self.sessions.set_shell_available(session, shell_available);
             }
             Event::ShellReady { invocation, .. } => self.shell_ready(invocation),
-            Event::ConnectFailed { message, .. } => {
+            Event::ConnectFailed { name, message } => {
                 self.connecting = None;
+                self.manager_connection_finished(&name, false);
                 self.push_notice(Severity::Error, message);
             }
             Event::Disconnected { session, .. } => {

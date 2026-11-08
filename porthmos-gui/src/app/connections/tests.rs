@@ -132,7 +132,7 @@ fn typing_in_the_filter_narrows_the_list() {
 }
 
 #[test]
-fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open() {
+fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open_until_it_is_connected() {
     let mut harness = Harness::new();
     feed_profiles(&mut harness, &["alpha", "beta"]);
     open_manager(&mut harness);
@@ -142,6 +142,82 @@ fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open() {
 
     assert_eq!(harness.sent(), vec![Command::Connect { profile: "beta".to_string() }]);
     assert!(harness.app.manager_open());
+
+    connected(&mut harness, 7, "beta");
+
+    assert!(!harness.app.manager_open());
+}
+
+#[test]
+fn a_connection_the_manager_did_not_ask_for_leaves_the_window_open() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha", "beta"]);
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(1));
+    harness.press(Message::ManagerConnect);
+
+    connected(&mut harness, 3, "alpha");
+
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn a_failed_connection_leaves_the_window_open_and_a_later_connection_does_not_close_it() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha"]);
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(0));
+    harness.press(Message::ManagerConnect);
+
+    harness.feed(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() });
+    assert!(harness.app.manager_open());
+
+    connected(&mut harness, 4, "alpha");
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn connect_is_disabled_for_a_connection_that_is_being_connected() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha", "beta"]);
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(0));
+    harness.press(Message::ManagerConnect);
+    harness.feed(Event::Connecting { name: "alpha".to_string() });
+    harness.sent();
+
+    assert!(!harness.app.manager_buttons().connect);
+    harness.press(Message::ManagerConnect);
+    assert!(harness.sent().is_empty());
+
+    harness.press(Message::ManagerRowPressed(1));
+    assert!(harness.app.manager_buttons().connect);
+}
+
+#[test]
+fn the_connect_button_offers_to_switch_to_a_connection_that_is_already_open() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha", "beta"]);
+    connected(&mut harness, 1, "alpha");
+    open_manager(&mut harness);
+
+    harness.press(Message::ManagerRowPressed(0));
+    assert_eq!(harness.app.connect_label(), "Switch to");
+
+    harness.press(Message::ManagerRowPressed(1));
+    assert_eq!(harness.app.connect_label(), "Connect");
+}
+
+#[test]
+fn a_lost_connection_is_offered_as_connect_again() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha"]);
+    connected(&mut harness, 1, "alpha");
+    harness.feed(Event::SessionHealth { session: 1, healthy: false });
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(0));
+
+    assert_eq!(harness.app.connect_label(), "Connect");
 }
 
 #[test]
@@ -195,7 +271,7 @@ fn connecting_to_a_healthy_open_session_only_activates_its_tab() {
 
     assert!(harness.sent().is_empty());
     assert_eq!(harness.app.sessions().active().unwrap().id, 1);
-    assert!(harness.app.manager_open());
+    assert!(!harness.app.manager_open());
 }
 
 #[test]
@@ -517,7 +593,7 @@ fn escape_inside_the_form_closes_the_form_first_then_the_window() {
 }
 
 #[test]
-fn connect_leaves_the_connections_window_open() {
+fn the_connections_window_closes_once_the_connection_is_made() {
     let mut harness = Harness::new();
     open_manager(&mut harness);
     feed_profiles(&mut harness, &["alpha"]);
@@ -529,7 +605,7 @@ fn connect_leaves_the_connections_window_open() {
     assert!(harness.sent().contains(&Command::Connect { profile: "alpha".to_string() }));
     assert!(harness.app.manager_open());
     connected(&mut harness, 1, "alpha");
-    assert!(harness.app.manager_open());
+    assert!(!harness.app.manager_open());
 }
 
 #[test]
