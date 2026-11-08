@@ -11,7 +11,14 @@ impl App {
             return;
         };
 
-        self.search = Some(SearchSession { view: SearchView::new(), location });
+        let place = match location {
+            Location::Local => porthmos_core::delete_prompt::THIS_COMPUTER.to_string(),
+            Location::Session(id) => self.sessions.by_id(id).map(|session| session.name.clone()).unwrap_or_default(),
+        };
+        let folder = self.panel(location).map(|panel| panel.path().to_string()).unwrap_or_default();
+        let mut view = SearchView::new();
+        view.scope = format!("{place} \u{b7} {folder}");
+        self.search = Some(SearchSession { view, location });
         self.screen = Screen::Search;
     }
 

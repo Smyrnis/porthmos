@@ -489,3 +489,24 @@ fn the_hint_bar_mentions_scrolling_the_preview_only_while_the_setting_is_on() {
     assert!(crate::app::testing::find_text(&off, "scroll preview").is_none());
     assert!(crate::app::testing::find_text(&on, "scroll preview").is_some());
 }
+
+#[test]
+fn searching_this_computer_says_so_with_the_folder() {
+    let mut test = test_app(&VfsPath::new("/d/projects"));
+
+    test.app.apply_action(Action::OpenSearch);
+
+    assert_eq!(test.app.search.as_ref().unwrap().view.scope, "this computer \u{b7} /d/projects");
+}
+
+#[test]
+fn searching_a_connection_names_it_with_its_folder() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let session = test.connect(2, "prod");
+    test.list_remote(session, "/srv/data", vec![entry(&VfsPath::new("/srv/data"), "a", false)]);
+    test.app.active_panel = ActivePanel::Remote;
+
+    test.app.apply_action(Action::OpenSearch);
+
+    assert_eq!(test.app.search.as_ref().unwrap().view.scope, "prod \u{b7} /srv/data");
+}
