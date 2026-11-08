@@ -87,7 +87,8 @@ pub fn body<'a>(view: &ConflictView, apply_to_rest: bool, palette: &Palette) -> 
         .label(apply_text())
         .on_toggle(|_| Message::ConflictApplyToRestToggled)
         .size(16)
-        .text_size(13);
+        .text_size(13)
+        .style(crate::view::checkbox::style(palette));
     content.push(toggle).spacing(8).into()
 }
 

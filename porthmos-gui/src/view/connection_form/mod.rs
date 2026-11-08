@@ -73,7 +73,10 @@ fn control<'a>(state: &'a FormState, field: &FieldView, palette: &Palette) -> El
             .width(Length::Fill)
             .into()
         }
-        FieldKind::Toggle(on) => checkbox(*on).on_toggle(move |value| Message::FormToggled(key.clone(), value)).into(),
+        FieldKind::Toggle(on) => checkbox(*on)
+            .on_toggle(move |value| Message::FormToggled(key.clone(), value))
+            .style(crate::view::checkbox::style(palette))
+            .into(),
     }
 }
 
@@ -189,7 +192,10 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
     .spacing(8);
     if labels.saved_password {
         body = body.push(
-            checkbox(labels.forget_password).label("Forget the saved password").on_toggle(Message::LabelsForgetToggled),
+            checkbox(labels.forget_password)
+                .label("Forget the saved password")
+                .on_toggle(Message::LabelsForgetToggled)
+                .style(crate::view::checkbox::style(palette)),
         );
     }
     if let Some(error) = &labels.error {

@@ -1,4 +1,5 @@
 pub mod button;
+pub mod checkbox;
 mod connection_form;
 pub mod connections;
 mod context_menu;

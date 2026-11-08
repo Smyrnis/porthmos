@@ -76,8 +76,12 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
                 .font(Font::DEFAULT);
             let mut content = column![body_text(prompt.clone(), palette), input].spacing(8);
             if let Some(save) = save {
-                content =
-                    content.push(checkbox(*save).label("Save in keyring").on_toggle(Message::PasswordSaveToggled));
+                content = content.push(
+                    checkbox(*save)
+                        .label("Save in keyring")
+                        .on_toggle(Message::PasswordSaveToggled)
+                        .style(crate::view::checkbox::style(palette)),
+                );
             }
             if let Some(hint) = app.keyring_hint() {
                 content = content.push(wrapped_label(hint, palette.fg_dim));

@@ -100,7 +100,8 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
         .font(Font::DEFAULT);
     let auto_upload = checkbox(app.gui_settings().auto_upload)
         .label("Upload edited files without asking")
-        .on_toggle(Message::SettingsAutoUploadToggled);
+        .on_toggle(Message::SettingsAutoUploadToggled)
+        .style(crate::view::checkbox::style(palette));
     column![
         section("Editing", palette),
         row![input, text_button("Apply", Some(Message::SettingsEditorApplied), Look::Normal, palette)]
@@ -118,7 +119,8 @@ fn search_section<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     let preview = checkbox(app.gui_settings().search_preview)
         .label("Show a preview of the file under the cursor")
-        .on_toggle(Message::SettingsSearchPreviewToggled);
+        .on_toggle(Message::SettingsSearchPreviewToggled)
+        .style(crate::view::checkbox::style(palette));
     column![section("Search", palette), preview].spacing(8).into()
 }
 
