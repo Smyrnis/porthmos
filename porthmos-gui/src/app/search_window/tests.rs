@@ -982,3 +982,22 @@ fn turning_the_search_preview_setting_on_hints_the_selected_result() {
     assert!(search_state(&harness).preview_enabled());
     assert_eq!(hints(harness.sent()).len(), 1);
 }
+
+#[test]
+fn searching_this_computer_names_it_as_the_place() {
+    let mut harness = Harness::new();
+    open_search(&mut harness);
+
+    assert_eq!(harness.app.search_place(), "this computer");
+}
+
+#[test]
+fn searching_a_connection_names_that_connection_as_the_place() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Connected { session: 4, name: "prod".to_string(), shell_available: false });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    open_search(&mut harness);
+
+    assert_eq!(search_state(&harness).location(), Location::Session(4));
+    assert_eq!(harness.app.search_place(), "prod");
+}

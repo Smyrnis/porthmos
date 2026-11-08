@@ -5,6 +5,8 @@ use porthmos_core::{Entry, Location, VfsPath};
 
 use crate::preview_view::PreviewState;
 
+const TOP_FOLDER: &str = "(top folder)";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchStatus {
     Idle,
@@ -208,7 +210,11 @@ impl SearchState {
             return parent.to_string();
         }
         let rest: Vec<_> = below[root.len()..].iter().map(|segment| segment.to_string_lossy()).collect();
-        if rest.is_empty() { ".".to_string() } else { rest.join("/") }
+        if rest.is_empty() { TOP_FOLDER.to_string() } else { rest.join("/") }
+    }
+
+    pub fn scope_text(&self, place: &str) -> String {
+        format!("{place} \u{b7} {}", self.root)
     }
 
     pub fn status_text(&self) -> String {

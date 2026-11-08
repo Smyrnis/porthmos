@@ -87,7 +87,11 @@ fn body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message> {
     let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
     let boxed = container(results).style(move |_| container::Style { border, ..container::Style::default() });
     let open = state.selected().is_some().then_some(Message::SearchOpenPressed);
-    let mut body = column![bold_label("Search", palette.fg_bright), input, boxed].spacing(10);
+    let title =
+        row![bold_label("Search", palette.fg_bright), label(state.scope_text(&app.search_place()), palette.fg_dim)]
+            .spacing(12)
+            .align_y(Alignment::Center);
+    let mut body = column![title, input, boxed].spacing(10);
     if let Some(height) = search_preview_pane_height(app.search_window_size(), state.preview_enabled()) {
         let pane = match state.preview() {
             Some(preview) => super::preview::pane(app, preview, height),

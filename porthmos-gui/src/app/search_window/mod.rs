@@ -2,6 +2,7 @@ use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::{Id, operation};
 use iced::{Size, Task, window};
+use porthmos_core::delete_prompt::THIS_COMPUTER;
 use porthmos_core::{Command, Entry, Location};
 
 use super::{App, Message};
@@ -40,6 +41,15 @@ impl App {
 
     pub fn search_window_size(&self) -> Size {
         self.windows.id_of(WindowKind::Search).and_then(|id| self.windows.size_of(id)).unwrap_or(SEARCH_WINDOW_SIZE)
+    }
+
+    pub fn search_place(&self) -> String {
+        match self.search.as_ref().map(SearchState::location) {
+            Some(Location::Session(id)) => {
+                self.sessions.by_id(id).map_or_else(|| id.to_string(), |session| session.name.clone())
+            }
+            _ => THIS_COMPUTER.to_string(),
+        }
     }
 
     fn new_search(&self) -> Option<SearchState> {

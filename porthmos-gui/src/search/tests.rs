@@ -155,10 +155,10 @@ fn the_shown_parent_is_relative_to_the_search_root() {
 }
 
 #[test]
-fn a_result_directly_in_the_root_shows_a_dot() {
+fn a_result_directly_in_the_root_says_it_is_in_the_top_folder() {
     let state = state();
 
-    assert_eq!(state.shown_parent(&hit("/data/x.txt")), ".");
+    assert_eq!(state.shown_parent(&hit("/data/x.txt")), "(top folder)");
 }
 
 #[test]
@@ -275,4 +275,12 @@ fn preview_arrived_fills_the_pane_for_the_current_request() {
     state.preview_arrived(5, Err("denied".to_string()));
 
     assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if !file.is_loading()));
+}
+
+#[test]
+fn the_scope_names_the_place_and_the_folder_searched() {
+    let state = state();
+
+    assert_eq!(state.scope_text("this computer"), "this computer \u{b7} /data");
+    assert_eq!(state.scope_text("prod"), "prod \u{b7} /data");
 }
