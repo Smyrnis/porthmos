@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{cell::Cell, collections::HashSet};
 
 use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
@@ -42,6 +42,8 @@ impl ActivePanel {
     }
 }
 
+const DEFAULT_PAGE_ROWS: usize = 10;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Anchor {
     Parent,
@@ -55,6 +57,7 @@ pub struct PanelView {
     editing_filter: bool,
     anchor: Option<(Anchor, usize)>,
     free_bytes: Option<u64>,
+    page_rows: Cell<usize>,
 }
 
 impl PanelView {
@@ -66,6 +69,7 @@ impl PanelView {
             editing_filter: false,
             anchor: None,
             free_bytes: None,
+            page_rows: Cell::new(DEFAULT_PAGE_ROWS),
         }
     }
 
@@ -180,6 +184,34 @@ impl PanelView {
             Some(Row::Entry(entry)) if entry.is_dir => Some(entry.path.clone()),
             _ => None,
         }
+    }
+
+    pub fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    pub fn remember_page_rows(&self, rows: usize) {
+        self.page_rows.set(rows.max(1));
+    }
+
+    pub fn page_down(&mut self) {
+        self.move_cursor(self.page_rows() as isize);
+    }
+
+    pub fn page_up(&mut self) {
+        self.move_cursor(-(self.page_rows() as isize));
+    }
+
+    pub fn cursor_to_first(&mut self) {
+        self.cursor = 0;
+    }
+
+    pub fn cursor_to_last(&mut self) {
+        self.cursor = self.rows().len().saturating_sub(1);
+    }
+
+    pub fn parent_path(&self) -> Option<VfsPath> {
+        self.path().parent()
     }
 
     pub fn toggle_selection(&mut self) {

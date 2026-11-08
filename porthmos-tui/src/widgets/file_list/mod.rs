@@ -71,6 +71,7 @@ pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, contex
     if body.height == 0 {
         return;
     }
+    panel.remember_page_rows(usize::from(body.height));
     let items: Vec<ListItem> = panel
         .rows()
         .iter()

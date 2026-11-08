@@ -851,3 +851,35 @@ fn go_to_path_defaults_to_ctrl_apostrophe_in_the_files_scope() {
     assert_eq!(bindings.key_for(Scope::Files, Action::GoToPath).map(format_key_spec).as_deref(), Some("Ctrl+'"));
     assert_eq!(Action::from_name("go_to_path"), Some(Action::GoToPath));
 }
+
+#[test]
+fn list_jump_keys_map_only_in_the_files_scope() {
+    let bindings = KeyBindings::defaults();
+    let keys = [
+        (KeyCode::PageUp, Action::PageUp),
+        (KeyCode::PageDown, Action::PageDown),
+        (KeyCode::Home, Action::First),
+        (KeyCode::End, Action::Last),
+        (KeyCode::Backspace, Action::Parent),
+    ];
+    for (code, action) in keys {
+        assert_eq!(bindings.map_key(Scope::Files, key(code)), action, "{code:?}");
+        for scope in [Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+            assert_eq!(bindings.map_key(scope, key(code)), Action::Noop, "{scope:?} {code:?}");
+        }
+    }
+}
+
+#[test]
+fn list_jump_actions_round_trip_by_name_and_are_listed() {
+    for action in [Action::PageUp, Action::PageDown, Action::First, Action::Last, Action::Parent] {
+        assert_eq!(Action::from_name(action.name()), Some(action), "{action:?}");
+        assert!(ALL_ACTIONS.contains(&action), "{action:?}");
+    }
+}
+
+#[test]
+fn page_keys_can_be_written_in_the_config() {
+    assert_eq!(parse_key_spec("pageup").unwrap().code, KeyCode::PageUp);
+    assert_eq!(parse_key_spec("PageDown").unwrap().code, KeyCode::PageDown);
+}

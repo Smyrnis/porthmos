@@ -117,6 +117,11 @@ rename = ["r", "f2"]
 edit = ["e", "f3"]
 preview = "p"
 open_transfers = "t"
+page_up = "pageup"
+page_down = "pagedown"
+first = "home"
+last = "end"
+parent = "backspace"
 # Needs a terminal that reports Ctrl+' (kitty keyboard protocol); elsewhere use "Go to folder path" in the command palette (Ctrl+P).
 go_to_path = "ctrl+'"
 session_1 = "1"

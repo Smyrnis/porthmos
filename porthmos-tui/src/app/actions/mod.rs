@@ -65,6 +65,11 @@ impl App {
             Action::OpenTerminal => self.request_shell(),
             Action::Up
             | Action::Down
+            | Action::PageUp
+            | Action::PageDown
+            | Action::First
+            | Action::Last
+            | Action::Parent
             | Action::ToggleSelect
             | Action::Open
             | Action::Pause
@@ -136,6 +141,29 @@ impl App {
                 panel.move_cursor(1);
                 return;
             }
+            Action::PageUp => {
+                panel.page_up();
+                return;
+            }
+            Action::PageDown => {
+                panel.page_down();
+                return;
+            }
+            Action::First => {
+                panel.cursor_to_first();
+                return;
+            }
+            Action::Last => {
+                panel.cursor_to_last();
+                return;
+            }
+            Action::Parent => {
+                let from = panel.path().clone();
+                if let Some(to) = panel.parent_path() {
+                    self.core.send(Command::Navigate { location, from, to });
+                }
+                return;
+            }
             Action::ToggleSelect => {
                 panel.toggle_selection();
                 return;
@@ -156,8 +184,10 @@ impl App {
             }
             Action::Open => {
                 let from = panel.path().clone();
-                if let Some(to) = panel.target_path_for_open() {
-                    self.core.send(Command::Navigate { location, from, to });
+                match panel.target_path_for_open() {
+                    Some(to) => self.core.send(Command::Navigate { location, from, to }),
+                    None if panel.current_entry().is_some() => self.start_preview(),
+                    None => {}
                 }
                 return;
             }

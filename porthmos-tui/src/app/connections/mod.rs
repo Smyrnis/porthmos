@@ -458,6 +458,10 @@ impl App {
         let remembered = self.core.panel_settings(PanelKind::Remote);
         let placeholder_panel = PanelView::new(VfsPath::root(), remembered.sort, remembered.show_hidden);
         self.sessions.insert(session, name, shell_available, placeholder_panel);
+        if matches!(self.screen, Screen::Connections | Screen::Files) {
+            self.screen = Screen::Files;
+            self.active_panel = ActivePanel::Remote;
+        }
     }
 }
 

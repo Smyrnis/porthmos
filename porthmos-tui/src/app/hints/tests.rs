@@ -225,6 +225,7 @@ fn every_action_is_listed_somewhere_and_no_section_lists_an_action_twice() {
         [Screen::Files, Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync]
             .iter()
             .flat_map(|screen| screen_actions(*screen).iter().map(|(action, _)| *action))
+            .chain(FILES_HELP_ONLY.iter().map(|(action, _)| *action))
             .collect();
     let sections = help_sections(&KeyBindings::defaults());
     let global: HashSet<&str> = section(&sections, "global").rows.iter().map(|row| row.action).collect();
@@ -416,4 +417,33 @@ fn editing_a_path_shows_enter_go_and_esc_cancel() {
 
     assert_eq!(keys_and_labels(&hints), vec![pair("enter", "go")]);
     assert_eq!(hints.right.map(|hint| (hint.key, hint.label)), Some(("esc".to_string(), "cancel")));
+}
+
+#[test]
+fn the_files_help_lists_the_list_movement_keys() {
+    let sections = help_sections(&KeyBindings::defaults());
+    let files = rows_of(section(&sections, "files"));
+
+    assert!(files.contains(&(Some("PageUp"), "page up")));
+    assert!(files.contains(&(Some("PageDown"), "page down")));
+    assert!(files.contains(&(Some("Home"), "first row")));
+    assert!(files.contains(&(Some("End"), "last row")));
+    assert!(files.contains(&(Some("Backspace"), "parent folder")));
+}
+
+#[test]
+fn files_only_actions_are_not_repeated_in_the_global_help() {
+    let sections = help_sections(&KeyBindings::defaults());
+    let global = rows_of(section(&sections, "global"));
+
+    for action in ["page_up", "page_down", "first", "last", "parent", "go_to_path"] {
+        assert!(!global.iter().any(|(_, listed)| *listed == action), "{action}");
+    }
+}
+
+#[test]
+fn the_bottom_hint_bar_of_the_files_screen_stays_short() {
+    let hints = hints_for(Screen::Files, &KeyBindings::defaults());
+
+    assert!(keys_and_labels(&hints).iter().all(|(_, label)| !label.contains("page") && *label != "parent folder"));
 }

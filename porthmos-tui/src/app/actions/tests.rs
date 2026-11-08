@@ -1,7 +1,7 @@
 use porthmos_core::{PanelKind, VfsPath, config::settings::PanelSettings, listing::SortSpec};
 
 use super::*;
-use crate::app::testing::{TestApp, entry, test_app, test_app_remembering};
+use crate::app::testing::{TestApp, cursor_name, entry, test_app, test_app_remembering};
 
 fn app_in(dir: &str) -> TestApp {
     test_app(&VfsPath::new(dir))
@@ -705,4 +705,126 @@ fn the_local_panel_starts_with_the_remembered_local_choices() {
     let test = test_app_remembering(&VfsPath::new("/d"), local, PanelSettings::default());
 
     assert_eq!((test.app.local.show_hidden(), test.app.local.sort_spec()), (local.show_hidden, local.sort));
+}
+
+fn many_local_files(test: &mut TestApp, count: usize) {
+    let dir = VfsPath::new("/d");
+    test.list_local((0..count).map(|index| entry(&dir, &format!("f{index:04}"), false)).collect());
+}
+
+#[test]
+fn page_down_and_page_up_move_the_active_panel_cursor_by_a_page() {
+    let mut test = app_in("/d");
+    many_local_files(&mut test, 100);
+    let page = test.app.local.page_rows();
+
+    test.app.apply_action(Action::PageDown);
+    assert_eq!(test.app.local.cursor, page);
+    test.app.apply_action(Action::PageUp);
+    assert_eq!(test.app.local.cursor, 0);
+}
+
+#[test]
+fn last_and_first_jump_to_the_ends_of_the_active_panel() {
+    let mut test = app_in("/d");
+    many_local_files(&mut test, 2000);
+
+    test.app.apply_action(Action::Last);
+    assert_eq!(cursor_name(&test.app.local), Some("f1999"));
+    test.app.apply_action(Action::First);
+    assert!(test.app.local.on_parent_row());
+}
+
+#[test]
+fn page_and_jump_actions_move_the_remote_panel_when_it_is_active() {
+    let mut test = app_in("/d");
+    let session = test.connect(1, "test");
+    let dir = VfsPath::new("/home/user");
+    test.list_remote(session, "/home/user", (0..30).map(|index| entry(&dir, &format!("f{index:02}"), false)).collect());
+    test.app.active_panel = ActivePanel::Remote;
+
+    test.app.apply_action(Action::Last);
+
+    assert_eq!(test.app.sessions.active().unwrap().panel.cursor, 30);
+    assert_eq!(test.app.local.cursor, 0);
+}
+
+#[test]
+fn parent_goes_up_from_any_row_without_moving_the_cursor_first() {
+    let mut test = app_in("/d/sub");
+    many_local_files(&mut test, 5);
+    test.app.local.cursor = 3;
+
+    test.app.apply_action(Action::Parent);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Navigate { location: Location::Local, from: VfsPath::from("/d/sub"), to: VfsPath::from("/d") }]
+    );
+}
+
+#[test]
+fn parent_at_the_root_sends_nothing() {
+    let mut test = app_in("/");
+    test.list_local(Vec::new());
+
+    test.app.apply_action(Action::Parent);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn page_and_jump_actions_do_nothing_on_the_connections_screen() {
+    let mut test = app_in("/d");
+    many_local_files(&mut test, 100);
+    test.app.screen = Screen::Connections;
+
+    for action in [Action::PageDown, Action::Last, Action::Parent] {
+        test.app.apply_action(action);
+    }
+
+    assert_eq!(test.app.local.cursor, 0);
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn opening_a_file_previews_it() {
+    let mut test = app_in("/d");
+    test.list_local(vec![entry(&VfsPath::new("/d"), "notes.txt", false)]);
+    test.app.local.cursor = 1;
+
+    test.app.apply_action(Action::Open);
+
+    assert!(matches!(
+        test.sent().as_slice(),
+        [Command::Preview { location: Location::Local, path, .. }] if *path == VfsPath::from("/d/notes.txt")
+    ));
+    assert!(test.app.preview.is_some());
+}
+
+#[test]
+fn opening_a_remote_file_previews_it_on_that_session() {
+    let mut test = app_in("/d");
+    let session = test.connect(3, "test");
+    test.list_remote(session, "/home/user", vec![entry(&VfsPath::new("/home/user"), "a.log", false)]);
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.sessions.active_mut().unwrap().panel.cursor = 1;
+
+    test.app.apply_action(Action::Open);
+
+    assert!(matches!(
+        test.sent().as_slice(),
+        [Command::Preview { location: Location::Session(id), .. }] if *id == session
+    ));
+}
+
+#[test]
+fn opening_the_parent_row_still_navigates_and_never_previews() {
+    let mut test = app_in("/d/sub");
+    test.list_local(vec![entry(&VfsPath::new("/d/sub"), "notes.txt", false)]);
+
+    test.app.apply_action(Action::Open);
+
+    assert!(matches!(test.sent().as_slice(), [Command::Navigate { .. }]));
+    assert!(test.app.preview.is_none());
 }

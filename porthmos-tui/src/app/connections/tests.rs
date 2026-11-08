@@ -1899,3 +1899,51 @@ fn a_local_shell_task_that_fails_to_join_is_reported() {
 
     assert_eq!(message.as_deref(), Some("terminal task failed: panicked"));
 }
+
+#[test]
+fn a_new_connection_takes_you_to_the_files_screen_with_the_remote_panel_focused() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    assert_eq!(test.app.active_panel, ActivePanel::Local);
+
+    test.connect_and_follow(2, "prod");
+
+    assert_eq!(test.app.screen, Screen::Files);
+    assert_eq!(test.app.active_panel, ActivePanel::Remote);
+}
+
+#[test]
+fn a_new_connection_from_the_files_screen_focuses_the_remote_panel() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.app.screen = Screen::Files;
+
+    test.connect_and_follow(2, "prod");
+
+    assert_eq!(test.app.screen, Screen::Files);
+    assert_eq!(test.app.active_panel, ActivePanel::Remote);
+}
+
+#[test]
+fn a_connection_made_while_on_another_screen_does_not_pull_you_away() {
+    for screen in [Screen::Transfers, Screen::History, Screen::Sync, Screen::Search] {
+        let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+        test.app.screen = screen;
+
+        test.connect_and_follow(2, "prod");
+
+        assert_eq!(test.app.screen, screen);
+        assert_eq!(test.app.active_panel, ActivePanel::Local);
+    }
+}
+
+#[test]
+fn a_restored_session_does_not_move_the_focus() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.app.screen = Screen::Connections;
+    test.app.active_panel = ActivePanel::Local;
+
+    test.app.apply_core_event(Event::Connected { session: 2, name: "prod".to_string(), shell_available: true });
+
+    assert_eq!(test.app.screen, Screen::Connections);
+    assert_eq!(test.app.active_panel, ActivePanel::Local);
+}
