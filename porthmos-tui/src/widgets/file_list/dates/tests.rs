@@ -26,8 +26,8 @@ fn none_is_an_empty_cell() {
 
 #[test]
 fn the_same_local_day_is_today_even_a_second_after_midnight() {
-    assert_eq!(format_modified(stamp(3, 2026, 10, 20, 0, 0, 1), &now()), "today");
-    assert_eq!(format_modified(stamp(3, 2026, 10, 20, 14, 30, 0), &now()), "today");
+    assert_eq!(format_modified(stamp(3, 2026, 10, 20, 0, 0, 1), &now()), "today 00:00");
+    assert_eq!(format_modified(stamp(3, 2026, 10, 20, 14, 30, 0), &now()), "today 14:30");
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn the_file_date_uses_the_clock_time_zone() {
     let instant = stamp(0, 2026, 10, 19, 23, 0, 0);
 
     assert_eq!(format_modified(instant, &now_at(0, 2026, 10, 20, 12, 0, 0)), "yesterday");
-    assert_eq!(format_modified(instant, &now_at(10, 2026, 10, 20, 12, 0, 0)), "today");
+    assert_eq!(format_modified(instant, &now_at(10, 2026, 10, 20, 12, 0, 0)), "today 09:00");
 }
 
 #[test]
