@@ -73,16 +73,25 @@ fn chmod_writes_the_mode_in_octal_and_quotes_the_path() {
 
     let command = chmod(&VfsPath::new("/srv/it's a $dir/run.sh"), 0o755);
 
-    assert_eq!(command, format!("chmod 755 -- {quoted}"));
+    assert_eq!(command, format!("chmod -- 755 {quoted}"));
 }
 
 #[test]
 fn chmod_keeps_a_leading_zero_so_a_private_mode_is_not_misread() {
-    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o600), "chmod 600 -- '/srv/f'");
-    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o007), "chmod 007 -- '/srv/f'");
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o600), "chmod -- 600 '/srv/f'");
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o007), "chmod -- 007 '/srv/f'");
 }
 
 #[test]
 fn free_space_asks_df_for_posix_kilobytes_in_the_c_locale() {
     assert_eq!(free_space(&VfsPath::new("/srv/a b")), "LC_ALL=C df -Pk -- '/srv/a b'");
+}
+
+#[test]
+fn chmod_ends_the_options_before_the_mode_because_bsd_reads_a_later_double_dash_as_a_file() {
+    let command = chmod(&VfsPath::new("/srv/f"), 0o644);
+
+    let mut words = command.split(' ');
+    assert_eq!(words.next(), Some("chmod"));
+    assert_eq!(words.next(), Some("--"));
 }

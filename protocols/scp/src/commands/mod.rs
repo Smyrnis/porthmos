@@ -36,7 +36,7 @@ pub(crate) fn touch(path: &VfsPath, seconds: u64) -> String {
 }
 
 pub(crate) fn chmod(path: &VfsPath, mode: u32) -> String {
-    format!("chmod {:03o} -- {}", mode & 0o777, quoted(path))
+    format!("chmod -- {:03o} {}", mode & 0o777, quoted(path))
 }
 
 pub(crate) fn remove(path: &VfsPath) -> String {
