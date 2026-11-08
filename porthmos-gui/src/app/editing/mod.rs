@@ -62,7 +62,12 @@ impl App {
         let platform: Platform = self.launcher.platform();
         match classify(&editor, platform) {
             EditorKind::Window => self.spawn_edit(edit_id, editor_spec(&editor, &file), Vec::new(), Vec::new(), false),
-            EditorKind::Terminal => match self.launcher.terminal(editor_spec(&editor, &file), Vec::new(), true) {
+            EditorKind::Terminal => match self.launcher.terminal(
+                editor_spec(&editor, &file),
+                Vec::new(),
+                true,
+                self.gui_settings.terminal.as_deref(),
+            ) {
                 Ok(launch) => self.spawn_edit(edit_id, launch.spec, launch.env, launch.cleanup, false),
                 Err(error) => self.finish_edit(edit_id, EditorExit::LaunchFailed(error.to_string())),
             },

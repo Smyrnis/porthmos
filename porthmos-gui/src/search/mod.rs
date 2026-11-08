@@ -1,4 +1,9 @@
+use std::sync::Arc;
+
+use porthmos_core::preview::Preview;
 use porthmos_core::{Entry, Location, VfsPath};
+
+use crate::preview_view::PreviewState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchStatus {
@@ -16,6 +21,19 @@ pub struct SearchRequest {
 }
 
 #[derive(Debug)]
+pub enum SearchPreview {
+    Folder(String),
+    File(PreviewState),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreviewSync {
+    Keep,
+    Cancel,
+    Request { path: VfsPath },
+}
+
+#[derive(Debug)]
 pub struct SearchState {
     location: Location,
     root: VfsPath,
@@ -23,6 +41,9 @@ pub struct SearchState {
     results: Vec<Entry>,
     selected: Option<usize>,
     status: SearchStatus,
+    preview_enabled: bool,
+    preview: Option<SearchPreview>,
+    previewed: Option<VfsPath>,
 }
 
 pub fn result_parent(entry: &Entry) -> VfsPath {
@@ -31,11 +52,75 @@ pub fn result_parent(entry: &Entry) -> VfsPath {
 
 impl SearchState {
     pub fn new(location: Location, root: VfsPath) -> Self {
-        Self { location, root, pattern: String::new(), results: Vec::new(), selected: None, status: SearchStatus::Idle }
+        Self {
+            location,
+            root,
+            pattern: String::new(),
+            results: Vec::new(),
+            selected: None,
+            status: SearchStatus::Idle,
+            preview_enabled: false,
+            preview: None,
+            previewed: None,
+        }
+    }
+
+    pub fn with_preview(mut self, enabled: bool) -> Self {
+        self.preview_enabled = enabled;
+        self
+    }
+
+    pub fn preview_enabled(&self) -> bool {
+        self.preview_enabled
+    }
+
+    pub fn set_preview_enabled(&mut self, enabled: bool) {
+        self.preview_enabled = enabled;
+        self.reset_preview();
+    }
+
+    pub fn reset_preview(&mut self) {
+        self.preview = None;
+        self.previewed = None;
+    }
+
+    pub fn preview(&self) -> Option<&SearchPreview> {
+        self.preview.as_ref()
+    }
+
+    pub fn sync_preview(&mut self, request_id: u64) -> PreviewSync {
+        if !self.preview_enabled {
+            return PreviewSync::Keep;
+        }
+        let Some(entry) = self.selected.and_then(|row| self.results.get(row)) else {
+            self.previewed = None;
+            return if self.preview.take().is_some() { PreviewSync::Cancel } else { PreviewSync::Keep };
+        };
+        if self.previewed.as_ref() == Some(&entry.path) {
+            return PreviewSync::Keep;
+        }
+        self.previewed = Some(entry.path.clone());
+        if entry.is_dir {
+            self.preview = Some(SearchPreview::Folder(entry.name.clone()));
+            return PreviewSync::Cancel;
+        }
+        self.preview = Some(SearchPreview::File(PreviewState::loading(request_id, entry.name.clone())));
+        PreviewSync::Request { path: entry.path.clone() }
+    }
+
+    pub fn preview_arrived(&mut self, request_id: u64, result: Result<Arc<Preview>, String>) {
+        if let Some(SearchPreview::File(state)) = self.preview.as_mut() {
+            state.finish(request_id, result);
+        }
     }
 
     pub fn location(&self) -> Location {
         self.location
+    }
+
+    #[cfg(test)]
+    pub fn root(&self) -> &VfsPath {
+        &self.root
     }
 
     pub fn pattern(&self) -> &str {
@@ -53,6 +138,8 @@ impl SearchState {
     pub fn set_pattern(&mut self, text: String) -> Option<SearchRequest> {
         self.results.clear();
         self.selected = None;
+        self.preview = None;
+        self.previewed = None;
         let blank = text.trim().is_empty();
         let request = (!blank).then(|| SearchRequest {
             location: self.location,

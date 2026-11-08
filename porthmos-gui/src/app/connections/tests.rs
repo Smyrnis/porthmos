@@ -1,9 +1,9 @@
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
 use porthmos_core::profiles::{ConnectionEntry, ConnectionSource};
-use porthmos_core::{Command, Event, Location, Severity, VfsPath};
+use porthmos_core::{Command, ConnectionState, Event, Location, Severity, VfsPath};
 
-use crate::connections::{LinkState, ManagerButtons, details_lines};
+use crate::connections::{ManagerButtons, details_lines};
 use crate::shortcuts::KeyPress;
 use crate::testing::Harness;
 
@@ -39,14 +39,23 @@ fn feed_profiles(harness: &mut Harness, names: &[&str]) {
 pub(super) fn named(harness: &mut Harness, named: Named) {
     let key = Key::Named(named);
     let press = KeyPress { key: key.clone(), modified_key: key, modifiers: Modifiers::empty(), text: None };
-    harness.press(Message::KeyPressed(press));
+    let window = harness.key_target();
+    harness.press(Message::WindowKey(window, press));
+}
+
+pub(super) fn named_in_main(harness: &mut Harness, named: Named) {
+    let key = Key::Named(named);
+    let press = KeyPress { key: key.clone(), modified_key: key, modifiers: Modifiers::empty(), text: None };
+    let window = harness.main_id();
+    harness.press(Message::WindowKey(window, press));
 }
 
 pub(super) fn typed(harness: &mut Harness, text: &str) {
     let key = Key::Character(text.into());
     let press =
         KeyPress { key: key.clone(), modified_key: key, modifiers: Modifiers::empty(), text: Some(text.to_string()) };
-    harness.press(Message::KeyPressed(press));
+    let window = harness.key_target();
+    harness.press(Message::WindowKey(window, press));
 }
 
 pub(super) fn open_manager(harness: &mut Harness) {
@@ -67,7 +76,7 @@ fn the_plus_button_opens_the_manager_and_asks_core_for_the_profiles() {
 
     assert!(harness.app.manager_open());
     assert_eq!(harness.sent(), vec![Command::ListProfiles]);
-    harness.press(Message::ManagerToggled);
+    harness.press(Message::ManagerClosed);
     assert!(!harness.app.manager_open());
     assert!(harness.sent().is_empty());
 }
@@ -123,7 +132,7 @@ fn typing_in_the_filter_narrows_the_list() {
 }
 
 #[test]
-fn connect_sends_connect_for_the_selected_profile_and_closes_the_manager() {
+fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open() {
     let mut harness = Harness::new();
     feed_profiles(&mut harness, &["alpha", "beta"]);
     open_manager(&mut harness);
@@ -132,7 +141,7 @@ fn connect_sends_connect_for_the_selected_profile_and_closes_the_manager() {
     harness.press(Message::ManagerConnect);
 
     assert_eq!(harness.sent(), vec![Command::Connect { profile: "beta".to_string() }]);
-    assert!(!harness.app.manager_open());
+    assert!(harness.app.manager_open());
 }
 
 #[test]
@@ -186,7 +195,7 @@ fn connecting_to_a_healthy_open_session_only_activates_its_tab() {
 
     assert!(harness.sent().is_empty());
     assert_eq!(harness.app.sessions().active().unwrap().id, 1);
-    assert!(!harness.app.manager_open());
+    assert!(harness.app.manager_open());
 }
 
 #[test]
@@ -222,14 +231,14 @@ fn connecting_to_a_name_that_is_gone_warns() {
 }
 
 #[test]
-fn the_connected_event_closes_the_manager() {
+fn the_connected_event_leaves_the_manager_open() {
     let mut harness = Harness::new();
     feed_profiles(&mut harness, &["alpha"]);
     open_manager(&mut harness);
 
     connected(&mut harness, 1, "alpha");
 
-    assert!(!harness.app.manager_open());
+    assert!(harness.app.manager_open());
 }
 
 #[test]
@@ -298,7 +307,7 @@ fn an_orphan_label_never_connects() {
 }
 
 #[test]
-fn panel_rows_cannot_be_pressed_while_the_manager_is_open() {
+fn panel_rows_stay_pressable_while_the_manager_is_open() {
     let mut harness = Harness::new();
     let folder = VfsPath::new("/home/tester");
     let entries = vec![porthmos_core::Entry { name: "a".into(), path: folder.join("a"), ..Default::default() }];
@@ -307,7 +316,7 @@ fn panel_rows_cannot_be_pressed_while_the_manager_is_open() {
 
     harness.press(Message::RowPressed(PanelSide::Local, 0));
 
-    assert!(!harness.app.drag.is_tracking());
+    assert!(harness.app.drag.is_tracking());
 }
 
 #[test]
@@ -316,7 +325,7 @@ fn details_skip_empty_values_and_show_the_start_folder() {
     entry.options.insert("remote_path".to_string(), "/srv".to_string());
     entry.saved_password = true;
 
-    let lines = details_lines(&entry, "SFTP", LinkState::Off);
+    let lines = details_lines(&entry, "SFTP", ConnectionState::Disconnected);
 
     assert_eq!(
         lines,
@@ -337,7 +346,7 @@ fn details_show_group_tags_and_connected_status() {
     let mut entry = grouped("alpha", "Work/Db");
     entry.tags = vec!["prod".to_string(), "eu".to_string()];
 
-    let lines = details_lines(&entry, "SFTP", LinkState::Live);
+    let lines = details_lines(&entry, "SFTP", ConnectionState::Connected);
 
     assert!(lines.contains(&("Group".to_string(), "Work/Db".to_string())));
     assert!(lines.contains(&("Tags".to_string(), "prod, eu".to_string())));
@@ -388,25 +397,27 @@ pub(super) fn fill_new(harness: &mut Harness) {
 fn details_report_a_lost_connection() {
     let entry = profile("alpha", ConnectionSource::Profile);
 
-    let lines = details_lines(&entry, "SFTP", LinkState::Lost);
+    let lines = details_lines(&entry, "SFTP", ConnectionState::Lost);
 
     assert_eq!(lines.last().unwrap(), &("Status".to_string(), "Connection lost".to_string()));
 }
 
 #[test]
-fn an_unhealthy_session_is_lost_rather_than_connected() {
+fn the_link_state_follows_the_state_core_publishes() {
     let mut harness = harness();
     feed_profiles(&mut harness, &["alpha"]);
-    assert_eq!(harness.app.link_state("alpha"), LinkState::Off);
+    assert_eq!(harness.app.link_state("alpha"), ConnectionState::Disconnected);
 
-    connected(&mut harness, 1, "alpha");
-    assert_eq!(harness.app.link_state("alpha"), LinkState::Live);
-
-    harness.feed(Event::SessionHealth { session: 1, healthy: false });
-    assert_eq!(harness.app.link_state("alpha"), LinkState::Lost);
-
-    harness.feed(Event::SessionHealth { session: 1, healthy: true });
-    assert_eq!(harness.app.link_state("alpha"), LinkState::Live);
+    for state in [
+        ConnectionState::Connecting,
+        ConnectionState::Connected,
+        ConnectionState::Lost,
+        ConnectionState::Connected,
+        ConnectionState::Disconnected,
+    ] {
+        harness.feed(Event::ConnectionState { name: "alpha".to_string(), state });
+        assert_eq!(harness.app.link_state("alpha"), state);
+    }
 }
 
 #[test]
@@ -434,4 +445,175 @@ fn the_list_names_a_protocol_the_way_the_form_does() {
     assert_eq!(harness.app.protocol_name("webdav"), "WebDAV");
     assert_eq!(harness.app.protocol_name("sftp"), "SFTP");
     assert_eq!(harness.app.protocol_name("unknown"), "unknown");
+}
+
+fn window_of(harness: &Harness) -> Option<iced::window::Id> {
+    harness.app.window_id_of(crate::windows::WindowKind::Connections)
+}
+
+#[test]
+fn opening_the_manager_creates_one_connections_window() {
+    let mut harness = Harness::new();
+
+    open_manager(&mut harness);
+
+    assert!(window_of(&harness).is_some());
+    assert_eq!(harness.connections_id(), window_of(&harness));
+}
+
+#[test]
+fn opening_the_manager_again_raises_the_window_and_keeps_it_open() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    let first = window_of(&harness);
+
+    harness.press(Message::ManagerToggled);
+
+    assert!(harness.app.manager_open());
+    assert_eq!(window_of(&harness), first);
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn closing_the_manager_closes_its_window() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+
+    harness.press(Message::ManagerClosed);
+
+    assert_eq!(window_of(&harness), None);
+}
+
+#[test]
+fn the_close_request_clears_the_manager_form_and_filter_state() {
+    let mut harness = Harness::with_builtin_protocols();
+    open_manager(&mut harness);
+    harness.press(Message::ManagerFilterTyped("prod".to_string()));
+    harness.press(Message::ManagerAddPressed);
+    let id = window_of(&harness).unwrap();
+
+    harness.press(Message::WindowCloseRequested(id));
+
+    assert!(!harness.app.manager_open());
+    assert_eq!(window_of(&harness), None);
+    assert!(!harness.app.is_closing());
+    open_manager(&mut harness);
+    assert!(matches!(harness.app.screen(), Some(Screen::List)));
+}
+
+#[test]
+fn escape_inside_the_form_closes_the_form_first_then_the_window() {
+    let mut harness = Harness::with_builtin_protocols();
+    open_manager(&mut harness);
+    harness.press(Message::ManagerAddPressed);
+    assert!(matches!(harness.app.screen(), Some(Screen::Form(_))));
+
+    named(&mut harness, Named::Escape);
+    assert!(matches!(harness.app.screen(), Some(Screen::List)));
+    assert!(window_of(&harness).is_some());
+
+    named(&mut harness, Named::Escape);
+    assert_eq!(window_of(&harness), None);
+}
+
+#[test]
+fn connect_leaves_the_connections_window_open() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    feed_profiles(&mut harness, &["alpha"]);
+    harness.press(Message::ManagerRowPressed(0));
+    harness.sent();
+
+    harness.press(Message::ManagerConnect);
+
+    assert!(harness.sent().contains(&Command::Connect { profile: "alpha".to_string() }));
+    assert!(harness.app.manager_open());
+    connected(&mut harness, 1, "alpha");
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn keys_in_the_connections_window_do_not_reach_the_panels() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    let cursor = harness.app.local().panel.cursor();
+    harness.sent();
+
+    typed(&mut harness, "j");
+    named(&mut harness, Named::Delete);
+    named(&mut harness, Named::F5);
+
+    assert_eq!(harness.app.local().panel.cursor(), cursor);
+    assert!(harness.app.modal().is_none());
+}
+
+#[test]
+fn keys_in_the_main_window_do_not_reach_the_manager() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    let main = harness.main_id();
+    let key = Key::Named(Named::Escape);
+
+    harness.press(Message::WindowKey(
+        main,
+        KeyPress { key: key.clone(), modified_key: key, modifiers: Modifiers::empty(), text: None },
+    ));
+
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn the_main_window_stays_usable_while_the_manager_is_open() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+
+    assert!(harness.app.path_edit().is_some());
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn the_connections_window_builds_its_view_for_every_screen() {
+    let mut harness = Harness::with_builtin_protocols();
+    open_manager(&mut harness);
+    let id = window_of(&harness).unwrap();
+    drop(harness.app.view_of(id));
+    harness.press(Message::ManagerAddPressed);
+    drop(harness.app.view_of(id));
+}
+
+#[test]
+fn resizing_the_connections_window_changes_only_its_own_size() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    let id = window_of(&harness).unwrap();
+    let main_before = harness.app.window_size();
+
+    harness.press(Message::WindowSized(id, iced::Size::new(700.0, 480.0)));
+
+    assert_eq!(harness.app.connections_window_size(), iced::Size::new(700.0, 480.0));
+    assert_eq!(harness.app.window_size(), main_before);
+}
+
+#[test]
+fn opening_the_manager_a_second_time_raises_the_window_with_one_task() {
+    let mut harness = Harness::new();
+    harness.press(Message::ManagerToggled);
+
+    let units = harness.app.update(Message::ManagerToggled).units();
+
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn the_filter_is_cleared_when_the_window_closes() {
+    let mut harness = Harness::new();
+    harness.press(Message::ManagerToggled);
+    harness.press(Message::ManagerFilterTyped("prod".to_string()));
+    assert_eq!(harness.app.manager.filter(), "prod");
+
+    harness.press(Message::ManagerClosed);
+    harness.press(Message::ManagerToggled);
+
+    assert_eq!(harness.app.manager.filter(), "");
 }

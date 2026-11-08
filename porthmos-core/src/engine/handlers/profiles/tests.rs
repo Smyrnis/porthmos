@@ -415,7 +415,7 @@ fn error_notices(events: &[Event]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message.clone()),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect()
@@ -1040,4 +1040,69 @@ fn listing_with_a_malformed_connections_file_shows_the_file_name_and_the_line() 
     let (severity, message) = t.first_notice().expect("an error notice");
     assert_eq!(severity, Severity::Error);
     assert!(message.contains("connections.toml") && message.contains("line 2"), "{message}");
+}
+
+fn with_resume_folders(t: &mut TestEngine, names: &[&str]) {
+    for name in names {
+        t.engine.resume_folders.insert(name.to_string(), porthmos_vfs::VfsPath::new("/srv/old"));
+    }
+}
+
+fn resuming(t: &TestEngine) -> Vec<String> {
+    let mut names: Vec<String> = t.engine.resume_folders.keys().cloned().collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn editing_a_profile_forgets_the_folder_a_lost_session_would_have_resumed() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod", "other"]);
+
+    t.engine.handle_command(Command::SaveProfile {
+        original: Some("prod".to_string()),
+        draft: Box::new(draft("prod", "server.example.com", "22")),
+    });
+
+    assert_eq!(resuming(&t), ["other"]);
+}
+
+#[test]
+fn renaming_a_profile_forgets_the_resume_folder_under_both_names() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod", "production", "other"]);
+
+    t.engine.handle_command(Command::SaveProfile {
+        original: Some("prod".to_string()),
+        draft: Box::new(draft("production", "server.example.com", "22")),
+    });
+
+    assert_eq!(resuming(&t), ["other"]);
+}
+
+#[test]
+fn a_rejected_save_keeps_the_resume_folder() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod"]);
+
+    t.engine.handle_command(Command::SaveProfile {
+        original: Some("prod".to_string()),
+        draft: Box::new(draft("prod", "h", "not-a-port")),
+    });
+
+    assert_eq!(resuming(&t), ["prod"]);
+}
+
+#[test]
+fn deleting_a_profile_forgets_its_resume_folder() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod", "other"]);
+
+    t.engine.handle_command(Command::DeleteProfile { name: "prod".to_string() });
+
+    assert_eq!(resuming(&t), ["other"]);
 }

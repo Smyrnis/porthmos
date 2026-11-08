@@ -6,7 +6,7 @@ use porthmos_vfs::{Entry, Question, ShellInvocation, VfsPath};
 
 use super::{Location, RequestId, SessionId};
 use crate::{
-    Severity,
+    ConnectionState, Message, Severity,
     config::bookmarks::Bookmark,
     edit::{EditQuestionKind, EditorCommand},
     history::HistoryEntry,
@@ -20,18 +20,24 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Notice { severity: Severity, message: String },
+    Notice { severity: Severity, message: Message },
     Connecting { name: String },
+    ReopenOffer { names: Vec<String> },
     Connected { session: SessionId, name: String, shell_available: bool },
     SessionCapabilities { session: SessionId, preserves_times: bool },
-    ConnectFailed { name: String, message: String },
+    ConnectFailed { name: String, message: Message },
     Question { request_id: RequestId, question: Question },
     TestQuestion { test_id: u64, request_id: RequestId, question: Question },
     TestFinished { test_id: u64, outcome: TestOutcome },
     Disconnected { session: SessionId, name: String },
     SessionHealth { session: SessionId, healthy: bool },
+    ConnectionState { name: String, state: ConnectionState },
     ShellReady { session: SessionId, invocation: ShellInvocation },
+    LocalShellReady { invocation: ShellInvocation },
     Listed { location: Location, path: VfsPath, entries: Vec<Entry> },
+    Revealed { location: Location, folder: VfsPath, name: String },
+    PathOpened { location: Location },
+    PathRejected { location: Location },
     FreeSpace { location: Location, path: VfsPath, bytes: Option<u64> },
     LocationChanged { location: Location },
     Profiles(Vec<ConnectionEntry>),

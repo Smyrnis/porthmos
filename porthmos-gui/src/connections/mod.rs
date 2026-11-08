@@ -3,6 +3,7 @@ pub mod trial;
 
 use std::collections::HashSet;
 
+use porthmos_core::ConnectionState;
 use porthmos_core::connections_tree::{self, TreeRow};
 use porthmos_core::profiles::{ConnectionEntry, ConnectionSource};
 
@@ -214,14 +215,7 @@ impl Manager {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkState {
-    Off,
-    Live,
-    Lost,
-}
-
-pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, link: LinkState) -> Vec<(String, String)> {
+pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, link: ConnectionState) -> Vec<(String, String)> {
     let mut lines = vec![
         ("Protocol".to_string(), protocol_name.to_string()),
         ("Host".to_string(), entry.host.clone()),
@@ -234,9 +228,10 @@ pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, link: LinkSta
     ];
     lines.retain(|(_, value)| !value.is_empty());
     let status = match link {
-        LinkState::Off => "Not connected",
-        LinkState::Live => "Connected",
-        LinkState::Lost => "Connection lost",
+        ConnectionState::Disconnected => "Not connected",
+        ConnectionState::Connecting => "Connecting",
+        ConnectionState::Connected => "Connected",
+        ConnectionState::Lost => "Connection lost",
     };
     lines.push(("Status".to_string(), status.to_string()));
     lines

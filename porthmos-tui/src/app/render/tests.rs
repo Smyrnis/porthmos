@@ -307,7 +307,7 @@ fn connecting_status_is_shown_on_the_right_in_the_muted_colour() {
 #[test]
 fn failed_status_is_shown_only_without_a_session() {
     let (mut app, theme) = themed_app();
-    app.connection_status = ConnectionStatus::Failed("boom".to_string());
+    app.connection_status = ConnectionStatus::Failed("boom".into());
 
     let without_session = render_app(&app, 80, 12);
     let (x, y) = find_text(&without_session, "Connection failed: boom").expect("status is drawn");
@@ -381,9 +381,9 @@ fn the_hint_bar_and_the_help_overlay_agree_on_a_remapped_help_key() {
     assert!(bottom_row(&hints).contains("Ctrl+G help"), "{:?}", bottom_row(&hints));
 
     app.help_visible = true;
-    let overlay = render_app(&app, 100, 60);
+    let overlay = render_app(&app, 100, 70);
     let (_, y) = find_text(&overlay, "Ctrl+G").expect("overlay lists the remapped key");
-    assert!(y < 59);
+    assert!(y < 69);
     assert!(find_text(&overlay, &format!("Ctrl+G{}help", " ".repeat(6))).is_some());
 }
 
@@ -515,7 +515,7 @@ fn a_long_connecting_status_is_truncated_so_the_active_tab_keeps_its_name() {
 #[test]
 fn a_long_failure_without_a_session_is_truncated_instead_of_dropped() {
     let (mut app, _) = themed_app();
-    app.connection_status = ConnectionStatus::Failed(format!("handshake failed: {}", "x".repeat(200)));
+    app.connection_status = ConnectionStatus::Failed(format!("handshake failed: {}", "x".repeat(200)).into());
 
     let terminal = render_app(&app, 80, 12);
 
@@ -1144,10 +1144,10 @@ fn a_connect_failure_is_remembered_for_the_list_and_cleared_by_a_later_success()
 
     app.apply_core_event(Event::ConnectFailed {
         name: "prod".to_string(),
-        message: "Authentication failed for prod".to_string(),
+        message: "Authentication failed for prod".into(),
     });
 
-    assert_eq!(app.last_failure.get("prod").map(String::as_str), Some("Authentication failed for prod"));
+    assert_eq!(app.last_failure.get("prod"), Some(&"Authentication failed for prod".into()));
     let failed = render_app(&app, 120, 24);
     let line = row_symbols(&failed, 4);
     let x = line
@@ -1167,7 +1167,7 @@ fn a_connect_failure_is_remembered_for_the_list_and_cleared_by_a_later_success()
 #[test]
 fn a_failure_of_one_connection_does_not_touch_the_others() {
     let (mut app, _) = connections_app();
-    app.apply_core_event(Event::ConnectFailed { name: "prod".to_string(), message: "boom".to_string() });
+    app.apply_core_event(Event::ConnectFailed { name: "prod".to_string(), message: "boom".into() });
 
     app.apply_core_event(Event::Connected { session: 1, name: "backup".to_string(), shell_available: true });
 
@@ -1178,7 +1178,7 @@ fn a_failure_of_one_connection_does_not_touch_the_others() {
 fn the_top_bar_on_the_connections_screen_counts_connected_and_errors() {
     let (mut app, _) = connections_app();
     add_session(&mut app, 1, "prod");
-    app.last_failure.insert("backup".to_string(), "boom".to_string());
+    app.last_failure.insert("backup".to_string(), "boom".into());
 
     let terminal = render_app(&app, 120, 24);
 
@@ -1192,8 +1192,8 @@ fn zero_parts_are_left_out_of_the_connections_summary() {
     let (mut app, _) = connections_app();
     assert!(!row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("error"));
 
-    app.last_failure.insert("backup".to_string(), "boom".to_string());
-    app.last_failure.insert("prod".to_string(), "boom".to_string());
+    app.last_failure.insert("backup".to_string(), "boom".into());
+    app.last_failure.insert("prod".to_string(), "boom".into());
 
     assert!(row_symbols(&render_app(&app, 120, 24), 0).trim_end().ends_with("2 errors"));
 }
@@ -1202,7 +1202,7 @@ fn zero_parts_are_left_out_of_the_connections_summary() {
 fn the_connections_screen_never_panics_at_any_size() {
     let (mut app, _) = connections_app();
     add_session(&mut app, 1, "prod");
-    app.last_failure.insert("backup".to_string(), "boom\nline two".to_string());
+    app.last_failure.insert("backup".to_string(), "boom\nline two".into());
 
     for width in 0..=130 {
         for height in 0..=14 {
@@ -1503,8 +1503,8 @@ fn the_connections_screen_shows_a_connection_in_progress() {
 #[test]
 fn a_failure_of_a_profile_that_no_longer_exists_is_forgotten_when_the_list_reloads() {
     let (mut app, _) = connections_app();
-    app.last_failure.insert("gone".to_string(), "boom".to_string());
-    app.last_failure.insert("prod".to_string(), "boom".to_string());
+    app.last_failure.insert("gone".to_string(), "boom".into());
+    app.last_failure.insert("prod".to_string(), "boom".into());
 
     app.apply_core_event(Event::Profiles(vec![saved_connection("prod", "sftp")]));
 
@@ -1802,4 +1802,155 @@ fn the_badge_never_squeezes_the_tabs() {
         assert_eq!(left.trim_end(), kept.trim_end(), "width {width}");
     }
     assert!(seen > 20, "the badge was almost never shown ({seen})");
+}
+
+#[test]
+fn the_connections_screen_shows_the_state_core_published_for_a_connection() {
+    let (mut app, _) = connections_app();
+    assert!(find_text(&render_app(&app, 120, 24), "connection lost").is_none());
+
+    app.apply_core_event(Event::ConnectionState { name: "prod".to_string(), state: ConnectionState::Lost });
+    assert!(find_text(&render_app(&app, 120, 24), "connection lost").is_some());
+
+    app.apply_core_event(Event::ConnectionState { name: "prod".to_string(), state: ConnectionState::Connected });
+    let terminal = render_app(&app, 120, 24);
+    assert!(find_text(&terminal, "connection lost").is_none());
+    assert!(find_text(&terminal, "connected").is_some());
+
+    app.apply_core_event(Event::ConnectionState { name: "prod".to_string(), state: ConnectionState::Disconnected });
+    let terminal = render_app(&app, 120, 24);
+    assert!(find_text(&terminal, "connection lost").is_none());
+    assert!(find_text(&terminal, "\u{2022} connected").is_none());
+}
+
+fn rendered_rows(app: &App, width: u16, height: u16) -> Vec<String> {
+    let terminal = render_app(app, width, height);
+    let buffer = terminal.backend().buffer();
+    (0..buffer.area.height)
+        .map(|y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol().to_string()).collect())
+        .collect()
+}
+
+fn typing_in_the_path_field(app: &mut App, text: &str) {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    app.apply_key(KeyEvent::new(KeyCode::Char('\''), KeyModifiers::CONTROL));
+    for _ in 0..app.path_edit.as_ref().map_or(0, |edit| edit.field.text.len()) {
+        app.apply_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    for character in text.chars() {
+        app.apply_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+}
+
+#[test]
+fn the_field_replaces_the_folder_in_the_active_panel_header() {
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/typed/where");
+
+    let rows = rendered_rows(&app, 100, 20);
+
+    let header = rows.iter().find(|row| row.contains("/typed/where")).expect("typed text in a header");
+    assert!(header.trim_start().starts_with("local"), "{header}");
+    assert_eq!(header.matches("/typed/where").count(), 1);
+    assert!(!header.contains("/d "), "{header}");
+}
+
+#[test]
+fn the_other_panel_header_stays_while_the_field_is_open() {
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/typed/where");
+
+    let rows = rendered_rows(&app, 100, 20);
+
+    let header = rows.iter().find(|row| row.contains("/typed/where")).unwrap();
+    assert!(header.contains("remote"), "{header}");
+}
+
+#[test]
+fn a_long_path_in_the_field_keeps_the_caret_visible() {
+    let (_dir, mut app) = app_in_temp_dir();
+    let long = format!("/{}", "x".repeat(99));
+    typing_in_the_path_field(&mut app, &long);
+
+    let mut terminal = render_app(&app, 100, 12);
+
+    let position = terminal.get_cursor_position().unwrap();
+    let rows = rendered_rows(&app, 100, 12);
+    let header_row = rows.iter().position(|row| row.contains("xxxxx")).expect("typed text in a header");
+    assert_eq!(usize::from(position.y), header_row);
+    assert!(position.x < 50, "caret column {} not inside the left panel", position.x);
+}
+
+#[test]
+fn the_hint_bar_shows_enter_go_and_esc_cancel_while_editing() {
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/x");
+
+    let text = hint_bar_text(&app);
+
+    assert!(text.contains("enter"), "{text}");
+    assert!(text.contains("go"), "{text}");
+    assert!(text.contains("esc"), "{text}");
+    assert!(text.contains("cancel"), "{text}");
+}
+
+#[test]
+fn the_folder_comes_back_after_the_field_closes() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let (_dir, mut app) = app_in_temp_dir();
+    typing_in_the_path_field(&mut app, "/typed/where");
+    app.apply_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    let rows = rendered_rows(&app, 100, 20);
+
+    assert!(!rows.iter().any(|row| row.contains("/typed/where")));
+    assert!(rows.iter().any(|row| row.trim_start().starts_with("local") && row.contains("/d")));
+}
+
+#[test]
+fn an_empty_remote_panel_names_the_connections_that_can_be_reopened() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::ReopenOffer { names: vec!["prod".to_string(), "nas".to_string()] });
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "last time: prod, nas").is_some());
+    assert!(find_text(&terminal, "Ctrl+P").is_some());
+    assert!(find_text(&terminal, "Reopen last connections").is_some());
+}
+
+#[test]
+fn an_empty_remote_panel_says_nothing_about_reopening_without_an_offer() {
+    let (app, _) = themed_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "last time").is_none());
+    assert!(find_text(&terminal, "Reopen last connections").is_none());
+}
+
+#[test]
+fn the_reopen_hint_names_the_palette_key_the_user_chose() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::ReopenOffer { names: vec!["prod".to_string()] });
+    let overrides = std::collections::HashMap::from([("open_palette".to_string(), "ctrl+g".to_string())]);
+    app.key_bindings = input::KeyBindings::from_overrides(&overrides).0;
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "Ctrl+G").is_some());
+    assert!(find_text(&terminal, "Ctrl+P").is_none());
+}
+
+#[test]
+fn a_connected_session_hides_the_reopen_hint() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::ReopenOffer { names: vec!["prod".to_string()] });
+    app.apply_core_event(Event::Connected { session: 1, name: "srv".to_string(), shell_available: false });
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "last time").is_none());
 }

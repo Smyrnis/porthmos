@@ -511,7 +511,15 @@ fn a_narrow_panel_keeps_the_end_of_the_filter_the_caret_and_the_count() {
 }
 
 fn context(now: &DateTime<Local>, active: bool) -> PanelContext<'_> {
-    PanelContext { protocol: "local", location: "/d".to_string(), active, show_modified: true, switch_hint: None, now }
+    PanelContext {
+        protocol: "local",
+        location: "/d".to_string(),
+        active,
+        show_modified: true,
+        switch_hint: None,
+        editing: None,
+        now,
+    }
 }
 
 fn indexed() -> Theme {
@@ -941,4 +949,21 @@ fn a_narrow_footer_drops_the_free_space_before_the_item_count() {
 
     assert!(narrow.trim_end().ends_with("2 items"), "{narrow:?}");
     assert!(!narrow.contains("free"));
+}
+
+#[test]
+fn a_field_stays_drawn_when_the_protocol_name_fills_the_header() {
+    use crate::widgets::path_field::PathField;
+
+    let panel = PanelView::new(VfsPath::from("/d"), SortSpec::default(), false);
+    let now = fixed_now();
+    let field = PathField::new("/abc".to_string());
+    let mut editing = context(&now, true);
+    editing.protocol = "a-very-long-protocol";
+    editing.editing = Some(&field);
+
+    let mut terminal = draw_with(&panel, 12, 6, &editing, &indexed());
+
+    assert!(row_string(&terminal, 0).contains("/abc"), "{}", row_string(&terminal, 0));
+    assert!(terminal.get_cursor_position().unwrap().x < 12);
 }

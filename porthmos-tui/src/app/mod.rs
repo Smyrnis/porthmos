@@ -8,8 +8,8 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation, UpdateMode,
-    UpdateState, VfsPath,
+    Command, ConnectionState, CoreHandle, Event, Location, Message, PanelKind, Question, RequestId, SessionId,
+    Severity, ShellInvocation, UpdateMode, UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
@@ -41,7 +41,7 @@ use crate::{
         layout,
         notifications::Notifications,
         panel_view::{self, ActivePanel, PanelView},
-        search_view::{self, SearchOutcome, SearchView},
+        search_view::{self, PaneSync, SearchOutcome, SearchView},
         sync_view::{self, SyncView},
         transfer_list,
         update_badge::BadgeKind,
@@ -58,6 +58,7 @@ mod filter;
 mod hints;
 mod history;
 mod palette;
+mod path_edit;
 mod preview;
 mod render;
 mod search;
@@ -125,7 +126,7 @@ impl Screen {
 enum ConnectionStatus {
     Disconnected,
     Connecting(String),
-    Failed(String),
+    Failed(Message),
 }
 
 struct SearchSession {
@@ -137,12 +138,6 @@ struct ConflictPrompt {
     batch_id: u64,
     files: Vec<ConflictInfo>,
     answers: Vec<Option<Resolution>>,
-}
-
-struct PendingFocus {
-    location: Location,
-    folder: VfsPath,
-    name: String,
 }
 
 pub struct App {
@@ -173,7 +168,6 @@ pub struct App {
     reselect_row: Option<RowKind>,
     connection_status: ConnectionStatus,
     search: Option<SearchSession>,
-    pending_focus: Option<PendingFocus>,
     transfers: TransferSnapshot,
     history: HistoryView,
     sync_view: SyncView,
@@ -189,11 +183,15 @@ pub struct App {
     rates: RateTracker,
     details_popup: bool,
     body_width: std::cell::Cell<u16>,
-    last_failure: HashMap<String, String>,
+    last_failure: HashMap<String, Message>,
+    connection_states: HashMap<String, ConnectionState>,
     last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     update_mode: UpdateMode,
+    path_edit: Option<path_edit::PathEdit>,
+    search_preview: bool,
+    reopen_offer: Vec<String>,
     home: Option<VfsPath>,
     update_state: Option<UpdateState>,
     ready_update: Option<String>,
@@ -231,7 +229,6 @@ impl App {
             reselect_row: None,
             connection_status: ConnectionStatus::Disconnected,
             search: None,
-            pending_focus: None,
             transfers: TransferSnapshot::default(),
             history: HistoryView::new(),
             sync_view: SyncView::new(),
@@ -248,10 +245,14 @@ impl App {
             details_popup: false,
             body_width: std::cell::Cell::new(0),
             last_failure: HashMap::new(),
+            connection_states: HashMap::new(),
             last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             update_mode: UpdateMode::default(),
+            path_edit: None,
+            search_preview: false,
+            reopen_offer: Vec::new(),
             home: None,
             update_state: None,
             ready_update: None,
@@ -274,6 +275,11 @@ impl App {
 
     pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
         self.update_mode = mode;
+        self
+    }
+
+    pub fn with_search_preview(mut self, enabled: bool) -> Self {
+        self.search_preview = enabled;
         self
     }
 
@@ -320,6 +326,11 @@ impl App {
                             let launched = self.launch_shell(terminal, invocation).await;
                             events = EventStream::new();
                             launched?;
+                        } else if let Event::LocalShellReady { invocation } = core_event {
+                            drop(events);
+                            let launched = self.launch_local_shell(terminal, invocation).await;
+                            events = EventStream::new();
+                            launched?;
                         } else if let Event::EditReady { edit_id, file, editor } = core_event {
                             drop(events);
                             let launched = self.launch_editor(terminal, edit_id, file, editor).await;
@@ -356,6 +367,9 @@ impl App {
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
+        if self.drop_stale_path_edit() {
+            return;
+        }
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
@@ -370,6 +384,8 @@ impl App {
         } else if self.dialog.is_some() {
             self.apply_dialog_key(key);
             self.after_dialog_key();
+        } else if self.path_edit.is_some() {
+            self.apply_path_key(key);
         } else if self.screen == Screen::Search {
             if self.opens_palette(key) {
                 self.open_palette();
@@ -395,14 +411,23 @@ impl App {
     }
 
     fn apply_core_event(&mut self, event: Event) {
+        self.route_core_event(event);
+        self.drop_stale_path_edit();
+    }
+
+    fn route_core_event(&mut self, event: Event) {
         match event {
-            Event::Notice { severity, message } => self.notifications.push(severity, message),
+            Event::Notice { severity, message } => self.notifications.push(severity, message.to_string()),
+            Event::ConnectionState { name, state } => {
+                self.connection_states.insert(name, state);
+            }
+            Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
             Event::ConnectFailed { name, message } => {
                 self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
-                self.notifications.push(Severity::Error, message);
+                self.notifications.push(Severity::Error, message.to_string());
             }
             Event::Question { request_id, question } => self.ask(request_id, question),
             Event::TestQuestion { test_id, request_id, question } => self.ask_test(test_id, request_id, question),
@@ -410,8 +435,10 @@ impl App {
             Event::Disconnected { session, .. } => {
                 self.sessions.remove(session);
             }
-            Event::ShellReady { .. } => {}
+            Event::ShellReady { .. } | Event::LocalShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
+            Event::PathOpened { location } => self.finish_path_edit(location),
+            Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
             Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
             Event::LocationChanged { location } => self.relist(location),
@@ -441,6 +468,7 @@ impl App {
             Event::SearchFound(entry) => {
                 if let Some(search) = self.search.as_mut() {
                     search.view.push_result(entry);
+                    self.sync_search_pane();
                 }
             }
             Event::SearchDone { truncated } => {
@@ -454,6 +482,7 @@ impl App {
                     self.notifications.push(Severity::Error, message);
                 }
             }
+            Event::PathRejected { location } => self.reject_path_edit(location),
             Event::KeyringStatus { available } => self.keyring_available = available,
             Event::KeyringWaiting { waiting } => self.keyring_waiting = waiting,
             Event::SaveChoice { save } => self.save_choice = save,
@@ -498,7 +527,6 @@ impl App {
     }
 
     fn apply_listing(&mut self, location: Location, path: VfsPath, entries: Vec<porthmos_core::Entry>) {
-        let focus = self.pending_focus.take_if(|pending| pending.location == location && pending.folder == path);
         match location {
             Location::Local => {
                 if &path != self.local.path() {
@@ -515,13 +543,15 @@ impl App {
                 }
             }
         }
-        if let Some(focus) = focus {
-            match location {
-                Location::Local => self.local.focus_name(&focus.name),
-                Location::Session(id) => {
-                    self.sessions.by_id_mut(id).is_some_and(|session| session.panel.focus_name(&focus.name))
-                }
-            };
+    }
+
+    fn apply_revealed(&mut self, location: Location, folder: &VfsPath, name: &str) {
+        let panel = match location {
+            Location::Local => Some(&mut self.local),
+            Location::Session(id) => self.sessions.by_id_mut(id).map(|session| &mut session.panel),
+        };
+        if let Some(panel) = panel.filter(|panel| panel.path() == folder) {
+            panel.focus_name(name);
         }
     }
 
@@ -563,7 +593,7 @@ impl App {
 }
 
 fn needs_terminal(event: &Event) -> bool {
-    matches!(event, Event::ShellReady { .. } | Event::EditReady { .. })
+    matches!(event, Event::ShellReady { .. } | Event::LocalShellReady { .. } | Event::EditReady { .. })
 }
 
 async fn sleep_until_or_pending(deadline: Option<Instant>) {

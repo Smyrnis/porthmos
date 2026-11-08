@@ -148,7 +148,7 @@ impl Engine {
         let reject = |message: String| {
             let _ = events.send(Event::TestFinished {
                 test_id,
-                outcome: TestOutcome::Failed { stage: TestStage::Settings, message },
+                outcome: TestOutcome::Failed { stage: TestStage::Settings, message: message.into() },
             });
         };
         let Some(protocol) = self.protocols.iter().find(|protocol| protocol.id() == draft.protocol).cloned() else {

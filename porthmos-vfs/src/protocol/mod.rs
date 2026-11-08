@@ -33,6 +33,8 @@ impl fmt::Debug for Target {
     }
 }
 
+const FALLBACK_SHELL: &str = "/bin/sh";
+const CHANGE_AND_EXEC: &str = r#"cd -- "$1" && exec "$2" -l"#;
 const LAUNCHABLE_EXTENSIONS: [&str; 4] = [".com", ".exe", ".bat", ".cmd"];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -41,6 +43,7 @@ pub struct Environment {
     pub user: Option<String>,
     pub path: Option<OsString>,
     pub editor: Option<String>,
+    pub shell: Option<String>,
     pub path_extensions: Vec<String>,
 }
 
@@ -51,6 +54,7 @@ impl Environment {
             user: Self::user_from(std::env::var("USER").ok(), std::env::var("USERNAME").ok()),
             path: std::env::var_os("PATH"),
             editor: Self::editor_from(std::env::var("VISUAL").ok(), std::env::var("EDITOR").ok()),
+            shell: Self::shell_from(std::env::var("SHELL").ok()),
             path_extensions: if cfg!(windows) {
                 Self::path_extensions_from(std::env::var_os("PATHEXT"))
             } else {
@@ -103,6 +107,10 @@ impl Environment {
         [user, user_name].into_iter().flatten().find(|value| !value.is_empty())
     }
 
+    pub fn shell_from(shell: Option<String>) -> Option<String> {
+        shell.map(|shell| shell.trim().to_string()).filter(|shell| !shell.is_empty())
+    }
+
     pub fn editor_from(visual: Option<String>, editor: Option<String>) -> Option<String> {
         [visual, editor].into_iter().flatten().find(|value| !value.trim().is_empty())
     }
@@ -125,6 +133,36 @@ impl ShellInvocation {
         self.args.push(destination);
         self.args.push(format!("cd '{quoted}' && exec $SHELL -l").into());
         self
+    }
+
+    pub fn local(directory: &VfsPath, env: &Environment) -> Self {
+        Self::local_in(directory, env.shell.as_deref(), cfg!(windows))
+    }
+
+    fn local_in(directory: &VfsPath, shell: Option<&str>, windows: bool) -> Self {
+        let directory = directory.to_string_lossy();
+        if windows {
+            let quoted = directory.replace('\'', "''");
+            return Self {
+                program: "powershell.exe".into(),
+                args: ["-NoLogo", "-NoExit", "-Command"]
+                    .map(OsString::from)
+                    .into_iter()
+                    .chain([format!("Set-Location -LiteralPath '{quoted}'").into()])
+                    .collect(),
+                env: Vec::new(),
+            };
+        }
+        let shell = shell.map(str::trim).filter(|shell| !shell.is_empty()).unwrap_or(FALLBACK_SHELL);
+        Self {
+            program: "sh".into(),
+            args: ["-c", CHANGE_AND_EXEC, "sh"]
+                .map(OsString::from)
+                .into_iter()
+                .chain([OsString::from(&*directory), OsString::from(shell)])
+                .collect(),
+            env: Vec::new(),
+        }
     }
 
     pub fn to_command(&self) -> std::process::Command {

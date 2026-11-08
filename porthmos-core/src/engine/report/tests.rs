@@ -11,7 +11,7 @@ fn reporter() -> (Reporter, UnboundedReceiver<Event>) {
 fn notices(mut received: UnboundedReceiver<Event>) -> Vec<(Severity, String)> {
     std::iter::from_fn(|| received.try_recv().ok())
         .filter_map(|event| match event {
-            Event::Notice { severity, message } => Some((severity, message)),
+            Event::Notice { severity, message } => Some((severity, message.to_string())),
             _ => None,
         })
         .collect()

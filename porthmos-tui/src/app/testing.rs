@@ -1,7 +1,7 @@
 use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use porthmos_core::{Command, CoreHandle, Entry, Event, Location, config::settings::PanelSettings};
+use porthmos_core::{Command, CoreHandle, Entry, Event, Location, PanelKind, config::settings::PanelSettings};
 use ratatui::{Terminal, backend::TestBackend};
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -21,6 +21,14 @@ pub(crate) fn test_app_with_protocols(path: &VfsPath, protocols: Vec<porthmos_co
     let (core, commands) = CoreHandle::detached_with(protocols);
     let mut test =
         TestApp { app: App::new(core, path.clone(), &PanelSettings::default(), KeyBindings::defaults()), commands };
+    test.sent();
+    test
+}
+
+pub(crate) fn test_app_remembering(path: &VfsPath, local: PanelSettings, remote: PanelSettings) -> TestApp {
+    let (core, commands) = CoreHandle::detached();
+    let core = core.with_panel_settings(PanelKind::Local, local).with_panel_settings(PanelKind::Remote, remote);
+    let mut test = TestApp { app: App::new(core, path.clone(), &local, KeyBindings::defaults()), commands };
     test.sent();
     test
 }

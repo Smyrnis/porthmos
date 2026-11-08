@@ -9,6 +9,12 @@ pub enum Question {
     TrustCertificate { name: String, host: String, port: u16, fingerprint: String, subject: String, expires: String },
 }
 
+impl Question {
+    pub fn is_risky_to_confirm(&self) -> bool {
+        matches!(self, Question::TrustHostKey { .. } | Question::TrustCertificate { .. })
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum Answer {
     Password(String),

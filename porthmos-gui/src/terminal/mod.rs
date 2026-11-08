@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use porthmos_core::edit::split_command;
+use porthmos_core::edit::{Backslash, split_command_as};
 
 use crate::editing::{CommandSpec, Platform, program_name};
 
@@ -12,6 +12,13 @@ const WRAPPER: &str = r#". "$1" || exit 1; rm -f -- "$1"; shift; exec "$@""#;
 #[cfg(unix)]
 const HANDOVER_DIRECTORY: &str = "handover";
 const WINDOW_TITLE: &str = "Porthmos";
+const COMMAND_PLACEHOLDER: &str = "{command}";
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalChoice<'a> {
+    pub setting: Option<&'a str>,
+    pub variable: Option<&'a str>,
+}
 
 pub struct TerminalLaunch {
     pub spec: CommandSpec,
@@ -68,32 +75,59 @@ fn terminal_flags(name: &str, wait: bool) -> Vec<&'static str> {
     }
 }
 
-fn candidates(terminal_variable: Option<&str>) -> Vec<(String, Vec<String>)> {
-    let mut list = Vec::new();
-    if let Some(words) = terminal_variable.and_then(|text| split_command(text).ok())
-        && let Some((program, extra)) = words.split_first()
-    {
-        list.push((program.clone(), extra.to_vec()));
+fn split_words(text: &str, platform: Platform) -> Option<Vec<String>> {
+    let backslash = if platform == Platform::Windows { Backslash::Literal } else { Backslash::Escapes };
+    split_command_as(text, backslash).ok().filter(|words| !words.is_empty())
+}
+
+fn attach(words: &[String], flag_name: &str, wait: bool, inner: &CommandSpec) -> CommandSpec {
+    let program = OsString::from(&words[0]);
+    let inner_words = || std::iter::once(inner.program.clone()).chain(inner.args.iter().cloned());
+    let mut args: Vec<OsString> = Vec::new();
+    if words.iter().any(|word| word == COMMAND_PLACEHOLDER) {
+        for word in &words[1..] {
+            if word == COMMAND_PLACEHOLDER {
+                args.extend(inner_words());
+            } else {
+                args.push(OsString::from(word));
+            }
+        }
+    } else {
+        args.extend(words[1..].iter().map(OsString::from));
+        args.extend(terminal_flags(flag_name, wait).into_iter().map(OsString::from));
+        args.extend(inner_words());
     }
-    list.push(("x-terminal-emulator".to_string(), Vec::new()));
-    list.extend(TERMINAL_TABLE.iter().map(|name| (name.to_string(), Vec::new())));
+    CommandSpec { program, args }
+}
+
+fn candidates(choice: &TerminalChoice<'_>, platform: Platform) -> Vec<Vec<String>> {
+    let mut list: Vec<Vec<String>> = [choice.setting, choice.variable]
+        .into_iter()
+        .flatten()
+        .filter_map(|text| split_words(text, platform))
+        .collect();
+    list.push(vec!["x-terminal-emulator".to_string()]);
+    list.extend(TERMINAL_TABLE.iter().map(|name| vec![name.to_string()]));
     list
 }
 
 fn on_linux(
-    inner: CommandSpec, wait: bool, lookup: &dyn Fn(&str) -> Option<String>, terminal_variable: Option<&str>,
+    inner: &CommandSpec, wait: bool, lookup: &dyn Fn(&str) -> Option<String>, choice: &TerminalChoice<'_>,
 ) -> Result<CommandSpec, TerminalError> {
-    for (program, extra) in candidates(terminal_variable) {
-        let Some(resolved) = lookup(&program) else {
+    for words in candidates(choice, Platform::Linux) {
+        let Some(resolved) = lookup(&words[0]) else {
             continue;
         };
-        let mut args: Vec<OsString> = extra.into_iter().map(OsString::from).collect();
-        args.extend(terminal_flags(&program_name(&resolved), wait).into_iter().map(OsString::from));
-        args.push(inner.program);
-        args.extend(inner.args);
-        return Ok(CommandSpec { program: OsString::from(program), args });
+        return Ok(attach(&words, &program_name(&resolved), wait, inner));
     }
     Err(TerminalError::NoneFound)
+}
+
+fn chosen_by_setting(
+    inner: &CommandSpec, wait: bool, platform: Platform, choice: &TerminalChoice<'_>,
+) -> Option<CommandSpec> {
+    let words = split_words(choice.setting?, platform)?;
+    Some(attach(&words, &program_name(&words[0]), wait, inner))
 }
 
 fn applescript_text(text: &str) -> String {
@@ -212,19 +246,21 @@ fn unix_inner(
 
 pub fn launch(
     inner: CommandSpec, inner_env: Vec<(OsString, OsString)>, wait: bool, platform: Platform,
-    lookup: &dyn Fn(&str) -> Option<String>, terminal_variable: Option<&str>, state_dir: &Path,
+    lookup: &dyn Fn(&str) -> Option<String>, choice: &TerminalChoice<'_>, state_dir: &Path,
 ) -> Result<TerminalLaunch, TerminalError> {
     match platform {
         Platform::Windows => {
-            Ok(TerminalLaunch { spec: on_windows(inner, wait), env: inner_env, cleanup: Vec::new(), wait })
+            let spec = chosen_by_setting(&inner, wait, platform, choice).unwrap_or_else(|| on_windows(inner, wait));
+            Ok(TerminalLaunch { spec, env: inner_env, cleanup: Vec::new(), wait })
         }
         Platform::MacOs => {
             let (inner, cleanup) = unix_inner(inner, &inner_env, state_dir)?;
-            Ok(TerminalLaunch { spec: on_macos(&inner, wait), env: Vec::new(), cleanup, wait })
+            let spec = chosen_by_setting(&inner, wait, platform, choice).unwrap_or_else(|| on_macos(&inner, wait));
+            Ok(TerminalLaunch { spec, env: Vec::new(), cleanup, wait })
         }
         Platform::Linux => {
             let (inner, cleanup) = unix_inner(inner, &inner_env, state_dir)?;
-            match on_linux(inner, wait, lookup, terminal_variable) {
+            match on_linux(&inner, wait, lookup, choice) {
                 Ok(spec) => Ok(TerminalLaunch { spec, env: Vec::new(), cleanup, wait }),
                 Err(error) => {
                     for file in &cleanup {

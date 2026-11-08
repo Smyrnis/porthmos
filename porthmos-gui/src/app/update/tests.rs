@@ -25,7 +25,7 @@ fn infos(harness: &Harness) -> Vec<String> {
         .notices()
         .iter()
         .filter(|notice| notice.severity == Severity::Info)
-        .map(|notice| notice.message.clone())
+        .map(|notice| notice.message.to_string())
         .collect()
 }
 
@@ -120,9 +120,9 @@ fn the_badge_label_is_absent_without_an_update_and_follows_the_window_width() {
     harness.feed(Event::Update(UpdateState::Available { version: "0.4.0".to_string() }));
     assert_eq!(badge_label(&harness.app).as_deref(), Some("\u{2191} 0.4.0 available"));
 
-    harness.press(Message::WindowResized(iced::Size::new(700.0, 500.0)));
+    harness.resize(iced::Size::new(700.0, 500.0));
     assert_eq!(badge_label(&harness.app).as_deref(), Some("\u{2191} 0.4.0"));
-    harness.press(Message::WindowResized(iced::Size::new(600.0, 500.0)));
+    harness.resize(iced::Size::new(600.0, 500.0));
     assert_eq!(badge_label(&harness.app).as_deref(), Some("\u{2191}"));
 }
 

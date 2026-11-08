@@ -3,7 +3,6 @@ use iced::keyboard::{Key, Modifiers};
 use porthmos_core::{Command, Entry, Event, Location, VfsPath};
 
 use crate::menus::MoreItem;
-use crate::search::SearchStatus;
 use crate::shortcuts::KeyPress;
 use crate::testing::Harness;
 use crate::tools::Tool;
@@ -26,30 +25,10 @@ fn ctrl(harness: &mut Harness, character: &str) {
     press(harness, Key::Character(character.into()), Modifiers::CTRL);
 }
 
-fn open_search(harness: &mut Harness) {
-    ctrl(harness, "f");
-    harness.sent();
-}
-
 fn hit(path: &str) -> Entry {
     let path = VfsPath::new(path);
     let name = path.file_name().unwrap().to_string_lossy().to_string();
     Entry { name, path, ..Entry::default() }
-}
-
-fn search(harness: &mut Harness, text: &str) {
-    harness.press(Message::SearchTyped(text.to_string()));
-}
-
-fn found(harness: &mut Harness, path: &str) {
-    harness.feed(Event::SearchFound(hit(path)));
-}
-
-fn search_state(harness: &Harness) -> &crate::search::SearchState {
-    match harness.app.tool() {
-        Some(Tool::Search(state)) => state,
-        other => panic!("expected the search tool, got {other:?}"),
-    }
 }
 
 fn remote_harness() -> Harness {
@@ -63,282 +42,6 @@ fn remote_harness() -> Harness {
     named(&mut harness, Named::Tab);
     harness.sent();
     harness
-}
-
-#[test]
-fn ctrl_f_opens_search_on_the_active_panel() {
-    let mut harness = Harness::new();
-    harness.sent();
-
-    ctrl(&mut harness, "f");
-
-    assert_eq!(search_state(&harness).location(), Location::Local);
-    assert_eq!(search_state(&harness).status(), &SearchStatus::Idle);
-    assert!(harness.sent().is_empty());
-}
-
-#[test]
-fn the_more_menu_item_opens_search() {
-    let mut harness = Harness::new();
-    harness.press(Message::MoreMenuToggled);
-
-    harness.press(Message::MoreItemChosen(MoreItem::Search));
-
-    assert!(matches!(harness.app.tool(), Some(Tool::Search(_))));
-    assert!(!harness.app.more_open());
-}
-
-#[test]
-fn typing_sends_a_wildcard_search_for_the_active_folder() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-
-    search(&mut harness, "abc");
-
-    assert_eq!(
-        harness.sent(),
-        vec![Command::Search { location: Location::Local, root: harness.start_folder(), pattern: "*abc*".to_string() }]
-    );
-}
-
-#[test]
-fn typing_does_not_fire_panel_shortcuts() {
-    let mut harness = Harness::new();
-    let folder = harness.start_folder();
-    harness.feed(Event::Listed {
-        location: Location::Local,
-        path: folder.clone(),
-        entries: vec![hit("/home/tester/a.txt")],
-    });
-    open_search(&mut harness);
-
-    press(&mut harness, Key::Character("d".into()), Modifiers::empty());
-    named(&mut harness, Named::Delete);
-    named(&mut harness, Named::F7);
-    named(&mut harness, Named::F5);
-
-    assert!(harness.app.modal().is_none());
-    assert!(harness.sent().is_empty());
-}
-
-#[test]
-fn arrow_keys_move_the_result_selection_not_the_panel_cursor() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    found(&mut harness, "/home/tester/a1");
-    found(&mut harness, "/home/tester/a2");
-    let cursor = harness.app.local().panel.cursor();
-
-    named(&mut harness, Named::ArrowDown);
-
-    assert_eq!(search_state(&harness).selected().unwrap().name, "a2");
-    assert_eq!(harness.app.local().panel.cursor(), cursor);
-    named(&mut harness, Named::ArrowUp);
-    assert_eq!(search_state(&harness).selected().unwrap().name, "a1");
-}
-
-#[test]
-fn results_arrive_and_enter_lists_the_parent_and_closes() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    harness.sent();
-    found(&mut harness, "/home/tester/deep/a.txt");
-
-    named(&mut harness, Named::Enter);
-
-    assert!(harness.app.tool().is_none());
-    let sent = harness.sent();
-    assert!(sent.contains(&Command::CancelSearch), "{sent:?}");
-    assert!(sent.contains(&Command::List { location: Location::Local, path: Some(VfsPath::new("/home/tester/deep")) }));
-}
-
-#[test]
-fn enter_with_no_result_keeps_the_tool_open() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-
-    named(&mut harness, Named::Enter);
-
-    assert!(harness.app.tool().is_some());
-    assert!(harness.sent().is_empty());
-}
-
-#[test]
-fn double_clicking_a_row_opens_that_result() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    found(&mut harness, "/home/tester/x/a1");
-    found(&mut harness, "/home/tester/y/a2");
-    harness.sent();
-
-    harness.press(Message::SearchRowActivated(1));
-
-    assert!(harness.app.tool().is_none());
-    assert!(
-        harness
-            .sent()
-            .contains(&Command::List { location: Location::Local, path: Some(VfsPath::new("/home/tester/y")) })
-    );
-}
-
-#[test]
-fn pressing_a_row_selects_it_and_the_open_button_opens_it() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    found(&mut harness, "/home/tester/x/a1");
-    found(&mut harness, "/home/tester/y/a2");
-    harness.sent();
-
-    harness.press(Message::SearchRowPressed(1));
-    assert_eq!(search_state(&harness).selected().unwrap().name, "a2");
-    harness.press(Message::SearchOpenPressed);
-
-    assert!(harness.app.tool().is_none());
-}
-
-#[test]
-fn esc_closes_and_cancels_the_search() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    harness.sent();
-
-    named(&mut harness, Named::Escape);
-
-    assert!(harness.app.tool().is_none());
-    assert_eq!(harness.sent(), vec![Command::CancelSearch]);
-}
-
-#[test]
-fn the_close_button_closes_and_cancels_the_search() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-
-    harness.press(Message::ToolClosed);
-
-    assert!(harness.app.tool().is_none());
-    assert_eq!(harness.sent(), vec![Command::CancelSearch]);
-}
-
-#[test]
-fn a_blank_pattern_cancels_the_running_search() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    harness.sent();
-
-    search(&mut harness, "");
-
-    assert_eq!(harness.sent(), vec![Command::CancelSearch]);
-    assert_eq!(search_state(&harness).status(), &SearchStatus::Idle);
-}
-
-#[test]
-fn late_search_events_after_closing_are_ignored() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    named(&mut harness, Named::Escape);
-
-    found(&mut harness, "/home/tester/a");
-    harness.feed(Event::SearchDone { truncated: true });
-    harness.feed(Event::SearchFailed("late".to_string()));
-
-    assert!(harness.app.tool().is_none());
-}
-
-#[test]
-fn a_new_pattern_drops_results_of_the_old_one_at_once() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    found(&mut harness, "/home/tester/a1");
-
-    search(&mut harness, "ab");
-
-    assert!(search_state(&harness).results().is_empty());
-}
-
-#[test]
-fn done_failed_and_truncated_events_reach_the_status_line() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    harness.feed(Event::SearchDone { truncated: false });
-    assert_eq!(search_state(&harness).status_text(), "Nothing found");
-
-    search(&mut harness, "b");
-    harness.feed(Event::SearchFailed("boom".to_string()));
-    assert_eq!(search_state(&harness).status_text(), "Search failed: boom");
-}
-
-#[test]
-fn searching_a_remote_panel_lists_in_that_session() {
-    let mut harness = remote_harness();
-
-    ctrl(&mut harness, "f");
-    search(&mut harness, "a");
-    assert_eq!(
-        harness.sent(),
-        vec![Command::Search {
-            location: Location::Session(1),
-            root: VfsPath::new("/srv"),
-            pattern: "*a*".to_string()
-        }]
-    );
-    found(&mut harness, "/srv/sub/a.txt");
-    named(&mut harness, Named::Enter);
-
-    assert_eq!(harness.app.active_side(), PanelSide::Remote);
-    assert!(
-        harness
-            .sent()
-            .contains(&Command::List { location: Location::Session(1), path: Some(VfsPath::new("/srv/sub")) })
-    );
-}
-
-#[test]
-fn disconnecting_the_searched_session_closes_the_tool() {
-    let mut harness = remote_harness();
-    ctrl(&mut harness, "f");
-
-    harness.feed(Event::Disconnected { session: 1, name: "alpha".to_string() });
-
-    assert!(harness.app.tool().is_none());
-}
-
-#[test]
-fn menus_and_row_presses_are_blocked_while_a_tool_is_open() {
-    let mut harness = remote_harness();
-    named(&mut harness, Named::Tab);
-    harness.sent();
-    open_search(&mut harness);
-
-    assert!(!harness.app.menus_allowed());
-    harness.app.press_row(PanelSide::Remote, 0);
-
-    assert_eq!(harness.app.active_side(), PanelSide::Local);
-}
-
-#[test]
-fn keyboard_selection_scrolls_the_results_into_view() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    for index in 0..200 {
-        found(&mut harness, &format!("/home/tester/a{index}"));
-    }
-    assert_eq!(harness.app.tool_scroll(), 0.0);
-
-    for _ in 0..150 {
-        named(&mut harness, Named::ArrowDown);
-    }
-
-    assert!(harness.app.tool_scroll() > 0.0);
 }
 
 fn bookmark_modal(harness: &Harness) -> Option<(String, Option<String>)> {
@@ -514,11 +217,13 @@ fn go_local_lists_the_local_folder_and_closes() {
     ctrl(&mut harness, "b");
     harness.sent();
 
+    let from = harness.app.local().panel.path().clone();
+
     harness.press(Message::BookmarkGoPressed);
 
     assert!(harness.app.tool().is_none());
     assert_eq!(harness.app.active_side(), PanelSide::Local);
-    assert_eq!(harness.sent(), vec![Command::List { location: Location::Local, path: Some(VfsPath::new("/data")) }]);
+    assert_eq!(harness.sent(), vec![Command::Navigate { location: Location::Local, from, to: VfsPath::new("/data") }]);
 }
 
 #[test]
@@ -535,7 +240,11 @@ fn go_remote_activates_the_session_and_lists() {
     assert_eq!(harness.app.active_side(), PanelSide::Remote);
     assert_eq!(
         harness.sent(),
-        vec![Command::List { location: Location::Session(1), path: Some(VfsPath::new("/var/www")) }]
+        vec![Command::Navigate {
+            location: Location::Session(1),
+            from: VfsPath::new("/srv"),
+            to: VfsPath::new("/var/www")
+        }]
     );
 }
 
@@ -640,24 +349,11 @@ fn arrows_move_the_bookmark_selection_and_esc_closes_without_a_search_cancel() {
 }
 
 #[test]
-fn opening_a_tool_over_a_search_cancels_the_search() {
-    let mut harness = Harness::new();
-    open_search(&mut harness);
-    search(&mut harness, "a");
-    harness.sent();
-
-    harness.app.open_bookmarks();
-
-    assert!(matches!(harness.app.tool(), Some(Tool::Bookmarks(_))));
-    assert_eq!(harness.sent(), vec![Command::CancelSearch]);
-}
-
-#[test]
 fn search_events_do_not_disturb_the_bookmark_list() {
     let mut harness = Harness::new();
     ctrl(&mut harness, "b");
 
-    found(&mut harness, "/x/a");
+    harness.feed(Event::SearchFound(hit("/x/a")));
     harness.feed(Event::SearchDone { truncated: false });
 
     assert!(matches!(harness.app.tool(), Some(Tool::Bookmarks(_))));
@@ -895,62 +591,4 @@ fn keyboard_selection_scrolls_the_history_into_view() {
     }
 
     assert!(harness.app.tool_scroll() > 0.0);
-}
-
-fn list_local_folder(harness: &mut Harness, folder: &str, names: &[&str]) {
-    let folder = VfsPath::new(folder);
-    let entries: Vec<Entry> = names
-        .iter()
-        .map(|name| Entry { name: name.to_string(), path: folder.join(*name), ..Entry::default() })
-        .collect();
-    harness.feed(Event::Listed { location: Location::Local, path: folder, entries });
-}
-
-fn cursor_name(harness: &Harness) -> Option<String> {
-    harness.app.local().panel.cursor_entry().map(|entry| entry.name)
-}
-
-#[test]
-fn opening_a_result_in_another_folder_puts_the_cursor_on_the_file_once_it_is_listed() {
-    let mut harness = Harness::new();
-    list_local_folder(&mut harness, "/home/tester", &["deep"]);
-    open_search(&mut harness);
-    search(&mut harness, "f19");
-    found(&mut harness, "/home/tester/deep/f19.txt");
-    named(&mut harness, Named::Enter);
-    assert_eq!(cursor_name(&harness), None);
-
-    list_local_folder(&mut harness, "/home/tester/deep", &["f1.txt", "f19.txt", "f198.txt"]);
-
-    assert_eq!(cursor_name(&harness).as_deref(), Some("f19.txt"));
-}
-
-#[test]
-fn opening_a_result_in_the_folder_already_shown_moves_the_cursor_after_the_relisting() {
-    let mut harness = Harness::new();
-    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt", "c.txt"]);
-    open_search(&mut harness);
-    search(&mut harness, "c");
-    found(&mut harness, "/home/tester/c.txt");
-    named(&mut harness, Named::Enter);
-
-    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt", "c.txt"]);
-
-    assert_eq!(cursor_name(&harness).as_deref(), Some("c.txt"));
-}
-
-#[test]
-fn the_cursor_is_not_pulled_back_by_a_later_unrelated_listing() {
-    let mut harness = Harness::new();
-    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt"]);
-    open_search(&mut harness);
-    search(&mut harness, "b");
-    found(&mut harness, "/home/tester/b.txt");
-    named(&mut harness, Named::Enter);
-    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt"]);
-    harness.press(Message::PanelClicked(PanelSide::Local, 1));
-
-    list_local_folder(&mut harness, "/home/tester", &["a.txt", "b.txt"]);
-
-    assert_eq!(cursor_name(&harness).as_deref(), Some("a.txt"));
 }

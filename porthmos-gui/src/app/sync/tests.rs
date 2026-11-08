@@ -48,7 +48,7 @@ fn connect(harness: &mut Harness, session: u64, name: &str, listed: bool, preser
 
 fn last_notice(harness: &Harness) -> (Severity, String) {
     let notice = harness.app.notices().last().unwrap();
-    (notice.severity, notice.message.clone())
+    (notice.severity, notice.message.to_string())
 }
 
 fn options_modal(harness: &Harness) -> (u64, String, bool, SyncDirection, SyncBy, bool, Option<String>) {
@@ -426,15 +426,15 @@ fn a_plan_is_held_behind_another_tool_and_ctrl_u_reopens_it_with_its_ticks() {
 }
 
 #[test]
-fn a_plan_is_held_behind_the_connection_manager() {
+fn a_plan_opens_its_review_while_the_connections_window_is_open() {
     let mut harness = Harness::new();
     harness.press(Message::ManagerToggled);
     assert!(harness.app.connections_screen.is_some());
 
     harness.feed(Event::SyncPlanReady(small_plan(11)));
 
-    assert!(!sync_open(&harness));
-    assert!(harness.app.sync_view.has_plan());
+    assert!(sync_open(&harness));
+    assert!(harness.app.connections_screen.is_some());
 }
 
 #[test]
@@ -569,7 +569,7 @@ fn space_toggles_the_selected_row() {
 #[test]
 fn arrow_page_home_end_move_the_cursor_and_scroll() {
     let mut harness = Harness::new();
-    harness.press(Message::WindowResized(Size::new(1200.0, 800.0)));
+    harness.resize(Size::new(1200.0, 800.0));
     review(&mut harness, big_plan(200));
 
     named(&mut harness, Named::ArrowDown);

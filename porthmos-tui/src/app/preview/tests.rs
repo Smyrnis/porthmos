@@ -337,7 +337,7 @@ fn the_viewer_covers_the_screen_and_the_files_screen_returns_after_closing() {
 #[test]
 fn a_toast_still_shows_over_the_viewer() {
     let mut test = viewer_with_many_lines();
-    test.app.apply_core_event(Event::Notice { severity: Severity::Warning, message: "heads up".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Warning, message: "heads up".into() });
 
     assert!(draw(&test).iter().any(|row| row.contains("heads up")));
 }

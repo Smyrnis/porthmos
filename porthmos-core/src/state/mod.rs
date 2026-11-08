@@ -3,15 +3,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Paths,
+    panel_memory::PanelMemory,
     persist::{Loaded, read_or_set_aside, toml_problem, write_atomic},
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiState {
     pub save_passwords_in_keyring: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed_limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_folder: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_panel: Option<PanelMemory>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_panel: Option<PanelMemory>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reopen: Vec<String>,
 }
 
 pub struct StateLoad {

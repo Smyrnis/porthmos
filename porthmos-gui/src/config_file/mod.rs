@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use porthmos_core::UpdateMode;
+use porthmos_core::{ReopenMode, UpdateMode};
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, Value};
 
 const FILE_NAME: &str = "config.toml";
@@ -13,8 +13,11 @@ pub enum Edit {
     SetKey { action: String, chords: Vec<String> },
     ResetKey { action: String },
     SetEditor(Option<String>),
+    SetTerminal(Option<String>),
     SetAutoUpload(bool),
     SetUpdateMode(UpdateMode),
+    SetSearchPreview(bool),
+    SetReopenMode(ReopenMode),
 }
 
 fn syntax_error(text: &str, error: &toml_edit::TomlError) -> String {
@@ -124,8 +127,14 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
             Some(editor) => set_in(&mut document, &["edit"], "editor", Value::from(editor))?,
             None => remove_in(&mut document, &["edit"], "editor")?,
         },
+        Edit::SetTerminal(command) => match command.as_deref().map(str::trim).filter(|command| !command.is_empty()) {
+            Some(command) => set_in(&mut document, &["terminal"], "command", Value::from(command))?,
+            None => remove_in(&mut document, &["terminal"], "command")?,
+        },
         Edit::SetAutoUpload(on) => set_in(&mut document, &["edit"], "auto_upload", Value::from(*on))?,
         Edit::SetUpdateMode(mode) => set_in(&mut document, &["update"], "mode", Value::from(mode_text(*mode)))?,
+        Edit::SetReopenMode(mode) => set_in(&mut document, &["startup"], "reopen", Value::from(mode.id()))?,
+        Edit::SetSearchPreview(on) => set_in(&mut document, &["search"], "preview", Value::from(*on))?,
     }
     Ok(document.to_string())
 }

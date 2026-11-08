@@ -124,10 +124,7 @@ fn rename_dialog_submits_the_rename() {
 fn failed_operation_sets_a_status_message() {
     let mut test = test_app(&VfsPath::new("/d"));
 
-    test.app.apply_core_event(Event::Notice {
-        severity: Severity::Error,
-        message: "File exists (os error 17)".to_string(),
-    });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "File exists (os error 17)".into() });
 
     assert!(test.app.notifications.current().is_some());
 }

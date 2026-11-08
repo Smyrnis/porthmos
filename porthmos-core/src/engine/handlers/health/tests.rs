@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use porthmos_vfs::testing::{FakeFs, FakeProtocol};
 
 use crate::{
-    Severity,
+    ConnectionState, Severity,
     engine::{
         Event, Internal, SessionId,
         testing::{TestEngine, sample_entry, test_engine},
@@ -60,6 +60,7 @@ async fn losing_the_connection_marks_the_session_lost_and_warns() {
     let events = t.drain();
 
     assert_eq!(health_events(&events), vec![(session, false)]);
+    assert_eq!(TestEngine::connection_states(&events), vec![("srv".to_string(), ConnectionState::Lost)]);
     let warning = events
         .iter()
         .find_map(|event| match event {
@@ -97,6 +98,7 @@ async fn the_connection_coming_back_marks_the_session_healthy_and_says_so() {
     let events = t.drain();
 
     assert_eq!(health_events(&events), vec![(session, true)]);
+    assert_eq!(TestEngine::connection_states(&events), vec![("srv".to_string(), ConnectionState::Connected)]);
     assert!(events.iter().any(|event| matches!(
         event,
         Event::Notice { severity: Severity::Info, message } if message == "srv: connection restored"

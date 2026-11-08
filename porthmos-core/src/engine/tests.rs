@@ -204,7 +204,7 @@ async fn a_panicking_background_task_is_reported_with_its_name() {
         .drain()
         .into_iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect();
@@ -335,7 +335,7 @@ async fn a_keyring_result_that_arrives_during_the_grace_is_still_applied() {
     let messages: Vec<String> = events
         .into_iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect();
@@ -501,7 +501,7 @@ fn a_failed_connect_is_in_the_log_as_well_as_shown() {
     let mut t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_internal(Internal::ConnectFailed { name: "prod".to_string(), message: "refused".to_string() });
+        t.engine.handle_internal(Internal::ConnectFailed { name: "prod".to_string(), message: "refused".into() });
     });
 
     assert!(logs.contains("ERROR") && logs.contains("refused"), "{logs}");
@@ -602,7 +602,7 @@ fn a_cancelled_connection_is_not_logged_as_an_error() {
     let logs = crate::engine::testing::capture_logs(|| {
         t.engine.handle_internal(Internal::ConnectFailed {
             name: "prod".to_string(),
-            message: crate::CONNECTION_CANCELLED.to_string(),
+            message: crate::CONNECTION_CANCELLED.into(),
         });
     });
 
@@ -714,30 +714,48 @@ fn error_lines(logs: &str) -> usize {
     logs.lines().filter(|line| line.contains("ERROR")).count()
 }
 
-#[test]
-fn time_is_read_from_the_engine_clock_only() {
-    fn visit(dir: &std::path::Path, offenders: &mut Vec<String>) {
-        for entry in std::fs::read_dir(dir).unwrap().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                visit(&path, offenders);
-                continue;
-            }
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            if !name.ends_with(".rs") || name == "tests.rs" || name == "testing.rs" || path.ends_with("engine/mod.rs") {
-                continue;
-            }
-            if std::fs::read_to_string(&path).unwrap().contains("Utc::now") {
-                offenders.push(path.display().to_string());
-            }
+fn engine_sources(dir: &std::path::Path, found: &mut Vec<(std::path::PathBuf, String)>) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            engine_sources(&path, found);
+            continue;
+        }
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if name.ends_with(".rs") && name != "tests.rs" && name != "testing.rs" {
+            let text = std::fs::read_to_string(&path).unwrap();
+            found.push((path, text));
         }
     }
+}
 
-    let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine");
-    let mut offenders = Vec::new();
-    visit(&engine, &mut offenders);
+fn count_in_engine(needle: &str) -> Vec<(String, usize)> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine");
+    let mut sources = Vec::new();
+    engine_sources(&root, &mut sources);
+    sources
+        .into_iter()
+        .map(|(path, text)| (path.strip_prefix(&root).unwrap().display().to_string(), text.matches(needle).count()))
+        .filter(|(_, count)| *count > 0)
+        .collect()
+}
 
-    assert!(offenders.is_empty(), "read the clock directly: {offenders:?}");
+#[test]
+fn the_wall_clock_is_read_in_one_place_in_the_engine() {
+    assert_eq!(count_in_engine("Utc::now"), vec![("mod.rs".to_string(), 1)]);
+}
+
+#[test]
+fn handlers_ask_the_engine_for_the_time_and_never_call_the_clock_themselves() {
+    assert_eq!(count_in_engine("(self.clock)()"), vec![("mod.rs".to_string(), 1)]);
+}
+
+#[test]
+fn the_engine_reports_the_time_its_clock_gives() {
+    let mut t = test_engine();
+    t.engine.clock = || testing::utc(2026, 5, 6, 7, 8, 9);
+
+    assert_eq!(t.engine.now(), testing::utc(2026, 5, 6, 7, 8, 9));
 }
 
 #[cfg(not(feature = "update"))]

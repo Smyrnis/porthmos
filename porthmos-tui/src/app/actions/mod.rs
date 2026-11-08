@@ -46,6 +46,7 @@ impl App {
             Action::BookmarkHere => self.open_bookmark_add_dialog(),
             Action::OpenBookmarks => self.open_bookmarks_dialog(),
             Action::OpenSearch => self.open_search_screen(),
+            Action::GoToPath => self.open_path_edit(),
             Action::Filter => self.start_filter(),
             Action::OpenTransfers => self.open_transfers_screen(),
             Action::OpenHistory => self.open_history_screen(),
@@ -139,15 +140,27 @@ impl App {
                 panel.toggle_selection();
                 return;
             }
-            Action::ToggleHidden => {
-                panel.toggle_hidden();
+            Action::ToggleHidden | Action::CycleSort => {
+                if action == Action::ToggleHidden {
+                    panel.toggle_hidden();
+                } else {
+                    panel.cycle_sort();
+                }
+                let settings = PanelSettings { show_hidden: panel.show_hidden(), sort: panel.sort_spec() };
+                let kind = match location {
+                    Location::Local => PanelKind::Local,
+                    Location::Session(_) => PanelKind::Remote,
+                };
+                self.core.send(Command::RememberPanel { kind, settings });
                 return;
             }
-            Action::CycleSort => {
-                panel.cycle_sort();
+            Action::Open => {
+                let from = panel.path().clone();
+                if let Some(to) = panel.target_path_for_open() {
+                    self.core.send(Command::Navigate { location, from, to });
+                }
                 return;
             }
-            Action::Open => panel.target_path_for_open(),
             Action::Refresh => Some(panel.path().clone()),
             _ => return,
         };

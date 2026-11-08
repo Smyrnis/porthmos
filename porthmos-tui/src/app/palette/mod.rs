@@ -1,10 +1,10 @@
 use crossterm::event::{KeyEvent, KeyModifiers};
-use porthmos_core::Location;
+use porthmos_core::{Location, offer_summary};
 
 use super::*;
 use crate::{
     input::format_key_spec,
-    palette::{Entry, Group, Target},
+    palette::{Entry, Group, REOPEN_LABEL, Target},
     widgets::{history_view::printable, panel_view::Row},
 };
 
@@ -28,9 +28,10 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::BookmarkHere, "Bookmark this folder", Availability::On(Screen::Files)),
     (Action::OpenBookmarks, "Bookmarks", Availability::On(Screen::Files)),
     (Action::OpenSearch, "Search files", Availability::On(Screen::Files)),
+    (Action::GoToPath, "Go to folder path", Availability::On(Screen::Files)),
     (Action::OpenSync, "Synchronize folders", Availability::On(Screen::Files)),
     (Action::CycleSession, "Next session", Availability::On(Screen::Files)),
-    (Action::OpenTerminal, "Open a shell on the server", Availability::On(Screen::Files)),
+    (Action::OpenTerminal, "Open a terminal in the active folder", Availability::On(Screen::Files)),
     (Action::Filter, "Filter files", Availability::On(Screen::Files)),
     (Action::Refresh, "Refresh", Availability::On(Screen::Files)),
     (Action::Open, "Connect", Availability::On(Screen::Connections)),
@@ -126,6 +127,10 @@ impl App {
                     self.core.send(Command::Disconnect { session });
                 }
             }
+            Target::Reopen => {
+                self.reopen_connections();
+                self.screen = Screen::Files;
+            }
             Target::File { location, name } => self.focus_file(location, &name),
         }
     }
@@ -194,7 +199,13 @@ impl App {
             hint: Some(CONNECTED_HINT.to_string()),
             target: Target::Disconnect(session.name.clone()),
         });
-        connect.chain(disconnect).collect()
+        let reopen = (!self.reopen_offer.is_empty()).then(|| Entry {
+            group: Group::Hosts,
+            label: REOPEN_LABEL.to_string(),
+            hint: Some(printable(&offer_summary(&self.reopen_offer))),
+            target: Target::Reopen,
+        });
+        reopen.into_iter().chain(connect).chain(disconnect).collect()
     }
 
     fn file_entries(&self) -> Vec<Entry> {

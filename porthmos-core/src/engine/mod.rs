@@ -19,7 +19,7 @@ pub(crate) use report::Reporter;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    Paths, Severity,
+    ConnectionState, Message, Paths, Severity,
     config::{
         bookmarks::Bookmarks,
         settings::{EditSettings, TransferSettings},
@@ -70,7 +70,7 @@ pub(crate) enum Internal {
     },
     ConnectFailed {
         name: String,
-        message: String,
+        message: Message,
     },
     Transfer(TransferEvent),
     Edit(handlers::EditEvent),
@@ -79,12 +79,21 @@ pub(crate) enum Internal {
         name: String,
         result: Result<crate::preview::Preview, String>,
     },
+    PreviewRested {
+        request_id: RequestId,
+        location: Location,
+        path: VfsPath,
+    },
     KeyringProbed {
         available: bool,
     },
     SessionHealth {
         session: SessionId,
         healthy: bool,
+    },
+    FolderShown {
+        location: Location,
+        path: VfsPath,
     },
     KeyringDone(handlers::KeyringDone),
     PersistFailed {
@@ -159,10 +168,13 @@ pub(crate) struct Engine {
     pub(crate) upload_grace: Duration,
     pub(crate) flush_grace: Duration,
     pub(crate) state_protected: bool,
+    pub(crate) state_write_warned: bool,
     pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
     sessions: BTreeMap<SessionId, LiveSession>,
     lost_sessions: std::collections::HashSet<SessionId>,
+    session_folders: HashMap<SessionId, VfsPath>,
+    resume_folders: HashMap<String, VfsPath>,
     next_session_id: SessionId,
     questions: PendingQuestions,
     transfers: TransferQueue,
@@ -179,9 +191,11 @@ pub(crate) struct Engine {
     transfers_dirty: bool,
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
+    reopen: handlers::ReopenState,
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     preview_busy: bool,
+    preview_hint: Option<RequestId>,
     preview_next: Option<(u64, Location, VfsPath)>,
     pub(crate) pause_stops: std::collections::HashSet<u64>,
     pub(crate) source_removals: std::collections::HashSet<u64>,
@@ -208,6 +222,7 @@ pub(crate) struct EngineParts {
     pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
     pub(crate) update: crate::config::UpdateSettings,
+    pub(crate) reopen: crate::config::ReopenMode,
     pub(crate) update_record: crate::update::record::UpdateRecord,
     pub(crate) updater: Option<crate::update::SharedUpdater>,
     pub(crate) update_timing: crate::update::UpdateTiming,
@@ -253,10 +268,13 @@ impl Engine {
             upload_grace: EDIT_UPLOAD_GRACE,
             flush_grace: PERSIST_FLUSH_GRACE,
             state_protected: false,
+            state_write_warned: false,
             ui_state: crate::state::UiState::default(),
             writer,
             sessions: BTreeMap::new(),
             lost_sessions: std::collections::HashSet::new(),
+            session_folders: HashMap::new(),
+            resume_folders: HashMap::new(),
             next_session_id: 0,
             questions: PendingQuestions::default(),
             transfers: TransferQueue::new(),
@@ -273,9 +291,11 @@ impl Engine {
             transfers_dirty: false,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
+            reopen: handlers::ReopenState::new(parts.reopen),
             speed_limit: crate::transfer::limit::SpeedLimit::new(),
             preview_request: None,
             preview_busy: false,
+            preview_hint: None,
             preview_next: None,
             pause_stops: std::collections::HashSet::new(),
             source_removals: std::collections::HashSet::new(),
@@ -362,19 +382,30 @@ impl Engine {
     pub(crate) fn handle_command(&mut self, command: Command) {
         match command {
             Command::Connect { profile } => self.connect(&profile),
+            Command::ReopenConnections => self.reopen_connections(),
+            Command::SetReopenMode { mode } => self.set_reopen_mode(mode),
             Command::Disconnect { session } => self.disconnect(session),
             Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
             Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
+            Command::PrepareLocalShell { directory } => self.prepare_local_shell(&directory),
+            Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
             Command::List { location, path } => self.list(location, path),
+            Command::Reveal { location, path } => self.reveal(location, path),
+            Command::Navigate { location, from, to } => self.navigate(location, &from, to),
+            Command::GoToPath { location, from, text } => self.go_to_path(location, from, text),
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),
             Command::Delete { location, paths } => self.delete(location, paths),
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
             Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
             Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),
-            Command::Preview { request_id, location, path } => self.start_preview(request_id, location, path),
+            Command::Preview { request_id, location, path } => {
+                self.preview_hint = None;
+                self.start_preview(request_id, location, path);
+            }
+            Command::PreviewHint { request_id, location, path } => self.hint_preview(request_id, location, path),
             Command::CancelPreview => self.cancel_preview(),
             Command::ResolveConflicts { batch_id, answers } => self.resolve_conflicts(batch_id, answers),
             Command::CancelAllTransfers => self.cancel_all_copies(),
@@ -437,12 +468,19 @@ impl Engine {
             Internal::Connected { entry, protocol, fs, typed } => self.finish_connect(entry, protocol, fs, typed),
             Internal::ConnectFailed { name, message } => {
                 self.connecting.remove(&name);
-                self.connect_failed(name, message)
+                self.connect_failed(name.clone(), message);
+                self.reopen_progressed(&name);
             }
             Internal::Edit(event) => self.handle_edit_event(event),
             Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
+            Internal::PreviewRested { request_id, location, path } => {
+                if self.preview_hint.take() == Some(request_id) {
+                    self.start_preview(request_id, location, path);
+                }
+            }
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
+            Internal::FolderShown { location, path } => self.remember_folder(location, path),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),
             Internal::PersistFailed { path, message, tag } => self.persist_failed(path, message, tag),
             Internal::TaskPanicked { name, scope, message } => self.recover_from_panic(name, scope, &message),
@@ -474,10 +512,16 @@ impl Engine {
         let _ = self.events.send(event);
     }
 
+    pub(crate) fn publish_connection_state(&self, name: &str, state: ConnectionState) {
+        self.emit(Event::ConnectionState { name: name.to_string(), state });
+    }
+
     #[track_caller]
-    pub(crate) fn connect_failed(&self, name: String, message: String) {
+    pub(crate) fn connect_failed(&self, name: String, message: impl Into<Message>) {
+        let message = message.into();
         let severity = if message == crate::CONNECTION_CANCELLED { Severity::Info } else { Severity::Error };
-        self.reporter.log(severity, &message);
+        self.reporter.log(severity, &message.to_string());
+        self.publish_connection_state(&name, ConnectionState::Disconnected);
         self.emit(Event::ConnectFailed { name, message });
     }
 
@@ -489,8 +533,12 @@ impl Engine {
     }
 
     #[track_caller]
-    pub(crate) fn report(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn report(&self, severity: Severity, message: impl Into<Message>) {
         self.reporter.report(severity, message);
+    }
+
+    pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        (self.clock)()
     }
 
     pub(crate) fn persist_failed(&mut self, path: PathBuf, message: String, tag: u64) {
@@ -501,11 +549,11 @@ impl Engine {
         }
     }
 
-    pub(crate) fn announce(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn announce(&self, severity: Severity, message: impl Into<Message>) {
         self.reporter.show(severity, message);
     }
 
-    pub(crate) fn info(&self, message: impl Into<String>) {
+    pub(crate) fn info(&self, message: impl Into<Message>) {
         self.emit(Event::Notice { severity: Severity::Info, message: message.into() });
     }
 

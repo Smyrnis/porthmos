@@ -1,18 +1,19 @@
 use std::path::PathBuf;
 
-use iced::Task;
 use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::Id;
-use porthmos_core::UpdateMode;
+use iced::{Size, Task, window};
+use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
 use crate::config_file::{self, Edit};
 use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, editor_from_text};
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
-use crate::tools::Tool;
+use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
 
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
+const APPLIED_NOTE: &str = "Saved.";
 const RESERVED_TEXT: &str = "That shortcut is reserved by the system.";
 const NO_CONFIG_TEXT: &str = "The location of the configuration file is unknown.";
 
@@ -31,22 +32,61 @@ impl App {
         &self.gui_settings
     }
 
+    pub fn settings_terminal_id() -> Id {
+        Id::new("settings-terminal")
+    }
+
     pub fn settings_editor_id() -> Id {
         Id::new("settings-editor")
     }
 
-    pub(in crate::app) fn open_settings(&mut self) {
-        if self.modals.front().is_some() {
-            return;
+    pub fn settings_list_id() -> Id {
+        Id::new("settings-list")
+    }
+
+    pub fn settings_state(&self) -> Option<&SettingsState> {
+        self.settings_state.as_ref()
+    }
+
+    #[cfg(test)]
+    pub fn settings_open(&self) -> bool {
+        self.settings_state.is_some()
+    }
+
+    pub fn settings_window_size(&self) -> Size {
+        self.windows.id_of(WindowKind::Settings).and_then(|id| self.windows.size_of(id)).unwrap_or(SETTINGS_WINDOW_SIZE)
+    }
+
+    pub(in crate::app) fn open_settings(&mut self) -> Task<Message> {
+        if let Some(id) = self.windows.id_of(WindowKind::Settings) {
+            return window::gain_focus(id);
         }
-        self.open_tool(Tool::Settings(SettingsState::new(&self.gui_settings)));
+        if self.modals.front().is_some() {
+            return Task::none();
+        }
+        let mut opening = Task::none();
+        self.windows.open(WindowKind::Settings, |settings| {
+            let (id, task) = window::open(settings);
+            opening = task.map(Message::WindowOpened);
+            id
+        });
+        self.settings_state = Some(SettingsState::new(&self.gui_settings));
+        opening
+    }
+
+    pub(in crate::app) fn close_settings(&mut self) -> Task<Message> {
+        self.settings_state = None;
+        match self.windows.id_of(WindowKind::Settings) {
+            Some(id) => {
+                self.windows.close(id);
+                window::close(id)
+            }
+            None => Task::none(),
+        }
     }
 
     fn settings_state_mut(&mut self) -> Option<&mut SettingsState> {
-        match self.tool.as_mut() {
-            Some(Tool::Settings(state)) => Some(state),
-            _ => None,
-        }
+        self.settings_state.as_mut()
     }
 
     fn show_settings_message(&mut self, message: Option<SettingsMessage>) {
@@ -114,10 +154,10 @@ impl App {
     }
 
     pub(in crate::app) fn settings_key(&mut self, press: &KeyPress) -> Task<Message> {
-        let capturing = match self.tool.as_ref() {
-            Some(Tool::Settings(state)) => state.capturing,
-            _ => return Task::none(),
+        let Some(state) = self.settings_state.as_ref() else {
+            return Task::none();
         };
+        let capturing = state.capturing;
         if let Some(action) = capturing {
             if press.key == Key::Named(Named::Escape) {
                 if let Some(state) = self.settings_state_mut() {
@@ -133,7 +173,7 @@ impl App {
         if press.key == Key::Named(Named::Escape)
             || self.shortcuts.action_for(&key, modifiers) == Some(Action::Settings)
         {
-            self.close_tool();
+            return self.close_settings();
         }
         Task::none()
     }
@@ -153,22 +193,62 @@ impl App {
                 }
             }
             Message::SettingsEditorApplied => {
-                let Some(Tool::Settings(state)) = self.tool.as_ref() else {
+                let Some(state) = self.settings_state.as_ref() else {
                     return Task::none();
                 };
                 let editor = editor_from_text(&state.editor_text);
                 self.core_setting_saved(Edit::SetEditor(editor.clone()), |settings| settings.editor = editor);
             }
+            Message::SettingsTerminalTyped(text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.terminal_text = text;
+                }
+            }
+            Message::SettingsTerminalApplied => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                let terminal = editor_from_text(&state.terminal_text);
+                if self.save_setting(Edit::SetTerminal(terminal.clone())) {
+                    self.gui_settings.terminal = terminal;
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
+            }
             Message::SettingsAutoUploadToggled(on) => {
                 self.core_setting_saved(Edit::SetAutoUpload(on), |settings| settings.auto_upload = on);
+            }
+            Message::SettingsSearchPreviewToggled(on) => {
+                if self.save_setting(Edit::SetSearchPreview(on)) {
+                    self.gui_settings.search_preview = on;
+                    self.apply_search_preview_setting(on);
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
             }
             Message::SettingsUpdateModeChosen(mode) => {
                 self.core_setting_saved(Edit::SetUpdateMode(mode), |settings| settings.update_mode = mode);
             }
-            Message::SettingsScrolled(offset) => self.tool_scroll = offset,
+            Message::SettingsReopenChosen(mode) => {
+                if self.save_setting(Edit::SetReopenMode(mode)) {
+                    self.gui_settings.reopen = mode;
+                    self.core.send(Command::SetReopenMode { mode });
+                    if mode == ReopenMode::Off {
+                        self.reopen_offer.clear();
+                    }
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
+            }
+            Message::SettingsClosed => return self.close_settings(),
             _ => {}
         }
         Task::none()
+    }
+
+    pub fn reopen_choices() -> [(ReopenMode, &'static str); 3] {
+        [
+            (ReopenMode::Off, "Don't reopen"),
+            (ReopenMode::Ask, "Offer to reopen"),
+            (ReopenMode::Auto, "Reopen automatically"),
+        ]
     }
 
     pub fn update_mode_choices() -> [(UpdateMode, &'static str); 3] {

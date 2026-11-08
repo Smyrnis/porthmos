@@ -72,7 +72,7 @@ fn protocols() -> Vec<ProtocolInfo> {
 struct Setup<'a> {
     connected: HashSet<&'a str>,
     lost: HashSet<&'a str>,
-    failures: HashMap<String, String>,
+    failures: HashMap<String, porthmos_core::Message>,
     last_used: BTreeMap<String, DateTime<Utc>>,
 }
 
@@ -304,7 +304,7 @@ fn several_connected_sessions_all_show_ok_dots() {
 fn a_failed_connection_has_an_err_dot_and_its_message_lines_replace_the_host() {
     let theme = indexed();
     let mut setup = Setup::new();
-    setup.failures.insert("web".to_string(), "Authentication failed for web\ntried 3 keys".to_string());
+    setup.failures.insert("web".to_string(), "Authentication failed for web\ntried 3 keys".into());
 
     let terminal = setup.draw(&view_of(vec![entry("web")]), 80, 6);
 
@@ -410,7 +410,7 @@ fn tiny_areas_do_not_panic() {
     let mut view = view_of(vec![grouped("a", "g"), entry("b")]);
     view.toggle();
     let mut setup = Setup::new();
-    setup.failures.insert("b".to_string(), "boom".to_string());
+    setup.failures.insert("b".to_string(), "boom".into());
 
     for width in 0..=12 {
         for height in 0..=4 {
@@ -512,7 +512,7 @@ fn the_host_stays_on_the_row_beside_the_age() {
 #[test]
 fn a_failed_connection_keeps_its_message_and_still_shows_the_age() {
     let mut setup = Setup::new();
-    setup.failures.insert("web".to_string(), "Authentication failed for web".to_string());
+    setup.failures.insert("web".to_string(), "Authentication failed for web".into());
     used(&mut setup, "web", Duration::days(2));
 
     let terminal = setup.draw(&view_of(vec![entry("web")]), 80, 6);
@@ -611,9 +611,7 @@ fn a_lost_session_has_an_err_dot_and_says_so() {
 #[test]
 fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
     let mut setup = Setup::new();
-    setup
-        .failures
-        .insert("web".to_string(), "Unable to connect to web:\nConnection refused (os error 111)".to_string());
+    setup.failures.insert("web".to_string(), "Unable to connect to web:\nConnection refused (os error 111)".into());
 
     let terminal = setup.draw(&view_of(vec![entry("web")]), 100, 6);
 

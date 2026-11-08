@@ -187,7 +187,7 @@ async fn a_manual_check_through_the_handle_reports_the_result() {
     started.core.send(Command::CheckForUpdate { manual: true });
     let message = started
         .next(|event| match event {
-            Event::Notice { message, .. } if message.contains("up to date") => Some(message.clone()),
+            Event::Notice { message, .. } if message.to_string().contains("up to date") => Some(message.to_string()),
             _ => None,
         })
         .await;
@@ -238,7 +238,9 @@ async fn a_core_without_an_updater_and_without_release_updates_never_checks() {
     core.send(Command::CheckForUpdate { manual: true });
     let message = loop {
         match tokio::time::timeout(Duration::from_secs(2), events.recv()).await.expect("an event").expect("open") {
-            Event::Notice { message, .. } if message.contains("aren't available") => break message,
+            Event::Notice { message, .. } if message.to_string().contains("aren't available") => {
+                break message.to_string();
+            }
             _ => {}
         }
     };

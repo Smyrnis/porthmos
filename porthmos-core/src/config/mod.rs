@@ -4,7 +4,7 @@ pub mod settings;
 use std::{fs, path::Path};
 
 use anyhow::Result;
-pub use settings::{Settings, UpdateMode, UpdateSettings};
+pub use settings::{ReopenMode, SearchSettings, Settings, StartupSettings, UpdateMode, UpdateSettings};
 
 use crate::Paths;
 

@@ -5,18 +5,20 @@ use porthmos_core::UpdateMode;
 use crate::settings_view::{GuiSettings, SettingsMessage};
 use crate::shortcuts::{Action, KeyPress};
 use crate::testing::Harness;
-use crate::tools::Tool;
+use crate::windows::WindowKind;
 
 use super::super::*;
 
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
+const APPLIED_NOTE: &str = "Saved.";
 
 fn press(harness: &mut Harness, key: Key, modifiers: Modifiers) {
     let text = match &key {
         Key::Character(text) => Some(text.to_string()),
         _ => None,
     };
-    harness.press(Message::KeyPressed(KeyPress { key: key.clone(), modified_key: key, modifiers, text }));
+    let window = harness.settings_id().unwrap_or(harness.main_id());
+    harness.press(Message::WindowKey(window, KeyPress { key: key.clone(), modified_key: key, modifiers, text }));
 }
 
 fn named(harness: &mut Harness, key: Named) {
@@ -28,15 +30,12 @@ fn ctrl(harness: &mut Harness, character: &str) {
 }
 
 fn open(harness: &mut Harness) {
-    ctrl(harness, ",");
+    harness.press(Message::ActionRequested(Action::Settings));
     harness.sent();
 }
 
 fn state(harness: &Harness) -> &crate::settings_view::SettingsState {
-    match harness.app.tool() {
-        Some(Tool::Settings(state)) => state,
-        other => panic!("expected the settings, got {other:?}"),
-    }
+    harness.app.settings_state().expect("the settings are open")
 }
 
 fn config_path(harness: &Harness) -> std::path::PathBuf {
@@ -67,12 +66,12 @@ fn the_toolbar_button_and_ctrl_comma_open_the_settings() {
     let mut harness = Harness::new();
 
     ctrl(&mut harness, ",");
-    assert!(matches!(harness.app.tool(), Some(Tool::Settings(_))));
+    assert!(harness.app.settings_open());
     ctrl(&mut harness, ",");
     assert!(harness.app.tool().is_none());
 
     harness.press(Message::ActionRequested(Action::Settings));
-    assert!(matches!(harness.app.tool(), Some(Tool::Settings(_))));
+    assert!(harness.app.settings_open());
     assert_eq!(state(&harness).capturing, None);
 }
 
@@ -89,7 +88,14 @@ fn settings_is_ignored_behind_a_modal() {
 
 #[test]
 fn opening_shows_the_saved_editor() {
-    let settings = GuiSettings { editor: Some("vi".to_string()), auto_upload: false, update_mode: UpdateMode::Off };
+    let settings = GuiSettings {
+        editor: Some("vi".to_string()),
+        terminal: None,
+        auto_upload: false,
+        search_preview: false,
+        update_mode: UpdateMode::Off,
+        reopen: porthmos_core::ReopenMode::Off,
+    };
     let mut harness = Harness::with_gui_settings(settings);
 
     open(&mut harness);
@@ -162,7 +168,7 @@ fn escape_cancels_capture_and_a_second_escape_closes_the_overlay() {
     harness.press(Message::SettingsChangePressed(Action::Refresh));
 
     named(&mut harness, Named::Escape);
-    assert!(matches!(harness.app.tool(), Some(Tool::Settings(_))));
+    assert!(harness.app.settings_open());
     assert_eq!(state(&harness).capturing, None);
     assert!(!config_path(&harness).exists());
 
@@ -252,6 +258,66 @@ fn the_editor_applies_on_enter_and_on_the_button_and_writes_edit_editor() {
 }
 
 #[test]
+fn the_terminal_command_applies_and_writes_terminal_command() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsTerminalTyped("  kitty --single-instance ".to_string()));
+    harness.press(Message::SettingsTerminalApplied);
+
+    assert_eq!(config_text(&harness), "[terminal]\ncommand = \"kitty --single-instance\"\n");
+    assert_eq!(harness.app.gui_settings().terminal.as_deref(), Some("kitty --single-instance"));
+}
+
+#[test]
+fn a_blank_terminal_command_removes_the_key() {
+    let mut harness =
+        Harness::with_gui_settings(GuiSettings { terminal: Some("xterm".to_string()), ..GuiSettings::default() });
+    std::fs::write(config_path(&harness), "[terminal]\ncommand = \"xterm\"\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsTerminalTyped("  ".to_string()));
+    harness.press(Message::SettingsTerminalApplied);
+
+    assert_eq!(config_text(&harness), "");
+    assert_eq!(harness.app.gui_settings().terminal, None);
+}
+
+#[test]
+fn a_saved_terminal_command_is_used_by_the_next_terminal_without_restarting() {
+    let mut harness = Harness::new();
+    harness.install_terminals(&["kitty", "xterm"]);
+    open(&mut harness);
+    harness.press(Message::SettingsTerminalTyped("kitty".to_string()));
+    harness.press(Message::SettingsTerminalApplied);
+    harness.launched();
+
+    harness.feed(porthmos_core::Event::ShellReady {
+        session: 3,
+        invocation: porthmos_core::ShellInvocation {
+            program: "ssh".into(),
+            args: vec!["host".into()],
+            env: Vec::new(),
+        },
+    });
+
+    let jobs = harness.launched();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].spec.program, std::ffi::OsString::from("kitty"));
+}
+
+#[test]
+fn applying_the_terminal_command_says_it_took_effect_at_once() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    harness.press(Message::SettingsTerminalTyped("kitty".to_string()));
+
+    harness.press(Message::SettingsTerminalApplied);
+
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+}
+
+#[test]
 fn a_blank_editor_removes_the_key() {
     let mut harness =
         Harness::with_gui_settings(GuiSettings { editor: Some("vi".to_string()), ..GuiSettings::default() });
@@ -331,7 +397,7 @@ fn typing_in_the_editor_field_does_not_fire_panel_shortcuts() {
     named(&mut harness, Named::F5);
     named(&mut harness, Named::Enter);
 
-    assert!(matches!(harness.app.tool(), Some(Tool::Settings(_))));
+    assert!(harness.app.settings_open());
     assert!(harness.app.modal().is_none());
     assert_eq!(harness.app.local().panel.cursor(), cursor);
     assert!(harness.sent().is_empty());
@@ -342,12 +408,12 @@ fn typing_in_the_editor_field_does_not_fire_panel_shortcuts() {
 fn the_overlay_closes_with_the_button_and_escape() {
     let mut harness = Harness::new();
     open(&mut harness);
-    harness.press(Message::ToolClosed);
-    assert!(harness.app.tool().is_none());
+    harness.press(Message::SettingsClosed);
+    assert!(!harness.app.settings_open());
 
     open(&mut harness);
     named(&mut harness, Named::Escape);
-    assert!(harness.app.tool().is_none());
+    assert!(!harness.app.settings_open());
 }
 
 #[test]
@@ -358,7 +424,7 @@ fn the_palette_lists_settings_and_runs_it() {
 
     named(&mut harness, Named::Enter);
 
-    assert!(matches!(harness.app.tool(), Some(Tool::Settings(_))));
+    assert!(harness.app.settings_open());
 }
 
 #[test]
@@ -367,4 +433,246 @@ fn settings_can_be_rebound_by_name() {
 
     assert_eq!(defaults.label_for(Action::Settings).as_deref(), Some("Ctrl+,"));
     assert_eq!(Action::Settings.name(), "settings");
+}
+
+#[test]
+fn the_search_preview_checkbox_writes_the_setting_and_applies_it_at_once() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    assert!(!harness.app.gui_settings().search_preview);
+
+    harness.press(Message::SettingsSearchPreviewToggled(true));
+
+    assert_eq!(config_text(&harness), "[search]\npreview = true\n");
+    assert!(harness.app.gui_settings().search_preview);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+}
+
+#[test]
+fn a_failed_save_leaves_the_search_preview_setting_unchanged() {
+    let mut harness = Harness::new();
+    std::fs::write(config_path(&harness), "[search\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsSearchPreviewToggled(true));
+
+    assert!(!harness.app.gui_settings().search_preview);
+    assert!(matches!(state(&harness).message, Some(SettingsMessage::Error(_))));
+}
+
+fn settings_windows(harness: &Harness) -> Option<iced::window::Id> {
+    harness.app.window_id_of(WindowKind::Settings)
+}
+
+#[test]
+fn opening_settings_registers_one_settings_window_and_creates_its_state() {
+    let mut harness = Harness::new();
+
+    open(&mut harness);
+
+    assert!(harness.app.settings_open());
+    assert!(settings_windows(&harness).is_some());
+    assert_eq!(harness.settings_id(), settings_windows(&harness));
+}
+
+#[test]
+fn opening_settings_twice_keeps_one_window() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let first = settings_windows(&harness);
+
+    open(&mut harness);
+
+    assert_eq!(settings_windows(&harness), first);
+    assert!(harness.app.settings_open());
+}
+
+#[test]
+fn settings_open_beside_another_tool_without_replacing_it() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Search));
+    assert!(harness.app.search_state().is_some());
+
+    open(&mut harness);
+
+    assert!(harness.app.settings_open());
+    assert!(harness.app.search_state().is_some());
+}
+
+#[test]
+fn esc_in_the_settings_window_closes_only_that_window() {
+    let mut harness = Harness::new();
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    open(&mut harness);
+
+    named(&mut harness, Named::Escape);
+
+    assert!(!harness.app.settings_open());
+    assert_eq!(settings_windows(&harness), None);
+    assert!(harness.app.path_edit().is_some());
+    assert!(!harness.app.is_closing());
+}
+
+#[test]
+fn the_close_request_of_the_settings_window_clears_its_state_and_leaves_the_main_window() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let id = harness.settings_id().unwrap();
+
+    harness.press(Message::WindowCloseRequested(id));
+
+    assert!(!harness.app.settings_open());
+    assert_eq!(settings_windows(&harness), None);
+    assert!(!harness.app.is_closing());
+    assert!(harness.app.is_main(harness.main_id()));
+}
+
+#[test]
+fn reopening_settings_starts_from_the_saved_values_not_the_old_draft() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    harness.press(Message::SettingsEditorTyped("half typed".to_string()));
+    named(&mut harness, Named::Escape);
+
+    open(&mut harness);
+
+    assert_eq!(state(&harness).editor_text, "");
+}
+
+#[test]
+fn a_key_in_the_settings_window_does_not_run_main_shortcuts() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let cursor = harness.app.local().panel.cursor();
+    harness.sent();
+
+    named(&mut harness, Named::Delete);
+    named(&mut harness, Named::F7);
+    named(&mut harness, Named::F5);
+    named(&mut harness, Named::Enter);
+
+    assert!(harness.app.settings_open());
+    assert!(harness.app.modal().is_none());
+    assert_eq!(harness.app.local().panel.cursor(), cursor);
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn a_key_in_the_main_window_does_not_reach_the_settings() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let main = harness.main_id();
+
+    harness.press(Message::WindowKey(
+        main,
+        KeyPress {
+            key: Key::Named(Named::Escape),
+            modified_key: Key::Named(Named::Escape),
+            modifiers: Modifiers::empty(),
+            text: None,
+        },
+    ));
+
+    assert!(harness.app.settings_open());
+}
+
+#[test]
+fn resizing_the_settings_window_changes_only_its_own_size() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let id = harness.settings_id().unwrap();
+    let main_before = harness.app.window_size();
+
+    harness.press(Message::WindowSized(id, iced::Size::new(700.0, 480.0)));
+
+    assert_eq!(harness.app.settings_window_size(), iced::Size::new(700.0, 480.0));
+    assert_eq!(harness.app.window_size(), main_before);
+}
+
+#[test]
+fn the_settings_window_builds_its_view() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let id = harness.settings_id().unwrap();
+
+    drop(harness.app.view_of(id));
+}
+
+#[test]
+fn opening_settings_a_second_time_raises_the_window_with_one_task() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    let units = harness.app.update(Message::ActionRequested(Action::Settings)).units();
+
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn settings_open_behind_a_notice_is_still_raised() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+    harness.app.modals.push(crate::modal::Modal::Info { title: "t".to_string(), body: "b".to_string() });
+
+    let units = harness.app.open_settings().units();
+
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn settings_are_not_opened_while_a_modal_is_up() {
+    let mut harness = Harness::new();
+    harness.app.modals.push(crate::modal::Modal::Info { title: "t".to_string(), body: "b".to_string() });
+
+    let units = harness.app.open_settings().units();
+
+    assert_eq!(units, 0);
+    assert!(harness.settings_id().is_none());
+}
+
+#[test]
+fn the_reopen_choice_writes_the_setting_tells_core_and_applies_at_once() {
+    use porthmos_core::ReopenMode;
+    for (mode, name) in [(ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto"), (ReopenMode::Off, "off")] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsReopenChosen(mode));
+
+        assert_eq!(config_text(&harness), format!("[startup]\nreopen = \"{name}\"\n"));
+        assert_eq!(harness.app.gui_settings().reopen, mode);
+        assert!(harness.sent().contains(&porthmos_core::Command::SetReopenMode { mode }));
+        assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+    }
+}
+
+#[test]
+fn a_failed_save_leaves_the_reopen_choice_unchanged_and_tells_core_nothing() {
+    use porthmos_core::ReopenMode;
+    let mut harness = Harness::new();
+    std::fs::write(config_path(&harness), "[startup\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsReopenChosen(ReopenMode::Auto));
+
+    assert_eq!(harness.app.gui_settings().reopen, ReopenMode::Off);
+    assert!(!harness.sent().iter().any(|command| matches!(command, porthmos_core::Command::SetReopenMode { .. })));
+    assert!(matches!(state(&harness).message, Some(SettingsMessage::Error(_))));
+}
+
+#[test]
+fn turning_reopening_off_withdraws_a_pending_offer() {
+    use porthmos_core::{Event, ReopenMode};
+    let mut harness = Harness::new();
+    open(&mut harness);
+    harness.feed(Event::ReopenOffer { names: vec!["prod".to_string()] });
+
+    harness.press(Message::SettingsReopenChosen(ReopenMode::Off));
+
+    assert!(harness.app.reopen_offer().is_empty());
+}
+
+#[test]
+fn reopening_is_off_unless_the_user_chose_otherwise() {
+    assert_eq!(GuiSettings::default().reopen, porthmos_core::ReopenMode::Off);
 }

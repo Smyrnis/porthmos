@@ -1,7 +1,9 @@
 use porthmos_vfs::{Answer, Entry, VfsPath};
 
 use crate::{
+    config::settings::{PanelSettings, ReopenMode},
     edit::{EditChoice, EditorExit},
+    panel_memory::PanelKind,
     profiles::ProfileDraft,
     sync::{SyncAction, SyncOptions},
     transfer::{conflicts::Resolution, rows::RowKind},
@@ -19,12 +21,19 @@ pub enum Location {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Connect { profile: String },
+    ReopenConnections,
+    SetReopenMode { mode: ReopenMode },
     Disconnect { session: SessionId },
     TestConnection { test_id: u64, original: Option<String>, draft: Box<ProfileDraft> },
     CancelTest,
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
+    PrepareLocalShell { directory: VfsPath },
+    RememberPanel { kind: PanelKind, settings: PanelSettings },
     List { location: Location, path: Option<VfsPath> },
+    Reveal { location: Location, path: VfsPath },
+    Navigate { location: Location, from: VfsPath, to: VfsPath },
+    GoToPath { location: Location, from: VfsPath, text: String },
     CreateDir { location: Location, path: VfsPath },
     Rename { location: Location, from: VfsPath, to: VfsPath },
     Delete { location: Location, paths: Vec<VfsPath> },
@@ -55,6 +64,7 @@ pub enum Command {
     ClearHistory,
     EditFile { location: Location, path: VfsPath },
     Preview { request_id: RequestId, location: Location, path: VfsPath },
+    PreviewHint { request_id: RequestId, location: Location, path: VfsPath },
     CancelPreview,
     FinishEdit { edit_id: u64, exit: EditorExit },
     ResolveEdit { edit_id: u64, choice: EditChoice },

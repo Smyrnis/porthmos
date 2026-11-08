@@ -30,6 +30,7 @@ const ZERO_WIDTH_JOINER: char = '\u{200d}';
 
 pub enum PreviewState {
     Loading,
+    Folder,
     Failed(String),
     Ready(Arc<Preview>),
 }
@@ -79,6 +80,10 @@ impl PreviewView {
             #[cfg(test)]
             layouts: Cell::new(0),
         }
+    }
+
+    pub fn folder(name: String) -> Self {
+        Self { state: PreviewState::Folder, ..Self::loading(name) }
     }
 
     pub fn finish(&mut self, result: Result<Arc<Preview>, String>) {
@@ -396,9 +401,18 @@ fn title_line(view: &PreviewView, width: usize, theme: &Theme) -> Line<'static> 
 }
 
 pub fn render_preview(frame: &mut Frame, area: Rect, view: &PreviewView, theme: &Theme) {
+    render_view(frame, area, view, theme, true);
+}
+
+pub fn render_preview_pane(frame: &mut Frame, area: Rect, view: &PreviewView, theme: &Theme) {
+    render_view(frame, area, view, theme, false);
+}
+
+fn render_view(frame: &mut Frame, area: Rect, view: &PreviewView, theme: &Theme, with_footer: bool) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let footer_rows = u16::from(with_footer);
     frame.render_widget(Clear, area);
     fill_background(frame, area, theme);
     let width = usize::from(area.width);
@@ -407,12 +421,12 @@ pub fn render_preview(frame: &mut Frame, area: Rect, view: &PreviewView, theme: 
         return;
     }
     hairline(frame, Rect::new(area.x, area.y + 1, area.width, 1), theme);
-    if area.height < 4 {
+    if area.height < 3 + footer_rows {
         view.body_rows.set(0);
         view.max_top.set(0);
         return;
     }
-    let body = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
+    let body = Rect::new(area.x, area.y + 2, area.width, area.height - 2 - footer_rows);
     let visible = usize::from(body.height);
     view.body_rows.set(visible);
 
@@ -422,6 +436,10 @@ pub fn render_preview(frame: &mut Frame, area: Rect, view: &PreviewView, theme: 
         PreviewState::Loading => {
             view.max_top.set(0);
             lines.push(Line::styled("loading\u{2026}", theme.dim()));
+        }
+        PreviewState::Folder => {
+            view.max_top.set(0);
+            lines.push(Line::styled("folder", theme.dim()));
         }
         PreviewState::Failed(message) => {
             view.max_top.set(0);
@@ -456,10 +474,12 @@ pub fn render_preview(frame: &mut Frame, area: Rect, view: &PreviewView, theme: 
     }
     lines.truncate(visible);
     frame.render_widget(Paragraph::new(lines), body);
-    frame.render_widget(
-        Paragraph::new(footer_line(view, width, percent, theme)),
-        Rect::new(area.x, area.y + area.height - 1, area.width, 1),
-    );
+    if with_footer {
+        frame.render_widget(
+            Paragraph::new(footer_line(view, width, percent, theme)),
+            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+        );
+    }
 }
 
 #[cfg(test)]

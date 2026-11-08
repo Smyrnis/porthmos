@@ -22,6 +22,7 @@ pub enum Scope {
     Edit(u64),
     Search,
     Preview,
+    PreviewHint,
     Background,
     Test,
 }

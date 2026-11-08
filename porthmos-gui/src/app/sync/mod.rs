@@ -128,11 +128,7 @@ impl App {
 
 impl App {
     fn overlay_free(&self) -> bool {
-        self.modals.is_empty()
-            && self.connections_screen.is_none()
-            && self.tool.is_none()
-            && self.filtering.is_none()
-            && !self.closing
+        self.modals.is_empty() && self.tool.is_none() && self.filtering.is_none() && !self.closing
     }
 
     fn sync_review_open(&self) -> bool {

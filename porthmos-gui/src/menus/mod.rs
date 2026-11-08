@@ -15,7 +15,6 @@ pub enum MoreItem {
     BookmarkHere,
     History,
     Sync,
-    Terminal,
     CheckForUpdates,
 }
 
@@ -23,7 +22,6 @@ pub enum MoreItem {
 pub struct MoreState {
     pub hidden_shown: bool,
     pub file: bool,
-    pub terminal: bool,
     pub sync: bool,
 }
 
@@ -40,7 +38,6 @@ pub fn more_items(state: MoreState) -> Vec<(MoreItem, String, bool)> {
         (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
         (MoreItem::History, "Transfer history…".to_string(), true),
         (MoreItem::Sync, "Synchronize…".to_string(), state.sync),
-        (MoreItem::Terminal, "Open terminal here".to_string(), state.terminal),
         (MoreItem::CheckForUpdates, "Check for updates".to_string(), true),
     ]
 }

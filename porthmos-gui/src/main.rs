@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::Result;
-use porthmos_core::{Environment, Paths, from_os_path};
+use porthmos_core::{Environment, Paths};
 
 mod app;
 mod bookmarks;
@@ -48,8 +48,13 @@ mod tools;
 mod transfers;
 mod update_view;
 mod view;
+mod window_memory;
+mod windows;
 
 fn main() -> Result<()> {
+    if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
+        std::process::exit(code);
+    }
     match cli::interpret(std::env::args().skip(1)) {
         cli::Invocation::Run => run_window(),
         cli::Invocation::Print(text) => {
@@ -90,33 +95,36 @@ fn run_window() -> Result<()> {
     let started = runtime::start(env, paths)?;
     let update_mode = started.settings.update_mode;
     let palette = theme::Palette::new(&started.theme);
-    let local_start = match home.or_else(|| std::env::current_dir().ok()) {
-        Some(folder) => from_os_path(&folder),
-        None => porthmos_core::VfsPath::root(),
-    };
+    let local_start = runtime::local_start(started.core.remembered_local_folder(), home, std::env::current_dir().ok());
     let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts)
         .with_update_mode(update_mode)
         .with_settings(started.settings, started.config_file);
     for warning in started.warnings {
         app.warn(warning);
     }
+    let memory_file = window_memory::file_in(&state_dir);
+    let remembered = window_memory::WindowMemory::load(&memory_file);
+    if let Some(warning) = remembered.warning {
+        app.warn(warning);
+    }
     app.set_state_dir(state_dir);
-    app.set_window_size(main_window::INITIAL_SIZE);
-    let slot = Mutex::new(Some(app));
-    let settings = main_window::settings();
-    let result = iced::application(
+    let main_settings = remembered.memory.applied_to(windows::WindowKind::Main, main_window::settings());
+    app.set_window_size(main_settings.size);
+    let (main_id, open_main) = iced::window::open(main_settings);
+    let mut app = app.with_main_window(main_id);
+    app.set_window_memory(remembered.memory, memory_file);
+    let slot = Mutex::new(Some((app, open_main)));
+    let result = iced::daemon(
         move || {
-            let app = slot.lock().unwrap().take().expect("the application boots once");
-            let attach = app.native_task();
-            (app, attach)
+            let (app, open_main) = slot.lock().unwrap().take().expect("the application boots once");
+            (app, open_main.map(|_| app::Message::MainWindowOpened))
         },
         app::App::update,
-        app::App::view,
+        app::App::view_of,
     )
     .subscription(app::App::subscription)
-    .theme(|app: &app::App| app.palette().iced_theme())
-    .title("Porthmos")
-    .window(settings)
+    .theme(|app: &app::App, _window| app.palette().iced_theme())
+    .title(app::App::title_of)
     .run();
     drop(guard);
     runtime.shutdown_timeout(RUNTIME_GRACE);

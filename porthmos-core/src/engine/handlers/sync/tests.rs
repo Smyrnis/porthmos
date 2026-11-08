@@ -217,7 +217,7 @@ async fn an_unreadable_folder_fails_the_scan_with_an_error_and_no_plan() {
 
     let events = t.drain();
     assert!(plan_of(events.clone()).is_none());
-    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Error, message } if message.contains("Sync failed"))));
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Error, message } if message.to_string().contains("Sync failed"))));
     assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
@@ -339,7 +339,7 @@ async fn symlinks_are_skipped_with_a_warning() {
     t.run_internal().await;
 
     let events = t.drain();
-    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Warning, message } if message.starts_with("Skipped 1 symlink"))));
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Warning, message } if message.to_string().starts_with("Skipped 1 symlink"))));
     assert_eq!(plan_of(events).unwrap().skipped_symlinks, 1);
 }
 
@@ -721,7 +721,7 @@ async fn a_sync_skips_a_download_the_local_side_cannot_store_and_touches_nothing
     let warnings: Vec<String> = events
         .into_iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: crate::Severity::Warning, message } => Some(message),
+            Event::Notice { severity: crate::Severity::Warning, message } => Some(message.to_string()),
             _ => None,
         })
         .collect();
@@ -1271,7 +1271,7 @@ async fn a_sync_skips_a_download_that_would_overwrite_a_file_differing_only_in_c
     let warnings: Vec<String> = events
         .into_iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: crate::Severity::Warning, message } => Some(message),
+            Event::Notice { severity: crate::Severity::Warning, message } => Some(message.to_string()),
             _ => None,
         })
         .collect();

@@ -10,6 +10,7 @@ use porthmos_vfs::{
 
 use super::*;
 use crate::{
+    ConnectionState,
     engine::{
         Command, Location, PlanningScan,
         testing::{TestEngine, test_engine, test_engine_with_secrets},
@@ -140,7 +141,10 @@ async fn a_missing_remote_path_warns_and_falls_back_to_the_remote_home() {
     })
     .await;
 
-    assert!(warning.starts_with("Unable to open /var/www on srv, showing the home directory instead:\n"), "{warning}");
+    assert!(
+        warning.to_string().starts_with("Unable to open /var/www on srv, showing the home directory instead:\n"),
+        "{warning}"
+    );
     assert_eq!(path, VfsPath::from("/home/user"));
     assert_eq!(names, ["notes.txt"]);
 }
@@ -162,6 +166,10 @@ async fn connecting_announces_the_attempt_first() {
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
 
+    assert!(matches!(
+        t.next_event().await,
+        Event::ConnectionState { name, state: ConnectionState::Connecting } if name == "srv"
+    ));
     assert!(matches!(t.next_event().await, Event::Connecting { name } if name == "srv"));
 }
 
@@ -241,8 +249,11 @@ async fn connecting_to_an_already_connected_profile_reuses_the_session() {
 
     assert!(matches!(
         t.drain().as_slice(),
-        [Event::Connected { session: id, .. }, Event::SessionCapabilities { session: capable, .. }]
-            if *id == session && *capable == session
+        [
+            Event::ConnectionState { .. },
+            Event::Connected { session: id, .. },
+            Event::SessionCapabilities { session: capable, .. }
+        ] if *id == session && *capable == session
     ));
     assert_eq!(t.engine.sessions.len(), 1);
 }
@@ -253,7 +264,10 @@ fn an_unknown_profile_fails_without_connecting() {
 
     t.engine.handle_command(Command::Connect { profile: "ghost".into() });
 
-    assert!(matches!(t.drain().as_slice(), [Event::ConnectFailed { name, .. }] if name == "ghost"));
+    assert!(matches!(
+        t.drain().as_slice(),
+        [Event::ConnectionState { .. }, Event::ConnectFailed { name, .. }] if name == "ghost"
+    ));
 }
 
 #[test]
@@ -265,7 +279,7 @@ fn a_profile_whose_protocol_is_missing_fails_with_a_clear_message() {
 
     let events = t.drain();
     assert!(
-        matches!(events.as_slice(), [Event::ConnectFailed { message, .. }] if message == "No \"fake\" protocol is available for srv")
+        matches!(events.as_slice(), [Event::ConnectionState { .. }, Event::ConnectFailed { message, .. }] if message == "No \"fake\" protocol is available for srv")
     );
 }
 
@@ -403,11 +417,9 @@ fn disconnecting_drops_that_sessions_waiting_copies_and_counts_them() {
             .iter()
             .any(|event| matches!(event, Event::ConflictsWithdrawn { batch_ids } if batch_ids == &vec![batch_id]))
     );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, Event::Notice { message, .. } if message.contains("1 transfer cancelled")))
-    );
+    assert!(events.iter().any(
+        |event| matches!(event, Event::Notice { message, .. } if message.to_string().contains("1 transfer cancelled"))
+    ));
 }
 
 #[tokio::test]
@@ -473,6 +485,27 @@ fn preparing_a_shell_in_a_directory_starts_the_shell_there() {
     assert!(
         matches!(t.drain().as_slice(), [Event::ShellReady { invocation: ready, .. }] if *ready == invocation.clone().starting_in(&VfsPath::new("/srv/www")))
     );
+}
+
+#[test]
+fn preparing_a_local_shell_hands_back_the_users_shell_in_that_folder() {
+    let mut t = test_engine();
+    t.engine.env.shell = Some("/usr/bin/fish".to_string());
+
+    t.engine.handle_command(Command::PrepareLocalShell { directory: VfsPath::from("/home/tester/it's mine") });
+
+    let expected = ShellInvocation::local(&VfsPath::new("/home/tester/it's mine"), &t.engine.env);
+    assert!(matches!(t.drain().as_slice(), [Event::LocalShellReady { invocation }] if *invocation == expected));
+}
+
+#[test]
+fn preparing_a_local_shell_needs_no_connection() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::PrepareLocalShell { directory: VfsPath::from("/x") });
+
+    assert!(t.notices().is_empty());
+    assert!(t.engine.sessions.is_empty());
 }
 
 #[test]
@@ -593,7 +626,7 @@ fn questions(seen: &[Event]) -> usize {
 fn errors(seen: &[Event]) -> Vec<String> {
     seen.iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message.clone()),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect()
@@ -1009,4 +1042,278 @@ fn a_session_on_a_filesystem_without_time_support_says_so() {
     assert!(t.drain().into_iter().any(
         |event| matches!(event, Event::SessionCapabilities { session: id, preserves_times: false } if id == session)
     ));
+}
+
+async fn events_through(t: &mut TestEngine, mut last: impl FnMut(&Event) -> bool) -> Vec<Event> {
+    let mut seen = Vec::new();
+    loop {
+        let event = t.next_event().await;
+        let done = last(&event);
+        seen.push(event);
+        if done {
+            return seen;
+        }
+    }
+}
+
+fn srv(state: ConnectionState) -> (String, ConnectionState) {
+    ("srv".to_string(), state)
+}
+
+#[tokio::test]
+async fn a_successful_attempt_goes_from_connecting_to_connected() {
+    let (mut t, _remote) = with_fake_profile(FakeProtocol::new);
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let events = events_through(&mut t, |event| matches!(event, Event::Connected { .. })).await;
+
+    assert_eq!(
+        TestEngine::connection_states(&events),
+        vec![srv(ConnectionState::Connecting), srv(ConnectionState::Connected)]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_attempt_goes_from_connecting_to_disconnected() {
+    let (mut t, _remote) = with_fake_profile(|fs| FakeProtocol::new(fs).failing_connect("Connection refused"));
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let events = events_through(&mut t, |event| matches!(event, Event::ConnectFailed { .. })).await;
+
+    assert_eq!(
+        TestEngine::connection_states(&events),
+        vec![srv(ConnectionState::Connecting), srv(ConnectionState::Disconnected)]
+    );
+}
+
+#[test]
+fn a_profile_that_cannot_be_tried_is_reported_disconnected_without_connecting_first() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::Connect { profile: "ghost".into() });
+
+    assert_eq!(TestEngine::connection_states(&t.drain()), vec![("ghost".to_string(), ConnectionState::Disconnected)]);
+}
+
+#[test]
+fn reusing_a_live_session_reports_it_connected_again() {
+    let mut t = test_engine();
+    t.add_session("srv");
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+
+    assert_eq!(TestEngine::connection_states(&t.drain()), vec![srv(ConnectionState::Connected)]);
+}
+
+#[test]
+fn disconnecting_reports_the_connection_disconnected() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    t.engine.handle_command(Command::Disconnect { session });
+
+    assert_eq!(TestEngine::connection_states(&t.drain()), vec![srv(ConnectionState::Disconnected)]);
+}
+
+async fn connect_and_open(t: &mut TestEngine, folder: &str) -> u64 {
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let session = next_matching(t, |event| match event {
+        Event::Connected { session, .. } => Some(*session),
+        _ => None,
+    })
+    .await;
+    t.settle().await;
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from(folder)) });
+    t.settle().await;
+    t.drain();
+    session
+}
+
+async fn reconnect_listing(t: &mut TestEngine) -> (VfsPath, Vec<Event>) {
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+    let mut seen = Vec::new();
+    loop {
+        let event = t.next_event().await;
+        let listed = match &event {
+            Event::Listed { location: Location::Session(_), path, .. } => Some(path.clone()),
+            _ => None,
+        };
+        seen.push(event);
+        if let Some(path) = listed {
+            return (path, seen);
+        }
+    }
+}
+
+#[tokio::test]
+async fn reconnecting_a_lost_connection_reopens_the_folder_it_was_in() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn reconnecting_after_a_deliberate_disconnect_opens_the_last_folder() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn a_configured_start_folder_wins_over_the_last_folder_after_a_deliberate_disconnect() {
+    let (mut t, remote) = with_fake_profile_lines("remote_path = \"/var/www\"\n", FakeProtocol::new);
+    remote.file("/var/www/index.html", b"", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/var/www"));
+}
+
+#[tokio::test]
+async fn a_lost_connection_resumes_its_folder_even_when_a_start_folder_is_configured() {
+    let (mut t, remote) = with_fake_profile_lines("remote_path = \"/var/www\"\n", FakeProtocol::new);
+    remote.file("/var/www/index.html", b"", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn the_last_folder_of_a_connection_is_remembered_across_a_restart() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_command(Command::Disconnect { session });
+    t.engine.writer.flush().await;
+    let (reloaded, warning) = crate::last_used::LastUsed::load(&t.engine.paths);
+    assert!(warning.is_none());
+    t.engine.last_used = crate::engine::handlers::LastUsedLog::new(reloaded);
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/srv/logs"));
+}
+
+#[tokio::test]
+async fn a_folder_that_is_gone_since_the_last_visit_falls_back_to_the_home_folder_quietly() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None);
+    t.engine.last_used.store.record_folder("srv", &VfsPath::from("/srv/gone"));
+
+    let (path, seen) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/home/user"));
+    assert!(!seen.iter().any(|event| matches!(event, Event::Notice { .. })), "{seen:?}");
+}
+
+#[tokio::test]
+async fn browsing_writes_the_folder_next_to_the_last_used_time() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/srv/logs/a.log", b"", None);
+    connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.writer.flush().await;
+
+    let text = std::fs::read_to_string(t.engine.paths.last_used_file()).unwrap_or_default();
+
+    assert!(text.contains("[last_folder]") && text.contains("srv = \"/srv/logs\""), "{text}");
+}
+
+#[tokio::test]
+async fn a_remembered_folder_that_can_no_longer_be_read_falls_back_to_the_start_folder_quietly() {
+    let (mut t, remote) = with_fake_profile(FakeProtocol::new);
+    remote.file("/home/user/notes.txt", b"hi", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.engine.resume_folders.insert("srv".to_string(), VfsPath::from("/srv/gone"));
+    t.engine.last_used.store.forget("srv");
+    t.drain();
+
+    let (path, seen) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/home/user"));
+    assert!(!seen.iter().any(|event| matches!(event, Event::Notice { .. })), "{seen:?}");
+}
+
+#[tokio::test]
+async fn a_lost_connections_folder_is_resumed_only_once() {
+    let (mut t, remote) = with_fake_profile_lines("remote_path = \"/var/www\"\n", FakeProtocol::new);
+    remote.file("/var/www/index.html", b"", None).file("/srv/logs/a.log", b"", None);
+    let session = connect_and_open(&mut t, "/srv/logs").await;
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+    let (_, _) = reconnect_listing(&mut t).await;
+    t.settle().await;
+    t.drain();
+    let reconnected = t.engine.sessions.keys().copied().next().unwrap();
+    t.engine.handle_command(Command::Disconnect { session: reconnected });
+    t.drain();
+
+    let (path, _) = reconnect_listing(&mut t).await;
+
+    assert_eq!(path, VfsPath::from("/var/www"));
+}
+
+#[tokio::test]
+async fn a_failed_attempt_reports_what_failed_apart_from_why() {
+    let (mut t, _remote) = with_fake_profile(|fs| FakeProtocol::new(fs).failing_connect("Connection refused"));
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    t.run_internal().await;
+
+    let message = next_matching(&mut t, |event| match event {
+        Event::ConnectFailed { message, .. } => Some(message.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(message.summary(), "Unable to connect to srv");
+    assert_eq!(message.cause(), Some("Connection refused"));
+}
+
+#[tokio::test]
+async fn a_rejected_password_has_no_cause_to_show() {
+    let (mut t, _remote) = with_fake_profile(|fs| FakeProtocol::new(fs).requiring_password("pw"));
+
+    t.engine.handle_command(Command::Connect { profile: "srv".into() });
+    let request_id = next_matching(&mut t, |event| match event {
+        Event::Question { request_id, .. } => Some(*request_id),
+        _ => None,
+    })
+    .await;
+    t.engine.handle_command(Command::Answer { request_id, answer: Some(Answer::Password("no".into())), save: false });
+    t.run_internal().await;
+
+    let message = next_matching(&mut t, |event| match event {
+        Event::ConnectFailed { message, .. } => Some(message.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!((message.summary(), message.cause()), ("Authentication failed for srv", None));
 }

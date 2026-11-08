@@ -8,7 +8,7 @@ use anyhow::Result;
 use iced::Subscription;
 use iced::futures::StreamExt;
 use iced::futures::stream::unfold;
-use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, UpdateMode, config};
+use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, UpdateMode, VfsPath, config, from_os_path};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::settings_view::GuiSettings;
@@ -55,6 +55,10 @@ pub fn update_mode_on_exit(paths: &Paths, started_with: UpdateMode) -> UpdateMod
     }
 }
 
+pub fn local_start(remembered: Option<VfsPath>, home: Option<PathBuf>, current: Option<PathBuf>) -> VfsPath {
+    remembered.or_else(|| home.or(current).map(|folder| from_os_path(&folder))).unwrap_or_else(VfsPath::root)
+}
+
 pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
@@ -62,8 +66,11 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     let (shortcuts, key_warnings) = Shortcuts::from_frontend(&settings.frontend);
     let gui_settings = GuiSettings {
         editor: settings.edit.editor.clone(),
+        terminal: settings.terminal.command.clone(),
         auto_upload: settings.edit.auto_upload,
         update_mode: settings.update.mode,
+        search_preview: settings.search.preview,
+        reopen: settings.startup.reopen,
     };
     let config_file = paths.config_file();
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();

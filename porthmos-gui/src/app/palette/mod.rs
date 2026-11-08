@@ -81,6 +81,14 @@ impl App {
                 });
             }
         }
+        if !self.reopen_offer.is_empty() {
+            entries.push(Entry {
+                group: Group::Commands,
+                label: "Reopen last connections".to_string(),
+                hint: None,
+                target: Target::Reopen,
+            });
+        }
         entries.push(Entry {
             group: Group::Commands,
             label: MANAGER_TITLE.to_string(),
@@ -142,6 +150,7 @@ impl App {
                 self.connect_profile(&name);
             }
             Target::Disconnect(session) => self.core.send(Command::Disconnect { session }),
+            Target::Reopen => self.reopen_pressed(),
             Target::File { location, name } => return self.show_file(location, &name),
         }
         Task::none()

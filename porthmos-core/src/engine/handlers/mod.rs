@@ -9,6 +9,7 @@ mod moves;
 mod pause;
 mod preview;
 mod profiles;
+mod reopen;
 mod reorder;
 mod search;
 mod secrets;
@@ -28,15 +29,16 @@ pub(crate) use moves::{MoveBatch, without_symlinks};
 #[cfg(test)]
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};
+pub(crate) use reopen::ReopenState;
 pub(crate) use sync::SyncState;
 pub(crate) use update::UpdateEngine;
 
 use super::Location;
-use crate::user_message;
+use crate::{Message, failure_report};
 
-fn failure_message(location: Location, context: impl AsRef<str>, err: &dyn Display) -> String {
+fn failure_message(location: Location, context: impl AsRef<str>, err: &dyn Display) -> Message {
     match location {
-        Location::Local => err.to_string(),
-        Location::Session(_) => user_message(context, err),
+        Location::Local => Message::new(err.to_string()),
+        Location::Session(_) => failure_report(context, err),
     }
 }

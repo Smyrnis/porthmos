@@ -2,10 +2,11 @@ use std::ffi::OsString;
 
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
+#[cfg(unix)]
+use porthmos_core::Severity;
 use porthmos_core::edit::EditorExit;
-use porthmos_core::{Command, Entry, Event, Location, Severity, ShellInvocation, VfsPath};
+use porthmos_core::{Command, Entry, Event, Location, ShellInvocation, VfsPath};
 
-use crate::menus::{MoreItem, MoreState, more_items};
 use crate::shortcuts::KeyPress;
 use crate::testing::Harness;
 
@@ -44,9 +45,10 @@ fn strings(values: &[OsString]) -> Vec<String> {
 }
 
 #[test]
-fn f4_requests_a_shell_in_the_active_folder() {
+fn f4_on_the_remote_panel_requests_the_remote_shell() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     named(&mut harness, Named::F4);
 
@@ -54,41 +56,75 @@ fn f4_requests_a_shell_in_the_active_folder() {
 }
 
 #[test]
-fn f4_from_the_local_panel_still_targets_the_connection() {
+fn f4_on_the_local_panel_requests_a_local_shell_even_with_a_connection_open() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
     harness.press(Message::PanelClicked(PanelSide::Local, 0));
 
     named(&mut harness, Named::F4);
 
-    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
 }
 
 #[test]
-fn f4_without_a_connection_warns() {
+fn f4_without_a_connection_opens_a_local_shell() {
     let mut harness = Harness::new();
     harness.sent();
 
     named(&mut harness, Named::F4);
 
-    assert!(harness.sent().is_empty());
-    let notice = harness.app.notices().last().unwrap();
-    assert_eq!((notice.severity, notice.message.as_str()), (Severity::Warning, "Connect to a server first"));
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
+    assert!(harness.app.notices().is_empty());
 }
 
 #[test]
-fn f4_on_a_connection_without_shell_support_warns() {
+fn f4_on_the_remote_panel_of_a_connection_without_shell_support_still_warns() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", false);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     named(&mut harness, Named::F4);
 
     assert!(harness.sent().is_empty());
-    let notice = harness.app.notices().last().unwrap();
     assert_eq!(
-        (notice.severity, notice.message.as_str()),
-        (Severity::Warning, "This connection doesn't support a terminal session")
+        harness.app.notices().last().unwrap().message.to_string(),
+        "This connection doesn't support a terminal session"
     );
+}
+
+#[test]
+fn a_local_shell_is_spawned_like_a_remote_one() {
+    let mut harness = Harness::new();
+    harness.launched();
+
+    harness.feed(Event::LocalShellReady {
+        invocation: ShellInvocation {
+            program: OsString::from("sh"),
+            args: ["-c", "cd", "sh", "/x", "/bin/sh"].map(OsString::from).to_vec(),
+            env: Vec::new(),
+        },
+    });
+
+    let jobs = harness.launched();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].spec.program, OsString::from("xterm"));
+    assert_eq!(strings(&jobs[0].spec.args), ["-e", "sh", "-c", "cd", "sh", "/x", "/bin/sh"]);
+}
+
+#[test]
+fn the_terminal_is_possible_on_the_local_panel_without_any_connection() {
+    let harness = Harness::new();
+
+    assert!(harness.app.terminal_possible());
+}
+
+#[test]
+fn the_terminal_on_the_remote_panel_needs_shell_support() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", false);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+
+    assert!(!harness.app.terminal_possible());
 }
 
 #[test]
@@ -96,39 +132,11 @@ fn shell_available_is_remembered_per_session() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "with", true);
     connect(&mut harness, 2, "without", false);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     assert!(!harness.app.terminal_possible());
     harness.app.sessions.activate(1);
     assert!(harness.app.terminal_possible());
-}
-
-#[test]
-fn no_connection_means_no_terminal() {
-    assert!(!Harness::new().app.terminal_possible());
-}
-
-#[test]
-fn the_more_item_is_disabled_without_shell_support() {
-    let enabled_for = |terminal: bool| {
-        more_items(MoreState { hidden_shown: false, file: true, terminal, sync: true })
-            .into_iter()
-            .find(|(item, _, _)| *item == MoreItem::Terminal)
-            .map(|(_, title, enabled)| (title, enabled))
-            .unwrap()
-    };
-
-    assert_eq!(enabled_for(true), ("Open terminal here".to_string(), true));
-    assert_eq!(enabled_for(false), ("Open terminal here".to_string(), false));
-}
-
-#[test]
-fn the_more_item_requests_the_shell() {
-    let mut harness = Harness::new();
-    connect(&mut harness, 3, "alpha", true);
-
-    harness.press(Message::MoreItemChosen(MoreItem::Terminal));
-
-    assert_eq!(harness.sent().len(), 1);
 }
 
 #[test]
@@ -165,6 +173,32 @@ fn the_invocation_env_reaches_the_launcher_but_not_the_argv() {
 
 #[test]
 #[cfg(unix)]
+fn the_askpass_variables_are_handed_over_in_the_file_and_nowhere_else() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    let env = [
+        ("SSH_ASKPASS", "/opt/porthmos/porthmos"),
+        ("SSH_ASKPASS_REQUIRE", "force"),
+        ("PORTHMOS_ASKPASS", "1"),
+        ("PORTHMOS_ASKPASS_USER", "deploy"),
+        ("PORTHMOS_ASKPASS_PASSWORD", "s3cr3t-value"),
+    ];
+
+    harness.feed(Event::ShellReady { session: 3, invocation: invocation(&env) });
+
+    let jobs = harness.launched();
+    assert_eq!(jobs.len(), 1);
+    assert!(jobs[0].env.is_empty());
+    assert!(!strings(&jobs[0].spec.args).join(" ").contains("s3cr3t-value"));
+    assert!(!format!("{:?}", jobs[0]).contains("s3cr3t-value"));
+    let handed_over = std::fs::read_to_string(&jobs[0].cleanup[0]).unwrap();
+    for (name, value) in env {
+        assert!(handed_over.contains(&format!("export {name}='{value}'")), "{name}");
+    }
+}
+
+#[test]
+#[cfg(unix)]
 fn a_missing_terminal_shows_an_error_notice_with_the_hint() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
@@ -179,7 +213,7 @@ fn a_missing_terminal_shows_an_error_notice_with_the_hint() {
         notice.message,
         "Couldn't open a terminal: No terminal program found. Set $TERMINAL to your terminal's command."
     );
-    assert!(!notice.message.contains("s3cr3t-value"));
+    assert!(!notice.message.to_string().contains("s3cr3t-value"));
     let leftovers = std::fs::read_dir(harness.scratch().join("handover")).map_or(0, |dir| dir.count());
     assert_eq!(leftovers, 0);
 }
@@ -197,7 +231,7 @@ fn a_launch_failure_becomes_an_error_notice_without_the_secret() {
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(notice.severity, Severity::Error);
     assert_eq!(notice.message, "Couldn't open a terminal: xterm: not found");
-    assert!(!notice.message.contains("s3cr3t-value"));
+    assert!(!notice.message.to_string().contains("s3cr3t-value"));
     assert!(harness.sent().is_empty());
 }
 
@@ -214,4 +248,81 @@ fn a_terminal_that_closes_normally_or_with_a_status_says_nothing() {
     }
 
     assert_eq!(harness.app.notices().len(), notices);
+}
+
+#[test]
+fn the_local_terminal_button_opens_a_local_shell_while_the_remote_panel_is_active() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    harness.sent();
+
+    harness.press(Message::TerminalRequested(PanelSide::Local));
+
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
+}
+
+#[test]
+fn the_remote_terminal_button_opens_the_remote_shell_while_the_local_panel_is_active() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.press(Message::PanelClicked(PanelSide::Local, 0));
+    harness.sent();
+
+    harness.press(Message::TerminalRequested(PanelSide::Remote));
+
+    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+}
+
+#[test]
+fn the_remote_terminal_is_not_possible_without_a_connection() {
+    let harness = Harness::new();
+
+    assert!(harness.app.terminal_possible_on(PanelSide::Local));
+    assert!(!harness.app.terminal_possible_on(PanelSide::Remote));
+}
+
+#[test]
+fn the_remote_terminal_is_not_possible_on_a_connection_without_shell_support() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", false);
+
+    assert!(!harness.app.terminal_possible_on(PanelSide::Remote));
+    assert!(harness.app.terminal_possible_on(PanelSide::Local));
+}
+
+#[test]
+fn the_toolbar_enables_each_terminal_button_independently_of_the_active_panel() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    for side in [PanelSide::Local, PanelSide::Remote] {
+        harness.press(Message::PanelClicked(side, 0));
+
+        let state = harness.app.toolbar_state();
+
+        assert!(state.local_terminal && state.remote_terminal, "{side:?}");
+    }
+}
+
+#[test]
+fn the_toolbar_mutes_the_remote_terminal_button_without_a_usable_shell() {
+    let mut harness = Harness::new();
+    assert!(harness.app.toolbar_state().local_terminal);
+    assert!(!harness.app.toolbar_state().remote_terminal);
+
+    connect(&mut harness, 3, "alpha", false);
+
+    assert!(harness.app.toolbar_state().local_terminal);
+    assert!(!harness.app.toolbar_state().remote_terminal);
+}
+
+#[test]
+fn a_terminal_request_for_a_side_that_cannot_open_one_only_warns() {
+    let mut harness = Harness::new();
+    harness.sent();
+
+    harness.press(Message::TerminalRequested(PanelSide::Remote));
+
+    assert!(harness.sent().is_empty());
+    assert_eq!(harness.app.notices().last().unwrap().message.to_string(), "Connect to a server first");
 }

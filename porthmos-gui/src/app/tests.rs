@@ -1,7 +1,8 @@
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
-use porthmos_core::listing::{SortKey, SortOrder};
-use porthmos_core::{Command, Event, Location, Severity};
+use porthmos_core::config::settings::PanelSettings;
+use porthmos_core::listing::{SortKey, SortOrder, SortSpec};
+use porthmos_core::{Command, Event, Location, PanelKind, Severity};
 
 use crate::geometry::{ROW_HEIGHT, list_viewport};
 use crate::shortcuts::KeyPress;
@@ -26,7 +27,7 @@ fn starting_the_app_asks_core_to_list_the_local_start_folder() {
 fn a_core_event_is_applied_by_update() {
     let mut harness = Harness::new();
 
-    harness.feed(Event::Notice { severity: Severity::Info, message: "hello".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Info, message: "hello".into() });
 
     assert_eq!(harness.app.notices().len(), 1);
     assert_eq!(harness.app.notices()[0].message, "hello");
@@ -220,12 +221,12 @@ fn a_failed_connection_adds_an_error_notice_and_no_tab() {
     harness.feed(Event::Connecting { name: "alpha".to_string() });
     assert_eq!(harness.app.connecting(), Some("alpha"));
 
-    harness.feed(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".to_string() });
+    harness.feed(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() });
 
     assert!(harness.app.sessions().is_empty());
     assert_eq!(harness.app.connecting(), None);
     let notice = harness.app.notices().last().unwrap();
-    assert_eq!((notice.severity, notice.message.as_str()), (Severity::Error, "refused"));
+    assert_eq!((notice.severity, notice.message.to_string()), (Severity::Error, "refused".to_string()));
 }
 
 #[test]
@@ -243,7 +244,7 @@ fn notices_keep_the_newest_fifty() {
     let mut harness = Harness::new();
 
     for number in 0..60 {
-        harness.feed(Event::Notice { severity: Severity::Info, message: format!("n{number}") });
+        harness.feed(Event::Notice { severity: Severity::Info, message: format!("n{number}").into() });
     }
 
     let notices = harness.app.notices();
@@ -437,6 +438,14 @@ fn list_of(location: Location, path: &str) -> Command {
     Command::List { location, path: Some(VfsPath::new(path)) }
 }
 
+fn navigate_of(location: Location, from: &str, to: &str) -> Command {
+    Command::Navigate { location, from: VfsPath::new(from), to: VfsPath::new(to) }
+}
+
+fn revealed_local(harness: &mut Harness, folder: &str, name: &str) {
+    harness.feed(Event::Revealed { location: Location::Local, folder: VfsPath::new(folder), name: name.to_string() });
+}
+
 #[test]
 fn double_clicking_a_folder_asks_core_to_list_it() {
     let mut harness = Harness::new();
@@ -446,7 +455,7 @@ fn double_clicking_a_folder_asks_core_to_list_it() {
 
     harness.press(Message::PanelDoubleClicked(PanelSide::Local, 1));
 
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester/sub")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home/tester/sub")]);
 }
 
 #[test]
@@ -486,7 +495,7 @@ fn enter_on_the_parent_row_lists_the_parent() {
 
     plain(&mut harness, Named::Enter);
 
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home")]);
 }
 
 #[test]
@@ -498,7 +507,7 @@ fn enter_on_a_folder_lists_it_and_on_a_file_does_nothing_in_stage_one() {
 
     plain(&mut harness, Named::ArrowDown);
     plain(&mut harness, Named::Enter);
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester/sub")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home/tester/sub")]);
 
     plain(&mut harness, Named::ArrowDown);
     plain(&mut harness, Named::Enter);
@@ -512,7 +521,7 @@ fn backspace_lists_the_parent_folder() {
 
     plain(&mut harness, Named::Backspace);
 
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home")]);
+    assert_eq!(harness.sent(), vec![navigate_of(Location::Local, "/home/tester", "/home")]);
 }
 
 #[test]
@@ -586,7 +595,7 @@ fn resizing_the_window_changes_how_far_the_list_scrolls() {
     let names: Vec<String> = (0..100).map(|index| format!("f{index:03}")).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     fill_local(&mut harness, &names);
-    harness.press(Message::WindowResized(iced::Size::new(800.0, 334.0)));
+    harness.resize(iced::Size::new(800.0, 334.0));
 
     plain(&mut harness, Named::End);
 
@@ -1334,7 +1343,7 @@ fn copy_without_a_connection_says_connect_first_and_sends_nothing() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().expect("a notice");
     assert_eq!(notice.severity, Severity::Info);
-    assert!(notice.message.contains("Connect"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("Connect"), "{}", notice.message);
 }
 
 #[test]
@@ -1866,7 +1875,7 @@ fn other_keys_do_nothing_while_a_conflict_is_open() {
     assert!(harness.sent().is_empty());
 }
 
-fn drag_point(harness: &Harness, side: PanelSide, row: usize) -> iced::Point {
+pub(super) fn drag_point(harness: &Harness, side: PanelSide, row: usize) -> iced::Point {
     let width = harness.app.window_size().width;
     let x = match side {
         PanelSide::Local => 100.0,
@@ -1883,7 +1892,7 @@ fn press_and_drag(harness: &mut Harness, from: (PanelSide, usize), to: iced::Poi
     harness.press(Message::CursorMoved(to));
 }
 
-fn drop_ready(harness: &mut Harness, local: &[&str]) {
+pub(super) fn drop_ready(harness: &mut Harness, local: &[&str]) {
     fill_local(harness, local);
     upload_target(harness);
     harness.sent();
@@ -1961,7 +1970,7 @@ fn a_refused_drop_adds_a_notice_and_sends_nothing() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().expect("a notice");
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("Connect"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("Connect"), "{}", notice.message);
 }
 
 #[test]
@@ -2195,7 +2204,7 @@ fn a_press_with_shift_held_starts_no_drag() {
     assert!(!harness.app.drag().is_active());
 }
 
-fn desktop_files(names: &[&str]) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
+pub(super) fn desktop_files(names: &[&str]) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
     let root = tempfile::tempdir().unwrap();
     let paths = names
         .iter()
@@ -2283,7 +2292,7 @@ fn dropping_with_no_connection_on_the_right_panel_says_connect_first() {
     assert!(harness.sent().is_empty());
     let notice = harness.app.notices().last().expect("a notice");
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("Connect"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("Connect"), "{}", notice.message);
 }
 
 #[test]
@@ -2296,7 +2305,7 @@ fn dropping_on_the_local_panel_is_refused_with_a_notice() {
     desktop_drop(&mut harness, paths, Some(at));
 
     assert!(harness.sent().is_empty());
-    assert!(harness.app.notices().last().unwrap().message.contains("right panel"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("right panel"));
 }
 
 #[test]
@@ -2309,7 +2318,7 @@ fn dropping_nothing_readable_sends_nothing_and_notes_each_problem() {
     desktop_drop(&mut harness, missing, Some(at));
 
     assert!(harness.sent().is_empty());
-    let notices: Vec<&str> = harness.app.notices().iter().map(|notice| notice.message.as_str()).collect();
+    let notices: Vec<String> = harness.app.notices().iter().map(|notice| notice.message.to_string()).collect();
     assert!(notices.iter().any(|message| message.contains("one")));
     assert!(notices.iter().any(|message| message.contains("two")));
 }
@@ -2325,7 +2334,7 @@ fn readable_files_are_still_sent_when_another_one_is_missing() {
     desktop_drop(&mut harness, paths, Some(at));
 
     assert!(matches!(harness.sent().as_slice(), [Command::Copy { entries, .. }] if entries.len() == 1));
-    assert!(harness.app.notices().last().unwrap().message.contains("gone"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("gone"));
 }
 
 #[test]
@@ -2366,7 +2375,7 @@ fn the_last_pointer_position_is_used_when_the_drop_has_none() {
     desktop_drop(&mut harness, paths, None);
 
     assert!(harness.sent().is_empty());
-    assert!(harness.app.notices().last().unwrap().message.contains("right panel"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("right panel"));
 }
 
 #[test]
@@ -2485,7 +2494,7 @@ fn a_failed_start_adds_a_notice_and_returns_to_idle() {
 
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("the pointer grab was refused"));
+    assert!(notice.message.to_string().contains("the pointer grab was refused"));
     assert!(!harness.app.drag().is_tracking());
     assert!(probe.started().is_empty());
 }
@@ -2797,7 +2806,7 @@ fn a_failed_staging_row_cancels_the_drag_and_tells_the_user() {
 
     let notice = harness.app.notices().last().unwrap();
     assert_eq!(notice.severity, Severity::Warning);
-    assert!(notice.message.contains("permission denied"), "{}", notice.message);
+    assert!(notice.message.to_string().contains("permission denied"), "{}", notice.message);
     assert!(!harness.app.drag().is_tracking());
     assert!(!root.exists());
     assert!(probe.started().is_empty());
@@ -2861,7 +2870,7 @@ fn a_refused_native_start_after_staging_removes_the_folder_and_tells_the_user() 
 
     feed_rows(&mut harness, staging_rows(RowState::Done));
 
-    assert!(harness.app.notices().last().unwrap().message.contains("no serial"));
+    assert!(harness.app.notices().last().unwrap().message.to_string().contains("no serial"));
     assert!(!root.exists());
     assert!(!harness.app.drag().is_tracking());
 }
@@ -3098,7 +3107,9 @@ fn local_folder(harness: &Harness) -> VfsPath {
 fn listed_paths(sent: &[Command]) -> Vec<String> {
     sent.iter()
         .filter_map(|command| match command {
-            Command::List { path: Some(path), .. } => Some(path.to_string_lossy().into_owned()),
+            Command::List { path: Some(path), .. } | Command::Navigate { to: path, .. } => {
+                Some(path.to_string_lossy().into_owned())
+            }
             _ => None,
         })
         .collect()
@@ -3153,8 +3164,17 @@ fn a_crumb_press_lists_that_folder() {
     assert_eq!(listed_paths(&harness.sent()), ["/home"]);
 }
 
+fn go_to_paths(sent: &[Command]) -> Vec<(Location, VfsPath, String)> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::GoToPath { location, from, text } => Some((*location, from.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
-fn submitting_a_path_lists_it_and_closes_the_editor() {
+fn submitting_a_path_hands_the_text_to_core_and_closes_the_editor() {
     let mut harness = Harness::new();
     fill_local(&mut harness, &["a"]);
     harness.sent();
@@ -3164,12 +3184,14 @@ fn submitting_a_path_lists_it_and_closes_the_editor() {
     harness.press(Message::PathTyped("/tmp".to_string()));
     harness.press(Message::PathSubmitted);
 
-    assert_eq!(listed_paths(&harness.sent()), ["/tmp"]);
+    let sent = harness.sent();
+    assert_eq!(go_to_paths(&sent), vec![(Location::Local, harness.start_folder(), "/tmp".to_string())]);
+    assert!(listed_paths(&sent).is_empty());
     assert!(harness.app.path_edit().is_none());
 }
 
 #[test]
-fn a_leading_tilde_means_the_local_start_folder() {
+fn a_typed_tilde_is_left_for_core_to_resolve() {
     let mut harness = Harness::new();
     harness.sent();
 
@@ -3177,7 +3199,71 @@ fn a_leading_tilde_means_the_local_start_folder() {
     harness.press(Message::PathTyped("~/docs".to_string()));
     harness.press(Message::PathSubmitted);
 
-    assert_eq!(listed_paths(&harness.sent()), ["/home/tester/docs"]);
+    let sent = harness.sent();
+    assert_eq!(go_to_paths(&sent).into_iter().map(|(_, _, text)| text).collect::<Vec<_>>(), ["~/docs"]);
+    assert!(listed_paths(&sent).is_empty());
+}
+
+#[test]
+fn the_folder_core_resolved_is_shown_and_recorded_in_the_history() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("~/docs".to_string()));
+    harness.press(Message::PathSubmitted);
+
+    harness.feed(Event::Listed {
+        location: Location::Local,
+        path: VfsPath::new("/home/tester/docs"),
+        entries: Vec::new(),
+    });
+    harness.feed(Event::PathOpened { location: Location::Local });
+
+    assert_eq!(local_folder(&harness), VfsPath::new("/home/tester/docs"));
+    assert!(harness.app.can_go_back(PanelSide::Local));
+}
+
+#[test]
+fn a_refresh_of_the_old_folder_does_not_hide_the_resolved_folder() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("/tmp".to_string()));
+    harness.press(Message::PathSubmitted);
+
+    fill_local(&mut harness, &["a"]);
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/tmp"), entries: Vec::new() });
+
+    assert_eq!(local_folder(&harness), VfsPath::new("/tmp"));
+}
+
+#[test]
+fn a_listing_of_another_folder_is_dropped_again_once_the_path_is_opened() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("/tmp".to_string()));
+    harness.press(Message::PathSubmitted);
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/tmp"), entries: Vec::new() });
+    harness.feed(Event::PathOpened { location: Location::Local });
+
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/elsewhere"), entries: Vec::new() });
+
+    assert_eq!(local_folder(&harness), VfsPath::new("/tmp"));
+}
+
+#[test]
+fn a_rejected_path_stops_the_pane_from_accepting_other_folders() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped("/nope".to_string()));
+    harness.press(Message::PathSubmitted);
+    harness.feed(Event::PathRejected { location: Location::Local });
+
+    harness.feed(Event::Listed { location: Location::Local, path: VfsPath::new("/elsewhere"), entries: Vec::new() });
+
+    assert_eq!(local_folder(&harness), harness.start_folder());
 }
 
 #[test]
@@ -3200,7 +3286,7 @@ fn a_path_that_fails_to_list_leaves_the_panel_and_its_history_alone() {
     harness.press(Message::PathEditStarted(PanelSide::Local));
     harness.press(Message::PathTyped("/nope".to_string()));
     harness.press(Message::PathSubmitted);
-    harness.feed(Event::Notice { severity: Severity::Error, message: "no such folder".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Error, message: "no such folder".into() });
 
     assert_eq!(local_folder(&harness), harness.start_folder());
     assert!(!harness.app.can_go_back(PanelSide::Local));
@@ -3489,9 +3575,10 @@ fn a_disabled_menu_item_does_nothing_when_delivered() {
 }
 
 fn tab_task_units(harness: &mut Harness, modifiers: Modifiers) -> usize {
+    let window = harness.key_target();
     let key = Key::Named(Named::Tab);
     let press = KeyPress { key: key.clone(), modified_key: key, modifiers, text: None };
-    harness.app.update(Message::KeyPressed(press)).units()
+    harness.app.update(Message::WindowKey(window, press)).units()
 }
 
 #[test]
@@ -3553,7 +3640,7 @@ fn enter_on_the_delete_confirmation_cancels_and_deletes_nothing() {
 
 fn notice_after(harness: &mut Harness, severity: Severity, seconds: u64) -> usize {
     let now = Instant::now() + std::time::Duration::from_secs(seconds);
-    harness.feed(Event::Notice { severity, message: "something".to_string() });
+    harness.feed(Event::Notice { severity, message: "something".into() });
     harness.press(Message::NoticeTick(now));
     harness.app.notices().len()
 }
@@ -3583,19 +3670,19 @@ fn a_warning_outlives_an_info_and_an_error_outlives_a_warning() {
 #[test]
 fn only_the_expired_notices_are_dropped() {
     let mut harness = Harness::new();
-    harness.feed(Event::Notice { severity: Severity::Error, message: "keep".to_string() });
-    harness.feed(Event::Notice { severity: Severity::Info, message: "go".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Error, message: "keep".into() });
+    harness.feed(Event::Notice { severity: Severity::Info, message: "go".into() });
 
     harness.press(Message::NoticeTick(Instant::now() + std::time::Duration::from_secs(6)));
 
-    let messages: Vec<_> = harness.app.notices().iter().map(|notice| notice.message.as_str()).collect();
+    let messages: Vec<_> = harness.app.notices().iter().map(|notice| notice.message.to_string()).collect();
     assert_eq!(messages, ["keep"]);
 }
 
 #[test]
 fn connecting_successfully_clears_the_old_notices() {
     let mut harness = Harness::new();
-    harness.feed(Event::Notice { severity: Severity::Error, message: "old failure".to_string() });
+    harness.feed(Event::Notice { severity: Severity::Error, message: "old failure".into() });
 
     connect(&mut harness, 1, "alpha");
 
@@ -3609,6 +3696,7 @@ fn going_up_puts_the_cursor_on_the_folder_that_was_left() {
 
     harness.press(Message::NavigateUp(PanelSide::Local));
     list_local_at(&mut harness, "/home", &["alpha", "tester", "zed"]);
+    revealed_local(&mut harness, "/home", "tester");
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
 }
@@ -3620,6 +3708,7 @@ fn the_parent_row_puts_the_cursor_on_the_folder_that_was_left() {
 
     harness.press(Message::PanelDoubleClicked(PanelSide::Local, 0));
     list_local_at(&mut harness, "/home", &["alpha", "tester", "zed"]);
+    revealed_local(&mut harness, "/home", "tester");
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
 }
@@ -3634,6 +3723,7 @@ fn going_back_to_an_ancestor_puts_the_cursor_on_the_folder_toward_where_you_were
     list_local_at(&mut harness, "/home/tester", &["a"]);
     harness.press(Message::NavigateForward(PanelSide::Local));
     list_local_at(&mut harness, "/home", &["alpha", "tester"]);
+    revealed_local(&mut harness, "/home", "tester");
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "tester");
 }
@@ -3649,4 +3739,76 @@ fn going_into_a_folder_does_not_move_the_cursor_anywhere_special() {
     list_local_at(&mut harness, "/home/tester/sub", &["x", "y"]);
 
     assert_eq!(cursor_name(&harness, PanelSide::Local), "..");
+}
+
+fn remembered_panels(commands: Vec<Command>) -> Vec<(PanelKind, PanelSettings)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberPanel { kind, settings } => Some((kind, settings)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_local_panel_starts_with_the_remembered_choices() {
+    let local =
+        PanelSettings { show_hidden: true, sort: SortSpec { key: SortKey::Size, order: SortOrder::Descending } };
+
+    let harness = Harness::with_remembered_panels(local, PanelSettings::default());
+
+    assert!(harness.app.local().panel.show_hidden());
+    assert_eq!(harness.app.local().panel.sort_spec(), local.sort);
+}
+
+#[test]
+fn a_new_connection_starts_with_the_remembered_remote_choices_and_not_the_local_ones() {
+    let local = PanelSettings { show_hidden: true, sort: SortSpec::default() };
+    let remote =
+        PanelSettings { show_hidden: false, sort: SortSpec { key: SortKey::Size, order: SortOrder::Ascending } };
+    let mut harness = Harness::with_remembered_panels(local, remote);
+
+    connect(&mut harness, 1, "alpha");
+
+    let panel = &harness.app.sessions().active().unwrap().pane.panel;
+    assert_eq!((panel.show_hidden(), panel.sort_spec()), (false, remote.sort));
+}
+
+#[test]
+fn clicking_a_sort_header_tells_the_core_to_remember_the_panels_choices() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+    harness.sent();
+
+    harness.press(Message::HeaderClicked(PanelSide::Local, SortKey::Size));
+
+    let expected =
+        PanelSettings { show_hidden: false, sort: SortSpec { key: SortKey::Size, order: SortOrder::Ascending } };
+    assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Local, expected)]);
+}
+
+#[test]
+fn toggling_hidden_files_on_the_remote_panel_is_remembered_for_remote() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    harness.sent();
+
+    harness.press(Message::MoreItemChosen(crate::menus::MoreItem::ToggleHidden));
+
+    let expected = PanelSettings { show_hidden: true, sort: SortSpec::default() };
+    assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Remote, expected)]);
+}
+
+#[test]
+fn cycling_the_sort_from_the_keyboard_is_remembered() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    harness.sent();
+
+    let _ = harness.app.perform(Action::CycleSort);
+
+    let expected = PanelSettings { show_hidden: false, sort: SortSpec::default().cycled() };
+    assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Local, expected)]);
 }

@@ -41,11 +41,13 @@ async fn a_broken_history_file_is_set_aside_with_a_warning_at_start() {
     let warning = loop {
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv()).await;
         match event.unwrap().unwrap() {
-            Event::Notice { severity: Severity::Warning, message } if message.contains("history") => break message,
+            Event::Notice { severity: Severity::Warning, message } if message.to_string().contains("history") => {
+                break message;
+            }
             _ => {}
         }
     };
-    assert!(warning.contains("history.toml.broken"), "{warning}");
+    assert!(warning.to_string().contains("history.toml.broken"), "{warning}");
     assert!(paths.history_file().with_extension("toml.broken").exists());
 }
 
@@ -101,11 +103,13 @@ async fn a_broken_last_used_file_is_set_aside_with_a_warning_at_start() {
     let warning = loop {
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv()).await;
         match event.unwrap().unwrap() {
-            Event::Notice { severity: Severity::Warning, message } if message.contains("last-used") => break message,
+            Event::Notice { severity: Severity::Warning, message } if message.to_string().contains("last-used") => {
+                break message;
+            }
             _ => {}
         }
     };
-    assert!(warning.contains("last_used.toml.broken"), "{warning}");
+    assert!(warning.to_string().contains("last_used.toml.broken"), "{warning}");
     assert!(paths.last_used_file().with_extension("toml.broken").exists());
 }
 
@@ -126,7 +130,7 @@ async fn the_history_warning_comes_before_the_bookmark_warnings() {
             break message;
         }
     };
-    assert!(first.contains("history"), "{first}");
+    assert!(first.to_string().contains("history"), "{first}");
 }
 
 #[tokio::test]
@@ -165,4 +169,92 @@ fn every_builtin_protocol_has_a_description_and_only_s3_notes_limits() {
         let s3 = protocols.iter().find(|protocol| protocol.id() == "s3").map(|protocol| protocol.limits_note());
         assert_eq!(s3, Some(Some("no permissions or symlinks \u{b7} rename is copy + delete")));
     }
+}
+
+fn state_with_local_folder(folder: &Path) -> (tempfile::TempDir, Paths) {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(dir.path());
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), format!("local_folder = {:?}\n", from_os_path(folder).to_string_lossy()))
+        .unwrap();
+    (dir, paths)
+}
+
+#[tokio::test]
+async fn a_saved_local_folder_that_still_exists_is_offered_at_start() {
+    let folder = tempfile::tempdir().unwrap();
+    let (_dir, paths) = state_with_local_folder(folder.path());
+
+    let (core, _events) = Core::builder().without_keyring().paths(paths).start().unwrap();
+
+    assert_eq!(core.remembered_local_folder(), Some(from_os_path(folder.path())));
+}
+
+#[tokio::test]
+async fn a_saved_local_folder_that_is_gone_is_not_offered() {
+    let folder = tempfile::tempdir().unwrap();
+    let gone = folder.path().join("deleted");
+    let (_dir, paths) = state_with_local_folder(&gone);
+
+    let (core, _events) = Core::builder().without_keyring().paths(paths).start().unwrap();
+
+    assert_eq!(core.remembered_local_folder(), None);
+}
+
+#[tokio::test]
+async fn a_saved_local_folder_that_is_a_file_is_not_offered() {
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("file.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let (_dir, paths) = state_with_local_folder(&file);
+
+    let (core, _events) = Core::builder().without_keyring().paths(paths).start().unwrap();
+
+    assert_eq!(core.remembered_local_folder(), None);
+}
+
+#[tokio::test]
+async fn nothing_is_offered_when_nothing_was_saved() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let (core, _events) = Core::builder().without_keyring().paths(Paths::in_dir(dir.path())).start().unwrap();
+
+    assert_eq!(core.remembered_local_folder(), None);
+}
+
+fn size_descending_hidden() -> crate::config::settings::PanelSettings {
+    use crate::listing::{SortKey, SortOrder, SortSpec};
+    crate::config::settings::PanelSettings {
+        show_hidden: true,
+        sort: SortSpec { key: SortKey::Size, order: SortOrder::Descending },
+    }
+}
+
+#[tokio::test]
+async fn the_panels_start_with_the_configured_defaults_when_nothing_was_remembered() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = Settings { panel: size_descending_hidden(), ..Settings::default() };
+
+    let (core, _events) =
+        Core::builder().without_keyring().paths(Paths::in_dir(dir.path())).settings(settings).start().unwrap();
+
+    assert_eq!(core.panel_settings(PanelKind::Local), size_descending_hidden());
+    assert_eq!(core.panel_settings(PanelKind::Remote), size_descending_hidden());
+}
+
+#[tokio::test]
+async fn a_panels_remembered_choices_win_over_the_configured_defaults_for_that_panel_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(dir.path());
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), "[remote_panel]\nshow_hidden = false\nsort_key = \"name\"\n").unwrap();
+    let settings = Settings { panel: size_descending_hidden(), ..Settings::default() };
+
+    let (core, _events) = Core::builder().without_keyring().paths(paths).settings(settings).start().unwrap();
+
+    assert_eq!(core.panel_settings(PanelKind::Local), size_descending_hidden());
+    let remote = core.panel_settings(PanelKind::Remote);
+    assert!(!remote.show_hidden);
+    assert_eq!(remote.sort.key, crate::listing::SortKey::Name);
+    assert_eq!(remote.sort.order, crate::listing::SortOrder::Descending);
 }

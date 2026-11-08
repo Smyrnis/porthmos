@@ -1,7 +1,7 @@
-use porthmos_core::VfsPath;
+use porthmos_core::{PanelKind, VfsPath, config::settings::PanelSettings, listing::SortSpec};
 
 use super::*;
-use crate::app::testing::{TestApp, entry, test_app};
+use crate::app::testing::{TestApp, entry, test_app, test_app_remembering};
 
 fn app_in(dir: &str) -> TestApp {
     test_app(&VfsPath::new(dir))
@@ -88,7 +88,10 @@ fn opening_a_local_folder_asks_for_its_listing() {
 
     test.app.apply_action(Action::Open);
 
-    assert_eq!(test.sent(), vec![Command::List { location: Location::Local, path: Some(VfsPath::from("/d/child")) }]);
+    assert_eq!(
+        test.sent(),
+        vec![Command::Navigate { location: Location::Local, from: VfsPath::from("/d"), to: VfsPath::from("/d/child") }]
+    );
 }
 
 #[test]
@@ -103,7 +106,11 @@ fn opening_a_remote_folder_asks_that_session_for_its_listing() {
 
     assert_eq!(
         test.sent(),
-        vec![Command::List { location: Location::Session(session), path: Some(VfsPath::from("/home/user/child")) }]
+        vec![Command::Navigate {
+            location: Location::Session(session),
+            from: VfsPath::from("/home/user"),
+            to: VfsPath::from("/home/user/child")
+        }]
     );
 }
 
@@ -140,7 +147,7 @@ fn a_failed_listing_leaves_the_panel_where_it_was() {
 
     test.app.apply_core_event(Event::Notice {
         severity: Severity::Error,
-        message: "Permission denied (os error 13)".to_string(),
+        message: "Permission denied (os error 13)".into(),
     });
 
     assert_eq!(test.app.local.path(), &VfsPath::new("/d"));
@@ -288,8 +295,31 @@ fn rename_action_on_connections_screen_opens_the_edit_connection_form() {
 }
 
 #[test]
-fn f4_without_a_session_warns() {
+fn f4_without_a_session_opens_a_local_shell_in_the_local_folder() {
     let mut test = app_in("/d");
+
+    test.app.apply_action(Action::OpenTerminal);
+
+    assert_eq!(test.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::from("/d") }]);
+    assert_eq!(test.notification(), None);
+}
+
+#[test]
+fn f4_on_the_local_panel_opens_a_local_shell_even_with_a_connection_open() {
+    let mut test = app_in("/d");
+    test.connect(8, "srv");
+    test.app.active_panel = ActivePanel::Local;
+    test.sent();
+
+    test.app.apply_action(Action::OpenTerminal);
+
+    assert_eq!(test.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::from("/d") }]);
+}
+
+#[test]
+fn f4_on_the_remote_panel_without_a_session_warns_and_sends_nothing() {
+    let mut test = app_in("/d");
+    test.app.active_panel = ActivePanel::Remote;
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -301,6 +331,8 @@ fn f4_without_a_session_warns() {
 fn f4_on_a_connection_without_a_shell_warns_and_sends_nothing() {
     let mut test = app_in("/d");
     test.app.apply_core_event(Event::Connected { session: 1, name: "bucket".to_string(), shell_available: false });
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -312,6 +344,8 @@ fn f4_on_a_connection_without_a_shell_warns_and_sends_nothing() {
 fn f4_on_a_connection_with_a_shell_asks_the_core_for_it() {
     let mut test = app_in("/d");
     let session = test.connect(8, "srv");
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -323,6 +357,8 @@ fn f4_opens_the_shell_in_the_folder_shown_on_the_remote_panel() {
     let mut test = app_in("/d");
     let session = test.connect(8, "srv");
     test.list_remote(session, "/home/tester/docs", Vec::new());
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
 
     test.app.apply_action(Action::OpenTerminal);
 
@@ -585,4 +621,88 @@ fn the_help_overlay_closes_on_any_other_key_without_acting() {
         assert!(!test.app.help_visible, "{character:?}");
         test.assert_inert(Screen::Files);
     }
+}
+
+#[test]
+fn opening_the_parent_row_navigates_up_from_the_current_folder() {
+    let mut test = app_in("/d/sub");
+    test.list_local(vec![entry(&VfsPath::new("/d/sub"), "a", false)]);
+    test.app.local.cursor = 0;
+
+    test.app.apply_action(Action::Open);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::Navigate { location: Location::Local, from: VfsPath::from("/d/sub"), to: VfsPath::from("/d") }]
+    );
+}
+
+#[test]
+fn going_up_puts_the_cursor_on_the_folder_core_says_was_left() {
+    let mut test = app_in("/d/sub");
+    test.list_local(vec![entry(&VfsPath::new("/d/sub"), "a", false)]);
+    test.app.apply_action(Action::Open);
+    let parent = VfsPath::from("/d");
+
+    test.app.apply_core_event(Event::Listed {
+        location: Location::Local,
+        path: parent.clone(),
+        entries: vec![entry(&parent, "alpha", true), entry(&parent, "sub", true), entry(&parent, "zed", true)],
+    });
+    test.app.apply_core_event(Event::Revealed { location: Location::Local, folder: parent, name: "sub".to_string() });
+
+    assert_eq!(crate::app::testing::cursor_name(&test.app.local), Some("sub"));
+}
+
+fn remembered_panel_commands(commands: Vec<Command>) -> Vec<(PanelKind, PanelSettings)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberPanel { kind, settings } => Some((kind, settings)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn toggling_hidden_files_on_the_local_panel_tells_the_core_to_remember_it() {
+    let mut test = app_in("/d");
+
+    test.app.apply_action(Action::ToggleHidden);
+
+    let expected = PanelSettings { show_hidden: true, sort: SortSpec::default() };
+    assert_eq!(remembered_panel_commands(test.sent()), vec![(PanelKind::Local, expected)]);
+}
+
+#[test]
+fn cycling_the_sort_on_the_remote_panel_tells_the_core_to_remember_it_for_remote() {
+    let mut test = app_in("/d");
+    test.connect(8, "srv");
+    test.app.active_panel = ActivePanel::Remote;
+    test.sent();
+
+    test.app.apply_action(Action::CycleSort);
+
+    let expected = PanelSettings { show_hidden: false, sort: SortSpec::default().cycled() };
+    assert_eq!(remembered_panel_commands(test.sent()), vec![(PanelKind::Remote, expected)]);
+}
+
+#[test]
+fn a_new_connections_panel_starts_with_the_remembered_remote_choices() {
+    let remote = PanelSettings { show_hidden: true, sort: SortSpec::default().cycled().cycled() };
+    let mut test = test_app_remembering(&VfsPath::new("/d"), PanelSettings::default(), remote);
+
+    test.connect(8, "srv");
+
+    let panel = &test.app.sessions.active().unwrap().panel;
+    assert_eq!((panel.show_hidden(), panel.sort_spec()), (remote.show_hidden, remote.sort));
+}
+
+#[test]
+fn the_local_panel_starts_with_the_remembered_local_choices() {
+    let local = PanelSettings { show_hidden: true, sort: SortSpec::default().cycled() };
+
+    let test = test_app_remembering(&VfsPath::new("/d"), local, PanelSettings::default());
+
+    assert_eq!((test.app.local.show_hidden(), test.app.local.sort_spec()), (local.show_hidden, local.sort));
 }

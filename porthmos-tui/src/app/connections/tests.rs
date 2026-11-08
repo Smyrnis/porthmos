@@ -126,7 +126,7 @@ fn connecting_to_an_unreachable_host_reports_failure() {
 
     test.app.apply_core_event(Event::ConnectFailed {
         name: "unreachable".to_string(),
-        message: "Unable to connect to unreachable:\nConnection refused".to_string(),
+        message: "Unable to connect to unreachable:\nConnection refused".into(),
     });
 
     match test.app.connection_status {
@@ -170,7 +170,7 @@ fn panel_event_failed_shows_a_notification_when_the_session_still_exists() {
     let mut test = app();
     test.connect(1, "test");
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".into() });
 
     assert_eq!(test.notification().as_deref(), Some("boom"));
 }
@@ -196,8 +196,7 @@ fn disconnect_selected_reports_a_confirmation_notification() {
     test.app.apply_action(Action::Disconnect);
 
     assert_eq!(test.sent(), vec![Command::Disconnect { session }]);
-    test.app
-        .apply_core_event(Event::Notice { severity: Severity::Info, message: "Disconnected from test".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Info, message: "Disconnected from test".into() });
     test.app.apply_core_event(Event::Disconnected { session, name: "test".to_string() });
     assert!(test.app.sessions.is_empty());
     assert_eq!(test.notification().as_deref(), Some("Disconnected from test"));
@@ -425,7 +424,7 @@ fn add_connection_dialog_stays_open_when_saving_fails() {
     fill_form(&mut test, ["prod", "server.example.com", "22", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "Not a directory".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "Not a directory".into() });
 
     assert!(test.app.dialog.is_some(), "the form must stay open so the user's input isn't lost on a save error");
     assert!(test.app.notifications.current().is_some());
@@ -1737,24 +1736,24 @@ fn another_launch_error_on_windows_keeps_the_plain_message() {
 
 #[test]
 fn a_failed_ssh_names_its_exit_code() {
-    assert_eq!(ssh_exit_failure(Some(255), false), "ssh exited with code 255");
+    assert_eq!(ssh_exit_failure(Some(255), LoginKind::Other), "ssh exited with code 255");
 }
 
 #[test]
 fn an_ssh_killed_by_a_signal_has_no_code_to_name() {
-    assert_eq!(ssh_exit_failure(None, false), "ssh was stopped before it finished");
+    assert_eq!(ssh_exit_failure(None, LoginKind::Other), "ssh was stopped before it finished");
 }
 
 #[test]
 fn sshpass_reports_a_wrong_password_as_a_hint() {
-    let message = ssh_exit_failure(Some(5), true);
+    let message = ssh_exit_failure(Some(5), LoginKind::Sshpass);
 
     assert!(message.contains("password") && message.contains("incorrect"), "{message}");
 }
 
 #[test]
 fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
-    let message = ssh_exit_failure(Some(6), true);
+    let message = ssh_exit_failure(Some(6), LoginKind::Sshpass);
 
     assert!(message.contains("known_hosts"), "{message}");
     assert!(!message.contains("status"), "{message}");
@@ -1762,5 +1761,75 @@ fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
 
 #[test]
 fn exit_code_six_without_sshpass_is_just_an_exit_code() {
-    assert_eq!(ssh_exit_failure(Some(6), false), "ssh exited with code 6");
+    assert_eq!(ssh_exit_failure(Some(6), LoginKind::Other), "ssh exited with code 6");
+}
+
+#[test]
+fn askpass_with_exit_code_255_says_the_password_may_be_wrong_or_a_question_was_refused() {
+    let message = ssh_exit_failure(Some(255), LoginKind::Askpass);
+
+    assert!(message.starts_with("ssh exited with code 255"), "{message}");
+    assert!(
+        message.contains("password") && message.contains("host key") && message.contains("passphrase"),
+        "{message}"
+    );
+}
+
+#[test]
+fn askpass_with_another_exit_code_names_only_the_code() {
+    assert_eq!(ssh_exit_failure(Some(1), LoginKind::Askpass), "ssh exited with code 1");
+    assert_eq!(ssh_exit_failure(Some(5), LoginKind::Askpass), "ssh exited with code 5");
+}
+
+#[test]
+fn askpass_with_no_code_is_reported_as_stopped() {
+    assert_eq!(ssh_exit_failure(None, LoginKind::Askpass), "ssh was stopped before it finished");
+}
+
+fn invocation_with(program: &str, env: &[&str]) -> ShellInvocation {
+    ShellInvocation {
+        program: program.into(),
+        args: Vec::new(),
+        env: env.iter().map(|name| ((*name).into(), "x".into())).collect(),
+    }
+}
+
+#[test]
+fn the_login_kind_comes_from_the_program_and_the_askpass_variable() {
+    assert_eq!(login_kind(&invocation_with("sshpass", &["SSHPASS"])), LoginKind::Sshpass);
+    assert_eq!(login_kind(&invocation_with("/usr/bin/sshpass", &[])), LoginKind::Sshpass);
+    assert_eq!(login_kind(&invocation_with("ssh", &["SSH_ASKPASS_REQUIRE", "SSH_ASKPASS"])), LoginKind::Askpass);
+    assert_eq!(login_kind(&invocation_with("ssh", &[])), LoginKind::Other);
+    assert_eq!(login_kind(&invocation_with("ssh", &["SSHPASS"])), LoginKind::Other);
+}
+
+fn exited(code: i32) -> std::io::Result<std::process::ExitStatus> {
+    let program = if cfg!(windows) { "cmd" } else { "sh" };
+    let flag = if cfg!(windows) { "/c" } else { "-c" };
+    std::process::Command::new(program).args([flag, &format!("exit {code}")]).status()
+}
+
+#[test]
+fn a_local_shell_that_ends_with_a_failing_status_says_nothing() {
+    assert_eq!(local_shell_failure("sh", Ok(exited(3))), None);
+    assert_eq!(local_shell_failure("sh", Ok(exited(0))), None);
+}
+
+#[test]
+fn a_local_shell_that_cannot_start_names_the_program_and_the_error() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    let message = local_shell_failure("powershell.exe", Ok(Err(error)));
+
+    assert_eq!(
+        message,
+        Some(format!("Failed to launch powershell.exe: {}", std::io::Error::from(std::io::ErrorKind::NotFound)))
+    );
+}
+
+#[test]
+fn a_local_shell_task_that_fails_to_join_is_reported() {
+    let message = local_shell_failure("sh", Err("panicked".to_string()));
+
+    assert_eq!(message.as_deref(), Some("terminal task failed: panicked"));
 }

@@ -14,7 +14,7 @@ mod theme;
 mod widgets;
 
 use app::App;
-use porthmos_core::{Core, Environment, Paths, UpdateMode, config, from_os_path};
+use porthmos_core::{Core, Environment, PanelKind, Paths, UpdateMode, config, from_os_path};
 
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
@@ -41,8 +41,8 @@ fn start_app(
     let (settings, config_warnings) = config::load(&paths)?;
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
     let (theme_settings, theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
-    let panel = settings.panel.clone();
     let update_mode = settings.update.mode;
+    let search_preview = settings.search.preview;
     let exit_update = ExitUpdate { paths: paths.clone(), mode: update_mode };
     let (core, events) = Core::builder()
         .paths(paths)
@@ -52,10 +52,12 @@ fn start_app(
         .start()?;
 
     let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
-    let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &panel, key_bindings)
+    let local_panel = core.panel_settings(PanelKind::Local);
+    let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &local_panel, key_bindings)
         .with_theme(theme)
         .with_home(home)
-        .with_update_mode(update_mode);
+        .with_update_mode(update_mode)
+        .with_search_preview(search_preview);
     for warning in config_warnings {
         app.warn(warning.0);
     }
@@ -71,6 +73,9 @@ fn start_app(
 const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn main() -> Result<()> {
+    if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
+        std::process::exit(code);
+    }
     match cli::interpret(std::env::args().skip(1)) {
         cli::Invocation::Run => {}
         cli::Invocation::Print(text) => {

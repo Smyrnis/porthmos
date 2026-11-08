@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use porthmos_core::{Command, CoreHandle, Event, ProtocolInfo, VfsPath};
+use porthmos_core::config::settings::PanelSettings;
+use porthmos_core::{Command, CoreHandle, Event, PanelKind, ProtocolInfo, VfsPath};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app::{App, Message};
@@ -21,6 +22,7 @@ pub struct Harness {
     scratch: tempfile::TempDir,
     launched: Arc<Mutex<Vec<ProcessJob>>>,
     installed: Arc<Mutex<Vec<String>>>,
+    main: iced::window::Id,
 }
 
 struct FakeSpawner(Arc<Mutex<Vec<ProcessJob>>>);
@@ -44,6 +46,17 @@ impl Harness {
         Harness::build(Vec::new(), GuiSettings { update_mode: mode, ..GuiSettings::default() })
     }
 
+    pub fn with_window_memory(memory: crate::window_memory::WindowMemory) -> Harness {
+        let mut harness = Harness::new();
+        let file = harness.window_memory_file();
+        harness.app.set_window_memory(memory, file);
+        harness
+    }
+
+    pub fn window_memory_file(&self) -> std::path::PathBuf {
+        crate::window_memory::file_in(self.scratch())
+    }
+
     pub fn with_gui_settings(settings: GuiSettings) -> Harness {
         Harness::build(Vec::new(), settings)
     }
@@ -52,13 +65,26 @@ impl Harness {
         Harness::build(protocols, GuiSettings::default())
     }
 
+    pub fn with_remembered_panels(local: PanelSettings, remote: PanelSettings) -> Harness {
+        Harness::build_remembering(Vec::new(), GuiSettings::default(), local, remote)
+    }
+
     fn build(protocols: Vec<ProtocolInfo>, settings: GuiSettings) -> Harness {
+        Harness::build_remembering(protocols, settings, PanelSettings::default(), PanelSettings::default())
+    }
+
+    fn build_remembering(
+        protocols: Vec<ProtocolInfo>, settings: GuiSettings, local: PanelSettings, remote: PanelSettings,
+    ) -> Harness {
         let (core, commands) = CoreHandle::detached_with(protocols);
+        let core = core.with_panel_settings(PanelKind::Local, local).with_panel_settings(PanelKind::Remote, remote);
         let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let start = VfsPath::new("/home/tester");
         let palette = Palette::new(&ThemeSettings::default());
         let scratch = tempfile::tempdir().unwrap();
+        let main = iced::window::Id::unique();
         let mut app = App::new(core, EventSource::new(receiver), start.clone(), palette, Shortcuts::default())
+            .with_main_window(main)
             .with_update_mode(settings.update_mode)
             .with_settings(settings, scratch.path().join("config.toml"));
         app.set_staging_parent(scratch.path().to_path_buf());
@@ -77,7 +103,31 @@ impl Harness {
             scratch.path().to_path_buf(),
         );
         app.set_launcher(launcher);
-        Harness { app, commands, start, scratch, launched, installed }
+        Harness { app, commands, start, scratch, launched, installed, main }
+    }
+
+    pub fn main_id(&self) -> iced::window::Id {
+        self.main
+    }
+
+    pub fn settings_id(&self) -> Option<iced::window::Id> {
+        self.app.window_id_of(crate::windows::WindowKind::Settings)
+    }
+
+    pub fn connections_id(&self) -> Option<iced::window::Id> {
+        self.app.window_id_of(crate::windows::WindowKind::Connections)
+    }
+
+    pub fn search_id(&self) -> Option<iced::window::Id> {
+        self.app.window_id_of(crate::windows::WindowKind::Search)
+    }
+
+    pub fn key_target(&self) -> iced::window::Id {
+        self.connections_id().or_else(|| self.settings_id()).or_else(|| self.search_id()).unwrap_or(self.main)
+    }
+
+    pub fn resize(&mut self, size: iced::Size) {
+        self.press(Message::WindowSized(self.main, size));
     }
 
     pub fn launched(&mut self) -> Vec<ProcessJob> {

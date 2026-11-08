@@ -3,7 +3,7 @@ use iced::{Background, Border, Element, Length, alignment};
 
 use super::button::{Look, flat, tool_button};
 use super::{filled, label};
-use crate::app::{App, Message};
+use crate::app::{App, Message, PanelSide};
 use crate::geometry::{HAIRLINE, TAB_HEIGHT, TOOLBAR_HEIGHT, labels_visible};
 use crate::icons::Icon;
 use crate::menus::{MoreState, more_items};
@@ -24,6 +24,8 @@ pub struct ToolbarState {
     pub refresh: bool,
     pub filter: bool,
     pub transfers: bool,
+    pub local_terminal: bool,
+    pub remote_terminal: bool,
 }
 
 pub fn show_titles(window_width: f32) -> bool {
@@ -53,6 +55,13 @@ fn action_button<'a>(app: &'a App, icon: Icon, title: &str, action: Action, enab
     tool_button(Some(icon), title, titles, hint(app, title, action), press, Look::Normal, app.palette())
 }
 
+fn terminal_button<'a>(
+    app: &'a App, side: PanelSide, icon: Icon, title: &str, hint: &str, enabled: bool,
+) -> Element<'a, Message> {
+    let press = enabled.then_some(Message::TerminalRequested(side));
+    tool_button(Some(icon), title, false, hint.to_string(), press, Look::Normal, app.palette())
+}
+
 fn separator<'a>(palette: &Palette) -> Element<'a, Message> {
     container(space())
         .width(Length::Fixed(HAIRLINE))
@@ -77,6 +86,27 @@ pub fn bar(app: &App) -> Element<'_, Message> {
         separator(palette),
         action_button(app, Icon::Refresh, "Refresh", Action::Refresh, state.refresh),
         action_button(app, Icon::Search, "Filter", Action::StartFilter, state.filter),
+        separator(palette),
+        terminal_button(
+            app,
+            PanelSide::Local,
+            Icon::Terminal,
+            "Terminal",
+            "Open a terminal in this computer's folder",
+            state.local_terminal,
+        ),
+        terminal_button(
+            app,
+            PanelSide::Remote,
+            Icon::RemoteTerminal,
+            "Remote",
+            if state.remote_terminal {
+                "Open a terminal on the connection"
+            } else {
+                "Needs a connection that supports a terminal"
+            },
+            state.remote_terminal,
+        ),
         space().width(Length::Fill),
         badge_button(app).unwrap_or_else(|| space().width(Length::Fixed(0.0)).into()),
         tool_button(
@@ -121,12 +151,9 @@ pub fn bar(app: &App) -> Element<'_, Message> {
 pub fn more_menu(app: &App) -> Element<'_, Message> {
     let palette = *app.palette();
     let mut items = column![];
-    for (item, title, enabled) in more_items(MoreState {
-        hidden_shown: app.hidden_shown(),
-        file: app.single_file(),
-        terminal: app.terminal_possible(),
-        sync: app.sync_possible(),
-    }) {
+    for (item, title, enabled) in
+        more_items(MoreState { hidden_shown: app.hidden_shown(), file: app.single_file(), sync: app.sync_possible() })
+    {
         let color = if enabled { palette.fg_bright } else { palette.fg_dim };
         let row_button = button(label(title, color))
             .padding([6.0, 12.0])

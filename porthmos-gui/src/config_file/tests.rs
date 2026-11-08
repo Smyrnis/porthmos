@@ -124,6 +124,50 @@ fn a_blank_editor_removes_it() {
 }
 
 #[test]
+fn set_terminal_writes_and_none_removes_it() {
+    let written = apply("", &Edit::SetTerminal(Some("kitty --single-instance".to_string()))).unwrap();
+    assert_eq!(written, "[terminal]\ncommand = \"kitty --single-instance\"\n");
+
+    assert_eq!(apply(&written, &Edit::SetTerminal(None)).unwrap(), "");
+}
+
+#[test]
+fn a_blank_terminal_removes_it_and_other_keys_and_comments_stay() {
+    let before = "[terminal]\ncommand = \"xterm\"\n\n# my editor\n[edit]\neditor = \"vi\"\n";
+
+    let written = apply(before, &Edit::SetTerminal(Some("  ".to_string()))).unwrap();
+
+    assert_eq!(written, "\n# my editor\n[edit]\neditor = \"vi\"\n");
+}
+
+#[test]
+fn a_terminal_command_with_backslashes_is_written_so_it_reads_back_the_same() {
+    let command = r"C:\Tools\wt.exe new-tab {command}";
+
+    let written = apply("", &Edit::SetTerminal(Some(command.to_string()))).unwrap();
+
+    let table: toml::Table = written.parse().unwrap();
+    assert_eq!(table["terminal"]["command"].as_str(), Some(command));
+}
+
+#[test]
+fn set_search_preview_writes_a_bool_under_search() {
+    assert_eq!(apply("", &Edit::SetSearchPreview(true)).unwrap(), "[search]\npreview = true\n");
+    assert_eq!(
+        apply("[search]\npreview = true\n", &Edit::SetSearchPreview(false)).unwrap(),
+        "[search]\npreview = false\n"
+    );
+}
+
+#[test]
+fn set_search_preview_keeps_the_other_tables_and_comments() {
+    let kept = apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetSearchPreview(true)).unwrap();
+
+    assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
+    assert!(kept.contains("[search]\npreview = true\n"), "{kept}");
+}
+
+#[test]
 fn set_auto_upload_writes_a_bool() {
     assert_eq!(apply("", &Edit::SetAutoUpload(false)).unwrap(), "[edit]\nauto_upload = false\n");
     assert_eq!(
@@ -156,6 +200,7 @@ fn a_table_that_is_not_a_table_is_refused() {
         ("[gui]\nkeys = \"x\"\n", set_key("palette", &["ctrl+o"]), "[gui.keys]"),
         ("edit = true\n", Edit::SetAutoUpload(false), "[edit]"),
         ("edit = true\n", Edit::SetEditor(None), "[edit]"),
+        ("terminal = true\n", Edit::SetTerminal(None), "[terminal]"),
         ("update = \"auto\"\n", Edit::SetUpdateMode(UpdateMode::Off), "[update]"),
     ];
     for (before, edit, table) in cases {
@@ -278,4 +323,25 @@ fn save_reports_an_unreadable_path_by_name() {
     let message = save(&path, &Edit::SetAutoUpload(false)).unwrap_err();
 
     assert!(message.contains("config.toml"), "{message}");
+}
+
+#[test]
+fn set_reopen_mode_writes_the_mode_name_under_startup() {
+    use porthmos_core::ReopenMode;
+    for (mode, name) in [(ReopenMode::Off, "off"), (ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto")] {
+        assert_eq!(apply("", &Edit::SetReopenMode(mode)).unwrap(), format!("[startup]\nreopen = \"{name}\"\n"));
+    }
+    assert_eq!(
+        apply("[startup]\nreopen = \"ask\"\n", &Edit::SetReopenMode(porthmos_core::ReopenMode::Auto)).unwrap(),
+        "[startup]\nreopen = \"auto\"\n"
+    );
+}
+
+#[test]
+fn set_reopen_mode_keeps_the_other_tables_and_comments() {
+    let kept =
+        apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetReopenMode(porthmos_core::ReopenMode::Ask)).unwrap();
+
+    assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
+    assert!(kept.contains("[startup]\nreopen = \"ask\"\n"), "{kept}");
 }

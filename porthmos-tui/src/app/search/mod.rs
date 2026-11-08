@@ -29,6 +29,7 @@ impl App {
 
         match session.view.handle_key(key) {
             SearchOutcome::Cancel => {
+                self.cancel_search_preview();
                 self.search = None;
                 self.core.send(Command::CancelSearch);
                 self.screen = Screen::Files;
@@ -36,7 +37,29 @@ impl App {
             }
             SearchOutcome::PatternChanged => self.restart_search(),
             SearchOutcome::Open => self.open_selected_search_result(),
-            SearchOutcome::Pending => {}
+            SearchOutcome::Pending => self.sync_search_pane(),
+        }
+    }
+
+    fn cancel_search_preview(&mut self) {
+        if self.search.as_ref().is_some_and(|session| session.view.pane.is_some()) {
+            self.core.send(Command::CancelPreview);
+        }
+    }
+
+    pub(super) fn sync_search_pane(&mut self) {
+        let enabled = self.search_preview;
+        let Some(session) = self.search.as_mut() else {
+            return;
+        };
+        let location = session.location;
+        match session.view.sync_pane(enabled) {
+            PaneSync::Keep => {}
+            PaneSync::Cancel => self.core.send(Command::CancelPreview),
+            PaneSync::Request { path } => {
+                self.next_preview_id += 1;
+                self.core.send(Command::PreviewHint { request_id: self.next_preview_id, location, path });
+            }
         }
     }
 
@@ -44,9 +67,13 @@ impl App {
         let Some(session) = self.search.as_mut() else {
             return;
         };
+        let had_pane = session.view.pane.is_some();
         session.view.start();
         let pattern = session.view.pattern.clone();
         let location = session.location;
+        if had_pane {
+            self.core.send(Command::CancelPreview);
+        }
         if pattern.is_empty() {
             self.core.send(Command::CancelSearch);
             return;
@@ -64,8 +91,8 @@ impl App {
             return;
         };
         let location = session.location;
-        let parent = entry.path.parent().unwrap_or_else(|| entry.path.clone());
 
+        self.cancel_search_preview();
         self.search = None;
         self.core.send(Command::CancelSearch);
         self.screen = Screen::Files;
@@ -77,8 +104,7 @@ impl App {
                 ActivePanel::Remote
             }
         };
-        self.pending_focus = Some(PendingFocus { location, folder: parent.clone(), name: entry.name });
-        self.core.send(Command::List { location, path: Some(parent) });
+        self.core.send(Command::Reveal { location, path: entry.path });
     }
 }
 

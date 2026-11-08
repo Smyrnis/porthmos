@@ -258,7 +258,7 @@ impl Engine {
         };
         let edit_id = self.new_edit_session(Location::Session(session_id), path.clone(), editor);
         let name = self.edit.sessions[&edit_id].name.clone();
-        let dir = self.paths.edit_dir().join(format!("{}-{edit_id}", (self.clock)().timestamp_millis()));
+        let dir = self.paths.edit_dir().join(format!("{}-{edit_id}", self.now().timestamp_millis()));
         let local = self.local_fs.clone();
         let internal = self.internal.clone();
         self.info(format!("Downloading {} to edit\u{2026}", printable(&name)));
@@ -487,7 +487,7 @@ impl Engine {
             baseline,
             name,
             mode,
-            at: (self.clock)().with_timezone(&(self.local_offset)()),
+            at: self.now().with_timezone(&(self.local_offset)()),
         };
         self.tasks.spawn("edit-upload", Scope::Edit(edit_id), move |_| async move {
             let event = upload(job, fs, local).await;

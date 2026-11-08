@@ -77,7 +77,9 @@ impl Engine {
             Ok(()) => {
                 if let Some(original) = &original {
                     self.carry_last_used(original, &profile.name);
+                    self.resume_folders.remove(original);
                 }
+                self.resume_folders.remove(&profile.name);
                 self.emit(Event::ProfileSaved);
                 self.list_profiles();
             }
@@ -174,6 +176,7 @@ impl Engine {
             return self.list_profiles();
         }
         self.forget_last_used(name);
+        self.resume_folders.remove(name);
         self.list_profiles();
         self.forget_profile_secrets(name.to_string(), saved);
     }

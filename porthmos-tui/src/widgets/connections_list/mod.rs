@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::{DateTime, Utc};
 
 use porthmos_core::{
-    ProtocolInfo,
+    Message, ProtocolInfo,
     connections_tree::TreeRow,
     profiles::{ConnectionEntry, ConnectionSource},
 };
@@ -21,7 +21,7 @@ use crate::{
         connections_view::ConnectionsView,
         filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
-        history_view::{joined_lines, printable},
+        history_view::printable,
         last_used::last_used_text,
         text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
@@ -40,7 +40,7 @@ const DOT: &str = "\u{2022}";
 pub struct ConnectionsContext<'a> {
     pub connected: &'a HashSet<&'a str>,
     pub lost: &'a HashSet<&'a str>,
-    pub failures: &'a HashMap<String, String>,
+    pub failures: &'a HashMap<String, Message>,
     pub protocols: &'a [ProtocolInfo],
     pub last_used: &'a BTreeMap<String, DateTime<Utc>>,
     pub now: DateTime<Utc>,
@@ -210,7 +210,7 @@ fn connection_line(
     );
     let fixed = MARKER_WIDTH + indent.width() + 2 + columns.name + COLUMN_GAP + columns.protocol + COLUMN_GAP;
     let (detail, detail_style) = match failure {
-        Some(message) => (joined_lines(message), theme.err_text()),
+        Some(message) => (printable(&message.one_line()), theme.err_text()),
         None if lost => (CONNECTION_LOST.to_string(), theme.err_text()),
         None => (host_text(entry, context.protocols), theme.dim()),
     };

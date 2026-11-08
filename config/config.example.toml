@@ -29,6 +29,15 @@ auto_upload = true
 # backslashes stay literal: editor = 'C:\Program Files\Notepad++\notepad++.exe'
 editor = ""
 
+[terminal]
+# Terminal program the window app opens for "Open terminal here". Empty means
+# $TERMINAL, then x-terminal-emulator, then a list of common terminals. Write the
+# program with any arguments ("kitty --single-instance"); the command to run
+# is added after them. Put {command} where it belongs when the program needs it
+# elsewhere: command = "wt.exe new-tab {command}". Not used by the terminal app,
+# which opens the shell in the terminal it runs in.
+command = ""
+
 [update]
 # What Porthmos does about new versions:
 #   "auto"   download new versions in the background and install them when you quit.
@@ -38,6 +47,24 @@ editor = ""
 mode = "auto"
 # Hours between automatic checks, from 1 to 720.
 interval_hours = 24
+
+[search]
+# Show the start of the file under the cursor in a pane below the search
+# results. The pane follows the cursor and scrolls (PageUp and PageDown in the
+# terminal app, the mouse wheel in the window app). Off by default.
+preview = false
+
+[startup]
+# Reopen the saved connections that were open when you last quit.
+#   "off"  - do nothing, and remember nothing (the default)
+#   "ask"  - show them in the empty remote panel and the command palette
+#            ("Reopen last connections"); nothing connects until you choose it
+#   "auto" - connect to them one after another when the app starts
+# Passwords, key passphrases and host-key questions are asked as usual, one
+# connection at a time; connections whose password is saved in the keyring
+# open without a prompt. Each connection returns to the folder it was last in.
+# The window app also has this in Settings.
+reopen = "off"
 
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
@@ -90,6 +117,8 @@ rename = ["r", "f2"]
 edit = ["e", "f3"]
 preview = "p"
 open_transfers = "t"
+# Needs a terminal that reports Ctrl+' (kitty keyboard protocol); elsewhere use "Go to folder path" in the command palette (Ctrl+P).
+go_to_path = "ctrl+'"
 session_1 = "1"
 session_2 = "2"
 session_3 = "3"

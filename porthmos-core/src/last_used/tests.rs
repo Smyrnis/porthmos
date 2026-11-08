@@ -231,3 +231,128 @@ fn merging_a_connection_never_used_or_onto_itself_changes_nothing() {
 
     assert_eq!(last_used.get("new"), Some(at(9)));
 }
+
+fn folder(path: &str) -> VfsPath {
+    VfsPath::new(path)
+}
+
+#[test]
+fn a_recorded_folder_is_returned_for_that_connection_only() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+
+    assert!(last_used.record_folder("web", &folder("/srv/www")));
+
+    assert_eq!(last_used.folder("web"), Some(folder("/srv/www")));
+    assert_eq!(last_used.folder("db"), None);
+}
+
+#[test]
+fn recording_the_same_folder_again_changes_nothing() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record_folder("web", &folder("/srv/www"));
+
+    assert!(!last_used.record_folder("web", &folder("/srv/www")));
+    assert!(last_used.record_folder("web", &folder("/srv")));
+
+    assert_eq!(last_used.folder("web"), Some(folder("/srv")));
+}
+
+#[test]
+fn folders_are_written_in_their_own_table_and_load_back() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record("web", at(9));
+    last_used.record_folder("web", &folder("/srv/it's here"));
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    let text = last_used.render().unwrap();
+    std::fs::write(paths.last_used_file(), &text).unwrap();
+
+    let (loaded, warning) = LastUsed::load(&paths);
+
+    assert!(warning.is_none());
+    assert!(text.contains("[last_folder]"), "{text}");
+    assert_eq!(loaded.folder("web"), Some(folder("/srv/it's here")));
+    assert_eq!(loaded.get("web"), Some(at(9)));
+}
+
+#[test]
+fn a_file_from_before_folders_existed_loads_without_any() {
+    let (_dir, paths) = paths();
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.last_used_file(), "[last_used]\nweb = \"2026-10-22T09:00:00Z\"\n").unwrap();
+
+    let (loaded, warning) = LastUsed::load(&paths);
+
+    assert!(warning.is_none());
+    assert_eq!(loaded.folder("web"), None);
+    assert_eq!(loaded.get("web"), Some(at(9)));
+}
+
+#[test]
+fn renaming_carries_the_folder_with_the_time() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record_folder("web", &folder("/srv"));
+
+    assert!(last_used.rename("web", "web-old"));
+
+    assert_eq!(last_used.folder("web"), None);
+    assert_eq!(last_used.folder("web-old"), Some(folder("/srv")));
+}
+
+#[test]
+fn renaming_a_connection_with_no_folder_clears_the_targets_old_folder() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record_folder("web", &folder("/srv"));
+
+    assert!(last_used.rename("staging", "web"));
+
+    assert_eq!(last_used.folder("web"), None);
+}
+
+#[test]
+fn forgetting_removes_the_folder_too() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record_folder("web", &folder("/srv"));
+
+    assert!(last_used.forget("web"));
+
+    assert_eq!(last_used.folder("web"), None);
+}
+
+#[test]
+fn merging_keeps_the_folder_of_whichever_connection_was_used_last() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record("old", at(9));
+    last_used.record_folder("old", &folder("/from-old"));
+    last_used.record("new", at(11));
+    last_used.record_folder("new", &folder("/from-new"));
+    last_used.record("older", at(12));
+    last_used.record_folder("older", &folder("/from-older"));
+    last_used.record("newer", at(8));
+    last_used.record_folder("newer", &folder("/from-newer"));
+
+    assert!(last_used.merge("old", "new"));
+    assert!(last_used.merge("older", "newer"));
+
+    assert_eq!(last_used.folder("new"), Some(folder("/from-new")));
+    assert_eq!(last_used.folder("newer"), Some(folder("/from-older")));
+    assert_eq!(last_used.folder("old"), None);
+    assert_eq!(last_used.folder("older"), None);
+}
+
+#[test]
+fn merging_moves_a_folder_when_the_target_has_none() {
+    let (_dir, paths) = paths();
+    let (mut last_used, _) = LastUsed::load(&paths);
+    last_used.record_folder("old", &folder("/x"));
+
+    assert!(last_used.merge("old", "new"));
+
+    assert_eq!(last_used.folder("new"), Some(folder("/x")));
+}

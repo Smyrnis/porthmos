@@ -1,8 +1,7 @@
 use iced::widget::{checkbox, column, container, row, scrollable, space, text_input};
-use iced::{Alignment, Border, Element, Font, Length};
+use iced::{Alignment, Border, Element, Font, Length, Size};
 
 use super::button::{Look, text_button};
-use super::tools::settings_list_height;
 use super::{bold_label, hairline_across, label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
@@ -10,9 +9,12 @@ use crate::settings_view::{SettingsMessage, SettingsState};
 use crate::shortcuts::{Action, Shortcuts};
 use crate::theme::Palette;
 
+pub const SETTINGS_CHROME: f32 = 140.0;
 const UNBOUND: &str = "\u{2014}";
 const CAPTURE_HINT: &str = "Press the new shortcut, Esc to cancel";
 const EDITOR_PLACEHOLDER: &str = "Editor command, for example: code --wait";
+const TERMINAL_PLACEHOLDER: &str = "Terminal command, for example: kitty";
+const TERMINAL_HELP: &str = "Used by Open terminal here. Leave empty to use $TERMINAL or a terminal found on this system. Put {command} where the command to run belongs if the program needs it elsewhere.";
 const EDITOR_HELP: &str = "Leave empty to use $VISUAL, $EDITOR or the system default.";
 
 pub fn reset_enabled(shortcuts: &Shortcuts, action: Action) -> bool {
@@ -61,6 +63,29 @@ fn update_choices<'a>(app: &App) -> Element<'a, Message> {
     line.into()
 }
 
+fn reopen_choices<'a>(app: &App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let current = app.gui_settings().reopen;
+    let mut line = row![].spacing(8);
+    for (mode, title) in App::reopen_choices() {
+        let look = if mode == current { Look::Primary } else { Look::Normal };
+        line = line.push(text_button(title, Some(Message::SettingsReopenChosen(mode)), look, palette));
+    }
+    line.into()
+}
+
+fn startup_section<'a>(app: &'a App) -> Element<'a, Message> {
+    let palette = app.palette();
+    column![
+        section("Startup", palette),
+        label("Connections that were open when you last quit:", palette.fg),
+        reopen_choices(app),
+        label("Only saved connections are remembered, and only while this is on.", palette.fg_dim),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
     label("Takes effect the next time Porthmos starts.", palette.fg_dim).into()
 }
@@ -89,6 +114,33 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
     .into()
 }
 
+fn search_section<'a>(app: &'a App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let preview = checkbox(app.gui_settings().search_preview)
+        .label("Show a preview of the file under the cursor")
+        .on_toggle(Message::SettingsSearchPreviewToggled);
+    column![section("Search", palette), preview].spacing(8).into()
+}
+
+fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
+    let palette = app.palette();
+    let input = text_input(TERMINAL_PLACEHOLDER, &state.terminal_text)
+        .id(App::settings_terminal_id())
+        .on_input(Message::SettingsTerminalTyped)
+        .on_submit(Message::SettingsTerminalApplied)
+        .size(13.0)
+        .font(Font::DEFAULT);
+    column![
+        section("Terminal", palette),
+        row![input, text_button("Apply", Some(Message::SettingsTerminalApplied), Look::Normal, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        label(TERMINAL_HELP, palette.fg_dim),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn updates_section<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     column![
@@ -110,18 +162,40 @@ fn message_line<'a>(state: &SettingsState, palette: &Palette) -> Element<'a, Mes
     container(line).width(Length::Fill).clip(true).into()
 }
 
-pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
+pub fn window_list_height(window: Size) -> f32 {
+    (window.height - SETTINGS_CHROME).max(ROW_HEIGHT)
+}
+
+pub fn window(app: &App) -> Option<Element<'_, Message>> {
+    let state = app.settings_state()?;
+    let palette = app.palette();
+    let surface = palette.surface;
+    let content = container(body(app, state)).padding(16).width(Length::Fill).height(Length::Fill).style(move |_| {
+        container::Style { background: Some(iced::Background::Color(surface)), ..container::Style::default() }
+    });
+    Some(content.into())
+}
+
+fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
     let mut shortcuts = column![section("Keyboard shortcuts", palette)].spacing(2);
     for action in Action::all() {
         shortcuts = shortcuts.push(shortcut_row(app, state, action));
     }
-    let content = column![shortcuts, editing_section(app, state), updates_section(app)].spacing(16).padding([0, 12]);
+    let content = column![
+        shortcuts,
+        editing_section(app, state),
+        search_section(app),
+        startup_section(app),
+        terminal_section(app, state),
+        updates_section(app)
+    ]
+    .spacing(16)
+    .padding([0, 12]);
     let list = scrollable(content)
-        .id(App::tool_list_id())
-        .on_scroll(|viewport| Message::SettingsScrolled(viewport.absolute_offset().y))
+        .id(App::settings_list_id())
         .width(Length::Fill)
-        .height(Length::Fixed(settings_list_height(app.window_size())));
+        .height(Length::Fixed(window_list_height(app.settings_window_size())));
     let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
     let boxed = container(list).style(move |_| container::Style { border, ..container::Style::default() });
     column![
@@ -129,7 +203,7 @@ pub fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> 
         boxed,
         message_line(state, palette),
         hairline_across(palette),
-        row![space().width(Length::Fill), text_button("Close", Some(Message::ToolClosed), Look::Primary, palette)]
+        row![space().width(Length::Fill), text_button("Close", Some(Message::SettingsClosed), Look::Primary, palette)]
             .spacing(8),
     ]
     .spacing(10)

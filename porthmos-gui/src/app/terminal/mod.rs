@@ -1,17 +1,33 @@
 use porthmos_core::edit::EditorExit;
 use porthmos_core::{Command, Severity, ShellInvocation};
 
-use super::App;
 use super::editing::JobRole;
+use super::{App, PanelSide};
 use crate::editing::CommandSpec;
 use crate::processes::ProcessJob;
 
 impl App {
     pub fn terminal_possible(&self) -> bool {
-        self.sessions.active().is_some_and(|session| session.shell_available)
+        self.terminal_possible_on(self.active_side())
+    }
+
+    pub fn terminal_possible_on(&self, side: PanelSide) -> bool {
+        match side {
+            PanelSide::Local => true,
+            PanelSide::Remote => self.sessions.active().is_some_and(|session| session.shell_available),
+        }
     }
 
     pub(in crate::app) fn request_terminal(&mut self) {
+        self.request_terminal_on(self.active_side());
+    }
+
+    pub(in crate::app) fn request_terminal_on(&mut self, side: PanelSide) {
+        if side == PanelSide::Local {
+            let directory = self.local.panel.path().clone();
+            self.core.send(Command::PrepareLocalShell { directory });
+            return;
+        }
         let Some(session) = self.sessions.active() else {
             return self.push_notice(Severity::Warning, "Connect to a server first".to_string());
         };
@@ -26,7 +42,7 @@ impl App {
     pub(in crate::app) fn shell_ready(&mut self, invocation: ShellInvocation) {
         let ShellInvocation { program, args, env } = invocation;
         let inner = CommandSpec { program, args };
-        match self.launcher.terminal(inner, env, false) {
+        match self.launcher.terminal(inner, env, false, self.gui_settings.terminal.as_deref()) {
             Ok(launch) => {
                 let token = self.next_process_token;
                 self.next_process_token += 1;

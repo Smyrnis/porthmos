@@ -1,5 +1,6 @@
 pub mod advice;
 
+use porthmos_core::Message;
 use porthmos_core::transfer::{
     Direction,
     rows::{QueueRow, RowKind, RowState, percent_of},
@@ -214,8 +215,9 @@ fn bar_spans(row: &QueueRow, theme: &Theme) -> Vec<Span<'static>> {
     ]
 }
 
-fn error_part(message: &str) -> &str {
-    message.split_once('\n').map_or(message, |(_, error)| error)
+fn error_part(message: &str) -> String {
+    let message = Message::parse(message);
+    message.cause().unwrap_or_else(|| message.summary()).to_string()
 }
 
 fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: &Theme) -> Vec<Line<'static>> {
@@ -234,8 +236,8 @@ fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: 
         Span::styled(file, theme.text()),
         Span::styled(suffix, theme.muted()),
     ])];
-    lines.push(Line::from(Span::styled(truncate_with_ellipsis(&printable(error), width), theme.muted())));
-    if let Some(advice) = advice_for(error) {
+    lines.push(Line::from(Span::styled(truncate_with_ellipsis(&printable(&error), width), theme.muted())));
+    if let Some(advice) = advice_for(&error) {
         lines.push(Line::from(Span::styled(truncate_with_ellipsis(advice, width), theme.dim())));
     }
     lines

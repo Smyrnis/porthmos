@@ -23,6 +23,7 @@ pub enum Target {
     ConnectionManager,
     Connect(String),
     Disconnect(SessionId),
+    Reopen,
     File { location: Location, name: String },
 }
 

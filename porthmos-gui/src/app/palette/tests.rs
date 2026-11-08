@@ -144,7 +144,7 @@ fn profiles_arriving_while_another_tool_is_open_leave_it_alone() {
 
     harness.feed(Event::Profiles(vec![profile("alpha")]));
 
-    assert!(matches!(harness.app.tool(), Some(Tool::Search(_))));
+    assert!(harness.app.search_state().is_some());
 }
 
 #[test]
@@ -243,7 +243,8 @@ fn a_command_that_opens_a_tool_replaces_the_palette() {
 
     named(&mut harness, Named::Enter);
 
-    assert!(matches!(harness.app.tool(), Some(Tool::Search(_))));
+    assert!(harness.app.tool().is_none());
+    assert!(harness.app.search_state().is_some());
 }
 
 #[test]
@@ -266,7 +267,7 @@ fn commands_that_cannot_act_are_not_listed() {
     list_local(&mut harness, vec![file(&start, "a.txt")]);
     open(&mut harness);
     let without = labels(&harness);
-    for missing in ["Edit", "Preview", "Synchronize…", "Open terminal here", "Copy to other panel", "Rename"] {
+    for missing in ["Edit", "Preview", "Synchronize…", "Copy to other panel", "Rename"] {
         assert!(!without.contains(&missing.to_string()), "{missing} listed in {without:?}");
     }
 
@@ -276,6 +277,7 @@ fn commands_that_cannot_act_are_not_listed() {
     harness.press(Message::PanelClicked(PanelSide::Local, 1));
     open(&mut harness);
     let with = labels(&harness);
+    assert!(without.contains(&"Open terminal here".to_string()), "{without:?}");
 
     for present in ["Edit", "Preview", "Synchronize…", "Open terminal here", "Copy to other panel", "Rename"] {
         assert!(with.contains(&present.to_string()), "{present} missing from {with:?}");
@@ -478,7 +480,7 @@ fn the_palette_survives_a_window_resize() {
     let mut harness = Harness::new();
     open(&mut harness);
 
-    harness.press(Message::WindowResized(Size::new(480.0, 320.0)));
+    harness.resize(Size::new(480.0, 320.0));
 
     assert!(palette_open(&harness));
     assert!(state(&harness).hit_count() > 0);

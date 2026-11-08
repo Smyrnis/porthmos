@@ -8,6 +8,7 @@ use crate::panel::Panel;
 enum Expected {
     Current,
     Anything,
+    Typed,
     Folder(VfsPath),
 }
 
@@ -19,7 +20,6 @@ pub struct Pane {
     expected: Expected,
     recording: bool,
     listed: bool,
-    pending_focus: Option<(VfsPath, String)>,
     reveal_cursor: bool,
 }
 
@@ -32,7 +32,6 @@ impl Pane {
             expected: Expected::Current,
             recording: true,
             listed: false,
-            pending_focus: None,
             reveal_cursor: false,
         }
     }
@@ -45,13 +44,14 @@ impl Pane {
             expected: Expected::Anything,
             recording: true,
             listed: false,
-            pending_focus: None,
             reveal_cursor: false,
         }
     }
 
-    pub fn focus_when_listed(&mut self, folder: VfsPath, name: String) {
-        self.pending_focus = Some((folder, name));
+    pub fn reveal(&mut self, folder: &VfsPath, name: &str) {
+        if self.panel.path() == folder {
+            self.reveal_cursor = self.panel.focus_name(name);
+        }
     }
 
     pub fn take_reveal_request(&mut self) -> bool {
@@ -70,34 +70,33 @@ impl Pane {
     pub fn expect(&mut self, path: Option<VfsPath>) {
         self.recording = true;
         self.expected = match path {
-            Some(path) => {
-                self.focus_the_folder_being_left(&path);
-                Expected::Folder(path)
-            }
+            Some(path) => Expected::Folder(path),
             None => Expected::Anything,
         };
     }
 
-    fn focus_the_folder_being_left(&mut self, target: &VfsPath) {
-        let current = self.panel.path();
-        let left = current
-            .ancestors()
-            .find(|candidate| candidate.parent().as_ref() == Some(target))
-            .and_then(|child| child.file_name().map(|name| name.to_string_lossy().to_string()));
-        self.pending_focus = left.map(|name| (target.clone(), name));
+    pub fn expect_typed(&mut self) {
+        self.recording = true;
+        self.expected = Expected::Typed;
+    }
+
+    pub fn finish_typed(&mut self) {
+        if self.expected == Expected::Typed {
+            self.expected = Expected::Current;
+        }
     }
 
     pub fn accept(&mut self, path: VfsPath, entries: Vec<Entry>) -> bool {
         let requested = match &self.expected {
-            Expected::Anything => true,
+            Expected::Anything | Expected::Typed => true,
             Expected::Folder(folder) => folder == &path,
             Expected::Current => false,
         };
         if !requested && &path != self.panel.path() {
             return false;
         }
-        let navigating = matches!(self.expected, Expected::Folder(_));
-        if requested {
+        let navigating = matches!(self.expected, Expected::Folder(_) | Expected::Typed);
+        if requested && self.expected != Expected::Typed {
             self.expected = Expected::Current;
         }
         if &path != self.panel.path() {
@@ -111,9 +110,6 @@ impl Pane {
         }
         self.panel.replace_listing(path.clone(), entries);
         self.listed = true;
-        if let Some((_, name)) = self.pending_focus.take_if(|(folder, _)| folder == &path) {
-            self.reveal_cursor = self.panel.focus_name(&name);
-        }
         true
     }
 }

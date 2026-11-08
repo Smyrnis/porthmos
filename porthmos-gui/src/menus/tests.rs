@@ -1,7 +1,7 @@
 use super::{MoreItem, MoreState, more_items};
 
 fn state(hidden_shown: bool, file: bool) -> MoreState {
-    MoreState { hidden_shown, file, terminal: true, sync: true }
+    MoreState { hidden_shown, file, sync: true }
 }
 
 #[test]
@@ -22,7 +22,6 @@ fn more_items_toggle_the_hidden_label() {
             (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
             (MoreItem::History, "Transfer history…".to_string(), true),
             (MoreItem::Sync, "Synchronize…".to_string(), true),
-            (MoreItem::Terminal, "Open terminal here".to_string(), true),
             (MoreItem::CheckForUpdates, "Check for updates".to_string(), true)
         ]
     );
@@ -160,7 +159,7 @@ fn edit_in_the_more_menu_follows_the_file_flag() {
 #[test]
 fn the_more_item_is_disabled_without_a_listed_connection() {
     let sync_for = |sync: bool| {
-        more_items(MoreState { hidden_shown: false, file: false, terminal: false, sync })
+        more_items(MoreState { hidden_shown: false, file: false, sync })
             .into_iter()
             .find(|(item, _, _)| *item == MoreItem::Sync)
             .map(|(_, title, enabled)| (title, enabled))
