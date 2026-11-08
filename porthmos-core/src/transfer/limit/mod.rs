@@ -165,5 +165,9 @@ pub fn format_speed_limit(limit: Option<u64>) -> String {
     limit.to_string()
 }
 
+pub fn speed_limit_note(limit: Option<u64>) -> Option<String> {
+    limit.map(|_| format!("speed limit {}", format_speed_limit(limit)))
+}
+
 #[cfg(test)]
 mod tests;

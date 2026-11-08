@@ -288,3 +288,10 @@ fn more_odd_inputs_are_rejected() {
         assert!(parse_speed_limit(text).is_err(), "{text:?}");
     }
 }
+
+#[test]
+fn a_limit_in_force_is_announced_and_no_limit_is_not() {
+    assert_eq!(speed_limit_note(None), None);
+    assert_eq!(speed_limit_note(Some(512 * 1024)).as_deref(), Some("speed limit 512k"));
+    assert_eq!(speed_limit_note(Some(1500)).as_deref(), Some("speed limit 1500"));
+}
