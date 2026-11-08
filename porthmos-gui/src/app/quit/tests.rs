@@ -224,3 +224,56 @@ fn closing_the_main_window_with_search_open_cancels_the_search_and_closes_its_wi
     assert_eq!(units, 2);
     assert!(harness.sent().contains(&Command::CancelSearch));
 }
+
+#[test]
+fn quitting_saves_the_window_sizes_and_positions() {
+    let mut harness = Harness::with_window_memory(Default::default());
+    let main = harness.main_id();
+    harness.press(Message::WindowSized(main, iced::Size::new(900.0, 600.0)));
+    harness.press(Message::WindowMoved(main, iced::Point::new(25.0, 35.0)));
+
+    harness.press(Message::CloseRequested);
+
+    let saved = crate::window_memory::WindowMemory::load(&harness.window_memory_file()).memory;
+    assert_eq!(&saved, harness.app.windows.memory());
+    let settings = saved.applied_to(crate::windows::WindowKind::Main, crate::main_window::settings());
+    assert_eq!(settings.size, iced::Size::new(900.0, 600.0));
+}
+
+#[test]
+fn a_secondary_window_closed_earlier_is_still_saved_on_quit() {
+    let mut harness = Harness::with_window_memory(Default::default());
+    harness.press(Message::ActionRequested(crate::shortcuts::Action::Settings));
+    let settings_id = harness.settings_id().expect("settings window is open");
+    harness.press(Message::WindowSized(settings_id, iced::Size::new(640.0, 480.0)));
+    harness.press(Message::WindowCloseRequested(settings_id));
+
+    harness.press(Message::CloseRequested);
+
+    let saved = crate::window_memory::WindowMemory::load(&harness.window_memory_file()).memory;
+    let settings = saved.applied_to(crate::windows::WindowKind::Settings, crate::main_window::settings());
+    assert_eq!(settings.size, iced::Size::new(640.0, 480.0));
+}
+
+#[test]
+fn nothing_is_saved_while_a_quit_is_waiting_for_confirmation() {
+    let mut harness = Harness::with_window_memory(Default::default());
+    running_transfer(&mut harness, RowState::Running);
+
+    harness.press(Message::CloseRequested);
+
+    assert!(!harness.app.is_closing());
+    assert!(!harness.window_memory_file().exists());
+}
+
+#[test]
+fn a_failed_save_does_not_stop_the_app_from_quitting() {
+    let mut harness = Harness::new();
+    let blocker = harness.scratch().join("blocker");
+    std::fs::write(&blocker, "a file, not a folder").unwrap();
+    harness.app.set_window_memory(Default::default(), blocker.join("gui-windows.toml"));
+
+    harness.press(Message::CloseRequested);
+
+    assert!(harness.app.is_closing());
+}

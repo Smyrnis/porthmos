@@ -1,13 +1,32 @@
+use std::path::PathBuf;
+
 use iced::{Element, Size, Task, window};
 
 use super::{App, Message};
 use crate::shortcuts::KeyPress;
+use crate::window_memory::WindowMemory;
 use crate::windows::{WindowKind, Windows};
 
 impl App {
     pub fn with_main_window(mut self, id: window::Id) -> App {
+        let memory = self.windows.memory().clone();
         self.windows = Windows::new(id, self.window_size);
+        self.windows.set_memory(memory);
         self
+    }
+
+    pub fn set_window_memory(&mut self, memory: WindowMemory, file: PathBuf) {
+        self.windows.set_memory(memory);
+        self.window_memory_file = Some(file);
+    }
+
+    pub(in crate::app) fn save_window_memory(&self) {
+        let Some(file) = &self.window_memory_file else {
+            return;
+        };
+        if let Err(error) = self.windows.memory().save(file) {
+            tracing::warn!("the window sizes and positions could not be saved: {error:#}");
+        }
     }
 
     #[cfg(test)]

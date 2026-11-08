@@ -48,6 +48,7 @@ mod tools;
 mod transfers;
 mod update_view;
 mod view;
+mod window_memory;
 mod windows;
 
 fn main() -> Result<()> {
@@ -101,10 +102,17 @@ fn run_window() -> Result<()> {
     for warning in started.warnings {
         app.warn(warning);
     }
+    let memory_file = window_memory::file_in(&state_dir);
+    let remembered = window_memory::WindowMemory::load(&memory_file);
+    if let Some(warning) = remembered.warning {
+        app.warn(warning);
+    }
     app.set_state_dir(state_dir);
-    app.set_window_size(main_window::INITIAL_SIZE);
-    let (main_id, open_main) = iced::window::open(main_window::settings());
-    let app = app.with_main_window(main_id);
+    let main_settings = remembered.memory.applied_to(windows::WindowKind::Main, main_window::settings());
+    app.set_window_size(main_settings.size);
+    let (main_id, open_main) = iced::window::open(main_settings);
+    let mut app = app.with_main_window(main_id);
+    app.set_window_memory(remembered.memory, memory_file);
     let slot = Mutex::new(Some((app, open_main)));
     let result = iced::daemon(
         move || {

@@ -141,3 +141,60 @@ fn a_close_request_for_an_unregistered_window_asks_iced_to_close_it() {
 
     assert_eq!(units, 1);
 }
+
+#[test]
+fn a_move_of_the_main_window_is_remembered() {
+    let mut harness = Harness::new();
+    let main = harness.main_id();
+
+    harness.press(Message::WindowMoved(main, Point::new(150.0, 90.0)));
+
+    let settings = harness.app.windows.memory().applied_to(WindowKind::Main, crate::main_window::settings());
+    assert!(matches!(settings.position, window::Position::Specific(p) if p == Point::new(150.0, 90.0)));
+}
+
+#[test]
+fn a_move_of_a_secondary_window_is_remembered_under_its_own_kind() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(crate::shortcuts::Action::Settings));
+    let settings_id = harness.settings_id().expect("settings window is open");
+
+    harness.press(Message::WindowMoved(settings_id, Point::new(7.0, 8.0)));
+
+    let memory = harness.app.windows.memory();
+    let settings = memory.applied_to(WindowKind::Settings, crate::main_window::settings());
+    let main = memory.applied_to(WindowKind::Main, crate::main_window::settings());
+    assert!(matches!(settings.position, window::Position::Specific(p) if p == Point::new(7.0, 8.0)));
+    assert!(matches!(main.position, window::Position::Default));
+}
+
+#[test]
+fn a_move_of_an_unknown_window_is_ignored() {
+    let mut harness = Harness::new();
+
+    harness.press(Message::WindowMoved(window::Id::unique(), Point::new(1.0, 1.0)));
+
+    assert_eq!(harness.app.windows.memory(), &crate::window_memory::WindowMemory::default());
+}
+
+#[test]
+fn a_resize_of_a_secondary_window_is_remembered() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(crate::shortcuts::Action::Settings));
+    let settings_id = harness.settings_id().expect("settings window is open");
+
+    harness.press(Message::WindowSized(settings_id, Size::new(640.0, 480.0)));
+
+    let settings = harness.app.windows.memory().applied_to(WindowKind::Settings, crate::main_window::settings());
+    assert_eq!(settings.size, Size::new(640.0, 480.0));
+}
+
+#[test]
+fn the_remembered_geometry_survives_the_main_window_being_registered() {
+    let mut memory = crate::window_memory::WindowMemory::default();
+    memory.resized(WindowKind::Search, Size::new(777.0, 555.0));
+    let harness = Harness::with_window_memory(memory);
+
+    let settings = harness.app.windows.memory().applied_to(WindowKind::Search, crate::main_window::settings());
+    assert_eq!(settings.size, Size::new(777.0, 555.0));
+}

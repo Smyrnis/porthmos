@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use iced::{Size, window};
+use iced::{Point, Size, window};
 
 use crate::main_window;
+use crate::window_memory::WindowMemory;
 
 pub const SETTINGS_WINDOW_SIZE: Size = Size::new(760.0, 600.0);
 pub const CONNECTIONS_WINDOW_SIZE: Size = Size::new(860.0, 560.0);
@@ -27,6 +28,7 @@ pub enum Opened {
 pub struct Windows {
     main: window::Id,
     open: HashMap<window::Id, (WindowKind, Size)>,
+    memory: WindowMemory,
 }
 
 pub fn settings_for(kind: WindowKind) -> window::Settings {
@@ -52,7 +54,15 @@ impl WindowKind {
 
 impl Windows {
     pub fn new(main: window::Id, main_size: Size) -> Windows {
-        Windows { main, open: HashMap::from([(main, (WindowKind::Main, main_size))]) }
+        Windows { main, open: HashMap::from([(main, (WindowKind::Main, main_size))]), memory: WindowMemory::default() }
+    }
+
+    pub fn set_memory(&mut self, memory: WindowMemory) {
+        self.memory = memory;
+    }
+
+    pub fn memory(&self) -> &WindowMemory {
+        &self.memory
     }
 
     pub fn main(&self) -> window::Id {
@@ -71,7 +81,7 @@ impl Windows {
         if self.id_of(kind).is_some() {
             return Opened::Existing;
         }
-        let settings = settings_for(kind);
+        let settings = self.memory.applied_to(kind, settings_for(kind));
         let size = settings.size;
         let id = create(settings);
         self.open.insert(id, (kind, size));
@@ -90,8 +100,15 @@ impl Windows {
     }
 
     pub fn set_size(&mut self, id: window::Id, size: Size) {
-        if let Some(entry) = self.open.get_mut(&id) {
-            entry.1 = size;
+        if let Some((kind, remembered)) = self.open.get_mut(&id) {
+            *remembered = size;
+            self.memory.resized(*kind, size);
+        }
+    }
+
+    pub fn set_position(&mut self, id: window::Id, position: Point) {
+        if let Some((kind, _)) = self.open.get(&id) {
+            self.memory.moved(*kind, position);
         }
     }
 

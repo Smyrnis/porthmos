@@ -46,6 +46,17 @@ impl Harness {
         Harness::build(Vec::new(), GuiSettings { update_mode: mode, ..GuiSettings::default() })
     }
 
+    pub fn with_window_memory(memory: crate::window_memory::WindowMemory) -> Harness {
+        let mut harness = Harness::new();
+        let file = harness.window_memory_file();
+        harness.app.set_window_memory(memory, file);
+        harness
+    }
+
+    pub fn window_memory_file(&self) -> std::path::PathBuf {
+        crate::window_memory::file_in(self.scratch())
+    }
+
     pub fn with_gui_settings(settings: GuiSettings) -> Harness {
         Harness::build(Vec::new(), settings)
     }

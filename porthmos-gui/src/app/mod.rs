@@ -103,6 +103,7 @@ pub enum Message {
     WindowCloseRequested(window::Id),
     WindowKey(window::Id, KeyPress),
     WindowSized(window::Id, Size),
+    WindowMoved(window::Id, Point),
     FromWindow(window::Id, Box<Message>),
     MainWindowOpened,
     WindowOpened(window::Id),
@@ -261,6 +262,7 @@ pub struct App {
     filter_text: String,
     window_size: Size,
     windows: Windows,
+    window_memory_file: Option<PathBuf>,
     settings_state: Option<SettingsState>,
     manager: Manager,
     reveal: Option<String>,
@@ -334,6 +336,7 @@ impl App {
             filter_text: String::new(),
             window_size: Size::new(1100.0, 700.0),
             windows: Windows::new(window::Id::unique(), Size::new(1100.0, 700.0)),
+            window_memory_file: None,
             settings_state: None,
             manager: Manager::default(),
             reveal: None,
@@ -994,6 +997,7 @@ impl App {
             Message::WindowCloseRequested(id) => return self.window_close_requested(id),
             Message::WindowKey(id, press) => return self.window_key(id, press),
             Message::WindowSized(id, size) => self.window_sized(id, size),
+            Message::WindowMoved(id, position) => self.windows.set_position(id, position),
             Message::FromWindow(id, inner) => {
                 if self.is_main(id) {
                     return self.handle(*inner);
@@ -1982,6 +1986,10 @@ impl App {
                 _ => None,
             }),
             window::resize_events().map(|(id, size)| Message::WindowSized(id, size)),
+            event::listen_with(|event, _, window| match event {
+                iced::Event::Window(window::Event::Moved(position)) => Some(Message::WindowMoved(window, position)),
+                _ => None,
+            }),
             self.pointer_subscription(),
             Self::pointer_position_subscription(),
             self.native_subscription(),

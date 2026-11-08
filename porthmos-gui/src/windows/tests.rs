@@ -1,6 +1,13 @@
-use iced::{Size, window};
+use iced::{Point, Size, window};
 
 use super::*;
+
+fn position_of(settings: &window::Settings) -> Option<Point> {
+    match settings.position {
+        window::Position::Specific(point) => Some(point),
+        _ => None,
+    }
+}
 
 fn registry() -> (Windows, window::Id) {
     let main = window::Id::unique();
@@ -146,4 +153,65 @@ fn the_search_window_is_a_third_kind_with_its_own_size_and_title() {
     assert!(settings.min_size.is_some());
     assert!(!settings.exit_on_close_request);
     assert_eq!(WindowKind::Search.title(), "Porthmos Search");
+}
+
+#[test]
+fn a_closed_window_reopens_with_the_size_and_position_it_last_had() {
+    let (mut windows, _) = registry();
+    let (id, _) = open_new(&mut windows, WindowKind::Search);
+    windows.set_size(id, Size::new(900.0, 650.0));
+    windows.set_position(id, Point::new(30.0, 70.0));
+    windows.close(id);
+
+    let (_, settings) = open_new(&mut windows, WindowKind::Search);
+
+    assert_eq!(settings.size, Size::new(900.0, 650.0));
+    assert_eq!(position_of(&settings), Some(Point::new(30.0, 70.0)));
+}
+
+#[test]
+fn a_window_that_was_never_moved_opens_at_the_default_position() {
+    let (mut windows, _) = registry();
+    let (id, _) = open_new(&mut windows, WindowKind::Settings);
+    windows.set_size(id, Size::new(900.0, 650.0));
+    windows.close(id);
+
+    let (_, settings) = open_new(&mut windows, WindowKind::Settings);
+
+    assert_eq!(position_of(&settings), None);
+}
+
+#[test]
+fn the_main_window_geometry_is_remembered_without_being_reopened() {
+    let (mut windows, main) = registry();
+    windows.set_size(main, Size::new(1000.0, 640.0));
+    windows.set_position(main, Point::new(5.0, 6.0));
+
+    let settings = windows.memory().applied_to(WindowKind::Main, main_window::settings());
+
+    assert_eq!(settings.size, Size::new(1000.0, 640.0));
+    assert_eq!(position_of(&settings), Some(Point::new(5.0, 6.0)));
+}
+
+#[test]
+fn moving_an_unknown_window_is_ignored() {
+    let (mut windows, _) = registry();
+
+    windows.set_position(window::Id::unique(), Point::new(1.0, 2.0));
+
+    assert_eq!(windows.memory(), &WindowMemory::default());
+}
+
+#[test]
+fn remembered_geometry_given_to_the_registry_shapes_the_windows_it_opens() {
+    let (mut windows, _) = registry();
+    let mut memory = WindowMemory::default();
+    memory.resized(WindowKind::Connections, Size::new(950.0, 600.0));
+    memory.moved(WindowKind::Connections, Point::new(11.0, 12.0));
+    windows.set_memory(memory);
+
+    let (_, settings) = open_new(&mut windows, WindowKind::Connections);
+
+    assert_eq!(settings.size, Size::new(950.0, 600.0));
+    assert_eq!(position_of(&settings), Some(Point::new(11.0, 12.0)));
 }

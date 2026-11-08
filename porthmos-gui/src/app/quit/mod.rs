@@ -26,6 +26,7 @@ impl App {
             return Task::none();
         }
         self.closing = true;
+        self.save_window_memory();
         self.cancel_search_work();
         if let Some(job) = self.staging.take() {
             job.staging.remove();
