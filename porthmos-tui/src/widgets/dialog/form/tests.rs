@@ -936,6 +936,70 @@ fn a_running_test_is_cleared_by_an_edit_too() {
     assert_eq!(form.test, None);
 }
 
+#[test]
+fn an_edit_clears_the_error_but_moving_around_does_not() {
+    let rejected = || Some("Port must be a number from 1-65535".to_string());
+    let mut form = screen_form();
+    form.focused = 1;
+    form.error = rejected();
+
+    for code in [
+        KeyCode::Down,
+        KeyCode::Up,
+        KeyCode::Tab,
+        KeyCode::BackTab,
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::Home,
+        KeyCode::End,
+    ] {
+        form.handle_key(key(code));
+        assert_eq!(form.error, rejected(), "{code:?}");
+    }
+    form.focused = 1;
+    form.handle_key(key(KeyCode::Char('x')));
+    assert_eq!(form.error, None);
+
+    form.error = rejected();
+    form.handle_key(key(KeyCode::Backspace));
+    assert_eq!(form.error, None);
+}
+
+#[test]
+fn a_protocol_or_toggle_change_clears_the_error() {
+    let mut form = screen_form();
+    form.error = Some("rejected".to_string());
+    form.handle_key(key(KeyCode::Down));
+    assert_eq!(form.error, None);
+
+    form.error = Some("rejected".to_string());
+    form.focused = 3;
+    form.handle_key(key(KeyCode::Char(' ')));
+    assert_eq!(form.error, None);
+}
+
+#[test]
+fn submitting_or_testing_unchanged_values_keeps_the_error() {
+    let mut form = screen_form();
+    form.error = Some("rejected".to_string());
+
+    form.handle_key(ctrl('s'));
+    assert_eq!(form.error.as_deref(), Some("rejected"));
+
+    form.handle_key(ctrl('t'));
+    assert_eq!(form.error.as_deref(), Some("rejected"));
+}
+
+#[test]
+fn an_edit_clears_the_error_of_a_popup_form_too() {
+    let mut form = sample_form();
+    form.error = Some("rejected".to_string());
+
+    form.handle_key(key(KeyCode::Char('a')));
+
+    assert_eq!(form.error, None);
+}
+
 fn modified(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }
 }

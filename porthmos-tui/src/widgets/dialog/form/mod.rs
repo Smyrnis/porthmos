@@ -195,13 +195,15 @@ impl FormDialog {
         if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return self.request_test();
         }
-        let before = self.test.as_ref().map(|_| self.fingerprint());
+        let tracks_values = self.test.is_some() || self.error.is_some();
+        let before = tracks_values.then(|| self.fingerprint());
         let outcome = match self.layout {
             FormLayout::Popup => self.handle_editing_key(key),
             FormLayout::Screen => self.handle_screen_key(key),
         };
         if before.is_some_and(|before| before != self.fingerprint()) {
             self.test = None;
+            self.error = None;
         }
         outcome
     }
