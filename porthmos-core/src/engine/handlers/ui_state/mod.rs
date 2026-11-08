@@ -54,7 +54,7 @@ impl Engine {
         self.save_quietly("panel settings");
     }
 
-    fn save_quietly(&mut self, what: &str) {
+    pub(crate) fn save_quietly(&mut self, what: &str) {
         if self.state_protected {
             return;
         }

@@ -184,6 +184,7 @@ fn each_panels_choices_round_trip_beside_the_other_keys() {
         local_folder: Some("/x".to_string()),
         local_panel: Some(PanelMemory { show_hidden: Some(true), ..PanelMemory::default() }),
         remote_panel: Some(PanelMemory { sort_key: Some("size".to_string()), ..PanelMemory::default() }),
+        reopen: vec!["a".to_string(), "b".to_string()],
     };
 
     save(&paths, &state).unwrap();
@@ -202,4 +203,16 @@ fn a_panel_table_with_an_unknown_sort_word_does_not_break_the_rest_of_the_file()
 
     assert!(loaded.warning.is_none());
     assert!(loaded.state.save_passwords_in_keyring);
+}
+
+#[test]
+fn the_connections_to_reopen_round_trip_in_order_and_are_left_out_when_empty() {
+    let (_dir, paths) = paths();
+    let state = UiState { reopen: vec!["b".to_string(), "a".to_string()], ..UiState::default() };
+
+    save(&paths, &state).unwrap();
+
+    assert_eq!(load(&paths).state.reopen, vec!["b", "a"]);
+    save(&paths, &UiState::default()).unwrap();
+    assert!(!std::fs::read_to_string(paths.state_file()).unwrap().contains("reopen"));
 }

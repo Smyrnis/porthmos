@@ -54,6 +54,18 @@ interval_hours = 24
 # terminal app, the mouse wheel in the window app). Off by default.
 preview = false
 
+[startup]
+# Reopen the saved connections that were open when you last quit.
+#   "off"  - do nothing, and remember nothing (the default)
+#   "ask"  - show them in the empty remote panel and the command palette
+#            ("Reopen last connections"); nothing connects until you choose it
+#   "auto" - connect to them one after another when the app starts
+# Passwords, key passphrases and host-key questions are asked as usual, one
+# connection at a time; connections whose password is saved in the keyring
+# open without a prompt. Each connection returns to the folder it was last in.
+# The window app also has this in Settings.
+reopen = "off"
+
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with

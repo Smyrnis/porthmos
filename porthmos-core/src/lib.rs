@@ -17,6 +17,7 @@ pub mod persist;
 pub mod preview;
 pub mod profiles;
 mod protocol_info;
+pub mod reopen;
 pub mod secrets;
 pub mod state;
 pub mod sync;
@@ -28,7 +29,7 @@ pub mod update;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-pub use config::{SearchSettings, UpdateMode, UpdateSettings};
+pub use config::{ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};
@@ -42,6 +43,7 @@ pub use porthmos_vfs::{
     ShellInvocation, Target, VfsPath, glob_match,
 };
 pub use protocol_info::ProtocolInfo;
+pub use reopen::offer_summary;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 #[cfg(feature = "update")]
@@ -317,6 +319,7 @@ impl CoreBuilder {
             edit: self.settings.edit,
             update_timing: update::UpdateTiming::for_settings(&self.settings.update),
             update: self.settings.update,
+            reopen: self.settings.startup.reopen,
             update_record,
             updater,
             executable: std::env::current_exe().ok(),
@@ -347,6 +350,7 @@ impl CoreBuilder {
         engine.publish_bookmarks();
         engine.publish_last_used();
         engine.load_ui_state();
+        engine.offer_reopen();
         let local_folder =
             engine.ui_state.local_folder.as_deref().map(VfsPath::new).filter(|folder| to_os_path(folder).is_dir());
         let remembered = |memory: &Option<panel_memory::PanelMemory>| match memory {

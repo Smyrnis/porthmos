@@ -57,6 +57,29 @@ pub struct SearchSettings {
     pub preview: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReopenMode {
+    #[default]
+    Off,
+    Ask,
+    Auto,
+}
+
+impl ReopenMode {
+    pub fn id(self) -> &'static str {
+        match self {
+            ReopenMode::Off => "off",
+            ReopenMode::Ask => "ask",
+            ReopenMode::Auto => "auto",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StartupSettings {
+    pub reopen: ReopenMode,
+}
+
 pub const MAX_PARALLEL_CAP: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +102,7 @@ pub struct Settings {
     pub terminal: TerminalSettings,
     pub update: UpdateSettings,
     pub search: SearchSettings,
+    pub startup: StartupSettings,
     pub frontend: toml::Table,
 }
 
@@ -96,6 +120,8 @@ pub(crate) struct SettingsFile {
     pub update: UpdateSettingsFile,
     #[serde(default)]
     pub search: SearchSettingsFile,
+    #[serde(default)]
+    pub startup: StartupSettingsFile,
     #[serde(flatten)]
     pub frontend: toml::Table,
 }
@@ -109,6 +135,11 @@ pub(crate) struct TransferSettingsFile {
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub(crate) struct SearchSettingsFile {
     pub preview: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct StartupSettingsFile {
+    pub reopen: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -204,6 +235,16 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let reopen = match file.startup.reopen.as_deref() {
+        None | Some("off") => ReopenMode::Off,
+        Some("ask") => ReopenMode::Ask,
+        Some("auto") => ReopenMode::Auto,
+        Some(other) => {
+            warnings.push(format!("unknown startup.reopen \"{other}\", using \"off\""));
+            ReopenMode::Off
+        }
+    };
+
     (
         Settings {
             panel: PanelSettings { show_hidden, sort: SortSpec { key, order } },
@@ -221,6 +262,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             },
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
             search: SearchSettings { preview: file.search.preview.unwrap_or(false) },
+            startup: StartupSettings { reopen },
             frontend: file.frontend,
         },
         warnings,

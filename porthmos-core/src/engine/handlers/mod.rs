@@ -9,6 +9,7 @@ mod moves;
 mod pause;
 mod preview;
 mod profiles;
+mod reopen;
 mod reorder;
 mod search;
 mod secrets;
@@ -28,6 +29,7 @@ pub(crate) use moves::{MoveBatch, without_symlinks};
 #[cfg(test)]
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};
+pub(crate) use reopen::ReopenState;
 pub(crate) use sync::SyncState;
 pub(crate) use update::UpdateEngine;
 

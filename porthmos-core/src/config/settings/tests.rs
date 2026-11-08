@@ -25,6 +25,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         terminal: TerminalSettingsFile::default(),
         update: UpdateSettingsFile::default(),
         search: SearchSettingsFile::default(),
+        startup: StartupSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -45,6 +46,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         terminal: TerminalSettingsFile::default(),
         update: UpdateSettingsFile::default(),
         search: SearchSettingsFile::default(),
+        startup: StartupSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -350,4 +352,53 @@ fn search_preview_false_is_kept() {
     let (settings, _) = settings_from_file(file);
 
     assert!(!settings.search.preview);
+}
+
+#[test]
+fn reopening_connections_defaults_to_off() {
+    let (settings, warnings) = settings_from_file(SettingsFile::default());
+
+    assert!(warnings.is_empty());
+    assert_eq!(settings.startup.reopen, ReopenMode::Off);
+    assert_eq!(Settings::default().startup.reopen, ReopenMode::Off);
+    assert_eq!(ReopenMode::default(), ReopenMode::Off);
+}
+
+#[test]
+fn every_reopen_mode_is_read_from_the_startup_table() {
+    for (text, expected) in [("off", ReopenMode::Off), ("ask", ReopenMode::Ask), ("auto", ReopenMode::Auto)] {
+        let file: SettingsFile = toml::from_str(&format!("[startup]\nreopen = \"{text}\"\n")).unwrap();
+
+        let (settings, warnings) = settings_from_file(file);
+
+        assert!(warnings.is_empty(), "{text}: {warnings:?}");
+        assert_eq!(settings.startup.reopen, expected, "{text}");
+    }
+}
+
+#[test]
+fn an_unknown_reopen_mode_warns_and_falls_back_to_off() {
+    let file: SettingsFile = toml::from_str("[startup]\nreopen = \"always\"\n").unwrap();
+
+    let (settings, warnings) = settings_from_file(file);
+
+    assert_eq!(settings.startup.reopen, ReopenMode::Off);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("startup.reopen") && warnings[0].contains("always"), "{warnings:?}");
+}
+
+#[test]
+fn the_startup_table_does_not_leak_into_the_frontend_settings() {
+    let file: SettingsFile = toml::from_str("[startup]\nreopen = \"ask\"\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(settings.frontend.is_empty(), "{:?}", settings.frontend);
+}
+
+#[test]
+fn reopen_modes_name_themselves_the_way_the_config_file_does() {
+    for (mode, name) in [(ReopenMode::Off, "off"), (ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto")] {
+        assert_eq!(mode.id(), name);
+    }
 }

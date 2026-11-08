@@ -145,6 +145,8 @@ impl Engine {
         }
         self.open_start_directory(session);
         self.start_health_probe(session);
+        self.remember_open_connections();
+        self.reopen_progressed(&self.sessions[&session].name.clone());
     }
 
     fn keep_typed_password(&mut self, entry: &ConnectionEntry, typed: TypedPassword) {
@@ -193,6 +195,7 @@ impl Engine {
             self.info(format!("{affected} transfer{plural} cancelled \u{2014} session disconnected"));
         }
 
+        self.remember_open_connections();
         self.info(format!("Disconnected from {}", live.name));
         self.publish_connection_state(&live.name, ConnectionState::Disconnected);
         self.emit(Event::Disconnected { session, name: live.name });

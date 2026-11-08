@@ -191,6 +191,7 @@ pub(crate) struct Engine {
     transfers_dirty: bool,
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
+    reopen: handlers::ReopenState,
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     preview_busy: bool,
@@ -221,6 +222,7 @@ pub(crate) struct EngineParts {
     pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
     pub(crate) update: crate::config::UpdateSettings,
+    pub(crate) reopen: crate::config::ReopenMode,
     pub(crate) update_record: crate::update::record::UpdateRecord,
     pub(crate) updater: Option<crate::update::SharedUpdater>,
     pub(crate) update_timing: crate::update::UpdateTiming,
@@ -289,6 +291,7 @@ impl Engine {
             transfers_dirty: false,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
+            reopen: handlers::ReopenState::new(parts.reopen),
             speed_limit: crate::transfer::limit::SpeedLimit::new(),
             preview_request: None,
             preview_busy: false,
@@ -379,6 +382,8 @@ impl Engine {
     pub(crate) fn handle_command(&mut self, command: Command) {
         match command {
             Command::Connect { profile } => self.connect(&profile),
+            Command::ReopenConnections => self.reopen_connections(),
+            Command::SetReopenMode { mode } => self.set_reopen_mode(mode),
             Command::Disconnect { session } => self.disconnect(session),
             Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
             Command::CancelTest => self.cancel_test(),
@@ -463,7 +468,8 @@ impl Engine {
             Internal::Connected { entry, protocol, fs, typed } => self.finish_connect(entry, protocol, fs, typed),
             Internal::ConnectFailed { name, message } => {
                 self.connecting.remove(&name);
-                self.connect_failed(name, message)
+                self.connect_failed(name.clone(), message);
+                self.reopen_progressed(&name);
             }
             Internal::Edit(event) => self.handle_edit_event(event),
             Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),

@@ -1,7 +1,7 @@
 use porthmos_vfs::{Answer, Entry, VfsPath};
 
 use crate::{
-    config::settings::PanelSettings,
+    config::settings::{PanelSettings, ReopenMode},
     edit::{EditChoice, EditorExit},
     panel_memory::PanelKind,
     profiles::ProfileDraft,
@@ -21,6 +21,8 @@ pub enum Location {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Connect { profile: String },
+    ReopenConnections,
+    SetReopenMode { mode: ReopenMode },
     Disconnect { session: SessionId },
     TestConnection { test_id: u64, original: Option<String>, draft: Box<ProfileDraft> },
     CancelTest,
