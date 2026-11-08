@@ -25,11 +25,14 @@ impl Group {
     }
 }
 
+pub const REOPEN_LABEL: &str = "Reopen last connections";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Action(Action),
     Connect(String),
     Disconnect(String),
+    Reopen,
     File { location: Location, name: String },
 }
 

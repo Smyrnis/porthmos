@@ -191,6 +191,7 @@ pub struct App {
     update_mode: UpdateMode,
     path_edit: Option<path_edit::PathEdit>,
     search_preview: bool,
+    reopen_offer: Vec<String>,
     home: Option<VfsPath>,
     update_state: Option<UpdateState>,
     ready_update: Option<String>,
@@ -251,6 +252,7 @@ impl App {
             update_mode: UpdateMode::default(),
             path_edit: None,
             search_preview: false,
+            reopen_offer: Vec::new(),
             home: None,
             update_state: None,
             ready_update: None,
@@ -419,6 +421,7 @@ impl App {
             Event::ConnectionState { name, state } => {
                 self.connection_states.insert(name, state);
             }
+            Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
             Event::ConnectFailed { name, message } => {

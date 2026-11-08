@@ -1,10 +1,10 @@
 use crossterm::event::{KeyEvent, KeyModifiers};
-use porthmos_core::Location;
+use porthmos_core::{Location, offer_summary};
 
 use super::*;
 use crate::{
     input::format_key_spec,
-    palette::{Entry, Group, Target},
+    palette::{Entry, Group, REOPEN_LABEL, Target},
     widgets::{history_view::printable, panel_view::Row},
 };
 
@@ -127,6 +127,10 @@ impl App {
                     self.core.send(Command::Disconnect { session });
                 }
             }
+            Target::Reopen => {
+                self.reopen_connections();
+                self.screen = Screen::Files;
+            }
             Target::File { location, name } => self.focus_file(location, &name),
         }
     }
@@ -195,7 +199,13 @@ impl App {
             hint: Some(CONNECTED_HINT.to_string()),
             target: Target::Disconnect(session.name.clone()),
         });
-        connect.chain(disconnect).collect()
+        let reopen = (!self.reopen_offer.is_empty()).then(|| Entry {
+            group: Group::Hosts,
+            label: REOPEN_LABEL.to_string(),
+            hint: Some(printable(&offer_summary(&self.reopen_offer))),
+            target: Target::Reopen,
+        });
+        reopen.into_iter().chain(connect).chain(disconnect).collect()
     }
 
     fn file_entries(&self) -> Vec<Entry> {

@@ -1,3 +1,4 @@
+use porthmos_core::offer_summary;
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -8,6 +9,7 @@ use super::{
     hints::{form_hints, help_sections, hints_for, path_edit_hints, search_hints},
     *,
 };
+use crate::palette::REOPEN_LABEL;
 use crate::widgets::{
     connection_details, connection_form,
     frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
@@ -372,6 +374,12 @@ impl App {
             return vec![format!("connecting to {name}\u{2026}")];
         }
         let mut lines = vec!["not connected".to_string()];
+        if !self.reopen_offer.is_empty() {
+            lines.push(format!("last time: {}", printable(&offer_summary(&self.reopen_offer))));
+            if let Some(spec) = self.key_bindings.key_for(input::Scope::Global, Action::OpenPalette) {
+                lines.push(format!("press {}, then choose {REOPEN_LABEL}", input::format_key_spec(spec)));
+            }
+        }
         if let Some(spec) = self.key_bindings.key_for(input::Scope::Files, Action::OpenConnections) {
             lines.push(format!("press {} to connect", input::format_key_spec(spec)));
         }

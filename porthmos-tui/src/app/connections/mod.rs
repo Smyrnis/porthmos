@@ -406,6 +406,14 @@ impl App {
         self.connect_profile(&name);
     }
 
+    pub(super) fn reopen_connections(&mut self) {
+        if self.reopen_offer.is_empty() {
+            return;
+        }
+        self.reopen_offer.clear();
+        self.core.send(Command::ReopenConnections);
+    }
+
     pub(super) fn connect_profile(&mut self, name: &str) -> bool {
         let known =
             self.connections.entries().iter().any(|entry| entry.name == name && !entry.source.is_orphan_labels());

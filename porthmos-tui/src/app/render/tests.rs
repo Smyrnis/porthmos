@@ -1908,3 +1908,49 @@ fn the_folder_comes_back_after_the_field_closes() {
     assert!(!rows.iter().any(|row| row.contains("/typed/where")));
     assert!(rows.iter().any(|row| row.trim_start().starts_with("local") && row.contains("/d")));
 }
+
+#[test]
+fn an_empty_remote_panel_names_the_connections_that_can_be_reopened() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::ReopenOffer { names: vec!["prod".to_string(), "nas".to_string()] });
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "last time: prod, nas").is_some());
+    assert!(find_text(&terminal, "Ctrl+P").is_some());
+    assert!(find_text(&terminal, "Reopen last connections").is_some());
+}
+
+#[test]
+fn an_empty_remote_panel_says_nothing_about_reopening_without_an_offer() {
+    let (app, _) = themed_app();
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "last time").is_none());
+    assert!(find_text(&terminal, "Reopen last connections").is_none());
+}
+
+#[test]
+fn the_reopen_hint_names_the_palette_key_the_user_chose() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::ReopenOffer { names: vec!["prod".to_string()] });
+    let overrides = std::collections::HashMap::from([("open_palette".to_string(), "ctrl+g".to_string())]);
+    app.key_bindings = input::KeyBindings::from_overrides(&overrides).0;
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "Ctrl+G").is_some());
+    assert!(find_text(&terminal, "Ctrl+P").is_none());
+}
+
+#[test]
+fn a_connected_session_hides_the_reopen_hint() {
+    let (mut app, _) = themed_app();
+    app.apply_core_event(Event::ReopenOffer { names: vec!["prod".to_string()] });
+    app.apply_core_event(Event::Connected { session: 1, name: "srv".to_string(), shell_available: false });
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(find_text(&terminal, "last time").is_none());
+}
