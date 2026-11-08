@@ -270,7 +270,11 @@ pub fn subtitle(entry: &ConnectionEntry) -> String {
     if entry.source.is_orphan_labels() {
         return "labels only".to_string();
     }
-    format!("{}@{}:{}", entry.username, entry.host, entry.port)
+    let address = format!("{}@{}:{}", entry.username, entry.host, entry.port);
+    match entry.bucket() {
+        Some(bucket) => format!("{address}/{bucket}"),
+        None => address,
+    }
 }
 
 #[cfg(test)]

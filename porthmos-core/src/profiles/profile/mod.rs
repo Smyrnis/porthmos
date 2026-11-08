@@ -137,6 +137,10 @@ impl std::fmt::Debug for ConnectionEntry {
 }
 
 impl ConnectionEntry {
+    pub fn bucket(&self) -> Option<&str> {
+        self.options.get("bucket").map(|bucket| bucket.trim()).filter(|bucket| !bucket.is_empty())
+    }
+
     pub fn from_profile(profile: ConnectionProfile, default_port: u16) -> Self {
         Self {
             name: profile.name,

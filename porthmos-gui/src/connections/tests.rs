@@ -160,6 +160,23 @@ fn subtitle_text() {
 }
 
 #[test]
+fn subtitle_names_the_bucket_after_the_port() {
+    let mut item = entry("a", None, &[]);
+    item.protocol = "s3".to_string();
+    item.username = "AK".to_string();
+    item.port = 5000;
+    item.options.insert("bucket".to_string(), "data".to_string());
+    assert_eq!(subtitle(&item), "AK@a.example.com:5000/data");
+}
+
+#[test]
+fn subtitle_has_no_bucket_part_when_the_bucket_is_blank() {
+    let mut item = entry("a", None, &[]);
+    item.options.insert("bucket".to_string(), " ".to_string());
+    assert_eq!(subtitle(&item), "me@a.example.com:22");
+}
+
+#[test]
 fn orphan_label_subtitle_says_labels_only() {
     let mut item = entry("a", None, &[]);
     item.source = ConnectionSource::MissingSshHost;

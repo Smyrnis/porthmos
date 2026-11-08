@@ -250,6 +250,9 @@ fn host_text(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> String {
     if default_port.is_some_and(|port| port != entry.port) {
         text.push_str(&format!(":{}", entry.port));
     }
+    if let Some(bucket) = entry.bucket() {
+        text.push_str(&format!("/{}", printable(bucket)));
+    }
     text
 }
 

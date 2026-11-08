@@ -711,6 +711,19 @@ fn a_connected_session_shows_the_saved_connections_protocol_and_user_at_host() {
 }
 
 #[test]
+fn a_connected_session_names_the_bucket_after_the_host() {
+    let (mut app, _) = themed_app();
+    let mut saved = saved_connection("prod", "s3");
+    saved.options.insert("bucket".to_string(), "data".to_string());
+    app.connections.replace(vec![saved]);
+    add_session(&mut app, 1, "prod");
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("deploy@prod.example.com/data:/"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
 fn a_session_without_a_saved_connection_shows_its_name_and_path() {
     let (mut app, _) = themed_app();
     add_session(&mut app, 1, "prod");

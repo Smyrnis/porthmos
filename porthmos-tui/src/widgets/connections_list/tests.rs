@@ -239,6 +239,26 @@ fn the_port_is_shown_only_when_it_differs_from_the_default() {
 }
 
 #[test]
+fn the_bucket_follows_the_host_and_the_port() {
+    let mut bucketed = ConnectionEntry { port: 5000, ..entry("web") };
+    bucketed.options.insert("bucket".to_string(), "data".to_string());
+
+    let terminal = Setup::new().draw(&view_of(vec![bucketed]), 80, 6);
+
+    assert!(row(&terminal, 2).contains("deploy@web.example.com:5000/data"), "{:?}", row(&terminal, 2));
+}
+
+#[test]
+fn a_blank_bucket_adds_nothing_to_the_row() {
+    let mut blank = entry("web");
+    blank.options.insert("bucket".to_string(), "  ".to_string());
+
+    let terminal = Setup::new().draw(&view_of(vec![blank]), 80, 6);
+
+    assert!(!row(&terminal, 2).contains("web.example.com/"), "{:?}", row(&terminal, 2));
+}
+
+#[test]
 fn an_empty_username_leaves_out_the_at_sign() {
     let anonymous = ConnectionEntry { username: String::new(), ..entry("web") };
 

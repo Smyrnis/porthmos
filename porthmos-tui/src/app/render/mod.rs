@@ -363,8 +363,14 @@ impl App {
         let path = session.panel.path();
         let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
         match saved {
-            Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
-            Some(entry) => (entry.protocol.clone(), format!("{}@{}:{path}", entry.username, entry.host)),
+            Some(entry) => {
+                let host = match entry.bucket() {
+                    Some(bucket) => format!("{}/{bucket}", entry.host),
+                    None => entry.host.clone(),
+                };
+                let address = if entry.username.is_empty() { host } else { format!("{}@{host}", entry.username) };
+                (entry.protocol.clone(), format!("{address}:{path}"))
+            }
             None => ("remote".to_string(), format!("{}:{path}", session.name)),
         }
     }
