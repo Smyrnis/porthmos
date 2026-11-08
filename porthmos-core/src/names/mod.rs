@@ -28,5 +28,15 @@ pub fn name_problem(name: &str) -> Option<String> {
     }
 }
 
+pub fn entry_name_problem(name: &str, original: Option<&str>, exists: impl Fn(&str) -> bool) -> Option<String> {
+    if original == Some(name) {
+        return None;
+    }
+    if let Some(problem) = name_problem(name) {
+        return Some(problem);
+    }
+    exists(name).then(|| format!("\"{name}\" already exists"))
+}
+
 #[cfg(test)]
 mod tests;

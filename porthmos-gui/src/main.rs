@@ -25,7 +25,6 @@ mod icons;
 mod main_window;
 mod menus;
 mod modal;
-mod names;
 mod native;
 mod navigation;
 mod palette;

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use iced::widget::{Id, operation};
 use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
 use porthmos_core::listing::{Row, SortKey};
+use porthmos_core::names::entry_name_problem;
 use porthmos_core::transfer::conflicts::Resolution;
 use porthmos_core::transfer::rows::RowKind;
 use porthmos_core::{
@@ -28,7 +29,6 @@ use crate::entries::entries_from_paths;
 use crate::geometry::{Hit, ROW_HEIGHT, hit_test, list_viewport, scroll_to_show};
 use crate::menus::{ContextMenu, MenuItem, MenuTarget, MoreItem};
 use crate::modal::{Modal, ModalQueue};
-use crate::names::name_problem;
 use crate::native::{self, Attached, DesktopEvent, DesktopSource};
 use crate::navigation::PathEdit;
 use crate::pane::Pane;
@@ -1282,15 +1282,10 @@ impl App {
             Modal::Rename { side, original, text, .. } => (*side, text, Some(original)),
             _ => return None,
         };
-        if original.is_some_and(|original| &original.name == text) {
-            return None;
-        }
-        if let Some(problem) = name_problem(text) {
-            return Some(problem);
-        }
-        self.panel_of(side)
-            .is_some_and(|panel| panel.has_entry_named(text))
-            .then(|| format!("\"{text}\" already exists"))
+        let panel = self.panel_of(side);
+        entry_name_problem(text, original.map(|original| original.name.as_str()), |name| {
+            panel.is_some_and(|panel| panel.has_entry_named(name))
+        })
     }
 
     fn press_row(&mut self, side: PanelSide, row: usize) {

@@ -10,6 +10,7 @@ pub mod last_used;
 pub mod listing;
 pub mod logging;
 pub mod message;
+pub mod names;
 pub mod panel_memory;
 mod path_text;
 pub mod paths;
