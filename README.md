@@ -4,10 +4,10 @@
 
 # Porthmos
 
-A dual-panel file manager for the terminal: local files in one panel, a
-remote connection in the other, with saved connection profiles, background
-transfers, search, folder sync and in-place editing. It talks SFTP, SCP, FTP
-and FTPS, WebDAV and S3-compatible storage.
+A dual-panel file manager, as a terminal app and as a window app: local files
+in one panel, a remote connection in the other, with saved connection
+profiles, background transfers, search, folder sync and in-place editing. It
+talks SFTP, SCP, FTP and FTPS, WebDAV and S3-compatible storage.
 
 ## Highlights
 
@@ -15,6 +15,7 @@ and FTPS, WebDAV and S3-compatible storage.
 - SFTP, SCP, FTP/FTPS, WebDAV and S3-compatible storage
 - Background transfers that queue, run in parallel and resume
 - Folder sync, remote editing in your own editor, search and a command palette
+- Go to a typed path, and optionally reopen the connections you had open last time
 
 See [all features](documentation/general/features.md).
 
