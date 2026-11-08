@@ -70,6 +70,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         auto_upload: settings.edit.auto_upload,
         update_mode: settings.update.mode,
         search_preview: settings.search.preview,
+        reopen: settings.startup.reopen,
     };
     let config_file = paths.config_file();
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();

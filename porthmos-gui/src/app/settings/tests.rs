@@ -94,6 +94,7 @@ fn opening_shows_the_saved_editor() {
         auto_upload: false,
         search_preview: false,
         update_mode: UpdateMode::Off,
+        reopen: porthmos_core::ReopenMode::Off,
     };
     let mut harness = Harness::with_gui_settings(settings);
 
@@ -627,4 +628,51 @@ fn settings_are_not_opened_while_a_modal_is_up() {
 
     assert_eq!(units, 0);
     assert!(harness.settings_id().is_none());
+}
+
+#[test]
+fn the_reopen_choice_writes_the_setting_tells_core_and_applies_at_once() {
+    use porthmos_core::ReopenMode;
+    for (mode, name) in [(ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto"), (ReopenMode::Off, "off")] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsReopenChosen(mode));
+
+        assert_eq!(config_text(&harness), format!("[startup]\nreopen = \"{name}\"\n"));
+        assert_eq!(harness.app.gui_settings().reopen, mode);
+        assert!(harness.sent().contains(&porthmos_core::Command::SetReopenMode { mode }));
+        assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+    }
+}
+
+#[test]
+fn a_failed_save_leaves_the_reopen_choice_unchanged_and_tells_core_nothing() {
+    use porthmos_core::ReopenMode;
+    let mut harness = Harness::new();
+    std::fs::write(config_path(&harness), "[startup\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsReopenChosen(ReopenMode::Auto));
+
+    assert_eq!(harness.app.gui_settings().reopen, ReopenMode::Off);
+    assert!(!harness.sent().iter().any(|command| matches!(command, porthmos_core::Command::SetReopenMode { .. })));
+    assert!(matches!(state(&harness).message, Some(SettingsMessage::Error(_))));
+}
+
+#[test]
+fn turning_reopening_off_withdraws_a_pending_offer() {
+    use porthmos_core::{Event, ReopenMode};
+    let mut harness = Harness::new();
+    open(&mut harness);
+    harness.feed(Event::ReopenOffer { names: vec!["prod".to_string()] });
+
+    harness.press(Message::SettingsReopenChosen(ReopenMode::Off));
+
+    assert!(harness.app.reopen_offer().is_empty());
+}
+
+#[test]
+fn reopening_is_off_unless_the_user_chose_otherwise() {
+    assert_eq!(GuiSettings::default().reopen, porthmos_core::ReopenMode::Off);
 }

@@ -15,6 +15,7 @@ use porthmos_core::config::bookmarks::Bookmark;
 use porthmos_core::config::settings::PanelSettings;
 use porthmos_core::sync::SyncOptions;
 
+pub use self::reopen::offer_label;
 pub use self::sync::SyncChoice;
 use crate::conflicts::ConflictQueue;
 use crate::connections::{Manager, MissingChoice, Screen};
@@ -182,6 +183,8 @@ pub enum Message {
     SettingsSearchPreviewToggled(bool),
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
+    SettingsReopenChosen(porthmos_core::ReopenMode),
+    ReopenPressed,
     SettingsClosed,
     MoreMenuToggled,
     RowRightPressed(PanelSide, usize),
@@ -263,6 +266,7 @@ pub struct App {
     window_size: Size,
     windows: Windows,
     window_memory_file: Option<PathBuf>,
+    reopen_offer: Vec<String>,
     settings_state: Option<SettingsState>,
     manager: Manager,
     reveal: Option<String>,
@@ -337,6 +341,7 @@ impl App {
             window_size: Size::new(1100.0, 700.0),
             windows: Windows::new(window::Id::unique(), Size::new(1100.0, 700.0)),
             window_memory_file: None,
+            reopen_offer: Vec::new(),
             settings_state: None,
             manager: Manager::default(),
             reveal: None,
@@ -742,6 +747,7 @@ impl App {
             Event::ConnectionState { name, state } => {
                 self.connection_states.insert(name, state);
             }
+            Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connecting = Some(name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
@@ -1117,7 +1123,9 @@ impl App {
             | Message::SettingsAutoUploadToggled(_)
             | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsClosed
-            | Message::SettingsUpdateModeChosen(_)) => return self.settings_message(message),
+            | Message::SettingsUpdateModeChosen(_)
+            | Message::SettingsReopenChosen(_)) => return self.settings_message(message),
+            Message::ReopenPressed => self.reopen_pressed(),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
                 return self.palette_message(message);
             }
@@ -2022,6 +2030,7 @@ mod editing;
 mod palette;
 mod preview;
 mod quit;
+mod reopen;
 mod search_window;
 mod settings;
 mod sync;

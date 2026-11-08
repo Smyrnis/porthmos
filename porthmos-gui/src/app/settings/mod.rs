@@ -4,7 +4,7 @@ use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::Id;
 use iced::{Size, Task, window};
-use porthmos_core::UpdateMode;
+use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
 use crate::config_file::{self, Edit};
@@ -227,10 +227,28 @@ impl App {
             Message::SettingsUpdateModeChosen(mode) => {
                 self.core_setting_saved(Edit::SetUpdateMode(mode), |settings| settings.update_mode = mode);
             }
+            Message::SettingsReopenChosen(mode) => {
+                if self.save_setting(Edit::SetReopenMode(mode)) {
+                    self.gui_settings.reopen = mode;
+                    self.core.send(Command::SetReopenMode { mode });
+                    if mode == ReopenMode::Off {
+                        self.reopen_offer.clear();
+                    }
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
+            }
             Message::SettingsClosed => return self.close_settings(),
             _ => {}
         }
         Task::none()
+    }
+
+    pub fn reopen_choices() -> [(ReopenMode, &'static str); 3] {
+        [
+            (ReopenMode::Off, "Don't reopen"),
+            (ReopenMode::Ask, "Offer to reopen"),
+            (ReopenMode::Auto, "Reopen automatically"),
+        ]
     }
 
     pub fn update_mode_choices() -> [(UpdateMode, &'static str); 3] {

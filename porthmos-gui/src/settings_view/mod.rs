@@ -1,4 +1,4 @@
-use porthmos_core::UpdateMode;
+use porthmos_core::{ReopenMode, UpdateMode};
 
 use crate::shortcuts::Action;
 
@@ -9,11 +9,19 @@ pub struct GuiSettings {
     pub auto_upload: bool,
     pub update_mode: UpdateMode,
     pub search_preview: bool,
+    pub reopen: ReopenMode,
 }
 
 impl Default for GuiSettings {
     fn default() -> Self {
-        Self { editor: None, terminal: None, auto_upload: true, update_mode: UpdateMode::Auto, search_preview: false }
+        Self {
+            editor: None,
+            terminal: None,
+            auto_upload: true,
+            update_mode: UpdateMode::Auto,
+            search_preview: false,
+            reopen: ReopenMode::Off,
+        }
     }
 }
 

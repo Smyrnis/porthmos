@@ -25,7 +25,7 @@ use iced::widget::text::Wrapping;
 use iced::widget::{column, container, responsive, row, space, stack, text};
 use iced::{Background, Color, Element, Font, Length, font};
 
-use crate::app::{App, Message, PanelSide};
+use crate::app::{App, Message, PanelSide, offer_label};
 use crate::panel::Panel;
 use crate::theme::Palette;
 
@@ -107,7 +107,7 @@ fn panel(app: &App, side: PanelSide) -> Element<'_, Message> {
     let bar = if hovered { palette.accent } else { palette.bg };
     let body = responsive(move |size| match panel_of(app, side) {
         Some(panel) => populated(app, side, panel, size),
-        None => no_connection(app.palette()),
+        None => no_connection(app, side),
     });
     row![container(space()).width(Length::Fixed(2.0)).height(Length::Fill).style(filled(bar)), body].into()
 }
@@ -134,11 +134,13 @@ fn populated<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, size: iced::Si
     .into()
 }
 
-fn no_connection<'a>(palette: &Palette) -> Element<'a, Message> {
-    container(label("No connection", palette.fg_dim))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .into()
+fn no_connection<'a>(app: &App, side: PanelSide) -> Element<'a, Message> {
+    let palette = app.palette();
+    let mut content = column![label("No connection", palette.fg_dim)].spacing(12).align_x(iced::Alignment::Center);
+    if side == PanelSide::Remote && !app.reopen_offer().is_empty() {
+        let offer = offer_label(app.reopen_offer());
+        content =
+            content.push(button::text_button(&offer, Some(Message::ReopenPressed), button::Look::Primary, palette));
+    }
+    container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill).into()
 }

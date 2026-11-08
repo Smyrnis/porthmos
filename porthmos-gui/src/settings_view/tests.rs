@@ -9,6 +9,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         auto_upload: true,
         update_mode: UpdateMode::Notify,
         search_preview: false,
+        reopen: porthmos_core::ReopenMode::Off,
     }
 }
 

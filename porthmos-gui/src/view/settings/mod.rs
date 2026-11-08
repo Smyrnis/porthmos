@@ -63,6 +63,29 @@ fn update_choices<'a>(app: &App) -> Element<'a, Message> {
     line.into()
 }
 
+fn reopen_choices<'a>(app: &App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let current = app.gui_settings().reopen;
+    let mut line = row![].spacing(8);
+    for (mode, title) in App::reopen_choices() {
+        let look = if mode == current { Look::Primary } else { Look::Normal };
+        line = line.push(text_button(title, Some(Message::SettingsReopenChosen(mode)), look, palette));
+    }
+    line.into()
+}
+
+fn startup_section<'a>(app: &'a App) -> Element<'a, Message> {
+    let palette = app.palette();
+    column![
+        section("Startup", palette),
+        label("Connections that were open when you last quit:", palette.fg),
+        reopen_choices(app),
+        label("Only saved connections are remembered, and only while this is on.", palette.fg_dim),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
     label("Takes effect the next time Porthmos starts.", palette.fg_dim).into()
 }
@@ -163,6 +186,7 @@ fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
         shortcuts,
         editing_section(app, state),
         search_section(app),
+        startup_section(app),
         terminal_section(app, state),
         updates_section(app)
     ]

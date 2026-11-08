@@ -143,3 +143,24 @@ async fn started_carries_the_search_preview_setting() {
     assert!(!started.settings.search_preview);
     started.core.shutdown().await;
 }
+
+#[tokio::test]
+async fn started_carries_the_reopen_mode() {
+    use porthmos_core::ReopenMode;
+    for (text, expected) in [("off", ReopenMode::Off), ("ask", ReopenMode::Ask), ("auto", ReopenMode::Auto)] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::in_dir(root.path());
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(paths.config_file(), format!("[startup]\nreopen = \"{text}\"\n")).unwrap();
+
+        let started = start(Environment::from_process(), paths).unwrap();
+
+        assert_eq!(started.settings.reopen, expected, "{text}");
+        started.core.shutdown().await;
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let started = start(Environment::from_process(), Paths::in_dir(root.path())).unwrap();
+    assert_eq!(started.settings.reopen, ReopenMode::Off);
+    started.core.shutdown().await;
+}

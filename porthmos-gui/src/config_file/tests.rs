@@ -324,3 +324,24 @@ fn save_reports_an_unreadable_path_by_name() {
 
     assert!(message.contains("config.toml"), "{message}");
 }
+
+#[test]
+fn set_reopen_mode_writes_the_mode_name_under_startup() {
+    use porthmos_core::ReopenMode;
+    for (mode, name) in [(ReopenMode::Off, "off"), (ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto")] {
+        assert_eq!(apply("", &Edit::SetReopenMode(mode)).unwrap(), format!("[startup]\nreopen = \"{name}\"\n"));
+    }
+    assert_eq!(
+        apply("[startup]\nreopen = \"ask\"\n", &Edit::SetReopenMode(porthmos_core::ReopenMode::Auto)).unwrap(),
+        "[startup]\nreopen = \"auto\"\n"
+    );
+}
+
+#[test]
+fn set_reopen_mode_keeps_the_other_tables_and_comments() {
+    let kept =
+        apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetReopenMode(porthmos_core::ReopenMode::Ask)).unwrap();
+
+    assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
+    assert!(kept.contains("[startup]\nreopen = \"ask\"\n"), "{kept}");
+}
