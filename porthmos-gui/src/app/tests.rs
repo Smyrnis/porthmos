@@ -1533,6 +1533,18 @@ fn an_open_queue_pane_shortens_the_list_viewport() {
 }
 
 #[test]
+fn an_open_queue_in_a_short_window_leaves_the_list_most_of_the_height() {
+    let mut harness = Harness::new();
+    harness.app.set_window_size(iced::Size::new(900.0, 400.0));
+    let closed = harness.app.list_height();
+
+    ctrl_t(&mut harness);
+
+    assert_eq!(harness.app.list_height(), closed - crate::transfers::queue_height(400.0) - 1.0);
+    assert!(harness.app.list_height() > 0.0);
+}
+
+#[test]
 fn pause_resume_cancel_retry_and_reorder_send_the_row_commands_with_the_row_kind() {
     use crate::transfers::RowButton;
     use porthmos_core::transfer::rows::RowKind;

@@ -44,7 +44,7 @@ use crate::staging::{Job, Stage, Staging};
 use crate::sync_view::SyncView;
 use crate::theme::Palette;
 use crate::tools::Tool;
-use crate::transfers::{QUEUE_HEIGHT, QueuePane, RowButton, TransferState, transfer_command};
+use crate::transfers::{QueuePane, RowButton, TransferState, queue_height, transfer_command};
 use crate::update_view::UpdateView;
 use crate::view::toolbar::ToolbarState;
 use crate::windows::Windows;
@@ -548,7 +548,7 @@ impl App {
     }
 
     fn queue_extra(&self) -> f32 {
-        if self.queue.is_open() { QUEUE_HEIGHT + 1.0 } else { 0.0 }
+        if self.queue.is_open() { queue_height(self.window_size.height) + 1.0 } else { 0.0 }
     }
 
     pub fn list_height(&self) -> f32 {

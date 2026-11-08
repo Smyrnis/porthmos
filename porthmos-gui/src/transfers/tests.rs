@@ -3,8 +3,8 @@ use porthmos_core::transfer::{Direction, TransferSnapshot};
 use porthmos_core::{Command, Entry, Location, VfsPath};
 
 use super::{
-    QUEUE_ROW_HEIGHT, QueuePane, RowButton, TransferState, failure_text, format_speed_limit, parse_speed_limit,
-    queue_window, row_buttons, state_word, transfer_command,
+    QUEUE_HEADER_HEIGHT, QUEUE_HEIGHT, QUEUE_ROW_HEIGHT, QueuePane, RowButton, TransferState, failure_text,
+    format_speed_limit, parse_speed_limit, queue_height, queue_window, row_buttons, state_word, transfer_command,
 };
 
 fn row(state: RowState, bytes_done: u64, bytes_total: u64) -> QueueRow {
@@ -306,4 +306,19 @@ fn opening_the_pane_by_hand_undoes_the_dismissal() {
     pane.snapshot_changed(true);
 
     assert!(pane.is_open());
+}
+
+#[test]
+fn a_tall_window_gets_the_full_queue_height() {
+    assert_eq!(queue_height(1000.0), QUEUE_HEIGHT);
+}
+
+#[test]
+fn a_short_window_gives_the_queue_a_share_of_its_height() {
+    assert_eq!(queue_height(400.0), 400.0 * 0.4);
+}
+
+#[test]
+fn the_queue_always_has_room_for_its_header_and_one_row() {
+    assert_eq!(queue_height(50.0), QUEUE_HEADER_HEIGHT + 1.0 + QUEUE_ROW_HEIGHT);
 }

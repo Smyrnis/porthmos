@@ -14,6 +14,12 @@ pub const QUEUE_ROW_HEIGHT: f32 = 28.0;
 pub const QUEUE_HEIGHT: f32 = 220.0;
 pub const QUEUE_HEADER_HEIGHT: f32 = 30.0;
 pub const QUEUE_LIST_HEIGHT: f32 = QUEUE_HEIGHT - QUEUE_HEADER_HEIGHT - 1.0;
+const QUEUE_WINDOW_SHARE: f32 = 0.4;
+
+pub fn queue_height(window_height: f32) -> f32 {
+    let at_least = QUEUE_HEADER_HEIGHT + 1.0 + QUEUE_ROW_HEIGHT;
+    (window_height * QUEUE_WINDOW_SHARE).min(QUEUE_HEIGHT).max(at_least)
+}
 
 pub fn transfer_command(moving: bool, from: (Location, Vec<Entry>), to: (Location, VfsPath)) -> Command {
     let (from, entries) = from;

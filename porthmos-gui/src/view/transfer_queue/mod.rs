@@ -10,7 +10,7 @@ use super::{bold_label, filled, hairline_across, label};
 use crate::app::{App, Message};
 use crate::theme::Palette;
 use crate::transfers::{
-    QUEUE_HEADER_HEIGHT, QUEUE_HEIGHT, QUEUE_ROW_HEIGHT, failure_detail, failure_text, format_speed_limit,
+    QUEUE_HEADER_HEIGHT, QUEUE_ROW_HEIGHT, failure_detail, failure_text, format_speed_limit, queue_height,
     queue_window, row_buttons, state_word,
 };
 
@@ -193,7 +193,7 @@ pub fn pane(app: &App) -> Element<'_, Message> {
         let cells = line_cells((size.width - FIXED_WIDTH).max(0.0));
         column![header(app, palette), hairline_across(palette), list(app, cells)].into()
     })
-    .height(Length::Fixed(QUEUE_HEIGHT))
+    .height(Length::Fixed(queue_height(app.window_size().height)))
     .into()
 }
 
