@@ -92,7 +92,7 @@ fn pointer_events_from_the_main_window_are_applied() {
     let mut harness = Harness::new();
     let main = harness.main_id();
 
-    harness.press(Message::FromWindow(main, Box::new(Message::PointerMoved(Point::new(5.0, 6.0)))));
+    harness.press(Message::FromWindow(main, Box::new(Message::CursorMoved(Point::new(5.0, 6.0)))));
 
     assert_eq!(harness.app.pointer_position(), Some(Point::new(5.0, 6.0)));
 }
@@ -101,7 +101,7 @@ fn pointer_events_from_the_main_window_are_applied() {
 fn pointer_events_from_another_window_are_ignored() {
     let mut harness = Harness::new();
 
-    harness.press(Message::FromWindow(window::Id::unique(), Box::new(Message::PointerMoved(Point::new(5.0, 6.0)))));
+    harness.press(Message::FromWindow(window::Id::unique(), Box::new(Message::CursorMoved(Point::new(5.0, 6.0)))));
 
     assert_eq!(harness.app.pointer_position(), None);
 }

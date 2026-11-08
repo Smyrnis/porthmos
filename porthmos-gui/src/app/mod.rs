@@ -1943,15 +1943,6 @@ impl App {
         })
     }
 
-    fn pointer_position_subscription() -> Subscription<Message> {
-        event::listen_with(|event, _, window| match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                Some(Message::FromWindow(window, Box::new(Message::PointerMoved(position))))
-            }
-            _ => None,
-        })
-    }
-
     fn native_subscription(&self) -> Subscription<Message> {
         if self.drag.phase() == Phase::Native {
             iced::time::every(NATIVE_POLL_INTERVAL).map(|_| Message::NativePoll)
@@ -1999,7 +1990,6 @@ impl App {
                 _ => None,
             }),
             self.pointer_subscription(),
-            Self::pointer_position_subscription(),
             self.native_subscription(),
             self.staging_subscription(),
             self.notice_subscription(),

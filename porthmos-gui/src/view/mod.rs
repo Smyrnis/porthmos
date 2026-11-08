@@ -23,7 +23,7 @@ mod transfer_column;
 mod transfer_queue;
 
 use iced::widget::text::Wrapping;
-use iced::widget::{column, container, responsive, row, space, stack, text};
+use iced::widget::{column, container, mouse_area, responsive, row, space, stack, text};
 use iced::{Background, Color, Element, Font, Length, font};
 
 use crate::app::{App, Message, PanelSide, offer_label};
@@ -99,7 +99,7 @@ pub fn root(app: &App) -> Element<'_, Message> {
     if let Some(hint) = drag_overlay::hint(app) {
         layers = layers.push(hint);
     }
-    layers.into()
+    mouse_area(layers).on_move(Message::PointerMoved).into()
 }
 
 fn panel(app: &App, side: PanelSide) -> Element<'_, Message> {
