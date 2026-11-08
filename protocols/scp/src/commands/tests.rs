@@ -68,6 +68,21 @@ fn touch_tests_for_the_file_then_stamps_it_without_creating_one() {
 }
 
 #[test]
+fn chmod_writes_the_mode_in_octal_and_quotes_the_path() {
+    let quoted = shell_quote("/srv/it's a $dir/run.sh");
+
+    let command = chmod(&VfsPath::new("/srv/it's a $dir/run.sh"), 0o755);
+
+    assert_eq!(command, format!("chmod 755 -- {quoted}"));
+}
+
+#[test]
+fn chmod_keeps_a_leading_zero_so_a_private_mode_is_not_misread() {
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o600), "chmod 600 -- '/srv/f'");
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o007), "chmod 007 -- '/srv/f'");
+}
+
+#[test]
 fn free_space_asks_df_for_posix_kilobytes_in_the_c_locale() {
     assert_eq!(free_space(&VfsPath::new("/srv/a b")), "LC_ALL=C df -Pk -- '/srv/a b'");
 }

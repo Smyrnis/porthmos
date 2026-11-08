@@ -35,6 +35,10 @@ pub(crate) fn touch(path: &VfsPath, seconds: u64) -> String {
     format!("test -e {path} && touch -c -d @{seconds} -- {path}", path = quoted(path))
 }
 
+pub(crate) fn chmod(path: &VfsPath, mode: u32) -> String {
+    format!("chmod {:03o} -- {}", mode & 0o777, quoted(path))
+}
+
 pub(crate) fn remove(path: &VfsPath) -> String {
     format!("rm -- {}", quoted(path))
 }

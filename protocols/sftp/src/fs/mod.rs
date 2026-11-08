@@ -235,6 +235,16 @@ impl FileSystem for SftpFs {
         true
     }
 
+    async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<(), ProtocolError> {
+        let mut attributes = FileAttributes::empty();
+        attributes.permissions = Some(mode);
+        self.sftp.set_metadata(remote(path), attributes).await.map_err(sftp_error)
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        true
+    }
+
     async fn home(&self) -> Result<VfsPath, ProtocolError> {
         Ok(VfsPath::new(&self.sftp.canonicalize(".").await.map_err(sftp_error)?))
     }

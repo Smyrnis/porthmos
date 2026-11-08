@@ -256,6 +256,18 @@ impl FileSystem for ScpFs {
         true
     }
 
+    async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<(), ProtocolError> {
+        let output = self.run(&commands::chmod(path, mode)).await?;
+        match output.status {
+            Some(0) => Ok(()),
+            status => Err(failure(&output.stderr, status, path, "chmod")),
+        }
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        true
+    }
+
     fn time_resolution(&self) -> u64 {
         60
     }

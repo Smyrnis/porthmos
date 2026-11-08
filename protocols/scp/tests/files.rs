@@ -180,6 +180,57 @@ async fn set_modified_changes_the_time_of_a_file_with_an_awkward_name() {
     assert_eq!(modified, std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000));
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn set_permissions_changes_the_mode_of_a_file_with_an_awkward_name() {
+    use std::os::unix::fs::PermissionsExt;
+    let (server, fs) = open().await;
+    let path = at(&server, "it's a $name \u{e9}.sh");
+    std::fs::write(&path, b"#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    fs.set_permissions(&from_os_path(&path), 0o750).await.unwrap();
+
+    assert!(fs.can_set_permissions());
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o750);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn set_permissions_shows_up_in_the_next_stat() {
+    let (server, fs) = open().await;
+    let path = at(&server, "run.sh");
+    std::fs::write(&path, b"x").unwrap();
+
+    fs.set_permissions(&from_os_path(&path), 0o751).await.unwrap();
+
+    assert_eq!(fs.stat(&from_os_path(&path)).await.unwrap().permissions.map(|mode| mode & 0o777), Some(0o751));
+}
+
+#[tokio::test]
+async fn set_permissions_on_a_missing_file_is_an_error_and_creates_nothing() {
+    let (server, fs) = open().await;
+    let path = at(&server, "missing");
+
+    let error = fs.set_permissions(&from_os_path(&path), 0o644).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn set_permissions_runs_a_single_command() {
+    let (server, fs) = open().await;
+    let path = at(&server, "one.sh");
+    std::fs::write(&path, b"x").unwrap();
+    let before = server.started_commands();
+
+    fs.set_permissions(&from_os_path(&path), 0o755).await.unwrap();
+
+    assert_eq!(server.started_commands() - before, 1);
+}
+
 #[tokio::test]
 async fn set_modified_on_a_missing_file_is_an_error() {
     let (server, fs) = open().await;
