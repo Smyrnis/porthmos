@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use iced::widget::{Id, operation};
 use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
+use porthmos_core::delete_prompt::THIS_COMPUTER;
 use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::names::entry_name_problem;
 use porthmos_core::transfer::conflicts::Resolution;
@@ -1266,6 +1267,13 @@ impl App {
         self.resync_scroll(&before)
     }
 
+    fn place_name(&self, side: PanelSide) -> String {
+        match side {
+            PanelSide::Local => THIS_COMPUTER.to_string(),
+            PanelSide::Remote => self.sessions.active().map(|session| session.name.clone()).unwrap_or_default(),
+        }
+    }
+
     fn panel_of(&self, side: PanelSide) -> Option<&Panel> {
         match side {
             PanelSide::Local => Some(&self.local.panel),
@@ -1607,7 +1615,7 @@ impl App {
             (true, Modal::SyncOptions { session, direction, by, subfolders, .. }) => {
                 self.start_sync(session, SyncOptions { direction, by, subfolders })
             }
-            (true, Modal::ConfirmDelete { side, entries }) => {
+            (true, Modal::ConfirmDelete { side, entries, .. }) => {
                 if let Some(location) = self.location_of(side) {
                     let paths = entries.into_iter().map(|entry| entry.path).collect();
                     self.core.send(Command::Delete { location, paths });
@@ -1899,7 +1907,8 @@ impl App {
             Action::Delete => {
                 let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
                 if !entries.is_empty() {
-                    self.modals.push(Modal::ConfirmDelete { side, entries });
+                    let place = self.place_name(side);
+                    self.modals.push(Modal::ConfirmDelete { side, place, entries });
                 }
             }
             Action::Copy => self.copy_active(false),

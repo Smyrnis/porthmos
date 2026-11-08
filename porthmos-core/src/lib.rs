@@ -1,6 +1,7 @@
 pub mod config;
 mod connection_state;
 pub mod connections_tree;
+pub mod delete_prompt;
 pub mod edit;
 mod engine;
 pub mod error;

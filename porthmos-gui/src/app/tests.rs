@@ -1130,10 +1130,11 @@ fn delete_asks_for_confirmation_listing_a_count_and_at_most_five_names() {
     plain(&mut harness, Named::Delete);
 
     match open_modal(&harness) {
-        crate::modal::Modal::ConfirmDelete { entries, .. } => {
+        crate::modal::Modal::ConfirmDelete { entries, place, .. } => {
             assert_eq!(entries.len(), 8);
-            let lines = crate::modal::delete_summary(entries);
+            let lines = crate::modal::delete_summary(entries, place);
             assert_eq!(lines.len(), 1 + 5 + 1);
+            assert_eq!(lines[0], "Delete 8 items from this computer?");
         }
         other => panic!("{other:?}"),
     }
@@ -3811,4 +3812,37 @@ fn cycling_the_sort_from_the_keyboard_is_remembered() {
 
     let expected = PanelSettings { show_hidden: false, sort: SortSpec::default().cycled() };
     assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Local, expected)]);
+}
+
+#[test]
+fn the_delete_prompt_names_this_computer_for_the_local_panel() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+
+    plain(&mut harness, Named::Delete);
+
+    match open_modal(&harness) {
+        crate::modal::Modal::ConfirmDelete { place, .. } => assert_eq!(place, "this computer"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_delete_prompt_names_the_connection_for_the_remote_panel_even_when_the_name_exists_locally() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["old"]);
+    upload_target(&mut harness);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 1));
+
+    plain(&mut harness, Named::Delete);
+
+    match open_modal(&harness) {
+        crate::modal::Modal::ConfirmDelete { side, place, entries } => {
+            assert_eq!(*side, PanelSide::Remote);
+            assert_eq!(place, "alpha");
+            assert_eq!(crate::modal::delete_summary(entries, place), ["Delete \"old\" from alpha?"]);
+        }
+        other => panic!("{other:?}"),
+    }
 }

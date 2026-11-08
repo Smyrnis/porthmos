@@ -194,7 +194,7 @@ impl Engine {
         let batch_id = job.batch_id?;
         let connection = match job.direction {
             Direction::Upload => self.session_name(job.session_id),
-            Direction::Download => "this computer".to_string(),
+            Direction::Download => crate::delete_prompt::THIS_COMPUTER.to_string(),
         };
         Some((batch_id, connection))
     }

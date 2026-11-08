@@ -155,8 +155,8 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             sync_options::body(*direction, *by, *subfolders, *offer_both, error, palette),
             buttons("Start", "Cancel", palette),
         ),
-        Modal::ConfirmDelete { entries, .. } => {
-            let lines = delete_summary(entries).join("\n");
+        Modal::ConfirmDelete { entries, place, .. } => {
+            let lines = delete_summary(entries, place).join("\n");
             ("Delete".to_string(), body_text(lines, palette), cautious_buttons("Delete", "Cancel", palette))
         }
     };

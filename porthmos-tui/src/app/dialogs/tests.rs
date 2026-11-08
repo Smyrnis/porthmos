@@ -329,3 +329,63 @@ fn names_with_spaces_dots_and_unicode_are_accepted() {
         );
     }
 }
+
+fn confirm_message(test: &TestApp) -> Option<&str> {
+    match test.app.dialog.as_ref() {
+        Some(Dialog::Confirm(dialog)) => Some(dialog.message.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn the_delete_prompt_says_the_file_goes_from_this_computer() {
+    let mut test = app_with_file("big.bin");
+
+    test.app.apply_action(Action::Delete);
+
+    assert_eq!(confirm_message(&test), Some("Delete \"big.bin\" from this computer?"));
+}
+
+#[test]
+fn the_delete_prompt_names_the_connection_when_the_remote_panel_is_active_and_the_name_exists_on_both_sides() {
+    let mut test = app_with_file("big.bin");
+    let session = test.connect(5, "prod");
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "big.bin", false)]);
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.sessions.active_mut().unwrap().panel.cursor = 1;
+
+    test.app.apply_action(Action::Delete);
+
+    assert_eq!(confirm_message(&test), Some("Delete \"big.bin\" from prod?"));
+}
+
+#[test]
+fn deleting_a_folder_says_everything_inside_it_goes_too() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "photos", true)]);
+    test.app.local.cursor = 1;
+
+    test.app.apply_action(Action::Delete);
+
+    assert_eq!(
+        confirm_message(&test),
+        Some("Delete the folder \"photos\" and everything inside it from this computer?")
+    );
+}
+
+#[test]
+fn deleting_a_selection_lists_the_names_and_the_place() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a", false), entry(&VfsPath::new("/d"), "docs", true)]);
+    test.app.local.cursor = 1;
+    test.app.apply_action(Action::ToggleSelect);
+    test.app.local.cursor = 2;
+    test.app.apply_action(Action::ToggleSelect);
+
+    test.app.apply_action(Action::Delete);
+
+    assert_eq!(
+        confirm_message(&test),
+        Some("Delete 2 items from this computer?\ndocs/\na\nFolders are deleted with everything inside them.")
+    );
+}

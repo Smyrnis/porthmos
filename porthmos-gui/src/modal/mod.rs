@@ -9,7 +9,6 @@ use crate::conflicts::ConflictView;
 use crate::dialogs::Dialog;
 use crate::view::text_fit::fit;
 
-pub const MAX_LISTED_NAMES: usize = 5;
 const NAME_CELLS: usize = 60;
 
 #[derive(Debug, Clone)]
@@ -39,6 +38,7 @@ pub enum Modal {
     ConfirmClearHistory,
     ConfirmDelete {
         side: PanelSide,
+        place: String,
         entries: Vec<Entry>,
     },
     Conflict {
@@ -151,22 +151,8 @@ pub fn edit_question_title(name: &str, kind: EditQuestionKind) -> String {
     }
 }
 
-pub fn delete_summary(entries: &[Entry]) -> Vec<String> {
-    let mut lines = Vec::new();
-    match entries {
-        [only] => lines.push(format!("Delete {}?", fit(&only.name, NAME_CELLS))),
-        _ => {
-            lines.push(format!("Delete {} items?", entries.len()));
-            for entry in entries.iter().take(MAX_LISTED_NAMES) {
-                let name = if entry.is_dir { format!("{}/", entry.name) } else { entry.name.clone() };
-                lines.push(fit(&name, NAME_CELLS));
-            }
-            if entries.len() > MAX_LISTED_NAMES {
-                lines.push(format!("and {} more", entries.len() - MAX_LISTED_NAMES));
-            }
-        }
-    }
-    lines
+pub fn delete_summary(entries: &[Entry], place: &str) -> Vec<String> {
+    porthmos_core::delete_prompt::delete_summary(entries, place, |name| fit(name, NAME_CELLS))
 }
 
 #[cfg(test)]

@@ -1,6 +1,11 @@
-use porthmos_core::{Answer, names::entry_name_problem};
+use porthmos_core::{
+    Answer,
+    delete_prompt::{THIS_COMPUTER, delete_summary},
+    names::entry_name_problem,
+};
 
 use super::*;
+use crate::widgets::history_view::printable;
 
 impl App {
     pub(super) fn open_mkdir_dialog(&mut self) {
@@ -40,19 +45,19 @@ impl App {
         let Some(location) = self.active_location() else {
             return;
         };
-        let Some(targets) = self.panel(location).map(PanelView::targets) else {
+        let Some(panel) = self.panel(location) else {
             return;
         };
+        let (entries, targets) = (panel.target_entries(), panel.targets());
         if targets.is_empty() {
             return;
         }
 
-        let message = if targets.len() == 1 {
-            let name = targets[0].file_name().and_then(|name| name.to_str()).unwrap_or("?");
-            format!("Delete \"{name}\"?")
-        } else {
-            format!("Delete {} selected items?", targets.len())
+        let place = match location {
+            Location::Local => THIS_COMPUTER.to_string(),
+            Location::Session(id) => self.sessions.by_id(id).map(|session| session.name.clone()).unwrap_or_default(),
         };
+        let message = delete_summary(&entries, &place, printable).join("\n");
 
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
         self.pending_action = Some(PendingAction::Delete { location, paths: targets });

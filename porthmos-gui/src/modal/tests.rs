@@ -1,6 +1,8 @@
 use porthmos_core::{Entry, Question};
 
-use super::{MAX_LISTED_NAMES, Modal, ModalQueue, delete_summary};
+use porthmos_core::delete_prompt::MAX_LISTED_NAMES;
+
+use super::{Modal, ModalQueue, delete_summary};
 use crate::app::PanelSide;
 use crate::dialogs::Dialog;
 
@@ -44,15 +46,15 @@ fn the_version_changes_when_the_front_modal_changes() {
 #[test]
 fn the_delete_summary_gives_a_count_and_at_most_five_names() {
     let few = [entry("a"), entry("b")];
-    assert_eq!(delete_summary(&few), ["Delete 2 items?", "a", "b"]);
+    assert_eq!(delete_summary(&few, "prod"), ["Delete 2 items from prod?", "a", "b"]);
 
     let one = [entry("only")];
-    assert_eq!(delete_summary(&one), ["Delete only?"]);
+    assert_eq!(delete_summary(&one, "prod"), ["Delete \"only\" from prod?"]);
 
     let many: Vec<Entry> = (0..50_000).map(|n| entry(&format!("f{n}"))).collect();
-    let lines = delete_summary(&many);
+    let lines = delete_summary(&many, "prod");
     assert_eq!(lines.len(), 1 + MAX_LISTED_NAMES + 1);
-    assert_eq!(lines[0], "Delete 50000 items?");
+    assert_eq!(lines[0], "Delete 50000 items from prod?");
     assert_eq!(lines.last().unwrap(), "and 49995 more");
 }
 
@@ -62,7 +64,10 @@ fn a_delete_summary_names_folders_with_a_slash_and_cuts_odd_names() {
     folder.is_dir = true;
     let odd = entry("a\nb");
 
-    assert_eq!(delete_summary(&[folder, odd]), ["Delete 2 items?", "docs/", "a·b"]);
+    assert_eq!(
+        delete_summary(&[folder, odd], "this computer"),
+        ["Delete 2 items from this computer?", "docs/", "a·b", "Folders are deleted with everything inside them."]
+    );
 }
 
 #[test]
@@ -123,7 +128,10 @@ fn only_irreversible_or_trusting_answers_are_risky_to_accept() {
     ));
 
     assert!(trust.is_risky_to_accept());
-    assert!(Modal::ConfirmDelete { side: PanelSide::Local, entries: vec![entry("a")] }.is_risky_to_accept());
+    assert!(
+        Modal::ConfirmDelete { side: PanelSide::Local, place: String::new(), entries: vec![entry("a")] }
+            .is_risky_to_accept()
+    );
     assert!(Modal::ConfirmClearHistory.is_risky_to_accept());
     assert!(Modal::ConfirmQuit { transfers: true, edits: false }.is_risky_to_accept());
     assert!(!question(1).is_risky_to_accept());
