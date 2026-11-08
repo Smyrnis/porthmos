@@ -221,3 +221,48 @@ fn shift_still_inserts_the_character() {
     dialog.handle_key(modified(KeyCode::Char('A'), KeyModifiers::SHIFT));
     assert_eq!(dialog.value, "A");
 }
+
+#[test]
+fn an_error_is_shown_inside_the_dialog() {
+    let mut dialog = TextInputDialog::new("New directory name", "a/b");
+    dialog.error = Some("A name can't contain \"/\"".to_string());
+
+    let terminal = draw(&dialog, 60, 12);
+
+    assert!(find_text(&terminal, "A name can't contain").is_some());
+    assert!(find_text(&terminal, "a/b").is_some());
+    assert!(!has_unprintable_cell(&terminal));
+}
+
+#[test]
+fn editing_the_value_clears_the_error_but_moving_the_cursor_keeps_it() {
+    let mut dialog = TextInputDialog::new("Name", "ab");
+    dialog.error = Some("bad".to_string());
+
+    dialog.handle_key(key(KeyCode::Left));
+    dialog.handle_key(key(KeyCode::Home));
+    assert_eq!(dialog.error.as_deref(), Some("bad"));
+
+    dialog.handle_key(key(KeyCode::Char('x')));
+    assert_eq!(dialog.error, None);
+}
+
+#[test]
+fn deleting_a_character_clears_the_error_too() {
+    let mut dialog = TextInputDialog::new("Name", "ab");
+    dialog.error = Some("bad".to_string());
+
+    dialog.handle_key(key(KeyCode::Backspace));
+
+    assert_eq!(dialog.error, None);
+}
+
+#[test]
+fn a_long_error_is_cut_to_the_dialog_width_without_breaking_it() {
+    let mut dialog = TextInputDialog::new("Name", "x");
+    dialog.error = Some("e".repeat(200));
+
+    let terminal = draw(&dialog, 50, 12);
+
+    assert!(!has_unprintable_cell(&terminal));
+}

@@ -1,18 +1,6 @@
-use porthmos_core::Answer;
+use porthmos_core::{Answer, names::entry_name_problem};
 
 use super::*;
-
-fn name_problem(name: &str) -> Option<&'static str> {
-    if name.is_empty() {
-        Some("A name can't be empty")
-    } else if name == "." || name == ".." {
-        Some("A name can't be \".\" or \"..\"")
-    } else if name.contains('/') {
-        Some("A name can't contain \"/\"")
-    } else {
-        None
-    }
-}
 
 impl App {
     pub(super) fn open_mkdir_dialog(&mut self) {
@@ -71,9 +59,6 @@ impl App {
     }
 
     fn create_directory(&mut self, name: &str) {
-        if self.refuse_bad_name(name) {
-            return;
-        }
         let Some(location) = self.active_location() else {
             return;
         };
@@ -85,21 +70,20 @@ impl App {
     }
 
     fn rename_entry(&mut self, location: Location, from: VfsPath, new_name: &str) {
-        if self.refuse_bad_name(new_name) {
-            return;
-        }
         let Some(to) = from.parent().map(|parent| parent.join(new_name)) else {
             return;
         };
         self.core.send(Command::Rename { location, from, to });
     }
 
-    fn refuse_bad_name(&mut self, name: &str) -> bool {
-        let Some(problem) = name_problem(name) else {
-            return false;
+    fn submitted_name_problem(&self, name: &str) -> Option<String> {
+        let (location, original) = match self.pending_action.as_ref()? {
+            PendingAction::Mkdir => (self.active_location()?, None),
+            PendingAction::Rename { location, from } => (*location, from.file_name().and_then(|name| name.to_str())),
+            _ => return None,
         };
-        self.notifications.push(Severity::Warning, problem);
-        true
+        let panel = self.panel(location);
+        entry_name_problem(name, original, |candidate| panel.is_some_and(|panel| panel.has_entry_named(candidate)))
     }
 
     pub(super) fn apply_dialog_key(&mut self, key: KeyEvent) {
@@ -150,6 +134,12 @@ impl App {
                         self.core.send(Command::Answer { request_id, answer: Some(Answer::Confirmed), save: false });
                     }
                     _ => {}
+                }
+            }
+            DialogOutcome::Submitted(value) if self.submitted_name_problem(&value).is_some() => {
+                let problem = self.submitted_name_problem(&value);
+                if let Some(Dialog::TextInput(input)) = self.dialog.as_mut() {
+                    input.error = problem;
                 }
             }
             DialogOutcome::Submitted(value) => {

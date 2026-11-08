@@ -214,6 +214,10 @@ impl PanelView {
         self.path().parent()
     }
 
+    pub fn has_entry_named(&self, name: &str) -> bool {
+        self.rows().iter().any(|row| matches!(row, Row::Entry(entry) if entry.name == name))
+    }
+
     pub fn toggle_selection(&mut self) {
         if let Some(Row::Entry(entry)) = self.rows().get(self.cursor) {
             let path = entry.path.clone();

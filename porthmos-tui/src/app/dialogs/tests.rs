@@ -221,28 +221,99 @@ fn submit_name(test: &mut TestApp, action: Action, name: &str) {
     test.app.apply_dialog_key(key(KeyCode::Enter));
 }
 
+fn dialog_value(test: &TestApp) -> Option<&str> {
+    match test.app.dialog.as_ref() {
+        Some(Dialog::TextInput(dialog)) => Some(dialog.value.as_str()),
+        _ => None,
+    }
+}
+
+fn dialog_error(test: &TestApp) -> Option<&str> {
+    match test.app.dialog.as_ref() {
+        Some(Dialog::TextInput(dialog)) => dialog.error.as_deref(),
+        _ => None,
+    }
+}
+
 #[test]
-fn a_rename_to_a_path_or_an_empty_name_is_refused() {
-    for name in ["/tmp/escaped.txt", "../x", "a/b", ".", "..", ""] {
+fn a_rename_to_a_bad_name_keeps_the_dialog_open_with_what_was_typed() {
+    for name in ["/tmp/escaped.txt", "../x", "a/b", ".", "..", "", " lead", "tab\there"] {
         let mut test = app_with_file("old.txt");
 
         submit_name(&mut test, Action::Rename, name);
 
         assert!(test.sent().is_empty(), "{name:?} was sent");
-        assert!(test.notification().is_some(), "{name:?} gave no warning");
+        assert_eq!(dialog_value(&test), Some(name), "{name:?} was lost");
+        assert!(dialog_error(&test).is_some(), "{name:?} gave no error in the dialog");
+        assert!(test.notification().is_none(), "{name:?} also raised a toast");
+        assert!(test.app.pending_action.is_some(), "{name:?} dropped the pending action");
     }
 }
 
 #[test]
-fn a_new_folder_named_like_a_path_or_empty_is_refused() {
-    for name in ["/tmp/escaped", "../x", "a/b", ".", "..", ""] {
+fn a_new_folder_with_a_bad_name_keeps_the_dialog_open_with_what_was_typed() {
+    for name in ["/tmp/escaped", "../x", "a/b", ".", "..", "", "trail ", "CON"] {
         let mut test = app_with_file("old.txt");
 
         submit_name(&mut test, Action::Mkdir, name);
 
         assert!(test.sent().is_empty(), "{name:?} was sent");
-        assert!(test.notification().is_some(), "{name:?} gave no warning");
+        assert_eq!(dialog_value(&test), Some(name), "{name:?} was lost");
+        assert!(dialog_error(&test).is_some(), "{name:?} gave no error in the dialog");
+        assert!(test.notification().is_none(), "{name:?} also raised a toast");
     }
+}
+
+#[test]
+fn a_new_folder_named_like_an_existing_entry_is_refused_inside_the_dialog() {
+    let mut test = app_with_file("old.txt");
+
+    submit_name(&mut test, Action::Mkdir, "old.txt");
+
+    assert!(test.sent().is_empty());
+    assert_eq!(dialog_error(&test), Some("\"old.txt\" already exists"));
+}
+
+#[test]
+fn a_rename_onto_another_existing_entry_is_refused_inside_the_dialog() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a.txt", false), entry(&VfsPath::new("/d"), "b.txt", false)]);
+    test.app.local.cursor = 1;
+
+    submit_name(&mut test, Action::Rename, "b.txt");
+
+    assert!(test.sent().is_empty());
+    assert_eq!(dialog_error(&test), Some("\"b.txt\" already exists"));
+}
+
+#[test]
+fn correcting_the_name_and_submitting_again_goes_through_and_closes_the_dialog() {
+    let mut test = app_with_file("old.txt");
+    submit_name(&mut test, Action::Mkdir, "a/b");
+    assert!(dialog_error(&test).is_some());
+
+    test.app.apply_dialog_key(key(KeyCode::End));
+    test.app.apply_dialog_key(key(KeyCode::Backspace));
+    test.app.apply_dialog_key(key(KeyCode::Backspace));
+    test.app.apply_dialog_key(key(KeyCode::Char('-')));
+    test.app.apply_dialog_key(key(KeyCode::Char('b')));
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+
+    assert_eq!(test.sent(), vec![Command::CreateDir { location: Location::Local, path: VfsPath::from("/d/a-b") }]);
+    assert!(test.app.dialog.is_none());
+    assert!(test.app.pending_action.is_none());
+}
+
+#[test]
+fn cancelling_after_a_refused_name_closes_the_dialog_and_sends_nothing() {
+    let mut test = app_with_file("old.txt");
+    submit_name(&mut test, Action::Mkdir, "a/b");
+
+    test.app.apply_dialog_key(key(KeyCode::Esc));
+
+    assert!(test.app.dialog.is_none());
+    assert!(test.app.pending_action.is_none());
+    assert!(test.sent().is_empty());
 }
 
 #[test]

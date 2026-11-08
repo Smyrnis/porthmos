@@ -1,5 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{Frame, layout::Rect};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    text::{Line, Span},
+    widgets::Paragraph,
+};
 
 use crate::{
     theme::Theme,
@@ -8,6 +13,7 @@ use crate::{
         form_fields::render_underline_value,
         history_view::printable,
         popup::{content_width, footer, footer_text, render_popup},
+        text_fit::truncate_with_ellipsis,
     },
 };
 
@@ -18,6 +24,7 @@ pub struct TextInputDialog {
     pub title: String,
     pub value: String,
     pub cursor: usize,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,10 +38,19 @@ impl TextInputDialog {
     pub fn new(title: impl Into<String>, initial_value: impl Into<String>) -> Self {
         let value = initial_value.into();
         let cursor = value.chars().count();
-        Self { title: title.into(), value, cursor }
+        Self { title: title.into(), value, cursor, error: None }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> TextInputOutcome {
+        let before = self.error.is_some().then(|| self.value.clone());
+        let outcome = self.apply_key(key);
+        if before.is_some_and(|before| before != self.value) {
+            self.error = None;
+        }
+        outcome
+    }
+
+    fn apply_key(&mut self, key: KeyEvent) -> TextInputOutcome {
         match key.code {
             KeyCode::Enter => TextInputOutcome::Submitted(self.value.clone()),
             KeyCode::Esc => TextInputOutcome::Cancelled,
@@ -96,7 +112,11 @@ pub fn render_text_input(frame: &mut Frame, area: Rect, dialog: &TextInputDialog
     let value = printable(&dialog.value);
     let pairs = [("enter", "ok"), ("esc", "cancel")];
     let footer_line = footer_text(&pairs);
-    let width = content_width(&[title.as_str(), value.as_str(), footer_line.as_str()]).max(MIN_WIDTH).min(area.width);
+    let error = dialog.error.as_deref().map(|error| format!("\u{2022} {}", printable(error)));
+    let error_width = error.as_deref().unwrap_or_default();
+    let width = content_width(&[title.as_str(), value.as_str(), footer_line.as_str(), error_width])
+        .max(MIN_WIDTH)
+        .min(area.width);
     let inner = render_popup(frame, area, (width, HEIGHT.min(area.height)), Some(&title), theme);
     if inner.width == 0 || inner.height < 2 {
         return;
@@ -109,6 +129,11 @@ pub fn render_text_input(frame: &mut Frame, area: Rect, dialog: &TextInputDialog
         true,
         theme,
     );
+    if let Some(error) = error.filter(|_| inner.height >= 3) {
+        let text = truncate_with_ellipsis(&error, usize::from(inner.width));
+        let line = Line::from(Span::styled(text, theme.err_text()));
+        frame.render_widget(Paragraph::new(line), Rect::new(inner.x, inner.y + 1, inner.width, 1));
+    }
     if inner.height >= 4 {
         footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &pairs, theme);
     }
