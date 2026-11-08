@@ -135,7 +135,7 @@ fn a_row_shows_the_glyph_the_reason_the_size_and_both_times() {
 
     assert_eq!(texts.glyph, "\u{2191}");
     assert_eq!(texts.reason, "new locally");
-    assert_eq!(texts.size, "2.0K");
+    assert_eq!(texts.size, "2.0 KB");
     assert_eq!(texts.remote, "\u{2014}");
     assert!(texts.local.starts_with("1970-01-0"), "{}", texts.local);
 }

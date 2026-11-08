@@ -405,7 +405,7 @@ fn footer_left(panel: &PanelView, width: usize) -> String {
         let mut summary = format!("{} selected", selected.len());
         if !files.is_empty() {
             let total = files.iter().fold(0u64, |sum, entry| sum.saturating_add(entry.size));
-            summary.push_str(&format!(" \u{b7} {}", file_list::size_label(total)));
+            summary.push_str(&format!(" \u{b7} {}", porthmos_core::size_text(total)));
         }
         parts.push(summary);
     }
@@ -422,7 +422,7 @@ fn items_label(panel: &PanelView) -> String {
 fn right_labels(panel: &PanelView) -> Vec<String> {
     let items = items_label(panel);
     match panel.free_bytes {
-        Some(bytes) => vec![format!("{items} \u{b7} {} free", file_list::size_label(bytes)), items],
+        Some(bytes) => vec![format!("{items} \u{b7} {} free", porthmos_core::size_text(bytes)), items],
         None => vec![items],
     }
 }

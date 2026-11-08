@@ -5,7 +5,7 @@ use std::{
 
 use porthmos_core::transfer::rows::{QueueRow, RowKind, RowState};
 
-use crate::widgets::file_list::size_label;
+use porthmos_core::size_text;
 
 const WINDOW: Duration = Duration::from_secs(5);
 const MAX_ETA_SECONDS: u64 = 99 * 3600 + 59 * 60 + 59;
@@ -58,7 +58,7 @@ impl RateTracker {
 }
 
 pub fn format_speed(bytes_per_second: u64) -> String {
-    format!("{}/s", size_label(bytes_per_second))
+    format!("{}/s", size_text(bytes_per_second))
 }
 
 pub fn format_eta(seconds: u64) -> String {

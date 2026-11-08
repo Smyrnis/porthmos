@@ -112,7 +112,7 @@ fn row_text_shows_result_and_counts() {
     let (title, summary) = row_text(&done("photos", "alpha"));
 
     assert_eq!(title, "photos");
-    assert_eq!(summary, "alpha · Upload · done · 2/3 files · 2.0K");
+    assert_eq!(summary, "alpha · Upload · done · 2/3 files · 2.0 KB");
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn details_for_a_done_transfer_have_no_log_hint() {
     assert_eq!(title, "Transfer: photos");
     assert_eq!(
         body,
-        "Finished:   2026-10-01 12:00:00\nConnection: alpha (Upload)\nResult:     done, 2 of 3 files, 2.0K\nLocal:      /l\nRemote:     /r"
+        "Finished:   2026-10-01 12:00:00\nConnection: alpha (Upload)\nResult:     done, 2 of 3 files, 2.0 KB\nLocal:      /l\nRemote:     /r"
     );
 }
 
@@ -150,7 +150,7 @@ fn details_for_a_failed_transfer_list_files_and_point_at_the_log() {
     let (_, body) = details(&failed, &Utc);
 
     assert!(body.contains("Connection: alpha (Download)"));
-    assert!(body.contains("Result:     partly failed (2 failed), 2 of 3 files, 2.0K"));
+    assert!(body.contains("Result:     partly failed (2 failed), 2 of 3 files, 2.0 KB"));
     assert!(body.contains("Failed files:\n- a.txt\n- b.txt"));
     assert!(body.ends_with("The reasons are in porthmos.log."));
 }

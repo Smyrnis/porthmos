@@ -38,7 +38,7 @@ fn the_summary_adds_the_free_space_when_it_is_known() {
     let mut panel = panel();
     panel.set_free_space(VfsPath::new("/data"), Some(3 * 1024 * 1024 * 1024));
 
-    assert_eq!(panel_summary(&panel), "3 items  ·  3.0G free");
+    assert_eq!(panel_summary(&panel), "3 items  ·  3.0 GB free");
 }
 
 fn sized_panel() -> Panel {
@@ -64,7 +64,7 @@ fn the_selection_text_reports_count_and_file_size() {
     panel.click(2, Modifiers::default());
     panel.click(3, Modifiers { ctrl: true, shift: false });
 
-    assert_eq!(selection_text(&panel), Some("2 selected  ·  4.0K".to_string()));
+    assert_eq!(selection_text(&panel), Some("2 selected  ·  4.0 KB".to_string()));
 }
 
 #[test]

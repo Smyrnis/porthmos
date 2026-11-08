@@ -21,6 +21,7 @@ pub mod profiles;
 mod protocol_info;
 pub mod reopen;
 pub mod secrets;
+pub mod size_text;
 pub mod state;
 pub mod sync;
 pub mod tasks;
@@ -46,6 +47,7 @@ pub use porthmos_vfs::{
 };
 pub use protocol_info::ProtocolInfo;
 pub use reopen::offer_summary;
+pub use size_text::size_text;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 #[cfg(feature = "update")]

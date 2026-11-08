@@ -305,7 +305,10 @@ fn summary_counts_and_sizes_use_the_current_actions() {
         (2, 1, 2_048, 1, 4_096)
     );
     assert_eq!(summary.skipped, 2);
-    assert_eq!(summary_text(&summary), "2 ticked \u{b7} \u{2191} 1 (2.0K) \u{b7} \u{2193} 1 (4.0K) \u{b7} 2 skipped");
+    assert_eq!(
+        summary_text(&summary),
+        "2 ticked \u{b7} \u{2191} 1 (2.0 KB) \u{b7} \u{2193} 1 (4.0 KB) \u{b7} 2 skipped"
+    );
 
     view.select(2);
     view.flip();
@@ -316,13 +319,13 @@ fn summary_counts_and_sizes_use_the_current_actions() {
 #[test]
 fn top_text_adds_will_run_only_while_filtering() {
     let mut view = sample();
-    assert_eq!(view.top_text(), "2 ticked \u{b7} \u{2191} 2 (2.1K) \u{b7} \u{2193} 0 (0) \u{b7} 2 skipped");
+    assert_eq!(view.top_text(), "2 ticked \u{b7} \u{2191} 2 (2.1 KB) \u{b7} \u{2193} 0 (0 B) \u{b7} 2 skipped");
 
     view.set_filter("b.txt".to_string());
 
     assert_eq!(
         view.top_text(),
-        "2 ticked \u{b7} \u{2191} 2 (2.1K) \u{b7} \u{2193} 0 (0) \u{b7} 2 skipped \u{b7} 1 will run"
+        "2 ticked \u{b7} \u{2191} 2 (2.1 KB) \u{b7} \u{2193} 0 (0 B) \u{b7} 2 skipped \u{b7} 1 will run"
     );
 
     view.set_filter(String::new());

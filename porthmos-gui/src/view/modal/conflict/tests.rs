@@ -18,7 +18,7 @@ fn a_missing_file_shows_dashes() {
 
 #[test]
 fn an_existing_file_shows_its_size() {
-    assert_eq!(existing_text(file(1536, None)).0, "1.5K");
+    assert_eq!(existing_text(file(1536, None)).0, "1.5 KB");
     assert_eq!(existing_text(file(5, None)).1, "—");
 }
 
@@ -31,7 +31,7 @@ fn the_new_file_carries_the_newer_or_older_word() {
     assert!(new_text(&newer).1.ends_with("(newer)"), "{:?}", new_text(&newer));
     assert!(new_text(&older).1.ends_with("(older)"), "{:?}", new_text(&older));
     assert!(!new_text(&same).1.contains('('));
-    assert_eq!(new_text(&same).0, "2.0K");
+    assert_eq!(new_text(&same).0, "2.0 KB");
 }
 
 #[test]
@@ -39,11 +39,11 @@ fn a_partial_copy_is_described_only_when_there_is_one() {
     assert_eq!(partial_text(&view(file(5, None), None, None)), None);
     assert_eq!(
         partial_text(&view(None, file(1024, None), None)),
-        Some("A partial copy of 1.0K is on the destination; Resume continues it.".to_string())
+        Some("A partial copy of 1.0 KB is on the destination; Resume continues it.".to_string())
     );
     assert_eq!(
         partial_text(&view(None, file(800, None), None)),
-        Some("A partial copy of 800 bytes is on the destination; Resume continues it.".to_string())
+        Some("A partial copy of 800 B is on the destination; Resume continues it.".to_string())
     );
 }
 

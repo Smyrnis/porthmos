@@ -293,18 +293,6 @@ fn a_narrow_panel_hides_the_size_column() {
 }
 
 #[test]
-fn size_label_uses_bytes_then_one_decimal_units() {
-    assert_eq!(size_label(0), "0 B");
-    assert_eq!(size_label(1023), "1023 B");
-    assert_eq!(size_label(1024), "1.0 KB");
-    assert_eq!(size_label(2457), "2.4 KB");
-    assert_eq!(size_label(13_312_000), "12.7 MB");
-    assert_eq!(size_label(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
-    assert_eq!(size_label(2 * 1024u64.pow(4)), "2.0 TB");
-    assert!(!size_label(u64::MAX).is_empty());
-}
-
-#[test]
 fn a_five_hundred_character_name_is_cut_inside_the_name_column() {
     let long = "x".repeat(500);
     let panel = panel_of(vec![Entry { modified: seconds_ago(0), ..file(&long, 5) }]);
@@ -422,21 +410,21 @@ fn permissions_string_adds_the_entry_type_in_front_of_the_triplets() {
 }
 
 #[test]
-fn format_size_shows_raw_bytes_under_1024() {
-    assert_eq!(format_size(0, false), "0");
-    assert_eq!(format_size(999, false), "999");
+fn format_size_shows_bytes_with_a_unit_under_1024() {
+    assert_eq!(format_size(0, false), "0 B");
+    assert_eq!(format_size(999, false), "999 B");
 }
 
 #[test]
 fn format_size_uses_kilobyte_units_above_1024() {
-    assert_eq!(format_size(1024, false), "1.0K");
-    assert_eq!(format_size(1536, false), "1.5K");
+    assert_eq!(format_size(1024, false), "1.0 KB");
+    assert_eq!(format_size(1536, false), "1.5 KB");
 }
 
 #[test]
 fn format_size_uses_megabyte_and_gigabyte_units() {
-    assert_eq!(format_size(2 * 1024 * 1024, false), "2.0M");
-    assert_eq!(format_size(3 * 1024 * 1024 * 1024, false), "3.0G");
+    assert_eq!(format_size(2 * 1024 * 1024, false), "2.0 MB");
+    assert_eq!(format_size(3 * 1024 * 1024 * 1024, false), "3.0 GB");
 }
 
 #[test]
@@ -459,14 +447,6 @@ fn truncate_name_leaves_a_wide_name_that_already_fits_untouched() {
     let name = THREE_CHARS_SIX_COLUMNS;
 
     assert_eq!(truncate_name(name, 10), name);
-}
-
-#[test]
-fn size_label_rolls_over_before_it_needs_nine_cells() {
-    assert_eq!(size_label(1_022_976), "999.0 KB");
-    assert_eq!(size_label(1_023_999), "1.0 MB");
-    assert_eq!(size_label(1_048_575), "1.0 MB");
-    assert_eq!(size_label(1_073_741_000), "1.0 GB");
 }
 
 #[test]

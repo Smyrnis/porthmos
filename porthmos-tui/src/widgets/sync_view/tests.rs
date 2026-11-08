@@ -270,7 +270,7 @@ fn rows_show_the_tick_the_arrow_the_reason_the_path_and_both_sides() {
 fn the_top_bar_summary_counts_ticked_uploads_downloads_and_skipped() {
     let view = sample();
 
-    assert_eq!(view.top_bar_summary(), "2 ticked \u{b7} \u{2191} 2 (2.1K) \u{b7} \u{2193} 0 (0) \u{b7} 2 skipped");
+    assert_eq!(view.top_bar_summary(), "2 ticked \u{b7} \u{2191} 2 (2.1 KB) \u{b7} \u{2193} 0 (0 B) \u{b7} 2 skipped");
 }
 
 #[test]
@@ -450,7 +450,7 @@ fn long_paths_are_cut_with_an_ellipsis_so_the_columns_stay_aligned() {
     assert!(columns.iter().all(|column| *column == columns[0]), "{columns:?}");
     assert!(rows[4].contains(&"\u{2026}".to_string()), "{:?}", rows[4]);
     assert!(rows[5].contains(&"\u{2026}".to_string()), "{:?}", rows[5]);
-    assert!(rows[4].concat().contains("2.0K"), "{:?}", rows[4]);
+    assert!(rows[4].concat().contains("2.0 KB"), "{:?}", rows[4]);
 }
 
 #[test]
@@ -461,8 +461,8 @@ fn on_a_narrow_screen_the_time_columns_give_way_and_the_size_stays_aligned_and_v
 
     assert!(ends.iter().all(|end| *end == ends[0]), "{ends:?}");
     assert!(rows[3].concat().contains("100"), "{:?}", rows[3]);
-    assert!(rows[4].concat().contains("2.0K"), "{:?}", rows[4]);
-    assert!(rows[5].concat().contains("1.2M"), "{:?}", rows[5]);
+    assert!(rows[4].concat().contains("2.0 KB"), "{:?}", rows[4]);
+    assert!(rows[5].concat().contains("1.2 MB"), "{:?}", rows[5]);
 }
 
 #[test]
@@ -640,7 +640,7 @@ fn hostile_and_very_long_paths_are_sanitised_and_cut_by_display_width() {
     let terminal = draw(&view, 100, 8);
 
     assert!(!has_unprintable_cell(&terminal));
-    assert!(screen_rows(&terminal)[3].contains("1.2M"));
+    assert!(screen_rows(&terminal)[3].contains("1.2 MB"));
 }
 
 #[test]

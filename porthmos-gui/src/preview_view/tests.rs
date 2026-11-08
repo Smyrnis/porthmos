@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use porthmos_core::preview::{Preview, PreviewContent};
 
-use super::{PreviewState, PreviewStatus, hex_row, size_text, text_lines, visible_window};
+use super::{PreviewState, PreviewStatus, hex_row, text_lines, visible_window};
+use porthmos_core::size_text;
 
 fn text(content: &str) -> Arc<Preview> {
     Arc::new(Preview {
@@ -86,14 +87,14 @@ fn hex_rows_cover_all_bytes() {
 #[test]
 fn info_text_for_text_binary_and_truncated() {
     assert_eq!(ready(text("hello")).info_text(), "text · 5 B");
-    assert_eq!(ready(binary(vec![0; 2048])).info_text(), "binary · 2.0K");
+    assert_eq!(ready(binary(vec![0; 2048])).info_text(), "binary · 2.0 KB");
     let truncated = Arc::new(Preview {
         size: Some(3 * 1024 * 1024),
         shown: 256 * 1024,
         truncated: true,
         content: PreviewContent::Text("x".to_string()),
     });
-    assert_eq!(ready(truncated).info_text(), "first 256.0K of 3.0M");
+    assert_eq!(ready(truncated).info_text(), "first 256.0 KB of 3.0 MB");
     let unknown =
         Arc::new(Preview { size: None, shown: 100, truncated: true, content: PreviewContent::Text("x".to_string()) });
     assert_eq!(ready(unknown).info_text(), "first 100 B");
@@ -103,7 +104,7 @@ fn info_text_for_text_binary_and_truncated() {
 fn size_text_below_and_above_a_kilobyte() {
     assert_eq!(size_text(0), "0 B");
     assert_eq!(size_text(1023), "1023 B");
-    assert_eq!(size_text(1024), "1.0K");
+    assert_eq!(size_text(1024), "1.0 KB");
 }
 
 #[test]

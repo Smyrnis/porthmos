@@ -35,7 +35,7 @@ pub fn selection_text(panel: &Panel) -> Option<String> {
         return Some(format!("{count} selected"));
     }
     let total: u64 = files.iter().sum();
-    let size = if total < 1024 { format!("{total} B") } else { format::size(total, false) };
+    let size = format::size(total, false);
     Some(format!("{count} selected{SEPARATOR}{size}"))
 }
 

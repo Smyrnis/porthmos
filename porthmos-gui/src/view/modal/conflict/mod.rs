@@ -41,10 +41,7 @@ pub fn new_text(view: &ConflictView) -> (String, String) {
 
 pub fn partial_text(view: &ConflictView) -> Option<String> {
     view.partial.map(|partial| {
-        let size = match partial.size {
-            bytes if bytes < 1024 => format!("{bytes} bytes"),
-            bytes => format::size(bytes, false),
-        };
+        let size = format::size(partial.size, false);
         format!("A partial copy of {size} is on the destination; Resume continues it.")
     })
 }

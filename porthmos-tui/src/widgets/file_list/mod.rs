@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local};
+use porthmos_core::size_text;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -121,7 +122,7 @@ fn row_line(
     let mut spans = vec![marker, Span::raw(" "), Span::styled(name, style)];
     if let Row::Entry(entry) = row {
         if columns.show_size {
-            let size = if entry.is_dir { String::new() } else { size_label(entry.size) };
+            let size = if entry.is_dir { String::new() } else { size_text(entry.size) };
             spans.push(Span::styled(format!(" {}", pad_left(&size, SIZE_WIDTH)), theme.dim()));
         }
         if columns.show_modified {
@@ -166,20 +167,6 @@ pub(crate) fn permissions_string(entry: &porthmos_core::Entry) -> Option<String>
     Some(format!("{kind}{}", permission_triplets(mode)))
 }
 
-pub fn size_label(bytes: u64) -> String {
-    if bytes < 1024 {
-        return format!("{bytes} B");
-    }
-    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while (value >= 1024.0 || (value * 10.0).round() / 10.0 >= 1000.0) && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1} {}", UNITS[unit])
-}
-
 pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
     if max_width <= 1 && name.width() > max_width {
         return "\u{2026}".to_string();
@@ -188,21 +175,7 @@ pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
 }
 
 pub fn format_size(size: u64, is_dir: bool) -> String {
-    if is_dir {
-        return "\u{2014}".to_string();
-    }
-    if size < 1024 {
-        return size.to_string();
-    }
-
-    const UNITS: [&str; 4] = ["K", "M", "G", "T"];
-    let mut value = size as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1}{}", UNITS[unit])
+    if is_dir { "\u{2014}".to_string() } else { size_text(size) }
 }
 
 fn permission_triplets(mode: u32) -> String {
