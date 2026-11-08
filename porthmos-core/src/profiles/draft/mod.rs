@@ -57,36 +57,79 @@ impl fmt::Debug for ProfileDraft {
     }
 }
 
-fn required(value: &str, label: &str, is_required: bool) -> Result<(), String> {
-    if is_required && value.is_empty() { Err(format!("{label} can't be empty")) } else { Ok(()) }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftProblem {
+    pub field: &'static str,
+    pub message: String,
+}
+
+impl DraftProblem {
+    fn new(field: &'static str, message: String) -> Self {
+        Self { field, message }
+    }
+}
+
+impl fmt::Display for DraftProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl PartialEq<&str> for DraftProblem {
+    fn eq(&self, other: &&str) -> bool {
+        self.message == *other
+    }
+}
+
+impl PartialEq<String> for DraftProblem {
+    fn eq(&self, other: &String) -> bool {
+        &self.message == other
+    }
+}
+
+fn required(value: &str, field: &'static str, label: &str, is_required: bool) -> Result<(), DraftProblem> {
+    if is_required && value.is_empty() {
+        Err(DraftProblem::new(field, format!("{label} can't be empty")))
+    } else {
+        Ok(())
+    }
 }
 
 fn has_marker(original: Option<&ConnectionEntry>, marker: &str) -> bool {
     original.is_some_and(|entry| entry.in_keyring.iter().any(|saved| saved == marker))
 }
 
-fn required_secret(edit: &SecretEdit, label: &str, is_required: bool, saved: bool, trim: bool) -> Result<(), String> {
+fn required_secret(
+    edit: &SecretEdit, field: &'static str, label: &str, is_required: bool, saved: bool, trim: bool,
+) -> Result<(), DraftProblem> {
     match edit {
-        SecretEdit::Replace(value) => required(if trim { value.trim() } else { value }, label, is_required),
+        SecretEdit::Replace(value) => required(if trim { value.trim() } else { value }, field, label, is_required),
         SecretEdit::Keep if saved => Ok(()),
-        SecretEdit::Keep | SecretEdit::Clear => required("", label, is_required),
+        SecretEdit::Keep | SecretEdit::Clear => required("", field, label, is_required),
     }
 }
 
 impl ProfileDraft {
     pub fn validate(
         &self, form: &ConnectionForm, preserve_from: Option<&ConnectionEntry>,
-    ) -> Result<ConnectionProfile, String> {
+    ) -> Result<ConnectionProfile, DraftProblem> {
         let name = self.name.trim();
         let host = self.host.trim();
         let username = self.username.trim();
 
-        required(name, "Name", true)?;
-        required(host, form.host.label, form.host.required)?;
-        required(username, form.username.label, form.username.required)?;
+        required(name, "name", "Name", true)?;
+        required(host, "host", form.host.label, form.host.required)?;
+        required(username, "username", form.username.label, form.username.required)?;
         let original = preserve_from.filter(|entry| entry.protocol == self.protocol);
         let password_saved = has_marker(original, PASSWORD_MARKER);
-        required_secret(&self.password, form.password.label, form.password.required, password_saved, false)?;
+        required_secret(
+            &self.password,
+            "password",
+            form.password.label,
+            form.password.required,
+            password_saved,
+            false,
+        )?;
         let port = self.port(form)?;
 
         let mut in_keyring = Vec::new();
@@ -105,14 +148,14 @@ impl ProfileDraft {
             if field.kind == OptionKind::Secret {
                 let edit = self.secret_options.get(field.key).cloned().unwrap_or_default();
                 let saved = has_marker(original, field.key);
-                required_secret(&edit, field.label, field.required, saved, true)?;
+                required_secret(&edit, field.key, field.label, field.required, saved, true)?;
                 if saved && edit == SecretEdit::Keep {
                     in_keyring.push(field.key.to_string());
                 }
                 continue;
             }
             let raw = self.options.get(field.key).map(String::as_str).unwrap_or_default();
-            required(raw.trim(), field.label, field.required)?;
+            required(raw.trim(), field.key, field.label, field.required)?;
             if raw.trim().is_empty() {
                 continue;
             }
@@ -120,10 +163,13 @@ impl ProfileDraft {
             match &field.kind {
                 OptionKind::Choice { choices, .. } if !choices.iter().any(|choice| choice.value == value) => {
                     let labels: Vec<&str> = choices.iter().map(|choice| choice.label).collect();
-                    return Err(format!("{} must be one of: {}", field.label, labels.join(", ")));
+                    return Err(DraftProblem::new(
+                        field.key,
+                        format!("{} must be one of: {}", field.label, labels.join(", ")),
+                    ));
                 }
                 OptionKind::Toggle { .. } if value != "true" && value != "false" => {
-                    return Err(format!("{} must be on or off", field.label));
+                    return Err(DraftProblem::new(field.key, format!("{} must be on or off", field.label)));
                 }
                 _ => {}
             }
@@ -147,14 +193,14 @@ impl ProfileDraft {
         })
     }
 
-    fn port(&self, form: &ConnectionForm) -> Result<u16, String> {
+    fn port(&self, form: &ConnectionForm) -> Result<u16, DraftProblem> {
         let port = self.port.trim();
         if port.is_empty() {
             return Ok(form.port.default);
         }
         match port.parse::<u16>() {
             Ok(port) if port != 0 => Ok(port),
-            _ => Err(format!("{} must be a number from 1-65535", form.port.label)),
+            _ => Err(DraftProblem::new("port", format!("{} must be a number from 1-65535", form.port.label))),
         }
     }
 }

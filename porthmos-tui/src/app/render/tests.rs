@@ -1454,7 +1454,7 @@ fn a_validation_error_from_the_core_is_shown_under_the_fields() {
     let (mut app, _) = form_app();
     app.apply_action(Action::AddConnection);
 
-    app.apply_core_event(Event::ProfileRejected { message: "Name is required".to_string() });
+    app.apply_core_event(Event::ProfileRejected { field: None, message: "Name is required".to_string() });
     let terminal = render_app(&app, 120, 24);
 
     let hint_and_error = (18..22).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
@@ -1492,7 +1492,7 @@ fn the_form_screen_never_panics_at_any_size() {
     let (mut app, _) = form_app();
     app.apply_core_event(Event::KeyringStatus { available: false });
     app.apply_action(Action::AddConnection);
-    app.apply_core_event(Event::ProfileRejected { message: "boom\nsecond".to_string() });
+    app.apply_core_event(Event::ProfileRejected { field: None, message: "boom\nsecond".to_string() });
 
     for width in 0..=130 {
         for height in 0..=14 {

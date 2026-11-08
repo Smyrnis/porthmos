@@ -420,7 +420,10 @@ fn add_connection_dialog_keeps_the_dialog_open_on_invalid_port() {
     fill_form(&mut test, ["prod", "server.example.com", "not-a-port", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::ProfileRejected { message: "Port must be a number from 1-65535".to_string() });
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: Some("port"),
+        message: "Port must be a number from 1-65535".to_string(),
+    });
 
     match test.app.dialog {
         Some(Dialog::Form(ref form)) => assert!(form.error.is_some()),
@@ -435,7 +438,10 @@ fn add_connection_dialog_keeps_the_dialog_open_on_port_zero() {
     fill_form(&mut test, ["prod", "server.example.com", "0", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::ProfileRejected { message: "Port must be a number from 1-65535".to_string() });
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: Some("port"),
+        message: "Port must be a number from 1-65535".to_string(),
+    });
 
     match test.app.dialog {
         Some(Dialog::Form(ref form)) => assert_eq!(form.error.as_deref(), Some("Port must be a number from 1-65535")),
@@ -450,8 +456,10 @@ fn add_connection_dialog_rejects_a_name_that_already_exists() {
     fill_form(&mut test, ["prod", "new.example.com", "22", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app
-        .apply_core_event(Event::ProfileRejected { message: "A connection named \"prod\" already exists".to_string() });
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: None,
+        message: "A connection named \"prod\" already exists".to_string(),
+    });
 
     match test.app.dialog {
         Some(Dialog::Form(ref form)) => assert!(form.error.is_some()),
@@ -471,6 +479,7 @@ fn edit_connection_rejects_renaming_onto_an_existing_name() {
         [Command::SaveProfile { original: Some(original), draft }] if original == "prod" && draft.name == "staging"
     ));
     test.app.apply_core_event(Event::ProfileRejected {
+        field: None,
         message: "A connection named \"staging\" already exists".to_string(),
     });
     assert!(matches!(test.app.dialog, Some(Dialog::Form(ref form)) if form.error.is_some()));
@@ -806,7 +815,7 @@ fn a_rejected_labels_save_shows_in_the_form() {
     test.app.connections.replace(vec![connection("web1", ConnectionSource::SshConfig)]);
     test.app.apply_action(Action::Rename);
 
-    test.app.apply_core_event(Event::ProfileRejected { message: "web1 is not in ~/.ssh/config".into() });
+    test.app.apply_core_event(Event::ProfileRejected { field: None, message: "web1 is not in ~/.ssh/config".into() });
 
     let Some(Dialog::Form(form)) = &test.app.dialog else { panic!("form closed") };
     assert_eq!(form.error.as_deref(), Some("web1 is not in ~/.ssh/config"));
@@ -875,7 +884,7 @@ fn a_listing_without_a_save_does_not_move_the_cursor() {
         .connections
         .replace(vec![connection("a", ConnectionSource::Profile), connection("b", ConnectionSource::Profile)]);
     test.app.submit_connection_form(vec![("name", "b".into())], None);
-    test.app.apply_core_event(Event::ProfileRejected { message: "bad".into() });
+    test.app.apply_core_event(Event::ProfileRejected { field: None, message: "bad".into() });
 
     test.app.apply_core_event(Event::Profiles(vec![
         connection("a", ConnectionSource::Profile),
@@ -1946,4 +1955,47 @@ fn a_restored_session_does_not_move_the_focus() {
 
     assert_eq!(test.app.screen, Screen::Connections);
     assert_eq!(test.app.active_panel, ActivePanel::Local);
+}
+
+#[test]
+fn a_rejected_port_moves_focus_to_the_port_field_and_marks_it() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    fill_form(&mut test, ["prod", "server.example.com", "222222", "deploy"]);
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: Some("port"),
+        message: "Port must be a number from 1-65535".to_string(),
+    });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref form)) => {
+            assert_eq!(form.fields[form.focused].key, "port");
+            assert_eq!(form.rejected_field(), Some("port"));
+        }
+        _ => panic!("expected the form dialog to stay open"),
+    }
+}
+
+#[test]
+fn a_rejection_with_no_field_keeps_focus_where_it_was() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    fill_form(&mut test, ["prod", "server.example.com", "22", "deploy"]);
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+    let before = match test.app.dialog {
+        Some(Dialog::Form(ref form)) => form.focused,
+        _ => panic!("expected the form"),
+    };
+
+    test.app.apply_core_event(Event::ProfileRejected { field: None, message: "nope".to_string() });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref form)) => {
+            assert_eq!(form.focused, before);
+            assert_eq!(form.rejected_field(), None);
+        }
+        _ => panic!("expected the form"),
+    }
 }

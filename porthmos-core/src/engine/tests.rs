@@ -616,7 +616,7 @@ fn a_rejected_profile_is_logged_as_a_warning_not_an_error() {
     let t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.profile_rejected("Name can't be empty");
+        t.engine.profile_rejected(Some("name"), "Name can't be empty");
     });
 
     assert_eq!(error_lines(&logs), 0, "{logs}");

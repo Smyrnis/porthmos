@@ -56,7 +56,7 @@ impl App {
         let options = match parse_options(&values) {
             Ok(options) => options,
             Err(message) => {
-                self.set_form_error(message);
+                self.set_form_error(None, message);
                 return;
             }
         };

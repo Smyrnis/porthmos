@@ -133,6 +133,7 @@ pub struct FormDialog {
     pub fields: Vec<FormField>,
     pub focused: usize,
     pub error: Option<String>,
+    pub error_field: Option<&'static str>,
     pub hint: Option<String>,
     pub saved_secrets: Option<(String, Vec<String>)>,
     pub remembered: BTreeMap<String, String>,
@@ -175,6 +176,7 @@ impl FormDialog {
             fields,
             focused: 0,
             error: None,
+            error_field: None,
             hint: None,
             saved_secrets: None,
             remembered: BTreeMap::new(),
@@ -182,6 +184,18 @@ impl FormDialog {
             layout: FormLayout::Popup,
             test: None,
         }
+    }
+
+    pub fn reject(&mut self, field: Option<&'static str>, message: impl Into<String>) {
+        self.error = Some(message.into());
+        self.error_field = field.filter(|key| self.fields.iter().any(|candidate| candidate.key == *key));
+        if let Some(index) = self.fields.iter().position(|candidate| Some(candidate.key) == self.error_field) {
+            self.focused = index;
+        }
+    }
+
+    pub fn rejected_field(&self) -> Option<&'static str> {
+        self.error.as_ref().and(self.error_field)
     }
 
     pub fn value(&self, key: &str) -> Option<String> {

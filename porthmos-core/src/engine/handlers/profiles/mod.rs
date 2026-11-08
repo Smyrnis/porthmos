@@ -37,14 +37,14 @@ impl Engine {
             (Some(protocol), _) => protocol.connection_form(),
             (None, Some(entry)) => ConnectionForm::standard(entry.port),
             (None, None) => {
-                self.profile_rejected(format!("No \"{}\" protocol is available", draft.protocol));
+                self.profile_rejected(Some("protocol"), format!("No \"{}\" protocol is available", draft.protocol));
                 return;
             }
         };
         let profile = match draft.validate(&form, preserve_from.as_ref()) {
             Ok(profile) => profile,
-            Err(message) => {
-                self.profile_rejected(message);
+            Err(problem) => {
+                self.profile_rejected(Some(problem.field), problem.message);
                 return;
             }
         };
@@ -55,7 +55,7 @@ impl Engine {
                     .iter()
                     .any(|saved| saved.name == profile.name && Some(&saved.name) != original.as_ref()) =>
             {
-                self.profile_rejected(format!("A connection named \"{}\" already exists", profile.name));
+                self.profile_rejected(Some("name"), format!("A connection named \"{}\" already exists", profile.name));
                 return;
             }
             Ok(_) => {}
@@ -105,7 +105,7 @@ impl Engine {
         match self.is_ssh_host(name) {
             Ok(true) => {}
             Ok(false) => {
-                self.profile_rejected(format!("{name} is not in ~/.ssh/config"));
+                self.profile_rejected(None, format!("{name} is not in ~/.ssh/config"));
                 return;
             }
             Err(err) => return self.report(Severity::Error, format!("{err:#}")),

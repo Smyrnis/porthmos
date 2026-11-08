@@ -397,9 +397,9 @@ impl App {
         self.pending_action = None;
     }
 
-    pub(super) fn set_form_error(&mut self, message: String) {
+    pub(super) fn set_form_error(&mut self, field: Option<&'static str>, message: String) {
         if let Some(Dialog::Form(form)) = self.dialog.as_mut() {
-            form.error = Some(message);
+            form.reject(field, message);
         }
     }
 

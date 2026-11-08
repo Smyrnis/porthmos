@@ -460,7 +460,7 @@ impl App {
                     self.reveal = Some(Reveal::Ready(name));
                 }
             }
-            Event::ProfileRejected { message } => self.set_form_error(message),
+            Event::ProfileRejected { field, message } => self.set_form_error(field, message),
             Event::Bookmarks(bookmarks) => self.bookmarks = bookmarks,
             Event::TransfersChanged(snapshot) => self.apply_transfer_snapshot(snapshot),
             Event::ConflictsFound { batch_id, files } => self.queue_conflict_prompt(batch_id, files),

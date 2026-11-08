@@ -824,7 +824,7 @@ impl App {
             Event::SaveChoice { save } => self.save_choice = save,
             Event::TestFinished { test_id, outcome } => self.test_finished(test_id, outcome),
             Event::TestQuestion { test_id, request_id, question } => self.test_question(test_id, request_id, question),
-            Event::ProfileRejected { message } => self.profile_rejected(message),
+            Event::ProfileRejected { message, .. } => self.profile_rejected(message),
             Event::History(entries) => self.history_arrived(entries),
             Event::Bookmarks(items) => self.bookmarks_arrived(items),
             Event::SearchFound(entry) => self.search_found(entry),

@@ -1043,3 +1043,82 @@ fn control_with_alt_replaces_a_saved_secret_like_any_typed_character() {
 
     assert_eq!((form.fields[4].kind.clone(), form.value("password").as_deref()), (FieldKind::Masked, Some("q")));
 }
+
+#[test]
+fn rejecting_with_a_field_moves_focus_there_and_keeps_the_message() {
+    let mut form = sample_form();
+    assert_eq!(form.focused, 0);
+
+    form.reject(Some("host"), "Host can't be empty");
+
+    let host = form.fields.iter().position(|field| field.key == "host").unwrap();
+    assert_eq!(form.focused, host);
+    assert_eq!(form.error.as_deref(), Some("Host can't be empty"));
+}
+
+#[test]
+fn rejecting_without_a_known_field_leaves_focus_alone() {
+    let mut form = sample_form();
+    form.focused = 1;
+
+    form.reject(None, "Something general");
+    assert_eq!(form.focused, 1);
+    assert_eq!(form.error.as_deref(), Some("Something general"));
+
+    form.reject(Some("no_such_field"), "Still general");
+    assert_eq!(form.focused, 1);
+    assert_eq!(form.error.as_deref(), Some("Still general"));
+}
+
+#[test]
+fn the_rejected_field_is_drawn_in_the_error_colour_label_and_underline() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.reject(Some("host"), "Host can't be empty");
+
+    let terminal = draw(&form, 60, 14);
+
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
+    assert_eq!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.err);
+    let (x, y) = find_text(&terminal, "Name").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.err);
+    assert_ne!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.err);
+}
+
+#[test]
+fn the_message_is_still_drawn_at_the_bottom_of_the_form() {
+    let mut form = sample_form();
+    form.reject(Some("host"), "Host can't be empty");
+
+    let terminal = draw(&form, 60, 14);
+
+    assert!(find_text(&terminal, "Host can't be empty").is_some());
+}
+
+#[test]
+fn editing_the_rejected_field_clears_the_marker_and_the_message() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.reject(Some("host"), "Host can't be empty");
+
+    press(&mut form, KeyCode::Char('x'));
+
+    assert_eq!(form.error, None);
+    let terminal = draw(&form, 60, 14);
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.err);
+}
+
+#[test]
+fn a_marker_does_not_outlive_a_later_error_without_a_field() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.reject(Some("host"), "first");
+    form.reject(None, "second");
+
+    let terminal = draw(&form, 60, 14);
+
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.err);
+}

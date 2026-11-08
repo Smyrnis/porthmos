@@ -100,7 +100,8 @@ pub fn render_field_stack(frame: &mut Frame, area: Rect, dialog: &FormDialog, fi
         if field.is_toggle() {
             render_toggle(frame, value_x, y, value_width, field, focused, theme);
         } else {
-            render_text_field(frame, area, (value_x, value_width), y, field, focused, theme);
+            let rejected = dialog.rejected_field() == Some(field.key);
+            render_text_field(frame, area, (value_x, value_width), y, (field, focused, rejected), theme);
         }
     }
 
@@ -124,10 +125,17 @@ pub fn render_field_stack(frame: &mut Frame, area: Rect, dialog: &FormDialog, fi
 }
 
 fn render_text_field(
-    frame: &mut Frame, area: Rect, value_column: (u16, usize), y: u16, field: &FormField, focused: bool, theme: &Theme,
+    frame: &mut Frame, area: Rect, value_column: (u16, usize), y: u16, state: (&FormField, bool, bool), theme: &Theme,
 ) {
     let (value_x, value_width) = value_column;
-    let label_style = if focused { theme.bright() } else { theme.dim() };
+    let (field, focused, rejected) = state;
+    let label_style = if rejected {
+        theme.err_text()
+    } else if focused {
+        theme.bright()
+    } else {
+        theme.dim()
+    };
     let label = truncate_with_ellipsis(&printable(&field.label), LABEL_WIDTH - 1);
     frame.render_widget(Paragraph::new(Span::styled(label, label_style)), Rect::new(area.x, y, area.width, 1));
     if value_width == 0 {
@@ -135,14 +143,15 @@ fn render_text_field(
     }
     let has_caret = matches!(field.kind, FieldKind::Text | FieldKind::Masked);
     let caret = (focused && has_caret).then_some(field.cursor);
-    render_underline_value(
-        frame,
-        Rect::new(value_x, y, value_width as u16, 1),
-        &displayed_value(field),
-        caret,
-        focused,
-        theme,
-    );
+    let value_area = Rect::new(value_x, y, value_width as u16, 1);
+    render_underline_value(frame, value_area, &displayed_value(field), caret, focused, theme);
+    if rejected {
+        let underline = Rect::new(value_x, y + 1, value_width as u16, 1).intersection(frame.area());
+        if underline.width > 0 && underline.height > 0 {
+            let rule = "\u{2500}".repeat(usize::from(underline.width));
+            frame.render_widget(Paragraph::new(Span::styled(rule, theme.err_text())), underline);
+        }
+    }
 }
 
 pub fn render_caret_value(frame: &mut Frame, area: Rect, value: &str, caret: Option<usize>, style: Style) {

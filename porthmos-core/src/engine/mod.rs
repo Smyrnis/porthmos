@@ -527,10 +527,10 @@ impl Engine {
     }
 
     #[track_caller]
-    pub(crate) fn profile_rejected(&self, message: impl Into<String>) {
+    pub(crate) fn profile_rejected(&self, field: Option<&'static str>, message: impl Into<String>) {
         let message = message.into();
         self.reporter.log(Severity::Warning, &message);
-        self.emit(Event::ProfileRejected { message });
+        self.emit(Event::ProfileRejected { field, message });
     }
 
     #[track_caller]

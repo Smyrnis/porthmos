@@ -88,7 +88,7 @@ fn an_invalid_draft_is_rejected_with_the_reason() {
     t.engine.handle_command(Command::SaveProfile { original: None, draft: Box::new(draft("prod", "h", "not-a-port")) });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ProfileRejected { message }] if message == "Port must be a number from 1-65535")
+        matches!(t.drain().as_slice(), [Event::ProfileRejected { field: Some("port"), message }] if message == "Port must be a number from 1-65535")
     );
     assert!(saved(&t).is_empty());
 }
@@ -104,7 +104,7 @@ fn add_connection_dialog_rejects_a_name_that_already_exists() {
     });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ProfileRejected { message }] if message == "A connection named \"prod\" already exists")
+        matches!(t.drain().as_slice(), [Event::ProfileRejected { field: Some("name"), message }] if message == "A connection named \"prod\" already exists")
     );
     assert_eq!(saved(&t)[0].host, "original.example.com");
 }
@@ -212,7 +212,7 @@ fn saving_a_draft_for_an_unknown_protocol_is_rejected() {
 
     assert!(matches!(
         t.drain().as_slice(),
-        [Event::ProfileRejected { message }] if message == "No \"gopher\" protocol is available"
+        [Event::ProfileRejected { field: Some("protocol"), message }] if message == "No \"gopher\" protocol is available"
     ));
     assert!(saved(&t).is_empty());
 }
@@ -320,7 +320,7 @@ fn saving_ssh_labels_for_an_unknown_host_is_rejected() {
     t.engine.handle_command(Command::SaveSshLabels { name: "nope".into(), group: "A".into(), tags: String::new() });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ProfileRejected { message }] if message == "nope is not in ~/.ssh/config")
+        matches!(t.drain().as_slice(), [Event::ProfileRejected { field: None, message }] if message == "nope is not in ~/.ssh/config")
     );
     assert!(store::load_ssh_labels(&t.engine.paths).unwrap().is_empty());
 }

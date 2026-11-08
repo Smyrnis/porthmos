@@ -43,7 +43,7 @@ pub enum Event {
     Profiles(Vec<ConnectionEntry>),
     LastUsed(BTreeMap<String, DateTime<Utc>>),
     ProfileSaved,
-    ProfileRejected { message: String },
+    ProfileRejected { field: Option<&'static str>, message: String },
     Bookmarks(Vec<Bookmark>),
     TransfersChanged(TransferSnapshot),
     ConflictsFound { batch_id: u64, files: Vec<ConflictInfo> },

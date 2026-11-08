@@ -367,7 +367,7 @@ mod hardening {
 
         let outcome = outcome_of(&mut t, draft).await;
 
-        assert_eq!(outcome, TestOutcome::Failed { stage: TestStage::Settings, message: expected.into() });
+        assert_eq!(outcome, TestOutcome::Failed { stage: TestStage::Settings, message: expected.message.into() });
     }
 
     #[tokio::test]
@@ -379,7 +379,7 @@ mod hardening {
 
         assert_eq!(
             outcome_of(&mut t, draft).await,
-            TestOutcome::Failed { stage: TestStage::Settings, message: expected.into() }
+            TestOutcome::Failed { stage: TestStage::Settings, message: expected.message.into() }
         );
     }
 
