@@ -1,6 +1,7 @@
 use chrono::Local;
 use iced::widget::{column, container, mouse_area, row, scrollable, space, svg};
 use iced::{Alignment, Color, Element, Length, Size, alignment};
+use porthmos_core::Entry;
 use porthmos_core::listing::Row;
 
 use super::{BOLD, filled, format, label};
@@ -78,8 +79,14 @@ pub fn list<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, shown: Columns,
 pub fn icon_of(row: &Row) -> Icon {
     match row {
         Row::Parent => Icon::Parent,
+        Row::Entry(entry) if entry.link_target.is_some() => Icon::Link,
         Row::Entry(entry) => icon_for_entry(&entry.name, entry.is_dir),
     }
+}
+
+pub fn link_note(entry: &Entry) -> Option<String> {
+    let target = entry.link_target.as_deref()?;
+    if target.is_empty() { Some("\u{2192} unreadable target".to_string()) } else { Some(format!("\u{2192} {target}")) }
 }
 
 pub fn row_background(state: RowState, palette: &Palette) -> Color {
@@ -118,6 +125,10 @@ fn row_view<'a>(
     let icon = svg(icons::handle(icon_of(row_data))).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity);
     let name = label(name, color);
     let name = if is_dir || state.cursor || state.drop { name.font(BOLD) } else { name };
+    let name_cell: Element<'a, Message> = match entry.and_then(link_note) {
+        Some(note) => row![name, label(note, palette.fg_dim)].spacing(8).into(),
+        None => name.into(),
+    };
     let mut line = row![
         container(space())
             .width(Length::Fixed(EDGE_WIDTH))
@@ -128,7 +139,7 @@ fn row_view<'a>(
             .height(Length::Fill)
             .center_x(Length::Fixed(ICON_SLOT))
             .center_y(Length::Fill),
-        container(name).width(Length::Fill).clip(true),
+        container(name_cell).width(Length::Fill).clip(true),
     ]
     .align_y(Alignment::Center);
     if let Some(entry) = entry {

@@ -73,6 +73,7 @@ icons! {
     NewFolder => "actions/addDirectory.svg",
     Terminal => "main/terminal.svg",
     RemoteTerminal => "main/remoteTerminal.svg",
+    Link => "main/symlink.svg",
 }
 
 static HANDLES: OnceLock<Vec<Handle>> = OnceLock::new();
