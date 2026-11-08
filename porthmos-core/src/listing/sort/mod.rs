@@ -43,14 +43,58 @@ pub fn sort_entries(entries: &mut [Entry], spec: SortSpec) {
 
 fn compare_by(a: &Entry, b: &Entry, spec: SortSpec) -> Ordering {
     let primary = match spec.key {
-        SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        SortKey::Name => natural_cmp(&a.name, &b.name),
         SortKey::Size => a.size.cmp(&b.size),
     };
     let primary = match spec.order {
         SortOrder::Ascending => primary,
         SortOrder::Descending => primary.reverse(),
     };
-    primary.then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    primary.then_with(|| natural_cmp(&a.name, &b.name)).then_with(|| a.name.cmp(&b.name))
+}
+
+fn take_digits(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut digits = String::new();
+    while let Some(digit) = chars.next_if(char::is_ascii_digit) {
+        digits.push(digit);
+    }
+    digits
+}
+
+fn compare_numbers(a: &str, b: &str) -> Ordering {
+    let (a, b) = (a.trim_start_matches('0'), b.trim_start_matches('0'));
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+}
+
+fn natural_cmp(a: &str, b: &str) -> Ordering {
+    let (mut left, mut right) = (a.chars().peekable(), b.chars().peekable());
+    let mut zeros_tiebreak = Ordering::Equal;
+    loop {
+        match (left.peek().copied(), right.peek().copied()) {
+            (None, None) => return zeros_tiebreak,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let (run_left, run_right) = (take_digits(&mut left), take_digits(&mut right));
+                match compare_numbers(&run_left, &run_right) {
+                    Ordering::Equal => {
+                        if zeros_tiebreak == Ordering::Equal {
+                            zeros_tiebreak = run_left.len().cmp(&run_right.len());
+                        }
+                    }
+                    other => return other,
+                }
+            }
+            (Some(x), Some(y)) => {
+                let order = x.to_lowercase().cmp(y.to_lowercase());
+                if order != Ordering::Equal {
+                    return order;
+                }
+                left.next();
+                right.next();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
