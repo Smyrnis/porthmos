@@ -1,7 +1,7 @@
 use porthmos_core::listing::SortSpec;
 use porthmos_core::{Entry, VfsPath};
 
-use super::{connection_text, keyring_text, notice_text, panel_summary, selection_text};
+use super::{connection_text, keyring_text, limit_text, notice_text, panel_summary, selection_text};
 use crate::panel::{Modifiers, Panel};
 use crate::testing::Harness;
 use porthmos_core::Event;
@@ -135,4 +135,18 @@ fn the_summary_uses_the_singular_for_one_item() {
     );
 
     assert_eq!(panel_summary(&panel), "1 item");
+}
+
+#[test]
+fn the_status_bar_announces_an_active_speed_limit_only() {
+    use porthmos_core::transfer::TransferSnapshot;
+    let mut harness = Harness::new();
+    assert_eq!(limit_text(&harness.app), None);
+
+    harness.feed(Event::TransfersChanged(TransferSnapshot {
+        speed_limit: Some(512 * 1024),
+        ..TransferSnapshot::default()
+    }));
+
+    assert_eq!(limit_text(&harness.app).as_deref(), Some("speed limit 512k"));
 }

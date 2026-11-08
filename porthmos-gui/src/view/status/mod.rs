@@ -1,6 +1,7 @@
 use iced::widget::{container, row, tooltip};
 use iced::{Element, Length, alignment};
 use porthmos_core::Severity;
+use porthmos_core::transfer::limit::speed_limit_note;
 
 use super::button::hinted;
 use super::file_list::PADDING;
@@ -62,6 +63,10 @@ pub fn panel_line<'a>(panel: &Panel, palette: &Palette, cells: usize, editing: b
         .into()
 }
 
+pub fn limit_text(app: &App) -> Option<String> {
+    speed_limit_note(app.transfer_speed_limit())
+}
+
 pub fn keyring_text(waiting: bool) -> Option<&'static str> {
     waiting.then_some("Waiting for the keyring\u{2026}")
 }
@@ -109,6 +114,9 @@ pub fn bar(app: &App) -> Element<'_, Message> {
     };
     let mut right = row![].spacing(14).align_y(alignment::Vertical::Center);
     if let Some(text) = active_panel.and_then(selection_text) {
+        right = right.push(label(text, palette.accent));
+    }
+    if let Some(text) = limit_text(app) {
         right = right.push(label(text, palette.accent));
     }
     if let Some(text) = keyring_text(app.keyring_waiting()) {
