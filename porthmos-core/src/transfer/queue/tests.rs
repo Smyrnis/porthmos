@@ -982,6 +982,30 @@ fn a_batch_is_flagged_for_unkept_times_only_the_first_time() {
 }
 
 #[test]
+fn a_batch_is_flagged_for_unkept_permissions_only_the_first_time() {
+    let mut queue = TransferQueue::new();
+    let batch_id = queue.start_batch("copy".to_string());
+    let other = queue.start_batch("again".to_string());
+
+    assert!(queue.flag_unkept_permissions(batch_id));
+    assert!(!queue.flag_unkept_permissions(batch_id));
+    assert!(queue.flag_unkept_permissions(other));
+}
+
+#[test]
+fn removing_the_jobs_of_a_batch_forgets_its_unkept_permissions_flag() {
+    let mut queue = TransferQueue::new();
+    let batch_id = queue.start_batch("copy".to_string());
+    let a = queue_with_a_batch_job(&mut queue, batch_id, "a.txt", 10);
+    queue.flag_unkept_permissions(batch_id);
+    assert!(queue.has_unkept_permissions_flag(batch_id));
+
+    queue.remove_jobs(&[a]);
+
+    assert!(!queue.has_unkept_permissions_flag(batch_id));
+}
+
+#[test]
 fn removing_the_jobs_of_a_batch_forgets_its_unkept_times_flag() {
     let mut queue = TransferQueue::new();
     let batch_id = queue.start_batch("sync".to_string());

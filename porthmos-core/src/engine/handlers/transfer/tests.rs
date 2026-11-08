@@ -1322,6 +1322,111 @@ async fn uploads_to_a_connection_that_cannot_keep_times_complete_with_one_warnin
     assert!(warnings[0].contains("on flat"), "{warnings:?}");
 }
 
+fn permission_warnings(t: &mut TestEngine) -> Vec<String> {
+    t.notices()
+        .into_iter()
+        .filter(|(severity, message)| *severity == Severity::Warning && message.contains("permissions"))
+        .map(|(_, message)| message)
+        .collect()
+}
+
+#[test]
+fn permissions_that_could_not_be_kept_are_reported_once_per_batch() {
+    let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
+    let batch = t.engine.transfers.start_batch("copy".to_string());
+    let first = enqueue_job(&mut t, session, "a.txt", Some(batch));
+    let second = enqueue_job(&mut t, session, "b.txt", Some(batch));
+    let other_batch = t.engine.transfers.start_batch("copy again".to_string());
+    let third = enqueue_job(&mut t, session, "c.txt", Some(other_batch));
+
+    t.engine.handle_transfer_event(TransferEvent::PermissionsNotKept { id: first });
+    t.engine.handle_transfer_event(TransferEvent::PermissionsNotKept { id: second });
+    t.engine.handle_transfer_event(TransferEvent::PermissionsNotKept { id: third });
+
+    let warnings = permission_warnings(&mut t);
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(warnings[0].contains("on prod"), "{warnings:?}");
+}
+
+#[test]
+fn a_permission_warning_for_a_job_without_a_batch_or_that_is_gone_is_ignored() {
+    let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
+    let loose = enqueue_job(&mut t, session, "a.txt", None);
+
+    t.engine.handle_transfer_event(TransferEvent::PermissionsNotKept { id: loose });
+    t.engine.handle_transfer_event(TransferEvent::PermissionsNotKept { id: 9999 });
+
+    assert!(t.notices().is_empty());
+}
+
+#[test]
+fn a_permission_warning_for_a_download_blames_this_computer_not_the_connection() {
+    let mut t = test_engine();
+    let (session, _fs) = t.add_session("prod");
+    let batch = t.engine.transfers.start_batch("copy".to_string());
+    let local = t.dir.path().join("a.txt");
+    let id = t.engine.transfers.enqueue(
+        session,
+        Direction::Download,
+        from_os_path(&local),
+        "/remote/a.txt".to_string(),
+        "a.txt".to_string(),
+        10,
+        Some(batch),
+    );
+
+    t.engine.handle_transfer_event(TransferEvent::PermissionsNotKept { id });
+
+    let (severity, message) = t.first_notice().unwrap();
+    assert_eq!(severity, Severity::Warning);
+    assert!(message.contains("on this computer") && !message.contains("prod"), "{message}");
+}
+
+#[cfg(unix)]
+fn set_local_mode(t: &TestEngine, name: &str, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(t.dir.path().join(name), std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn uploads_keep_the_mode_of_each_local_file_on_the_connection() {
+    let mut t = test_engine();
+    let remote = FakeFs::new();
+    let session = t.add_session_with("prod", Arc::new(remote.clone()));
+
+    upload_two_files_preserving_times(&mut t, &remote, session);
+    set_local_mode(&t, "a.txt", 0o755);
+    set_local_mode(&t, "b.txt", 0o640);
+    finish_every_job(&mut t).await;
+
+    assert_eq!(remote.mode_of("/upload/a.txt"), Some(0o755));
+    assert_eq!(remote.mode_of("/upload/b.txt"), Some(0o640));
+    assert!(permission_warnings(&mut t).is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn uploads_to_a_connection_that_refuses_modes_complete_with_one_warning() {
+    let mut t = test_engine();
+    let remote = FakeFs::new();
+    remote.refuse_permissions("/upload/a.txt");
+    remote.refuse_permissions("/upload/b.txt");
+    let session = t.add_session_with("flat", Arc::new(remote.clone()));
+
+    upload_two_files_preserving_times(&mut t, &remote, session);
+    set_local_mode(&t, "a.txt", 0o755);
+    set_local_mode(&t, "b.txt", 0o755);
+    finish_every_job(&mut t).await;
+
+    assert_eq!(remote.contents("/upload/a.txt").unwrap(), b"alpha");
+    let warnings = permission_warnings(&mut t);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("on flat"), "{warnings:?}");
+}
+
 #[tokio::test]
 async fn uploads_to_a_connection_that_keeps_times_stamp_every_file_without_a_warning() {
     let mut t = test_engine();

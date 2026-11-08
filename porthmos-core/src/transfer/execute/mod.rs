@@ -14,6 +14,7 @@ use super::limit::{MAX_CHUNK, SpeedLimit};
 const PROGRESS_STEP_BYTES: u64 = 64 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
 const CLOCK_SKEW_TOLERANCE_SECS: u64 = 120;
+const PERMISSION_BITS: u32 = 0o777;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TransferOutcome {
@@ -24,6 +25,7 @@ pub enum TransferOutcome {
 pub struct Executed {
     pub outcome: TransferOutcome,
     pub times_kept: bool,
+    pub permissions_kept: bool,
 }
 
 pub async fn execute(
@@ -84,13 +86,17 @@ pub async fn execute_preserving(
         (result, _) => result,
     };
     let mut times_kept = true;
+    let mut permissions_kept = true;
     if let Ok(TransferOutcome::Completed) = result {
         destination.rename(&part, destination_path).await?;
         if let Some(seconds) = keep_modified {
             times_kept = destination.set_modified(destination_path, seconds).await.is_ok();
         }
+        if let Some(mode) = source_metadata.permissions.filter(|_| destination.can_set_permissions()) {
+            permissions_kept = destination.set_permissions(destination_path, mode & PERMISSION_BITS).await.is_ok();
+        }
     }
-    result.map(|outcome| Executed { outcome, times_kept })
+    result.map(|outcome| Executed { outcome, times_kept, permissions_kept })
 }
 
 async fn discard_empty_part(destination: &dyn FileSystem, part: &VfsPath) {

@@ -413,6 +413,111 @@ async fn no_time_is_touched_when_none_was_requested() {
     assert_eq!(destination.modified_of("/dst/f"), None);
 }
 
+async fn copy_preserving(source: &FakeFs, destination: &FakeFs) -> Executed {
+    execute_preserving(
+        source,
+        &VfsPath::new("/src/f"),
+        destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(false),
+        false,
+        None,
+        &SpeedLimit::new(),
+        |_| {},
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn the_source_permissions_are_set_on_the_destination_after_the_rename() {
+    let source = FakeFs::new();
+    source.file_with_mode("/src/f", b"#!/bin/sh\n", Some(100), 0o100755);
+    let destination = empty_destination();
+
+    let executed = copy_preserving(&source, &destination).await;
+
+    assert_eq!(executed.outcome, TransferOutcome::Completed);
+    assert!(executed.permissions_kept);
+    assert_eq!(destination.mode_of("/dst/f"), Some(0o755));
+    assert_eq!(destination.contents("/dst/f").unwrap(), b"#!/bin/sh\n");
+}
+
+#[tokio::test]
+async fn only_the_nine_permission_bits_are_kept() {
+    let source = FakeFs::new();
+    source.file_with_mode("/src/f", b"x", Some(100), 0o107755);
+    let destination = empty_destination();
+
+    copy_preserving(&source, &destination).await;
+
+    assert_eq!(destination.mode_of("/dst/f"), Some(0o755));
+}
+
+#[tokio::test]
+async fn a_source_that_reports_no_permissions_changes_none() {
+    let source = source_with(b"x");
+    let destination = empty_destination();
+
+    let executed = copy_preserving(&source, &destination).await;
+
+    assert!(executed.permissions_kept);
+    assert_eq!(destination.mode_of("/dst/f"), None);
+}
+
+#[tokio::test]
+async fn a_destination_without_permissions_completes_without_complaint() {
+    let source = FakeFs::new();
+    source.file_with_mode("/src/f", b"x", Some(100), 0o100755);
+    let destination = FakeFs::new().with_permission_support(false);
+    destination.dir("/dst");
+
+    let executed = copy_preserving(&source, &destination).await;
+
+    assert_eq!(executed.outcome, TransferOutcome::Completed);
+    assert!(executed.permissions_kept);
+    assert_eq!(destination.mode_of("/dst/f"), None);
+    assert_eq!(destination.contents("/dst/f").unwrap(), b"x");
+}
+
+#[tokio::test]
+async fn a_refused_permission_change_completes_and_says_so() {
+    let source = FakeFs::new();
+    source.file_with_mode("/src/f", b"x", Some(100), 0o100755);
+    let destination = empty_destination();
+    destination.refuse_permissions("/dst/f");
+
+    let executed = copy_preserving(&source, &destination).await;
+
+    assert_eq!(executed.outcome, TransferOutcome::Completed);
+    assert!(!executed.permissions_kept);
+    assert_eq!(destination.contents("/dst/f").unwrap(), b"x");
+}
+
+#[tokio::test]
+async fn a_cancelled_transfer_sets_no_permissions() {
+    let source = FakeFs::new();
+    source.file_with_mode("/src/f", b"hello", Some(100), 0o100755);
+    let destination = empty_destination();
+
+    let executed = execute_preserving(
+        &source,
+        &VfsPath::new("/src/f"),
+        &destination,
+        &VfsPath::new("/dst/f"),
+        &AtomicBool::new(true),
+        false,
+        None,
+        &SpeedLimit::new(),
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(executed.outcome, TransferOutcome::Cancelled);
+    assert_eq!(destination.mode_of("/dst/f"), None);
+}
+
 #[tokio::test]
 async fn a_cancelled_transfer_sets_no_time_and_leaves_no_destination() {
     let source = FakeFs::new();

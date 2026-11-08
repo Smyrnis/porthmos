@@ -51,6 +51,7 @@ pub(crate) enum TransferEvent {
     PlanCancelled { batch_id: u64, session_id: u64, direction: Direction },
     PartialsRemoved { session_id: u64 },
     TimesNotKept { id: u64 },
+    PermissionsNotKept { id: u64 },
     SourceRemoved { id: u64 },
     SourceRemovalFailed { id: u64, message: String },
     SourceRemovalCancelled { id: u64 },
