@@ -26,7 +26,10 @@
   dropped connection or a restart, copy the same file again and choose Resume
   to continue where it stopped; the queue itself is not restored after a
   restart. A conflict dialog offers overwrite, skip, rename, resume or cancel,
-  for one file or for all of them.
+  for one file or for all of them. Copies between this computer and an SFTP
+  or SCP connection keep the file permissions (for example a script stays
+  executable); other protocols have no permissions to keep, and a warning says
+  so.
 - **Folder sync** — compare a local and a remote folder by time or size, one
   way or both ways, review the differences, and run only the ones you tick.
 - **Edit remote files** — open a remote file in `$VISUAL`, `$EDITOR` or the
