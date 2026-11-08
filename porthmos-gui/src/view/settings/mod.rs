@@ -2,7 +2,7 @@ use iced::widget::{checkbox, column, container, row, scrollable, space, text_inp
 use iced::{Alignment, Border, Element, Font, Length, Size};
 
 use super::button::{Look, text_button};
-use super::{bold_label, hairline_across, label};
+use super::{bold_label, hairline_across, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
 use crate::settings_view::{SettingsMessage, SettingsState};
@@ -80,14 +80,14 @@ fn startup_section<'a>(app: &'a App) -> Element<'a, Message> {
         section("Startup", palette),
         label("Connections that were open when you last quit:", palette.fg),
         reopen_choices(app),
-        label("Only saved connections are remembered, and only while this is on.", palette.fg_dim),
+        wrapped_label("Only saved connections are remembered, and only while this is on.", palette.fg_dim),
     ]
     .spacing(8)
     .into()
 }
 
 fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
-    label("Takes effect the next time Porthmos starts.", palette.fg_dim).into()
+    wrapped_label("Takes effect the next time Porthmos starts.", palette.fg_dim).into()
 }
 
 fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
@@ -107,7 +107,7 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
         row![input, text_button("Apply", Some(Message::SettingsEditorApplied), Look::Normal, palette)]
             .spacing(8)
             .align_y(Alignment::Center),
-        label(EDITOR_HELP, palette.fg_dim),
+        wrapped_label(EDITOR_HELP, palette.fg_dim),
         auto_upload,
         restart_line(palette),
     ]
@@ -137,7 +137,7 @@ fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, M
         row![input, text_button("Apply", Some(Message::SettingsTerminalApplied), Look::Normal, palette)]
             .spacing(8)
             .align_y(Alignment::Center),
-        label(TERMINAL_HELP, palette.fg_dim),
+        wrapped_label(TERMINAL_HELP, palette.fg_dim),
     ]
     .spacing(8)
     .into()
