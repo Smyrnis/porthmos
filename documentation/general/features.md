@@ -32,6 +32,9 @@
   so.
 - **Folder sync** — compare a local and a remote folder by time or size, one
   way or both ways, review the differences, and run only the ones you tick.
+  A folder that exists on one side only and is empty is listed as "new empty
+  folder" and is created too; a chain of empty folders appears as its innermost
+  folder.
 - **Edit remote files** — open a remote file in `$VISUAL`, `$EDITOR` or the
   editor set in `config.toml`, and upload it again when you save. A file that
   changed on the server in the meantime is never overwritten silently.

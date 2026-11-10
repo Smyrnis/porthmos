@@ -17,6 +17,8 @@ different screens. The tables below are the defaults.
 | `q` / `F10` | Quit (asks first if a transfer or an edit is still running) |
 | `Esc` | Back / dismiss |
 | `↑` `↓` / `k` `j` | Move |
+| `PageUp` / `PageDown` | Move up or down by a page, the rows the list showed last |
+| `Home` / `End` | First row / last row |
 | `Enter` | Open |
 | `Space` | Toggle selection |
 | `/` | Filter the list |
@@ -38,6 +40,8 @@ different screens. The tables below are the defaults.
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch panel |
+| `Enter` | Open a folder; on a file, preview it |
+| `Backspace` | Go to the parent folder |
 | `Ctrl+'` | Type a path to go to (`Enter` goes, `Esc` cancels) |
 | `c` / `F5` | Copy |
 | `m` / `F6` | Move |
@@ -50,7 +54,7 @@ different screens. The tables below are the defaults.
 | `1`–`9` | Switch to connection 1–9 |
 
 **Search:** `↑` `↓` move, `Enter` open, `Esc` close. With `[search] preview`
-on, `PageUp` / `PageDown` scroll the preview.
+on, `PageUp` / `PageDown` scroll the preview instead of the list.
 
 **Connections:** `n` / `F6` add, `e` / `F2` edit, `x` / `F8` disconnect,
 `Delete` delete the saved connection.
