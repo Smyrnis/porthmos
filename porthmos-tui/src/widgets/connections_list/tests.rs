@@ -45,7 +45,7 @@ fn grouped(name: &str, group: &str) -> ConnectionEntry {
 }
 
 fn view_of(entries: Vec<ConnectionEntry>) -> ConnectionsView {
-    let mut view = ConnectionsView::new();
+    let mut view = ConnectionsView::default();
     view.replace(entries);
     view
 }

@@ -33,8 +33,12 @@ pub struct ConnectionsView {
 }
 
 impl ConnectionsView {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn with_open_groups(groups: Vec<String>) -> Self {
+        Self { expanded: groups.into_iter().collect(), ..Self::default() }
+    }
+
+    pub fn open_groups(&self) -> Vec<String> {
+        connections_tree::open_groups(&self.entries, &self.expanded)
     }
 
     pub fn entries(&self) -> &[ConnectionEntry] {

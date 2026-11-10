@@ -64,6 +64,10 @@ fn local_shell_failure(
 }
 
 impl App {
+    pub(super) fn remember_open_groups(&self) {
+        self.core.send(Command::RememberOpenGroups { groups: self.connections.open_groups() });
+    }
+
     pub(super) fn request_shell(&mut self) {
         if self.active_panel == ActivePanel::Local {
             let directory = self.panel(Location::Local).map(|panel| panel.path().clone()).unwrap_or_default();

@@ -694,7 +694,7 @@ fn enter_on_a_group_toggles_it_and_enter_on_a_connection_connects() {
 
     test.app.apply_key(key(KeyCode::Enter));
     assert_eq!(test.app.connections.rows().len(), 2);
-    assert!(test.sent().is_empty());
+    assert!(test.sent().iter().all(|command| matches!(command, Command::RememberOpenGroups { .. })));
 
     test.app.apply_key(key(KeyCode::Down));
     test.app.apply_key(key(KeyCode::Enter));
@@ -2043,4 +2043,57 @@ fn page_and_jump_keys_on_an_empty_connections_list_do_nothing() {
     }
 
     assert_eq!(test.app.connections.cursor, 0);
+}
+
+fn remembered_groups(commands: Vec<Command>) -> Vec<Vec<String>> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberOpenGroups { groups } => Some(groups),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn opening_a_group_tells_core_which_groups_are_open() {
+    let mut test = on_connections_screen(vec![grouped("alpha", "Work")]);
+    test.sent();
+
+    test.app.apply_key(key(KeyCode::Enter));
+
+    assert_eq!(remembered_groups(test.sent()), vec![vec!["Work".to_string()]]);
+}
+
+#[test]
+fn the_right_and_left_arrows_tell_core_too() {
+    let mut test = on_connections_screen(vec![grouped("alpha", "Work")]);
+    test.sent();
+
+    test.app.apply_key(key(KeyCode::Right));
+    test.app.apply_key(key(KeyCode::Left));
+
+    assert_eq!(remembered_groups(test.sent()), vec![vec!["Work".to_string()], Vec::<String>::new()]);
+}
+
+#[test]
+fn a_new_connection_that_reveals_its_group_opens_it_for_core_too() {
+    let mut test = on_connections_screen(vec![grouped("alpha", "Work")]);
+    test.sent();
+    test.app.reveal = Some(Reveal::Ready("alpha".to_string()));
+
+    test.app.apply_core_event(Event::Profiles(vec![grouped("alpha", "Work")]));
+
+    assert_eq!(remembered_groups(test.sent()), vec![vec!["Work".to_string()]]);
+}
+
+#[test]
+fn the_app_starts_with_the_groups_core_remembered() {
+    let (core, _commands) = CoreHandle::detached();
+    let core = core.with_remembered_open_groups(vec!["Work".to_string()]);
+    let mut app = App::new(core, VfsPath::new("/d"), &PanelSettings::default(), crate::input::KeyBindings::defaults());
+
+    app.connections.replace(vec![grouped("alpha", "Work")]);
+
+    assert_eq!(app.connections.rows().len(), 2);
 }

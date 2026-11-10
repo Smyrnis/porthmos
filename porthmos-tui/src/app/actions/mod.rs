@@ -209,7 +209,10 @@ impl App {
             Action::First => self.connections.cursor_to_first(),
             Action::Last => self.connections.cursor_to_last(),
             Action::Open => match self.connections.selected() {
-                Some(Selection::Group(_)) => self.connections.toggle(),
+                Some(Selection::Group(_)) => {
+                    self.connections.toggle();
+                    self.remember_open_groups();
+                }
                 Some(Selection::Connection(entry)) if entry.source.is_orphan_labels() => {
                     self.open_missing_host_dialog()
                 }

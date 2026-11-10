@@ -14,7 +14,7 @@ fn entry(name: &str, group: Option<&str>) -> ConnectionEntry {
 }
 
 fn view() -> ConnectionsView {
-    let mut view = ConnectionsView::new();
+    let mut view = ConnectionsView::default();
     view.replace(vec![entry("alpha", Some("Work/Web")), entry("beta", None), entry("gamma", Some("Work"))]);
     view
 }
@@ -111,7 +111,7 @@ fn selected_source(view: &ConnectionsView) -> Option<ConnectionSource> {
 
 #[test]
 fn a_reload_keeps_the_cursor_on_the_profile_not_its_shadowed_labels() {
-    let mut view = ConnectionsView::new();
+    let mut view = ConnectionsView::default();
     view.replace(vec![
         with_source("web1", ConnectionSource::Profile),
         with_source("web1", ConnectionSource::ShadowedSshHost),
@@ -128,7 +128,7 @@ fn a_reload_keeps_the_cursor_on_the_profile_not_its_shadowed_labels() {
 
 #[test]
 fn a_reload_keeps_the_cursor_on_shadowed_labels_not_the_profile() {
-    let mut view = ConnectionsView::new();
+    let mut view = ConnectionsView::default();
     view.replace(vec![
         with_source("web1", ConnectionSource::Profile),
         with_source("web1", ConnectionSource::ShadowedSshHost),
@@ -146,7 +146,7 @@ fn a_reload_keeps_the_cursor_on_shadowed_labels_not_the_profile() {
 
 #[test]
 fn reveal_lands_on_the_profile_rather_than_same_named_labels() {
-    let mut view = ConnectionsView::new();
+    let mut view = ConnectionsView::default();
     let mut shadowed = with_source("web1", ConnectionSource::ShadowedSshHost);
     shadowed.group = Some("Old".into());
     view.replace(vec![
@@ -185,4 +185,27 @@ fn a_bare_hash_filter_lets_left_close_an_open_group() {
 
     assert_eq!(selected_name(&view), "group:Work");
     assert_eq!(view.rows().len(), 2);
+}
+
+#[test]
+fn groups_saved_as_open_start_open_once_the_connections_arrive() {
+    let mut view = ConnectionsView::with_open_groups(vec!["Work".to_string()]);
+
+    view.replace(vec![entry("alpha", Some("Work/Web")), entry("beta", None), entry("gamma", Some("Work"))]);
+
+    assert_eq!(view.rows().len(), 4);
+}
+
+#[test]
+fn open_groups_lists_the_open_ones_sorted_and_forgets_groups_that_no_longer_exist() {
+    let mut view = ConnectionsView::with_open_groups(vec!["Work/Web".to_string(), "Gone".to_string()]);
+    view.replace(vec![entry("alpha", Some("Work/Web")), entry("beta", None)]);
+    view.toggle();
+
+    assert_eq!(view.open_groups(), vec!["Work".to_string(), "Work/Web".to_string()]);
+}
+
+#[test]
+fn nothing_is_open_by_default() {
+    assert!(view().open_groups().is_empty());
 }

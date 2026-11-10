@@ -229,7 +229,7 @@ impl App {
             pending_action: None,
             stashed_form: None,
             notifications: Notifications::default(),
-            connections: ConnectionsView::new(),
+            connections: ConnectionsView::with_open_groups(core.remembered_open_groups().to_vec()),
             reveal: None,
             announced_missing: HashSet::new(),
             keyring_available: true,
@@ -409,8 +409,14 @@ impl App {
             let action = self.key_bindings.map_key(self.screen.scope(), key);
             if action == Action::Noop && self.screen == Screen::Connections && key.modifiers.is_empty() {
                 match key.code {
-                    KeyCode::Right => self.connections.expand(),
-                    KeyCode::Left => self.connections.collapse_or_parent(),
+                    KeyCode::Right => {
+                        self.connections.expand();
+                        self.remember_open_groups();
+                    }
+                    KeyCode::Left => {
+                        self.connections.collapse_or_parent();
+                        self.remember_open_groups();
+                    }
                     _ => {}
                 }
             } else if action == Action::Noop && self.screen == Screen::Sync && key.modifiers.is_empty() {
@@ -457,7 +463,10 @@ impl App {
                 self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
                 self.connections.replace(entries);
                 match self.reveal.take() {
-                    Some(Reveal::Ready(name)) => self.connections.reveal(&name),
+                    Some(Reveal::Ready(name)) => {
+                        self.connections.reveal(&name);
+                        self.remember_open_groups();
+                    }
                     other => self.reveal = other,
                 }
                 self.announce_missing_hosts();
