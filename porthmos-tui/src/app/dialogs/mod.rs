@@ -1,11 +1,21 @@
 use porthmos_core::{
     Answer,
-    delete_prompt::{THIS_COMPUTER, delete_summary},
+    delete_prompt::{
+        THIS_COMPUTER,
+        count::{Contents, contents_line},
+        delete_summary,
+    },
     names::entry_name_problem,
 };
 
 use super::*;
 use crate::widgets::history_view::printable;
+
+fn prompt_text(summary: &[String], contents: Option<Contents>) -> String {
+    let mut lines = summary.to_vec();
+    lines.extend(contents.as_ref().map(contents_line));
+    lines.join("\n")
+}
 
 impl App {
     pub(super) fn open_mkdir_dialog(&mut self) {
@@ -57,10 +67,41 @@ impl App {
             Location::Local => THIS_COMPUTER.to_string(),
             Location::Session(id) => self.sessions.by_id(id).map(|session| session.name.clone()).unwrap_or_default(),
         };
-        let message = delete_summary(&entries, &place, printable).join("\n");
+        let summary = delete_summary(&entries, &place, printable);
+        let folders: Vec<VfsPath> =
+            entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
+        let count = if folders.is_empty() {
+            None
+        } else {
+            self.next_count_id += 1;
+            let request_id = self.next_count_id;
+            self.core.send(Command::CountContents { request_id, location, folders });
+            Some(DeleteCount { request_id, summary: summary.clone(), answered: false })
+        };
+        let message = prompt_text(&summary, count.as_ref().map(|_| Contents::Counting));
 
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
-        self.pending_action = Some(PendingAction::Delete { location, paths: targets });
+        self.pending_action = Some(PendingAction::Delete { location, paths: targets, count });
+    }
+
+    fn stop_counting(&self, count: Option<DeleteCount>) {
+        if count.is_some_and(|count| !count.answered) {
+            self.core.send(Command::CancelCount);
+        }
+    }
+
+    pub(super) fn apply_contents_counted(&mut self, request_id: RequestId, contents: Contents) {
+        let Some(PendingAction::Delete { count: Some(pending), .. }) = self.pending_action.as_mut() else {
+            return;
+        };
+        if pending.request_id != request_id || pending.answered {
+            return;
+        }
+        pending.answered = true;
+        let text = prompt_text(&pending.summary, Some(contents));
+        if let Some(Dialog::Confirm(dialog)) = self.dialog.as_mut() {
+            dialog.message = text;
+        }
     }
 
     fn create_directory(&mut self, name: &str) {
@@ -116,13 +157,15 @@ impl App {
                     Some(PendingAction::EditUpload { edit_id } | PendingAction::EditConflict { edit_id }) => {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Cancel });
                     }
+                    Some(PendingAction::Delete { count, .. }) => self.stop_counting(count),
                     _ => {}
                 }
             }
             DialogOutcome::Confirmed => {
                 self.dialog = None;
                 match self.pending_action.take() {
-                    Some(PendingAction::Delete { location, paths }) => {
+                    Some(PendingAction::Delete { location, paths, count }) => {
+                        self.stop_counting(count);
                         self.core.send(Command::Delete { location, paths })
                     }
                     Some(PendingAction::DeleteConnection { name }) => {

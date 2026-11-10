@@ -71,10 +71,16 @@ mod update;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
 const READY_EVENT_BATCH: usize = 256;
 
+struct DeleteCount {
+    request_id: RequestId,
+    summary: Vec<String>,
+    answered: bool,
+}
+
 enum PendingAction {
     Mkdir,
     Rename { location: Location, from: VfsPath },
-    Delete { location: Location, paths: Vec<VfsPath> },
+    Delete { location: Location, paths: Vec<VfsPath>, count: Option<DeleteCount> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
     SubmitTestPassword { request_id: RequestId },
@@ -154,6 +160,7 @@ pub struct App {
     help_visible: bool,
     preview: Option<crate::widgets::preview_view::PreviewView>,
     next_preview_id: RequestId,
+    next_count_id: RequestId,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -216,6 +223,7 @@ impl App {
             help_visible: false,
             preview: None,
             next_preview_id: 0,
+            next_count_id: 0,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
@@ -493,6 +501,7 @@ impl App {
             Event::EditReady { .. } => {}
             Event::EditsBusy(busy) => self.edits_busy = busy,
             Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
+            Event::ContentsCounted { request_id, contents } => self.apply_contents_counted(request_id, contents),
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)

@@ -367,10 +367,9 @@ fn deleting_a_folder_says_everything_inside_it_goes_too() {
 
     test.app.apply_action(Action::Delete);
 
-    assert_eq!(
-        confirm_message(&test),
-        Some("Delete the folder \"photos\" and everything inside it from this computer?")
-    );
+    assert!(confirm_message(&test).is_some_and(|message| {
+        message.starts_with("Delete the folder \"photos\" and everything inside it from this computer?\n")
+    }));
 }
 
 #[test]
@@ -384,8 +383,205 @@ fn deleting_a_selection_lists_the_names_and_the_place() {
 
     test.app.apply_action(Action::Delete);
 
+    assert!(confirm_message(&test).is_some_and(|message| {
+        message.starts_with(
+            "Delete 2 items from this computer?\ndocs/\na\nFolders are deleted with everything inside them.\n",
+        )
+    }));
+}
+
+fn counting_request(test: &mut TestApp) -> (RequestId, Location, Vec<VfsPath>) {
+    let requests: Vec<_> = test
+        .sent()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::CountContents { request_id, location, folders } => Some((request_id, location, folders)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    requests.into_iter().next().unwrap()
+}
+
+fn folder_prompt_app() -> TestApp {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "photos", true)]);
+    test.app.local.cursor = 1;
+    test
+}
+
+fn counted_files(files: u64, folders: u64) -> Contents {
+    Contents::Counted(porthmos_core::delete_prompt::count::ContentCount {
+        files,
+        folders,
+        unreadable: 0,
+        capped: false,
+    })
+}
+
+#[test]
+fn deleting_a_folder_asks_the_core_to_count_it_and_says_it_is_counting() {
+    let mut test = folder_prompt_app();
+
+    test.app.apply_action(Action::Delete);
+
+    let (_, location, folders) = counting_request(&mut test);
+    assert_eq!((location, folders), (Location::Local, vec![VfsPath::from("/d/photos")]));
     assert_eq!(
         confirm_message(&test),
-        Some("Delete 2 items from this computer?\ndocs/\na\nFolders are deleted with everything inside them.")
+        Some(
+            "Delete the folder \"photos\" and everything inside it from this computer?\nCounting what is inside\u{2026}"
+        )
     );
+}
+
+#[test]
+fn deleting_only_files_asks_for_no_count() {
+    let mut test = app_with_file("big.bin");
+
+    test.app.apply_action(Action::Delete);
+
+    assert!(test.sent().is_empty());
+    assert_eq!(confirm_message(&test), Some("Delete \"big.bin\" from this computer?"));
+}
+
+#[test]
+fn the_answer_replaces_the_counting_line() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    let (request_id, ..) = counting_request(&mut test);
+
+    test.app.apply_core_event(Event::ContentsCounted { request_id, contents: counted_files(1204, 37) });
+
+    assert_eq!(
+        confirm_message(&test),
+        Some(
+            "Delete the folder \"photos\" and everything inside it from this computer?\nInside: 1,204 files and 37 folders."
+        )
+    );
+}
+
+#[test]
+fn an_unavailable_count_is_said_plainly() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    let (request_id, ..) = counting_request(&mut test);
+
+    test.app.apply_core_event(Event::ContentsCounted { request_id, contents: Contents::Unavailable });
+
+    assert!(confirm_message(&test).is_some_and(|message| message.ends_with("\nCouldn't count what is inside.")));
+}
+
+#[test]
+fn an_answer_for_another_request_changes_nothing() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    let (request_id, ..) = counting_request(&mut test);
+
+    test.app.apply_core_event(Event::ContentsCounted { request_id: request_id + 1, contents: counted_files(5, 0) });
+
+    assert!(confirm_message(&test).is_some_and(|message| message.ends_with("Counting what is inside\u{2026}")));
+}
+
+#[test]
+fn an_answer_after_the_dialog_closed_is_ignored() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    let (request_id, ..) = counting_request(&mut test);
+    test.app.apply_dialog_key(key(KeyCode::Char('n')));
+    test.sent();
+
+    test.app.apply_core_event(Event::ContentsCounted { request_id, contents: counted_files(5, 0) });
+
+    assert!(test.app.dialog.is_none());
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn cancelling_while_counting_stops_the_count() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    test.sent();
+
+    test.app.apply_dialog_key(key(KeyCode::Esc));
+
+    assert_eq!(test.sent(), vec![Command::CancelCount]);
+}
+
+#[test]
+fn confirming_while_counting_stops_the_count_and_deletes() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    test.sent();
+
+    test.app.apply_dialog_key(key(KeyCode::Char('y')));
+
+    assert_eq!(
+        test.sent(),
+        vec![
+            Command::CancelCount,
+            Command::Delete { location: Location::Local, paths: vec![VfsPath::from("/d/photos")] }
+        ]
+    );
+}
+
+#[test]
+fn closing_after_the_answer_arrived_does_not_cancel_anything() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    let (request_id, ..) = counting_request(&mut test);
+    test.app.apply_core_event(Event::ContentsCounted { request_id, contents: counted_files(2, 0) });
+
+    test.app.apply_dialog_key(key(KeyCode::Char('n')));
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_selection_counts_only_its_folders_and_puts_the_line_after_the_folder_note() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.list_local(vec![entry(&VfsPath::new("/d"), "a", false), entry(&VfsPath::new("/d"), "docs", true)]);
+    test.app.local.cursor = 1;
+    test.app.apply_action(Action::ToggleSelect);
+    test.app.local.cursor = 2;
+    test.app.apply_action(Action::ToggleSelect);
+
+    test.app.apply_action(Action::Delete);
+
+    let (_, _, folders) = counting_request(&mut test);
+    assert_eq!(folders, vec![VfsPath::from("/d/docs")]);
+    assert_eq!(
+        confirm_message(&test),
+        Some(
+            "Delete 2 items from this computer?\ndocs/\na\nFolders are deleted with everything inside them.\nCounting what is inside\u{2026}"
+        )
+    );
+}
+
+#[test]
+fn counting_on_the_remote_panel_goes_to_that_session() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let session = test.connect(5, "prod");
+    test.list_remote(session, "/srv", vec![entry(&VfsPath::new("/srv"), "logs", true)]);
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.sessions.active_mut().unwrap().panel.cursor = 1;
+
+    test.app.apply_action(Action::Delete);
+
+    let (_, location, folders) = counting_request(&mut test);
+    assert_eq!((location, folders), (Location::Session(session), vec![VfsPath::from("/srv/logs")]));
+}
+
+#[test]
+fn two_prompts_in_a_row_use_different_request_ids() {
+    let mut test = folder_prompt_app();
+    test.app.apply_action(Action::Delete);
+    let (first, ..) = counting_request(&mut test);
+    test.app.apply_dialog_key(key(KeyCode::Char('n')));
+    test.sent();
+
+    test.app.apply_action(Action::Delete);
+    let (second, ..) = counting_request(&mut test);
+
+    assert_ne!(first, second);
 }
