@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::HashSet};
+use std::collections::HashSet;
 
 use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
@@ -22,6 +22,7 @@ use crate::{
         form_fields::render_caret_value,
         frame::{accent_underline, hairline},
         history_view::printable,
+        paging::{PageRows, Paged},
         path_field::PathField,
         text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
     },
@@ -42,8 +43,6 @@ impl ActivePanel {
     }
 }
 
-const DEFAULT_PAGE_ROWS: usize = 10;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Anchor {
     Parent,
@@ -57,7 +56,7 @@ pub struct PanelView {
     editing_filter: bool,
     anchor: Option<(Anchor, usize)>,
     free_bytes: Option<u64>,
-    page_rows: Cell<usize>,
+    page_rows: PageRows,
 }
 
 impl PanelView {
@@ -69,7 +68,7 @@ impl PanelView {
             editing_filter: false,
             anchor: None,
             free_bytes: None,
-            page_rows: Cell::new(DEFAULT_PAGE_ROWS),
+            page_rows: PageRows::default(),
         }
     }
 
@@ -186,28 +185,8 @@ impl PanelView {
         }
     }
 
-    pub fn page_rows(&self) -> usize {
-        self.page_rows.get()
-    }
-
     pub fn remember_page_rows(&self, rows: usize) {
-        self.page_rows.set(rows.max(1));
-    }
-
-    pub fn page_down(&mut self) {
-        self.move_cursor(self.page_rows() as isize);
-    }
-
-    pub fn page_up(&mut self) {
-        self.move_cursor(-(self.page_rows() as isize));
-    }
-
-    pub fn cursor_to_first(&mut self) {
-        self.cursor = 0;
-    }
-
-    pub fn cursor_to_last(&mut self) {
-        self.cursor = self.rows().len().saturating_sub(1);
+        self.page_rows.remember(rows);
     }
 
     pub fn parent_path(&self) -> Option<VfsPath> {
@@ -494,6 +473,16 @@ impl FilterLine for PanelView {
         let max = self.rows().len() as isize - 1;
         let next = (self.cursor as isize + delta).clamp(0, max);
         self.cursor = next as usize;
+    }
+}
+
+impl Paged for PanelView {
+    fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    fn row_count(&self) -> usize {
+        self.rows().len()
     }
 }
 

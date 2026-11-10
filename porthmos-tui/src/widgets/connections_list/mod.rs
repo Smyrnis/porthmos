@@ -73,6 +73,7 @@ pub fn render_connections_list(
     }
 
     let body = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
+    view.remember_page_rows(usize::from(body.height));
     let entries = view.entries();
     let width = usize::from(body.width);
     let columns = columns_for(entries, context, width, deepest_indent(view));

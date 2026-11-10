@@ -21,13 +21,12 @@ const FILES: &[(Action, &str)] = &[
     (Action::ToggleSelect, "select"),
     (Action::SwitchPanel, "panel"),
 ];
-const FILES_HELP_ONLY: &[(Action, &str)] = &[
-    (Action::GoToPath, "go to path"),
+const FILES_HELP_ONLY: &[(Action, &str)] = &[(Action::GoToPath, "go to path"), (Action::Parent, "parent folder")];
+const LIST_HELP: &[(Action, &str)] = &[
     (Action::PageUp, "page up"),
     (Action::PageDown, "page down"),
     (Action::First, "first row"),
     (Action::Last, "last row"),
-    (Action::Parent, "parent folder"),
 ];
 const CONNECTIONS: &[(Action, &str)] = &[
     (Action::Open, "connect"),
@@ -176,6 +175,7 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
     let listed = |action: &Action| {
         HELP_SCREENS.iter().any(|(_, screen)| screen_actions(*screen).iter().any(|(listed, _)| listed == action))
             || FILES_HELP_ONLY.iter().any(|(listed, _)| listed == action)
+            || LIST_HELP.iter().any(|(listed, _)| listed == action)
     };
     let first = |action: Action| bindings.key_for(Scope::Global, action).map(format_key_spec);
     let movement_key = match (first(Action::Up), first(Action::Down)) {
@@ -183,6 +183,11 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
         _ => None,
     };
     let mut global = vec![HelpRow { key: movement_key, action: "move cursor" }];
+    global.extend(
+        LIST_HELP
+            .iter()
+            .map(|(action, label)| HelpRow { key: key_text(bindings, Scope::Global, *action), action: label }),
+    );
     global.extend(
         ALL_ACTIONS
             .iter()

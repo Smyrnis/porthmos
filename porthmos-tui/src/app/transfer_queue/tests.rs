@@ -732,3 +732,77 @@ fn an_invalid_speed_reopens_the_dialog_with_what_was_typed_so_it_can_be_fixed() 
     assert_eq!(test.sent(), vec![Command::SetSpeedLimit { bytes_per_second: Some(2 * 1024 * 1024) }]);
     assert!(test.app.dialog.is_none());
 }
+
+fn queue_of(count: usize) -> TransferQueue {
+    let mut queue = TransferQueue::new();
+    for index in 0..count {
+        add_job(&mut queue, &format!("file{index:03}"), None, JobStatus::Queued);
+    }
+    queue
+}
+
+fn draw_transfers(test: &TestApp, height: u16) {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut terminal = Terminal::new(TestBackend::new(100, height)).unwrap();
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+}
+
+fn press_transfers(test: &mut TestApp, code: crossterm::event::KeyCode) {
+    use crossterm::event::{KeyEvent, KeyModifiers};
+
+    test.app.apply_key(KeyEvent::new(code, KeyModifiers::NONE));
+}
+
+#[test]
+fn page_keys_move_by_the_rows_the_screen_drew_and_home_and_end_jump_to_the_ends() {
+    use crossterm::event::KeyCode;
+
+    let mut test = app_on_transfers_screen();
+    show(&mut test, &queue_of(80), &[]);
+
+    draw_transfers(&test, 14);
+    press_transfers(&mut test, KeyCode::PageDown);
+    let short_page = test.app.transfers_cursor;
+    press_transfers(&mut test, KeyCode::PageUp);
+    assert_eq!(test.app.transfers_cursor, 0);
+    draw_transfers(&test, 30);
+    press_transfers(&mut test, KeyCode::PageDown);
+    let tall_page = test.app.transfers_cursor;
+
+    assert!(0 < short_page && short_page < tall_page, "{short_page} {tall_page}");
+    press_transfers(&mut test, KeyCode::End);
+    assert_eq!(test.app.transfers_cursor, 79);
+    press_transfers(&mut test, KeyCode::PageDown);
+    assert_eq!(test.app.transfers_cursor, 79);
+    press_transfers(&mut test, KeyCode::Home);
+    assert_eq!(test.app.transfers_cursor, 0);
+    press_transfers(&mut test, KeyCode::PageUp);
+    assert_eq!(test.app.transfers_cursor, 0);
+}
+
+#[test]
+fn page_and_jump_keys_on_an_empty_queue_do_nothing() {
+    use crossterm::event::KeyCode;
+
+    let mut test = app_on_transfers_screen();
+
+    for code in [KeyCode::PageDown, KeyCode::PageUp, KeyCode::Home, KeyCode::End] {
+        press_transfers(&mut test, code);
+    }
+
+    assert_eq!(test.app.transfers_cursor, 0);
+}
+
+#[test]
+fn a_page_key_clears_a_pending_reselection_like_up_and_down_do() {
+    use crossterm::event::KeyCode;
+
+    let mut test = app_on_transfers_screen();
+    show(&mut test, &queue_of(30), &[]);
+    test.app.reselect_row = test.app.selected_row_kind();
+
+    press_transfers(&mut test, KeyCode::PageDown);
+
+    assert!(test.app.reselect_row.is_none());
+}

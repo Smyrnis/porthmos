@@ -1,5 +1,5 @@
 use super::*;
-use crate::widgets::filter_line::FilterLine;
+use crate::widgets::{filter_line::FilterLine, paging::Paged};
 
 const HELP_PAGE: usize = 5;
 
@@ -204,6 +204,10 @@ impl App {
         match action {
             Action::Up => self.connections.move_cursor(-1),
             Action::Down => self.connections.move_cursor(1),
+            Action::PageUp => self.connections.page_up(),
+            Action::PageDown => self.connections.page_down(),
+            Action::First => self.connections.cursor_to_first(),
+            Action::Last => self.connections.cursor_to_last(),
             Action::Open => match self.connections.selected() {
                 Some(Selection::Group(_)) => self.connections.toggle(),
                 Some(Selection::Connection(entry)) if entry.source.is_orphan_labels() => {

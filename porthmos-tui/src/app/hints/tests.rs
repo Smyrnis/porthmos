@@ -226,6 +226,7 @@ fn every_action_is_listed_somewhere_and_no_section_lists_an_action_twice() {
             .iter()
             .flat_map(|screen| screen_actions(*screen).iter().map(|(action, _)| *action))
             .chain(FILES_HELP_ONLY.iter().map(|(action, _)| *action))
+            .chain(LIST_HELP.iter().map(|(action, _)| *action))
             .collect();
     let sections = help_sections(&KeyBindings::defaults());
     let global: HashSet<&str> = section(&sections, "global").rows.iter().map(|row| row.action).collect();
@@ -420,15 +421,24 @@ fn editing_a_path_shows_enter_go_and_esc_cancel() {
 }
 
 #[test]
-fn the_files_help_lists_the_list_movement_keys() {
+fn the_global_help_lists_the_list_movement_keys_and_the_files_help_the_parent_key() {
     let sections = help_sections(&KeyBindings::defaults());
+    let global = rows_of(section(&sections, "global"));
     let files = rows_of(section(&sections, "files"));
 
-    assert!(files.contains(&(Some("PageUp"), "page up")));
-    assert!(files.contains(&(Some("PageDown"), "page down")));
-    assert!(files.contains(&(Some("Home"), "first row")));
-    assert!(files.contains(&(Some("End"), "last row")));
+    assert!(global.contains(&(Some("PageUp"), "page up")));
+    assert!(global.contains(&(Some("PageDown"), "page down")));
+    assert!(global.contains(&(Some("Home"), "first row")));
+    assert!(global.contains(&(Some("End"), "last row")));
     assert!(files.contains(&(Some("Backspace"), "parent folder")));
+    assert!(!files.iter().any(|(_, listed)| *listed == "page up" || *listed == "last row"));
+}
+
+#[test]
+fn rebinding_a_page_key_in_the_global_scope_changes_the_global_help() {
+    let sections = help_sections(&configured("[keys.global]\npage_down = \"ctrl+j\"\n"));
+
+    assert!(rows_of(section(&sections, "global")).contains(&(Some("Ctrl+J"), "page down")));
 }
 
 #[test]

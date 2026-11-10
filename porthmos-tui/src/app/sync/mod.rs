@@ -6,6 +6,7 @@ use super::*;
 use crate::widgets::{
     dialog::{FormDialog, FormField},
     filter_line::FilterLine,
+    paging::Paged,
 };
 
 const DIRECTION: &str = "direction";
@@ -103,6 +104,10 @@ impl App {
         match action {
             Action::Up => self.sync_view.move_cursor(-1),
             Action::Down => self.sync_view.move_cursor(1),
+            Action::PageUp => self.sync_view.page_up(),
+            Action::PageDown => self.sync_view.page_down(),
+            Action::First => self.sync_view.cursor_to_first(),
+            Action::Last => self.sync_view.cursor_to_last(),
             Action::ToggleSelect => self.sync_view.toggle(),
             Action::Open => self.run_sync_plan(),
             _ => {}

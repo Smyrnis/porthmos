@@ -77,6 +77,7 @@ impl App {
                 let last = self.transfer_rows().len().saturating_sub(1);
                 self.transfers_cursor = (self.clamped_transfers_cursor() + 1).min(last);
             }
+            Action::PageUp | Action::PageDown | Action::First | Action::Last => self.jump_transfers_cursor(action),
             Action::Open => {
                 if let Some(kind) = self.selected_row_kind() {
                     self.core.send(Command::RetryRow { kind });
@@ -94,6 +95,19 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn jump_transfers_cursor(&mut self, action: Action) {
+        let last = self.transfer_rows().len().saturating_sub(1);
+        let page = self.transfers_page_rows.get();
+        let cursor = self.clamped_transfers_cursor();
+        self.reselect_row = None;
+        self.transfers_cursor = match action {
+            Action::PageUp => cursor.saturating_sub(page),
+            Action::PageDown => (cursor + page).min(last),
+            Action::First => 0,
+            _ => last,
+        };
     }
 
     pub(super) fn open_speed_limit_dialog(&mut self) {

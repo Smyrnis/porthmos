@@ -13,6 +13,7 @@ pub mod info_line;
 pub mod last_used;
 pub mod layout;
 pub mod notifications;
+pub mod paging;
 pub mod palette_view;
 pub mod panel_view;
 pub mod path_field;

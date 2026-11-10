@@ -692,3 +692,52 @@ fn n_on_the_sync_screen_unticks_all_and_does_not_make_a_folder() {
     assert!(test.app.dialog.is_none());
     test.assert_inert(Screen::Sync);
 }
+
+fn many_uploads(count: u32) -> Vec<SyncItem> {
+    (0..count).map(|id| upload(id, &format!("file{id:03}.txt"))).collect()
+}
+
+fn draw_sync(test: &TestApp, height: u16) {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut terminal = Terminal::new(TestBackend::new(120, height)).unwrap();
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+}
+
+#[test]
+fn page_keys_move_by_the_rows_the_screen_drew_and_home_and_end_jump_to_the_ends() {
+    let mut test = with_plan(many_uploads(80));
+
+    draw_sync(&test, 14);
+    press(&mut test, KeyCode::PageDown);
+    let short_page = test.app.sync_view.cursor();
+    press(&mut test, KeyCode::PageUp);
+    assert_eq!(test.app.sync_view.cursor(), 0);
+    draw_sync(&test, 30);
+    press(&mut test, KeyCode::PageDown);
+    let tall_page = test.app.sync_view.cursor();
+
+    assert!(0 < short_page && short_page < tall_page, "{short_page} {tall_page}");
+    press(&mut test, KeyCode::End);
+    assert_eq!(test.app.sync_view.cursor(), 79);
+    press(&mut test, KeyCode::PageDown);
+    assert_eq!(test.app.sync_view.cursor(), 79);
+    press(&mut test, KeyCode::Home);
+    assert_eq!(test.app.sync_view.cursor(), 0);
+    press(&mut test, KeyCode::PageUp);
+    assert_eq!(test.app.sync_view.cursor(), 0);
+}
+
+#[test]
+fn jumping_to_the_last_row_of_a_filtered_plan_stays_inside_the_matches() {
+    let mut test = with_plan(many_uploads(40));
+    press(&mut test, KeyCode::Char('/'));
+    for character in "file03".chars() {
+        press(&mut test, KeyCode::Char(character));
+    }
+    press(&mut test, KeyCode::Enter);
+
+    press(&mut test, KeyCode::End);
+
+    assert_eq!(test.app.sync_view.cursor(), test.app.sync_view.matched() - 1);
+}

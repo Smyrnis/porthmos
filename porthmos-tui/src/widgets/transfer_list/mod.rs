@@ -21,6 +21,7 @@ use crate::{
     widgets::{
         frame::{accent_underline, hairline},
         history_view::printable,
+        paging::PageRows,
         text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
 };
@@ -47,6 +48,7 @@ pub struct TransferView<'a> {
     pub speeds: &'a [Option<u64>],
     pub etas: &'a [Option<u64>],
     pub failed_time: Option<&'a str>,
+    pub page: &'a PageRows,
 }
 
 struct Columns {
@@ -280,6 +282,7 @@ pub fn render_transfer_list(frame: &mut Frame, area: Rect, view: &TransferView<'
 
     let list_height = area.height - 2 - detail_height;
     if list_height > 0 {
+        view.page.remember(usize::from(list_height));
         let items: Vec<ListItem> = (0..view.rows.len())
             .map(|index| ListItem::new(row_line(view, index, index == cursor, &columns, theme)))
             .collect();

@@ -370,3 +370,47 @@ fn the_worst_case_details_fit_an_80_by_24_terminal() {
     assert!(content.contains("porthmos.log"), "{content}");
     assert!(content.contains("enter close"), "{content}");
 }
+
+fn many(count: usize) -> Vec<HistoryEntry> {
+    (0..count).map(|index| entry(&format!("run{index:03}"), HistoryResult::Done)).collect()
+}
+
+fn draw_history(test: &TestApp, height: u16) {
+    let mut terminal = Terminal::new(TestBackend::new(100, height)).unwrap();
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+}
+
+#[test]
+fn page_keys_move_by_the_rows_the_screen_drew_and_home_and_end_jump_to_the_ends() {
+    let mut test = app_with_history(many(80));
+
+    draw_history(&test, 14);
+    press(&mut test, KeyCode::PageDown);
+    let short_page = test.app.history.cursor();
+    press(&mut test, KeyCode::PageUp);
+    assert_eq!(test.app.history.cursor(), 0);
+    draw_history(&test, 30);
+    press(&mut test, KeyCode::PageDown);
+    let tall_page = test.app.history.cursor();
+
+    assert!(0 < short_page && short_page < tall_page, "{short_page} {tall_page}");
+    press(&mut test, KeyCode::End);
+    assert_eq!(test.app.history.cursor(), 79);
+    press(&mut test, KeyCode::PageDown);
+    assert_eq!(test.app.history.cursor(), 79);
+    press(&mut test, KeyCode::Home);
+    assert_eq!(test.app.history.cursor(), 0);
+    press(&mut test, KeyCode::PageUp);
+    assert_eq!(test.app.history.cursor(), 0);
+}
+
+#[test]
+fn page_and_jump_keys_on_an_empty_history_do_nothing() {
+    let mut test = app_with_history(Vec::new());
+
+    for code in [KeyCode::PageDown, KeyCode::PageUp, KeyCode::Home, KeyCode::End] {
+        press(&mut test, code);
+    }
+
+    assert_eq!(test.app.history.cursor(), 0);
+}

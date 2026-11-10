@@ -1999,3 +1999,48 @@ fn a_rejection_with_no_field_keeps_focus_where_it_was() {
         _ => panic!("expected the form"),
     }
 }
+
+fn many_connections(count: usize) -> Vec<ConnectionEntry> {
+    (0..count).map(|index| connection(&format!("host{index:03}"), ConnectionSource::Profile)).collect()
+}
+
+fn draw_connections(test: &TestApp, height: u16) {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut terminal = Terminal::new(TestBackend::new(120, height)).unwrap();
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+}
+
+#[test]
+fn page_keys_move_by_the_rows_the_screen_drew_and_home_and_end_jump_to_the_ends() {
+    let mut test = on_connections_screen(many_connections(80));
+
+    draw_connections(&test, 14);
+    test.app.apply_key(key(KeyCode::PageDown));
+    let short_page = test.app.connections.cursor;
+    test.app.apply_key(key(KeyCode::PageUp));
+    assert_eq!(test.app.connections.cursor, 0);
+    draw_connections(&test, 30);
+    test.app.apply_key(key(KeyCode::PageDown));
+    let tall_page = test.app.connections.cursor;
+
+    assert!(0 < short_page && short_page < tall_page, "{short_page} {tall_page}");
+    test.app.apply_key(key(KeyCode::End));
+    let last = test.app.connections.rows().len() - 1;
+    assert_eq!(test.app.connections.cursor, last);
+    test.app.apply_key(key(KeyCode::PageDown));
+    assert_eq!(test.app.connections.cursor, last);
+    test.app.apply_key(key(KeyCode::Home));
+    assert_eq!(test.app.connections.cursor, 0);
+}
+
+#[test]
+fn page_and_jump_keys_on_an_empty_connections_list_do_nothing() {
+    let mut test = on_connections_screen(Vec::new());
+
+    for code in [KeyCode::PageDown, KeyCode::PageUp, KeyCode::Home, KeyCode::End] {
+        test.app.apply_key(key(code));
+    }
+
+    assert_eq!(test.app.connections.cursor, 0);
+}

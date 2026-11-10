@@ -495,6 +495,7 @@ impl App {
             speeds: &speeds,
             etas: &etas,
             failed_time: failed_time.as_deref(),
+            page: &self.transfers_page_rows,
         };
         transfer_list::render_transfer_list(frame, area, &view, &self.theme);
     }

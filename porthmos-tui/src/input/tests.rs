@@ -853,21 +853,44 @@ fn go_to_path_defaults_to_ctrl_apostrophe_in_the_files_scope() {
 }
 
 #[test]
-fn list_jump_keys_map_only_in_the_files_scope() {
+fn page_and_jump_keys_map_in_every_list_scope() {
     let bindings = KeyBindings::defaults();
     let keys = [
         (KeyCode::PageUp, Action::PageUp),
         (KeyCode::PageDown, Action::PageDown),
         (KeyCode::Home, Action::First),
         (KeyCode::End, Action::Last),
-        (KeyCode::Backspace, Action::Parent),
     ];
     for (code, action) in keys {
-        assert_eq!(bindings.map_key(Scope::Files, key(code)), action, "{code:?}");
-        for scope in [Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
-            assert_eq!(bindings.map_key(scope, key(code)), Action::Noop, "{scope:?} {code:?}");
+        for scope in [Scope::Files, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+            assert_eq!(bindings.map_key(scope, key(code)), action, "{scope:?} {code:?}");
         }
     }
+}
+
+#[test]
+fn backspace_goes_to_the_parent_folder_in_the_files_scope_only() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Backspace)), Action::Parent);
+    for scope in [Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, key(KeyCode::Backspace)), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn a_files_scope_binding_for_a_page_key_replaces_the_default_there_but_not_elsewhere() {
+    let mut bindings = KeyBindings::defaults();
+    bindings
+        .0
+        .entry(Scope::Files)
+        .or_default()
+        .insert(Action::PageDown, vec![KeySpec { code: KeyCode::Char('g'), modifiers: KeyModifiers::CONTROL }]);
+
+    let ctrl_g = key_with_modifiers(KeyCode::Char('g'), KeyModifiers::CONTROL);
+    assert_eq!(bindings.map_key(Scope::Files, ctrl_g), Action::PageDown);
+    assert_eq!(bindings.map_key(Scope::History, ctrl_g), Action::Noop);
+    assert_eq!(bindings.map_key(Scope::History, key(KeyCode::PageDown)), Action::PageDown);
 }
 
 #[test]

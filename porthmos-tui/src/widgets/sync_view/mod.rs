@@ -20,6 +20,7 @@ use crate::{
         filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
         history_view::printable,
+        paging::{PageRows, Paged},
         text_fit::{pad_left, pad_right},
     },
 };
@@ -33,6 +34,7 @@ pub struct SyncView {
     filter: Option<String>,
     editing_filter: bool,
     cursor: usize,
+    page_rows: PageRows,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -116,6 +118,10 @@ impl SyncView {
 
     pub fn cursor(&self) -> usize {
         self.cursor
+    }
+
+    fn remember_page_rows(&self, rows: usize) {
+        self.page_rows.remember(rows);
     }
 
     fn current(&self) -> Option<usize> {
@@ -291,6 +297,16 @@ impl FilterLine for SyncView {
     }
 }
 
+impl Paged for SyncView {
+    fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    fn row_count(&self) -> usize {
+        self.visible.len()
+    }
+}
+
 fn moment(facts: Option<SyncFacts>) -> String {
     facts
         .and_then(|facts| facts.modified)
@@ -459,6 +475,7 @@ pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, theme: &Theme
         );
         return;
     }
+    view.remember_page_rows(usize::from(body.height));
     let cursor = view.cursor();
     let items: Vec<ListItem> = view
         .visible
