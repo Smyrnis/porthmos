@@ -36,6 +36,23 @@ pub fn match_count(entries: &[ConnectionEntry], filter: Option<&str>) -> usize {
     entries.iter().filter(|entry| filter.is_none_or(|filter| matches(entry, filter))).count()
 }
 
+pub fn open_groups(entries: &[ConnectionEntry], expanded: &HashSet<String>) -> Vec<String> {
+    let mut existing = HashSet::new();
+    for group in entries.iter().filter_map(|entry| entry.group.as_deref()) {
+        let mut path = String::new();
+        for segment in group.split('/') {
+            if !path.is_empty() {
+                path.push('/');
+            }
+            path.push_str(segment);
+            existing.insert(path.clone());
+        }
+    }
+    let mut open: Vec<String> = expanded.iter().filter(|path| existing.contains(*path)).cloned().collect();
+    open.sort();
+    open
+}
+
 pub fn rows(entries: &[ConnectionEntry], expanded: &HashSet<String>, filter: Option<&str>) -> Vec<TreeRow> {
     let filter = active_filter(filter);
     let mut root = Node::default();

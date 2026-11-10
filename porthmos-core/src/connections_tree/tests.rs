@@ -124,3 +124,24 @@ fn only_filters_with_something_to_match_are_active() {
     assert_eq!(active_filter(None), None);
     assert_eq!(active_filter(Some("#db")), Some("#db"));
 }
+
+#[test]
+fn open_groups_are_the_expanded_ones_that_still_exist_sorted() {
+    let entries = [entry("a", Some("Work/Web"), &[]), entry("b", Some("Home"), &[]), entry("c", None, &[])];
+
+    let found = open_groups(&entries, &open(&["Work/Web", "Gone", "Home", "Work"]));
+
+    assert_eq!(found, vec!["Home".to_string(), "Work".to_string(), "Work/Web".to_string()]);
+}
+
+#[test]
+fn a_group_is_only_known_through_a_connection_that_is_in_it() {
+    let entries = [entry("c", None, &[])];
+
+    assert!(open_groups(&entries, &open(&["Work"])).is_empty());
+}
+
+#[test]
+fn nothing_expanded_gives_no_open_groups() {
+    assert!(open_groups(&[entry("a", Some("Work"), &[])], &HashSet::new()).is_empty());
+}

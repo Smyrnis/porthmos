@@ -258,3 +258,24 @@ async fn a_panels_remembered_choices_win_over_the_configured_defaults_for_that_p
     assert_eq!(remote.sort.key, crate::listing::SortKey::Name);
     assert_eq!(remote.sort.order, crate::listing::SortOrder::Descending);
 }
+
+#[tokio::test]
+async fn the_open_connection_groups_saved_last_time_are_offered_at_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(dir.path());
+    std::fs::create_dir_all(&paths.state_dir).unwrap();
+    std::fs::write(paths.state_file(), "open_groups = [\"Work\", \"Work/Staging\"]\n").unwrap();
+
+    let (core, _events) = Core::builder().without_keyring().paths(paths).start().unwrap();
+
+    assert_eq!(core.remembered_open_groups(), ["Work", "Work/Staging"]);
+}
+
+#[tokio::test]
+async fn no_open_groups_are_offered_when_none_were_saved() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let (core, _events) = Core::builder().without_keyring().paths(Paths::in_dir(dir.path())).start().unwrap();
+
+    assert!(core.remembered_open_groups().is_empty());
+}

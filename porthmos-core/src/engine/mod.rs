@@ -392,6 +392,7 @@ impl Engine {
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
             Command::PrepareLocalShell { directory } => self.prepare_local_shell(&directory),
             Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
+            Command::RememberOpenGroups { groups } => self.remember_open_groups(groups),
             Command::List { location, path } => self.list(location, path),
             Command::Reveal { location, path } => self.reveal(location, path),
             Command::Navigate { location, from, to } => self.navigate(location, &from, to),

@@ -30,6 +30,7 @@ pub enum Command {
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
     PrepareLocalShell { directory: VfsPath },
     RememberPanel { kind: PanelKind, settings: PanelSettings },
+    RememberOpenGroups { groups: Vec<String> },
     List { location: Location, path: Option<VfsPath> },
     Reveal { location: Location, path: VfsPath },
     Navigate { location: Location, from: VfsPath, to: VfsPath },

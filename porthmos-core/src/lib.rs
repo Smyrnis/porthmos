@@ -122,6 +122,7 @@ pub struct CoreHandle {
     protocols: Arc<[ProtocolInfo]>,
     finished: tokio::sync::watch::Receiver<bool>,
     local_folder: Option<VfsPath>,
+    open_groups: Vec<String>,
     panels: Panels,
 }
 
@@ -147,8 +148,17 @@ impl CoreHandle {
         }
     }
 
+    pub fn with_remembered_open_groups(mut self, groups: Vec<String>) -> Self {
+        self.open_groups = groups;
+        self
+    }
+
     pub fn remembered_local_folder(&self) -> Option<VfsPath> {
         self.local_folder.clone()
+    }
+
+    pub fn remembered_open_groups(&self) -> &[String] {
+        &self.open_groups
     }
 
     pub fn send(&self, command: Command) {
@@ -172,6 +182,7 @@ impl CoreHandle {
                 protocols: protocols.into(),
                 finished,
                 local_folder: None,
+                open_groups: Vec::new(),
                 panels: Panels::default(),
             },
             receiver,
@@ -357,6 +368,7 @@ impl CoreBuilder {
         engine.offer_reopen();
         let local_folder =
             engine.ui_state.local_folder.as_deref().map(VfsPath::new).filter(|folder| to_os_path(folder).is_dir());
+        let open_groups = engine.ui_state.open_groups.clone();
         let remembered = |memory: &Option<panel_memory::PanelMemory>| match memory {
             Some(memory) => memory.applied_to(&configured_panel),
             None => configured_panel,
@@ -368,7 +380,7 @@ impl CoreBuilder {
         engine.start_keyring_probe();
         engine.start_updates();
         tokio::spawn(engine.run(command_receiver, internal_receiver));
-        Ok((CoreHandle { commands, protocols: infos, finished, local_folder, panels }, event_receiver))
+        Ok((CoreHandle { commands, protocols: infos, finished, local_folder, open_groups, panels }, event_receiver))
     }
 }
 

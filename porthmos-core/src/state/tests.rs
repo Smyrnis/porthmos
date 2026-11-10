@@ -185,6 +185,7 @@ fn each_panels_choices_round_trip_beside_the_other_keys() {
         local_panel: Some(PanelMemory { show_hidden: Some(true), ..PanelMemory::default() }),
         remote_panel: Some(PanelMemory { sort_key: Some("size".to_string()), ..PanelMemory::default() }),
         reopen: vec!["a".to_string(), "b".to_string()],
+        open_groups: vec!["Work".to_string(), "Work/Staging".to_string()],
     };
 
     save(&paths, &state).unwrap();
@@ -215,4 +216,13 @@ fn the_connections_to_reopen_round_trip_in_order_and_are_left_out_when_empty() {
     assert_eq!(load(&paths).state.reopen, vec!["b", "a"]);
     save(&paths, &UiState::default()).unwrap();
     assert!(!std::fs::read_to_string(paths.state_file()).unwrap().contains("reopen"));
+}
+
+#[test]
+fn an_empty_open_group_list_is_not_written() {
+    let (_dir, paths) = paths();
+
+    save(&paths, &UiState::default()).unwrap();
+
+    assert!(!std::fs::read_to_string(paths.state_file()).unwrap().contains("open_groups"));
 }

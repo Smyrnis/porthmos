@@ -54,6 +54,16 @@ impl Engine {
         self.save_quietly("panel settings");
     }
 
+    pub(crate) fn remember_open_groups(&mut self, mut groups: Vec<String>) {
+        groups.sort();
+        groups.dedup();
+        if self.ui_state.open_groups == groups {
+            return;
+        }
+        self.ui_state.open_groups = groups;
+        self.save_quietly("open connection groups");
+    }
+
     pub(crate) fn save_quietly(&mut self, what: &str) {
         if self.state_protected {
             return;
