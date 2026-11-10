@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use iced::widget::{Id, operation};
 use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
 use porthmos_core::delete_prompt::THIS_COMPUTER;
+use porthmos_core::delete_prompt::count::Contents;
 use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::names::entry_name_problem;
 use porthmos_core::transfer::conflicts::Resolution;
@@ -29,7 +30,7 @@ use crate::drag::{
 use crate::entries::entries_from_paths;
 use crate::geometry::{Hit, ROW_HEIGHT, hit_test, list_viewport, scroll_to_show};
 use crate::menus::{ContextMenu, MenuItem, MenuTarget, MoreItem};
-use crate::modal::{Modal, ModalQueue};
+use crate::modal::{DeleteCount, Modal, ModalQueue};
 use crate::native::{self, Attached, DesktopEvent, DesktopSource};
 use crate::navigation::PathEdit;
 use crate::pane::Pane;
@@ -289,6 +290,7 @@ pub struct App {
     sync_view: SyncView,
     tool_version: u64,
     next_preview_id: u64,
+    next_count_id: u64,
     launcher: Launcher,
     processes: ProcessSource,
     jobs: std::collections::HashMap<u64, editing::JobRole>,
@@ -365,6 +367,7 @@ impl App {
             sync_view: SyncView::default(),
             tool_version: 0,
             next_preview_id: 1,
+            next_count_id: 0,
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
             processes,
             jobs: std::collections::HashMap::new(),
@@ -831,6 +834,7 @@ impl App {
             Event::SearchDone { truncated } => self.search_done(truncated),
             Event::SearchFailed(message) => self.search_failed(message),
             Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
+            Event::ContentsCounted { request_id, contents } => self.contents_counted(request_id, contents),
             Event::LocalShellReady { invocation } => self.shell_ready(invocation),
             Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
             Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
@@ -1619,13 +1623,45 @@ impl App {
             (true, Modal::SyncOptions { session, direction, by, subfolders, .. }) => {
                 self.start_sync(session, SyncOptions { direction, by, subfolders })
             }
-            (true, Modal::ConfirmDelete { side, entries, .. }) => {
+            (true, Modal::ConfirmDelete { side, entries, count, .. }) => {
+                self.stop_counting(count);
                 if let Some(location) = self.location_of(side) {
                     let paths = entries.into_iter().map(|entry| entry.path).collect();
                     self.core.send(Command::Delete { location, paths });
                 }
             }
+            (false, Modal::ConfirmDelete { count, .. }) => self.stop_counting(count),
             (false, _) | (_, Modal::Conflict { .. } | Modal::Info { .. }) => {}
+        }
+    }
+
+    fn request_count(&mut self, side: PanelSide, entries: &[porthmos_core::Entry]) -> Option<DeleteCount> {
+        let folders: Vec<VfsPath> =
+            entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
+        let location = self.location_of(side).filter(|_| !folders.is_empty())?;
+        self.next_count_id += 1;
+        let request_id = self.next_count_id;
+        self.core.send(Command::CountContents { request_id, location, folders });
+        Some(DeleteCount { request_id, contents: Contents::Counting })
+    }
+
+    fn stop_counting(&self, count: Option<DeleteCount>) {
+        if count.is_some_and(|count| count.contents == Contents::Counting) {
+            self.core.send(Command::CancelCount);
+        }
+    }
+
+    fn contents_counted(&mut self, request_id: u64, contents: Contents) {
+        let pending = self.modals.iter_mut().find_map(|modal| match modal {
+            Modal::ConfirmDelete { count: Some(count), .. }
+                if count.request_id == request_id && count.contents == Contents::Counting =>
+            {
+                Some(count)
+            }
+            _ => None,
+        });
+        if let Some(count) = pending {
+            count.contents = contents;
         }
     }
 
@@ -1912,7 +1948,8 @@ impl App {
                 let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
                 if !entries.is_empty() {
                     let place = self.place_name(side);
-                    self.modals.push(Modal::ConfirmDelete { side, place, entries });
+                    let count = self.request_count(side, &entries);
+                    self.modals.push(Modal::ConfirmDelete { side, place, entries, count });
                 }
             }
             Action::Copy => self.copy_active(false),

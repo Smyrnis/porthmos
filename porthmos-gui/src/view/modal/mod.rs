@@ -9,7 +9,7 @@ use super::{bold_label, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::dialogs::{Dialog, Typed};
 use crate::editing::waiting_notice;
-use crate::modal::{Modal, delete_summary, edit_question_title, quit_text};
+use crate::modal::{Modal, delete_lines, edit_question_title, quit_text};
 use crate::theme::Palette;
 use crate::view::text_fit::fit;
 use porthmos_core::edit::{EditChoice, EditQuestionKind, printable};
@@ -155,8 +155,8 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             sync_options::body(*direction, *by, *subfolders, *offer_both, error, palette),
             buttons("Start", "Cancel", palette),
         ),
-        Modal::ConfirmDelete { entries, place, .. } => {
-            let lines = delete_summary(entries, place).join("\n");
+        Modal::ConfirmDelete { entries, place, count, .. } => {
+            let lines = delete_lines(entries, place, count.as_ref()).join("\n");
             ("Delete".to_string(), body_text(lines, palette), cautious_buttons("Delete", "Cancel", palette))
         }
     };

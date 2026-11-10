@@ -2,7 +2,9 @@ use porthmos_core::{Entry, Question};
 
 use porthmos_core::delete_prompt::MAX_LISTED_NAMES;
 
-use super::{Modal, ModalQueue, delete_summary};
+use porthmos_core::delete_prompt::count::{ContentCount, Contents};
+
+use super::{DeleteCount, Modal, ModalQueue, delete_lines, delete_summary};
 use crate::app::PanelSide;
 use crate::dialogs::Dialog;
 
@@ -129,11 +131,36 @@ fn only_irreversible_or_trusting_answers_are_risky_to_accept() {
 
     assert!(trust.is_risky_to_accept());
     assert!(
-        Modal::ConfirmDelete { side: PanelSide::Local, place: String::new(), entries: vec![entry("a")] }
+        Modal::ConfirmDelete { side: PanelSide::Local, place: String::new(), entries: vec![entry("a")], count: None }
             .is_risky_to_accept()
     );
     assert!(Modal::ConfirmClearHistory.is_risky_to_accept());
     assert!(Modal::ConfirmQuit { transfers: true, edits: false }.is_risky_to_accept());
     assert!(!question(1).is_risky_to_accept());
     assert!(!Modal::Info { title: String::new(), body: String::new() }.is_risky_to_accept());
+}
+
+#[test]
+fn delete_lines_end_with_the_contents_line_only_when_a_count_exists() {
+    let entries = [entry("photos")];
+    let bare = delete_lines(&entries, "this computer", None);
+    let counted = DeleteCount {
+        request_id: 1,
+        contents: Contents::Counted(ContentCount { files: 3, ..ContentCount::default() }),
+    };
+    let with_count = delete_lines(&entries, "this computer", Some(&counted));
+
+    assert_eq!(with_count.len(), bare.len() + 1);
+    assert_eq!(with_count[..bare.len()], bare[..]);
+    assert_eq!(with_count.last().unwrap(), "Inside: 3 files.");
+}
+
+#[test]
+fn delete_lines_say_so_while_counting_and_when_counting_failed() {
+    let entries = [entry("photos")];
+    let counting = DeleteCount { request_id: 1, contents: Contents::Counting };
+    let unavailable = DeleteCount { request_id: 2, contents: Contents::Unavailable };
+
+    assert!(delete_lines(&entries, "x", Some(&counting)).last().unwrap().starts_with("Counting"));
+    assert!(delete_lines(&entries, "x", Some(&unavailable)).last().unwrap().starts_with("Couldn't count"));
 }

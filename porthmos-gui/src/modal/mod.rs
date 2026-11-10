@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use porthmos_core::delete_prompt::count::{Contents, contents_line};
 use porthmos_core::edit::{EditQuestionKind, printable};
 use porthmos_core::sync::{SyncBy, SyncDirection};
 use porthmos_core::{Entry, Location, SessionId, VfsPath};
@@ -10,6 +11,12 @@ use crate::dialogs::Dialog;
 use crate::view::text_fit::fit;
 
 const NAME_CELLS: usize = 60;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteCount {
+    pub request_id: u64,
+    pub contents: Contents,
+}
 
 #[derive(Debug, Clone)]
 pub enum Modal {
@@ -40,6 +47,7 @@ pub enum Modal {
         side: PanelSide,
         place: String,
         entries: Vec<Entry>,
+        count: Option<DeleteCount>,
     },
     Conflict {
         view: ConflictView,
@@ -108,6 +116,10 @@ impl ModalQueue {
         self.items.pop_front()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Modal> {
+        self.items.iter_mut()
+    }
+
     pub fn any(&self, matches: impl Fn(&Modal) -> bool) -> bool {
         self.items.iter().any(matches)
     }
@@ -153,6 +165,12 @@ pub fn edit_question_title(name: &str, kind: EditQuestionKind) -> String {
 
 pub fn delete_summary(entries: &[Entry], place: &str) -> Vec<String> {
     porthmos_core::delete_prompt::delete_summary(entries, place, |name| fit(name, NAME_CELLS))
+}
+
+pub fn delete_lines(entries: &[Entry], place: &str, count: Option<&DeleteCount>) -> Vec<String> {
+    let mut lines = delete_summary(entries, place);
+    lines.extend(count.map(|count| contents_line(&count.contents)));
+    lines
 }
 
 #[cfg(test)]

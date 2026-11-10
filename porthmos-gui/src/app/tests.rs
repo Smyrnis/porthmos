@@ -3850,11 +3850,206 @@ fn the_delete_prompt_names_the_connection_for_the_remote_panel_even_when_the_nam
     plain(&mut harness, Named::Delete);
 
     match open_modal(&harness) {
-        crate::modal::Modal::ConfirmDelete { side, place, entries } => {
+        crate::modal::Modal::ConfirmDelete { side, place, entries, .. } => {
             assert_eq!(*side, PanelSide::Remote);
             assert_eq!(place, "alpha");
             assert_eq!(crate::modal::delete_summary(entries, place), ["Delete \"old\" from alpha?"]);
         }
         other => panic!("{other:?}"),
     }
+}
+
+fn fill_local_folders(harness: &mut Harness, folders: &[&str], files: &[&str]) {
+    let folder = harness.start_folder();
+    let mut entries: Vec<porthmos_core::Entry> = folders.iter().map(|name| folder_entry(&folder, name)).collect();
+    entries.extend(files.iter().map(|name| entry(&folder, name)));
+    harness.feed(Event::Listed { location: Location::Local, path: folder, entries });
+}
+
+fn count_requests(commands: Vec<Command>) -> Vec<(u64, Location, Vec<VfsPath>)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::CountContents { request_id, location, folders } => Some((request_id, location, folders)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn delete_text(harness: &Harness) -> String {
+    match open_modal(harness) {
+        crate::modal::Modal::ConfirmDelete { entries, place, count, .. } => {
+            crate::modal::delete_lines(entries, place, count.as_ref()).join("\n")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+fn counted(files: u64, folders: u64) -> porthmos_core::delete_prompt::count::Contents {
+    porthmos_core::delete_prompt::count::Contents::Counted(porthmos_core::delete_prompt::count::ContentCount {
+        files,
+        folders,
+        unreadable: 0,
+        capped: false,
+    })
+}
+
+fn open_folder_delete(harness: &mut Harness) -> u64 {
+    fill_local_folders(harness, &["photos"], &[]);
+    plain(harness, Named::ArrowDown);
+    harness.sent();
+    plain(harness, Named::Delete);
+    let requests = count_requests(harness.sent());
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    requests[0].0
+}
+
+#[test]
+fn deleting_a_folder_asks_the_core_to_count_it_and_says_it_is_counting() {
+    let mut harness = Harness::new();
+    fill_local_folders(&mut harness, &["photos"], &["notes.txt"]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+
+    let requests = count_requests(harness.sent());
+    assert_eq!(requests.len(), 1);
+    assert_eq!((requests[0].1, requests[0].2.clone()), (Location::Local, vec![VfsPath::new("/home/tester/photos")]));
+    assert_eq!(
+        delete_text(&harness),
+        "Delete the folder \"photos\" and everything inside it from this computer?\nCounting what is inside\u{2026}"
+    );
+}
+
+#[test]
+fn deleting_only_files_asks_for_no_count() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a.txt"]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+
+    assert!(harness.sent().is_empty());
+    assert_eq!(delete_text(&harness), "Delete \"a.txt\" from this computer?");
+}
+
+#[test]
+fn the_answer_replaces_the_counting_line() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+
+    harness.feed(Event::ContentsCounted { request_id, contents: counted(1204, 37) });
+
+    assert_eq!(
+        delete_text(&harness),
+        "Delete the folder \"photos\" and everything inside it from this computer?\nInside: 1,204 files and 37 folders."
+    );
+}
+
+#[test]
+fn an_unavailable_count_is_said_plainly() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+
+    harness.feed(Event::ContentsCounted {
+        request_id,
+        contents: porthmos_core::delete_prompt::count::Contents::Unavailable,
+    });
+
+    assert!(delete_text(&harness).ends_with("\nCouldn't count what is inside."));
+}
+
+#[test]
+fn an_answer_for_another_request_changes_nothing() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+
+    harness.feed(Event::ContentsCounted { request_id: request_id + 1, contents: counted(5, 0) });
+
+    assert!(delete_text(&harness).ends_with("Counting what is inside\u{2026}"));
+}
+
+#[test]
+fn an_answer_after_the_modal_closed_is_ignored() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+    plain(&mut harness, Named::Escape);
+    harness.sent();
+
+    harness.feed(Event::ContentsCounted { request_id, contents: counted(5, 0) });
+
+    assert!(harness.app.modal().is_none());
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn declining_while_counting_stops_the_count() {
+    let mut harness = Harness::new();
+    open_folder_delete(&mut harness);
+
+    plain(&mut harness, Named::Escape);
+
+    assert_eq!(harness.sent(), vec![Command::CancelCount]);
+}
+
+#[test]
+fn confirming_while_counting_stops_the_count_and_deletes() {
+    let mut harness = Harness::new();
+    open_folder_delete(&mut harness);
+
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![
+            Command::CancelCount,
+            Command::Delete { location: Location::Local, paths: vec![VfsPath::new("/home/tester/photos")] }
+        ]
+    );
+}
+
+#[test]
+fn closing_after_the_answer_arrived_does_not_cancel_anything() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+    harness.feed(Event::ContentsCounted { request_id, contents: counted(2, 0) });
+
+    plain(&mut harness, Named::Escape);
+
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn counting_on_the_remote_panel_goes_to_that_session() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    let path = VfsPath::new("/srv");
+    harness.feed(Event::Listed {
+        location: Location::Session(1),
+        path: path.clone(),
+        entries: vec![folder_entry(&path, "logs")],
+    });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 1));
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+
+    let requests = count_requests(harness.sent());
+    assert_eq!(requests.len(), 1);
+    assert_eq!((requests[0].1, requests[0].2.clone()), (Location::Session(1), vec![VfsPath::new("/srv/logs")]));
+}
+
+#[test]
+fn two_prompts_in_a_row_use_different_request_ids() {
+    let mut harness = Harness::new();
+    let first = open_folder_delete(&mut harness);
+    plain(&mut harness, Named::Escape);
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+    let second = count_requests(harness.sent())[0].0;
+
+    assert_ne!(first, second);
 }
