@@ -51,6 +51,9 @@ fn save_then_load_round_trips_including_a_remote_bookmark() {
 #[cfg(unix)]
 #[test]
 fn save_to_leaves_the_original_file_untouched_if_the_write_fails() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bookmarks.toml");
     let mut original = Bookmarks::default();

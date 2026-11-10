@@ -181,6 +181,9 @@ async fn cancelled_downloads_release_their_sessions() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_cat_upload_the_server_refuses_fails_quickly_with_the_reason() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let (server, fs) = open_with(Options { hide_scp: true, ..Options::default() }, Duration::from_secs(1)).await;
     let locked = server.root.path().join("locked");
     std::fs::create_dir(&locked).unwrap();
@@ -231,6 +234,9 @@ async fn listing_is_not_starved_by_waiting_transfers() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_refused_scp_upload_keeps_its_reason() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let (server, fs) = open(Options::default()).await;
     let locked = server.root.path().join("locked");
     std::fs::create_dir(&locked).unwrap();

@@ -192,6 +192,9 @@ fn save_to_sets_file_permissions_to_owner_read_write_only() {
 #[cfg(unix)]
 #[test]
 fn save_to_leaves_the_original_file_untouched_if_the_write_fails() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let original = ConnectionProfile {

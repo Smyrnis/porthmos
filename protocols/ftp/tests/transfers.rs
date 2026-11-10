@@ -71,6 +71,9 @@ async fn writing_at_an_offset_resumes_the_file() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_write_the_server_rejects_is_an_error() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let server = support::start(Some("pw"), None).await;
     let locked = server.root.path().join("locked");
     std::fs::create_dir(&locked).unwrap();

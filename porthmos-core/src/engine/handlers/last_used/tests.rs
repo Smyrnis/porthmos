@@ -464,6 +464,9 @@ async fn a_history_write_failure_is_not_blamed_on_the_last_used_file() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let mut t = engine_with_profile("srv");
     t.engine.last_used.store = protected_store(&t);
     t.drain();

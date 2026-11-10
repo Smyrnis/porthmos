@@ -706,3 +706,10 @@ fn a_fake_file_system_reports_the_rules_it_was_given() {
     assert_eq!(FakeFs::new().name_rules(), crate::NameRules::Permissive);
     assert_eq!(FakeFs::new().with_name_rules(crate::NameRules::Windows).name_rules(), crate::NameRules::Windows);
 }
+
+#[cfg(unix)]
+#[test]
+fn the_probe_sees_read_only_folders_block_writes_for_an_ordinary_user() {
+    let is_root = std::fs::metadata("/proc/self").is_ok_and(|meta| std::os::unix::fs::MetadataExt::uid(&meta) == 0);
+    assert_eq!(super::read_only_folders_block_writes(), !is_root);
+}
