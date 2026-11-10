@@ -693,3 +693,47 @@ fn the_filter_is_cleared_when_the_window_closes() {
 
     assert_eq!(harness.app.manager.filter(), "");
 }
+
+fn remembered_groups(commands: Vec<Command>) -> Vec<Vec<String>> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberOpenGroups { groups } => Some(groups),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn toggling_a_group_tells_core_which_groups_are_open() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+    open_manager(&mut harness);
+    harness.sent();
+
+    harness.press(Message::ManagerGroupToggled("Work".to_string()));
+    harness.press(Message::ManagerGroupToggled("Work".to_string()));
+
+    assert_eq!(remembered_groups(harness.sent()), vec![vec!["Work".to_string()], Vec::<String>::new()]);
+}
+
+#[test]
+fn a_saved_connection_that_reveals_its_group_opens_it_for_core_too() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+    harness.sent();
+    harness.app.reveal = Some("alpha".to_string());
+
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+
+    assert_eq!(remembered_groups(harness.sent()), vec![vec!["Work".to_string()]]);
+}
+
+#[test]
+fn the_window_app_starts_with_the_groups_core_remembered() {
+    let mut harness = Harness::with_remembered_open_groups(vec!["Work".to_string()]);
+
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+
+    assert_eq!(harness.app.manager().rows().len(), 2);
+}

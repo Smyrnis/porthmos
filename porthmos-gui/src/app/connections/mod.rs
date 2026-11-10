@@ -159,7 +159,10 @@ impl App {
                 self.manager.select_row(row);
                 self.connect_selected();
             }
-            Message::ManagerGroupToggled(path) => self.manager.toggle_group(&path),
+            Message::ManagerGroupToggled(path) => {
+                self.manager.toggle_group(&path);
+                self.remember_open_groups();
+            }
             Message::ManagerConnect => self.connect_selected(),
             _ => {}
         }

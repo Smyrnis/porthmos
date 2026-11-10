@@ -69,6 +69,16 @@ impl Harness {
         Harness::build_remembering(Vec::new(), GuiSettings::default(), local, remote)
     }
 
+    pub fn with_remembered_open_groups(groups: Vec<String>) -> Harness {
+        Harness::build_with(
+            Vec::new(),
+            GuiSettings::default(),
+            PanelSettings::default(),
+            PanelSettings::default(),
+            groups,
+        )
+    }
+
     fn build(protocols: Vec<ProtocolInfo>, settings: GuiSettings) -> Harness {
         Harness::build_remembering(protocols, settings, PanelSettings::default(), PanelSettings::default())
     }
@@ -76,8 +86,18 @@ impl Harness {
     fn build_remembering(
         protocols: Vec<ProtocolInfo>, settings: GuiSettings, local: PanelSettings, remote: PanelSettings,
     ) -> Harness {
+        Harness::build_with(protocols, settings, local, remote, Vec::new())
+    }
+
+    fn build_with(
+        protocols: Vec<ProtocolInfo>, settings: GuiSettings, local: PanelSettings, remote: PanelSettings,
+        open_groups: Vec<String>,
+    ) -> Harness {
         let (core, commands) = CoreHandle::detached_with(protocols);
-        let core = core.with_panel_settings(PanelKind::Local, local).with_panel_settings(PanelKind::Remote, remote);
+        let core = core
+            .with_panel_settings(PanelKind::Local, local)
+            .with_panel_settings(PanelKind::Remote, remote)
+            .with_remembered_open_groups(open_groups);
         let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let start = VfsPath::new("/home/tester");
         let palette = Palette::new(&ThemeSettings::default());

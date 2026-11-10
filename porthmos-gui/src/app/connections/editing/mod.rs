@@ -26,6 +26,7 @@ impl App {
         self.manager.replace(entries);
         if let Some(name) = self.reveal.take() {
             self.manager.reveal(&name);
+            self.remember_open_groups();
         }
         self.palette_profiles_changed();
     }
@@ -101,6 +102,10 @@ impl App {
             ConnectionSource::SshConfig => self.push_notice(Severity::Info, SSH_CONFIG_DELETE.to_string()),
             ConnectionSource::MissingSshHost | ConnectionSource::ShadowedSshHost => {}
         }
+    }
+
+    pub(in crate::app) fn remember_open_groups(&self) {
+        self.core.send(Command::RememberOpenGroups { groups: self.manager.open_groups() });
     }
 
     fn save_form(&mut self) {

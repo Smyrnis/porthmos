@@ -22,6 +22,14 @@ pub struct Manager {
 }
 
 impl Manager {
+    pub fn with_open_groups(groups: Vec<String>) -> Self {
+        Self { expanded: groups.into_iter().collect(), ..Self::default() }
+    }
+
+    pub fn open_groups(&self) -> Vec<String> {
+        connections_tree::open_groups(&self.entries, &self.expanded)
+    }
+
     pub fn replace(&mut self, entries: Vec<ConnectionEntry>) {
         self.entries = entries;
         let gone = match &self.cursor {

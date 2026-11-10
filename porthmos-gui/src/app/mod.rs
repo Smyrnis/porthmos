@@ -325,6 +325,7 @@ impl App {
         core: CoreHandle, events: EventSource, local_start: VfsPath, palette: Palette, shortcuts: Shortcuts,
     ) -> App {
         let local_panel = core.panel_settings(PanelKind::Local);
+        let open_groups = core.remembered_open_groups().to_vec();
         let (desktop_sender, desktop) = native::channel();
         let (process_sender, processes) = crate::processes::channel();
         let mut app = App {
@@ -348,7 +349,7 @@ impl App {
             window_memory_file: None,
             reopen_offer: Vec::new(),
             settings_state: None,
-            manager: Manager::default(),
+            manager: Manager::with_open_groups(open_groups),
             reveal: None,
             keyring_available: true,
             keyring_waiting: false,

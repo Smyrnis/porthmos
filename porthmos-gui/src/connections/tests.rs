@@ -285,3 +285,24 @@ fn reveal_keeps_a_filter_that_matches_the_entry() {
 
     assert_eq!(manager.filter(), "alp");
 }
+
+#[test]
+fn groups_saved_as_open_start_open() {
+    let mut manager = Manager::with_open_groups(vec!["Work".to_string()]);
+
+    manager.replace(vec![entry("a", Some("Work"), &[]), entry("b", None, &[])]);
+
+    assert_eq!(manager.rows().len(), 3);
+}
+
+#[test]
+fn open_groups_follow_toggling_and_forget_groups_that_no_longer_exist() {
+    let mut manager = Manager::with_open_groups(vec!["Gone".to_string()]);
+    manager.replace(vec![entry("a", Some("Work"), &[]), entry("b", Some("Home"), &[])]);
+
+    manager.toggle_group("Work");
+    manager.toggle_group("Home");
+    manager.toggle_group("Home");
+
+    assert_eq!(manager.open_groups(), vec!["Work".to_string()]);
+}
