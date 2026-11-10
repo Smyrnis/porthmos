@@ -144,10 +144,21 @@ impl TestEngine {
         loop {
             match tokio::time::timeout(QUIET, self.internal.recv()).await {
                 Ok(Some(done)) => self.engine.handle_internal(done),
-                Err(_) if !self.engine.latest_keyring_job.is_empty() && started.elapsed() < LIMIT => {}
+                Err(_)
+                    if (!self.engine.latest_keyring_job.is_empty() || self.transfers_in_flight())
+                        && started.elapsed() < LIMIT => {}
                 Ok(None) | Err(_) => break,
             }
         }
+    }
+
+    fn transfers_in_flight(&self) -> bool {
+        use crate::transfer::rows::RowState;
+        self.engine
+            .transfers
+            .rows()
+            .iter()
+            .any(|row| matches!(row.state, RowState::Scanning | RowState::Running | RowState::Queued))
     }
 
     pub(crate) fn assert_secret_nowhere(&self, secret: &str, events: &[Event]) {
