@@ -260,6 +260,64 @@ jobs:
         run: ./target/release/porthmos-release sign --key-env PORTHMOS_SIGNING_KEY --in latest.json --out latest.json.sig
       - name: Verify against the key built into the app
         run: ./target/release/porthmos-release verify --in latest.json --sig latest.json.sig
+      - name: Release page notes
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          PRODUCT: ${{ needs.plan.outputs.product }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          PROGRAM: ${{ needs.plan.outputs.program }}
+        run: |
+          # notes.txt stays the bare tag message: it is what goes into latest.json.
+          # page-notes.md is only the GitHub release page.
+          flags=
+          [ "$PRODUCT" = gui ] && flags="$flags --gui"
+          [ "$CHANNEL" = preview ] && flags="$flags --preview"
+          platform() {
+            case $1 in
+              *x86_64-unknown-linux-gnu*) echo "Linux x86_64" ;;
+              *aarch64-unknown-linux-gnu*) echo "Linux ARM64" ;;
+              *aarch64-apple-darwin*) echo "macOS Apple Silicon" ;;
+              *x86_64-apple-darwin*) echo "macOS Intel" ;;
+              *x86_64-pc-windows-msvc*) echo "Windows x86_64" ;;
+              *) echo "Other" ;;
+            esac
+          }
+          {
+            # Skip the first line of the tag message: it repeats the title.
+            tail -n +2 notes.txt | sed '/./,$!d'
+            echo
+            if [ "$CHANNEL" = candidate ]; then
+              echo "> [!WARNING]"
+              echo "> Release candidate. Not offered through the update feed; install it by hand to test."
+              echo
+            elif [ "$CHANNEL" = preview ]; then
+              echo "> [!NOTE]"
+              echo "> Preview build from \`development\`. It may be less polished than the stable channel."
+              echo
+            fi
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/tui-stable/install.sh | sh -s --$flags"
+            echo '```'
+            echo
+            echo "Already installed? Porthmos updates itself on quit, or run \`$PROGRAM update\`."
+            echo
+            echo "## Downloads"
+            echo
+            echo "| Platform | File |"
+            echo "| --- | --- |"
+            for file in dist/"$PROGRAM-$VERSION-"*; do
+              name=${file##*/}
+              echo "| $(platform "$name") | [\`$name\`](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$name) |"
+            done
+            echo
+            echo "Every download is listed in the signed \`latest.json\` (\`latest.json.sig\`), checked against the key built into the app."
+            echo
+            echo "**Full changes:** https://github.com/$GITHUB_REPOSITORY/commits/$TAG"
+          } > page-notes.md
+          cat page-notes.md
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -275,7 +333,9 @@ jobs:
             gui) label="Porthmos window app" ;;
           esac
           assets=(dist/* latest.json latest.json.sig scripts/install/install.sh scripts/install/uninstall.sh)
+          # The repo's "Latest release" badge follows the stable terminal app.
           page_flags=(--latest=false)
+          [ "$CHANNEL" = stable ] && [ "$PRODUCT" = tui ] && page_flags=(--latest)
           title="$label $VERSION"
           is_prerelease=false
           if [ "$CHANNEL" != stable ]; then
@@ -286,7 +346,7 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" "${assets[@]}" --title "$title" --notes-file notes.txt "${page_flags[@]}"
+            gh release create "$TAG" "${assets[@]}" --title "$title" --notes-file page-notes.md "${page_flags[@]}"
           fi
           [ -n "$FEED" ] || exit 0
           note="Latest $CHANNEL build of the $label: $VERSION. This release always holds the newest $CHANNEL build; it is where the app checks for updates and where install.sh downloads from."

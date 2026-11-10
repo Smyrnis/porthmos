@@ -4,6 +4,10 @@
 
 # Porthmos
 
+[![CI](https://github.com/Smyrnis/porthmos/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/Smyrnis/porthmos/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Smyrnis/porthmos?label=release)](https://github.com/Smyrnis/porthmos/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A dual-panel file manager, as a terminal app and as a window app: local files
 in one panel, a remote connection in the other, with saved connection
 profiles, background transfers, search, folder sync and in-place editing. It
@@ -16,6 +20,8 @@ talks SFTP, SCP, FTP and FTPS, WebDAV and S3-compatible storage.
 - Background transfers that queue, run in parallel and resume
 - Folder sync, remote editing in your own editor, search and a command palette
 - Go to a typed path, and optionally reopen the connections you had open last time
+
+<!-- TODO: screenshot / GIF (assets/screenshots/) -->
 
 See [all features](documentation/general/features.md).
 
