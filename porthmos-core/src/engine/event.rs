@@ -8,6 +8,7 @@ use super::{Location, RequestId, SessionId};
 use crate::{
     ConnectionState, Message, Severity,
     config::bookmarks::Bookmark,
+    delete_prompt::count::Contents,
     edit::{EditQuestionKind, EditorCommand},
     history::HistoryEntry,
     preview::Preview,
@@ -58,6 +59,7 @@ pub enum Event {
     EditReady { edit_id: u64, file: PathBuf, editor: EditorCommand },
     EditQuestion { edit_id: u64, name: String, kind: EditQuestionKind },
     EditsBusy(bool),
+    ContentsCounted { request_id: RequestId, contents: Contents },
     PreviewReady { request_id: RequestId, name: String, result: Result<Arc<Preview>, String> },
     SyncPlanReady(Arc<SyncPlan>),
     SyncWithdrawn { sync_ids: Vec<u64> },

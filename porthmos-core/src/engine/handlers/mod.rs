@@ -1,5 +1,6 @@
 mod bookmarks;
 mod connect;
+mod count;
 mod edit;
 mod fs;
 mod health;

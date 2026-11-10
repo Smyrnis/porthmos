@@ -37,6 +37,8 @@ pub enum Command {
     CreateDir { location: Location, path: VfsPath },
     Rename { location: Location, from: VfsPath, to: VfsPath },
     Delete { location: Location, paths: Vec<VfsPath> },
+    CountContents { request_id: RequestId, location: Location, folders: Vec<VfsPath> },
+    CancelCount,
     Copy { from: Location, entries: Vec<Entry>, to: Location, dest_dir: VfsPath },
     Move { from: Location, entries: Vec<Entry>, to: Location, dest_dir: VfsPath },
     ResolveConflicts { batch_id: u64, answers: Option<Vec<Resolution>> },

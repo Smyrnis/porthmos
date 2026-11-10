@@ -1,5 +1,7 @@
 use porthmos_vfs::Entry;
 
+pub mod count;
+
 pub const MAX_LISTED_NAMES: usize = 5;
 pub const THIS_COMPUTER: &str = "this computer";
 
