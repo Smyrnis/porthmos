@@ -1281,3 +1281,87 @@ async fn a_sync_skips_a_download_that_would_overwrite_a_file_differing_only_in_c
     );
     assert_eq!(std::fs::read(t.dir.path().join("work/README.md")).unwrap(), b"mine");
 }
+
+fn make_local_dir(t: &TestEngine, name: &str) {
+    std::fs::create_dir_all(work_dir(t).join(name)).unwrap();
+}
+
+#[tokio::test]
+async fn uploading_creates_an_empty_folder_and_the_folders_above_it() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    make_local_dir(&t, "sub dir/deep/deeper");
+    let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
+
+    run(&mut t, &plan, ticked(&plan)).await;
+
+    assert!(remote.exists("/srv/sub dir/deep/deeper"));
+    assert!(refusal_warnings(&mut t).is_empty());
+}
+
+#[tokio::test]
+async fn downloading_creates_an_empty_folder_and_the_folders_above_it() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.dir("/srv/sub dir/deep/deeper");
+    let plan = scan(&mut t, session, options(SyncDirection::RemoteToLocal, SyncBy::Time)).await;
+
+    run(&mut t, &plan, ticked(&plan)).await;
+
+    assert!(work_dir(&t).join("sub dir/deep/deeper").is_dir());
+    assert!(refusal_warnings(&mut t).is_empty());
+}
+
+#[tokio::test]
+async fn an_empty_folder_is_created_next_to_the_files_of_the_same_sync() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    write_local(&t, "a.txt", b"hello", 1_000);
+    make_local_dir(&t, "empty");
+    let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
+
+    run(&mut t, &plan, ticked(&plan)).await;
+
+    assert_eq!(remote.contents("/srv/a.txt").unwrap(), b"hello");
+    assert!(remote.exists("/srv/empty"));
+}
+
+#[tokio::test]
+async fn an_empty_folder_the_user_skipped_is_not_created() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    make_local_dir(&t, "empty");
+    let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
+
+    run(&mut t, &plan, vec![(plan.items[0].id, SyncAction::Skip)]).await;
+
+    assert!(!remote.exists("/srv/empty"));
+}
+
+#[tokio::test]
+async fn both_creates_the_empty_folder_on_the_side_that_lacks_it() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    make_local_dir(&t, "only-here");
+    remote.dir("/srv/only-there");
+    let plan = scan(&mut t, session, options(SyncDirection::Both, SyncBy::Time)).await;
+
+    run(&mut t, &plan, ticked(&plan)).await;
+
+    assert!(remote.exists("/srv/only-here"));
+    assert!(work_dir(&t).join("only-there").is_dir());
+}
+
+#[tokio::test]
+async fn a_folder_that_already_exists_on_the_target_by_the_time_of_the_run_is_left_alone() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    make_local_dir(&t, "empty");
+    let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
+    remote.dir("/srv/empty");
+    remote.file("/srv/empty/kept.txt", b"keep", Some(1));
+
+    run(&mut t, &plan, ticked(&plan)).await;
+
+    assert_eq!(remote.contents("/srv/empty/kept.txt").unwrap(), b"keep");
+}

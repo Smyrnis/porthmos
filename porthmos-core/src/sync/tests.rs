@@ -181,10 +181,78 @@ fn two_folders_with_the_same_name_produce_no_item() {
 }
 
 #[test]
-fn a_folder_that_exists_on_one_side_only_produces_only_its_files() {
+fn a_folder_that_exists_on_one_side_only_produces_its_files_and_its_empty_folders() {
     let items = run(&[("d", dir()), ("d/a", file(1, Some(1))), ("d/e", dir())], &[], options(LocalToRemote, Time));
 
-    assert_eq!(items, vec![("d/a".into(), Upload, OnlyLocal, true)]);
+    assert_eq!(items, vec![("d/a".into(), Upload, OnlyLocal, true), ("d/e".into(), Upload, EmptyFolder, true)]);
+}
+
+#[test]
+fn an_empty_folder_only_on_the_source_is_copied_and_ticked() {
+    let up = run(&[("e", dir())], &[], options(LocalToRemote, Time));
+    let down = run(&[], &[("e", dir())], options(RemoteToLocal, Time));
+
+    assert_eq!(up, vec![("e".into(), Upload, EmptyFolder, true)]);
+    assert_eq!(down, vec![("e".into(), Download, EmptyFolder, true)]);
+}
+
+#[test]
+fn an_empty_folder_only_on_the_target_is_never_listed_in_one_way() {
+    let up = run(&[], &[("e", dir())], options(LocalToRemote, Time));
+    let down = run(&[("e", dir())], &[], options(RemoteToLocal, Time));
+
+    assert!(up.is_empty() && down.is_empty());
+}
+
+#[test]
+fn both_copies_an_empty_folder_to_the_side_that_lacks_it() {
+    let items = run(&[("l", dir())], &[("r", dir())], options(Both, Time));
+
+    assert_eq!(items, vec![("l".into(), Upload, EmptyFolder, true), ("r".into(), Download, EmptyFolder, true)]);
+}
+
+#[test]
+fn a_chain_of_empty_folders_is_listed_by_its_innermost_folder_only() {
+    let items = run(
+        &[("sub dir", dir()), ("sub dir/deep", dir()), ("sub dir/deep/deeper", dir())],
+        &[],
+        options(LocalToRemote, Time),
+    );
+
+    assert_eq!(items, vec![("sub dir/deep/deeper".into(), Upload, EmptyFolder, true)]);
+}
+
+#[test]
+fn a_folder_that_holds_a_file_further_down_is_not_an_empty_folder() {
+    let items = run(
+        &[("a", dir()), ("a/b", dir()), ("a/b/c", dir()), ("a/b/c/f", file(1, Some(1)))],
+        &[],
+        options(LocalToRemote, Time),
+    );
+
+    assert_eq!(items, vec![("a/b/c/f".into(), Upload, OnlyLocal, true)]);
+}
+
+#[test]
+fn an_empty_folder_that_exists_on_both_sides_produces_no_item_below_it_either() {
+    let items = run(&[("d", dir()), ("d/e", dir())], &[("d", dir()), ("d/e", dir())], options(Both, Time));
+
+    assert!(items.is_empty());
+}
+
+#[test]
+fn an_empty_folder_only_on_the_source_inside_a_shared_folder_is_listed() {
+    let items = run(&[("d", dir()), ("d/e", dir())], &[("d", dir())], options(LocalToRemote, Time));
+
+    assert_eq!(items, vec![("d/e".into(), Upload, EmptyFolder, true)]);
+}
+
+#[test]
+fn an_empty_folder_allows_a_copy_in_its_own_direction_and_skip() {
+    let plan = diff(&tree(&[("e", dir())]), &Tree::new(), options(LocalToRemote, Time), 2);
+
+    assert_eq!(plan[0].allowed_actions(LocalToRemote), vec![Skip, Upload]);
+    assert!(!plan[0].flippable);
 }
 
 #[test]

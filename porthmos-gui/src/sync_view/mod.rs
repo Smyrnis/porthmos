@@ -54,6 +54,7 @@ pub fn reason_text(reason: SyncReason) -> &'static str {
         SyncReason::SizeDiffers => "size differs",
         SyncReason::SizeDiffersTimeUnknown => "size differs, no time",
         SyncReason::KindMismatch => "file vs folder",
+        SyncReason::EmptyFolder => "new empty folder",
     }
 }
 

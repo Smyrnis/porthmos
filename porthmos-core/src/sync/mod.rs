@@ -51,6 +51,7 @@ pub enum SyncReason {
     SizeDiffers,
     SizeDiffersTimeUnknown,
     KindMismatch,
+    EmptyFolder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,6 +216,17 @@ fn only_one_side(on_local: bool, direction: SyncDirection) -> Option<Verdict> {
     }
 }
 
+fn empty_folder_on_one_side(on_local: bool, direction: SyncDirection) -> Option<Verdict> {
+    only_one_side(on_local, direction).map(|verdict| Verdict { reason: SyncReason::EmptyFolder, ..verdict })
+}
+
+fn folders_holding_something(tree: &Tree) -> HashSet<VfsPath> {
+    tree.iter()
+        .filter(|(_, entry)| matches!(entry.kind, TreeKind::File | TreeKind::Dir))
+        .filter_map(|(path, _)| path.parent())
+        .collect()
+}
+
 fn newer_side(local_is_newer: bool, direction: SyncDirection) -> Option<Verdict> {
     match (local_is_newer, direction) {
         (true, SyncDirection::LocalToRemote | SyncDirection::Both) => copy(SyncAction::Upload, SyncReason::LocalNewer),
@@ -278,6 +290,7 @@ pub fn compare(
         return Vec::new();
     }
     let paths: BTreeSet<&VfsPath> = local.keys().chain(remote.keys()).collect();
+    let (local_holds, remote_holds) = (folders_holding_something(local), folders_holding_something(remote));
     let mut mismatched: HashSet<VfsPath> = HashSet::new();
     let mut items = Vec::new();
     for path in paths {
@@ -295,6 +308,12 @@ pub fn compare(
             },
             (Some(entry), None) if entry.kind == TreeKind::File => only_one_side(true, options.direction),
             (None, Some(entry)) if entry.kind == TreeKind::File => only_one_side(false, options.direction),
+            (Some(entry), None) if entry.kind == TreeKind::Dir && !local_holds.contains(path) => {
+                empty_folder_on_one_side(true, options.direction)
+            }
+            (None, Some(entry)) if entry.kind == TreeKind::Dir && !remote_holds.contains(path) => {
+                empty_folder_on_one_side(false, options.direction)
+            }
             _ => None,
         };
         let Some(verdict) = verdict else {

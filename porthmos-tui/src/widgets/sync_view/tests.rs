@@ -267,6 +267,29 @@ fn rows_show_the_tick_the_arrow_the_reason_the_path_and_both_sides() {
 }
 
 #[test]
+fn an_empty_folder_row_says_so_and_adds_no_bytes_to_the_summary() {
+    let mut view = SyncView::new();
+    view.load(plan(
+        SyncDirection::LocalToRemote,
+        vec![item(
+            0,
+            "sub dir/deep/deeper",
+            SyncAction::Upload,
+            SyncReason::EmptyFolder,
+            true,
+            Some(SyncFacts { size: 0, modified: None }),
+            None,
+        )],
+    ));
+
+    let screen = render(&view, 120, 8);
+
+    assert!(screen.contains("new empty folder"), "{screen}");
+    assert!(screen.contains("sub dir/deep/deeper"), "{screen}");
+    assert!(screen.contains("[x]"), "{screen}");
+}
+
+#[test]
 fn the_top_bar_summary_counts_ticked_uploads_downloads_and_skipped() {
     let view = sample();
 

@@ -11,7 +11,7 @@ use porthmos_vfs::{FileSystem, ProtocolError, VfsPath};
 use super::super::{Engine, Event, Internal, PlanningScan, TransferEvent};
 use crate::{
     Severity,
-    sync::{self, SyncAction, SyncDirection, SyncItem, SyncOptions, SyncPlan, scan::scan_both},
+    sync::{self, SyncAction, SyncDirection, SyncItem, SyncOptions, SyncPlan, SyncReason, scan::scan_both},
     tasks::Scope,
     transfer::{
         Direction,
@@ -64,13 +64,22 @@ fn planned_file(plan: &SyncPlan, item: &SyncItem, action: SyncAction) -> Option<
     })
 }
 
-fn missing_folders(files: &[PlannedFile], root: &VfsPath) -> BTreeSet<VfsPath> {
+fn empty_folder_destination(plan: &SyncPlan, item: &SyncItem, action: SyncAction) -> Option<VfsPath> {
+    match action {
+        SyncAction::Upload => Some(plan.remote_root.join(&item.path)),
+        SyncAction::Download => Some(plan.local_root.join(&item.path)),
+        SyncAction::Skip => None,
+    }
+}
+
+fn missing_folders(files: &[PlannedFile], empty_folders: &BTreeSet<VfsPath>, root: &VfsPath) -> BTreeSet<VfsPath> {
     let mut folders = BTreeSet::new();
-    for file in files {
-        for ancestor in file.destination.ancestors().skip(1) {
-            if ancestor == *root || !ancestor.starts_with(root) {
-                break;
-            }
+    let below_root = files
+        .iter()
+        .flat_map(|file| file.destination.ancestors().skip(1))
+        .chain(empty_folders.iter().flat_map(|folder| folder.ancestors()));
+    for ancestor in below_root {
+        if ancestor != *root && ancestor.starts_with(root) {
             folders.insert(ancestor);
         }
     }
@@ -225,6 +234,8 @@ impl Engine {
         }
         let mut uploads = Vec::new();
         let mut downloads = Vec::new();
+        let mut upload_folders = BTreeSet::new();
+        let mut download_folders = BTreeSet::new();
         let mut seen = HashSet::new();
         let mut refused = 0;
         for (id, action) in choices {
@@ -244,6 +255,17 @@ impl Engine {
                 refused += 1;
                 continue;
             }
+            if item.reason == SyncReason::EmptyFolder {
+                match empty_folder_destination(&plan, item, action) {
+                    Some(folder) if action == SyncAction::Upload => upload_folders.insert(folder),
+                    Some(folder) => download_folders.insert(folder),
+                    None => {
+                        refused += 1;
+                        false
+                    }
+                };
+                continue;
+            }
             match planned_file(&plan, item, action) {
                 Some(file) if action == SyncAction::Upload => uploads.push(file),
                 Some(file) => downloads.push(file),
@@ -254,18 +276,24 @@ impl Engine {
             let (plural, verb) = if refused == 1 { ("", "doesn't") } else { ("s", "don't") };
             self.report(Severity::Warning, format!("Ignored {refused} sync choice{plural} that {verb} apply"));
         }
-        if uploads.is_empty() && downloads.is_empty() {
+        let nothing_chosen =
+            uploads.is_empty() && downloads.is_empty() && upload_folders.is_empty() && download_folders.is_empty();
+        if nothing_chosen {
             self.info("Nothing to sync");
             return;
         }
-        for (direction, files) in [(Direction::Upload, uploads), (Direction::Download, downloads)] {
-            if !files.is_empty() {
-                self.start_sync_batch(&plan, direction, files);
+        for (direction, files, folders) in
+            [(Direction::Upload, uploads, upload_folders), (Direction::Download, downloads, download_folders)]
+        {
+            if !files.is_empty() || !folders.is_empty() {
+                self.start_sync_batch(&plan, direction, files, &folders);
             }
         }
     }
 
-    fn start_sync_batch(&mut self, plan: &SyncPlan, direction: Direction, files: Vec<PlannedFile>) {
+    fn start_sync_batch(
+        &mut self, plan: &SyncPlan, direction: Direction, files: Vec<PlannedFile>, empty_folders: &BTreeSet<VfsPath>,
+    ) {
         let Some(live) = self.sessions.get(&plan.session) else {
             return;
         };
@@ -279,7 +307,7 @@ impl Engine {
         let session_id = plan.session;
         self.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
         self.sync.scanning.insert(batch_id);
-        let folders = missing_folders(&files, &target_root);
+        let folders = missing_folders(&files, empty_folders, &target_root);
         let internal = self.internal.clone();
         self.tasks.spawn("sync-folders", Scope::Planning(batch_id), move |cancel| async move {
             let event = match create_folders(target_fs.as_ref(), &folders, &cancel).await {

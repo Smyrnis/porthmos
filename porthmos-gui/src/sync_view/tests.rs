@@ -405,6 +405,7 @@ fn reason_text_matches_the_terminal_front_end() {
         (SyncReason::SizeDiffers, "size differs"),
         (SyncReason::SizeDiffersTimeUnknown, "size differs, no time"),
         (SyncReason::KindMismatch, "file vs folder"),
+        (SyncReason::EmptyFolder, "new empty folder"),
     ];
 
     for (reason, text) in expected {
