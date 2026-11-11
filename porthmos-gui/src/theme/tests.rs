@@ -12,28 +12,29 @@ fn hex(text: &str) -> Color {
 }
 
 #[test]
-fn every_token_has_the_spec_value() {
+fn every_role_takes_its_colour_from_the_shared_dark_scheme() {
     let palette = Palette::new(&ThemeSettings::default());
+    let scheme = ColorScheme::dark();
 
-    assert_eq!(palette.bg, hex("#000000"));
-    assert_eq!(palette.fg_bright, hex("#ededed"));
-    assert_eq!(palette.fg_focus, hex("#ffffff"));
-    assert_eq!(palette.fg, hex("#b3b3b3"));
-    assert_eq!(palette.fg_muted, hex("#8a8a8a"));
-    assert_eq!(palette.fg_dim, hex("#6e6e6e"));
-    assert_eq!(palette.line, hex("#1c1c1c"));
-    assert_eq!(palette.line_strong, hex("#262626"));
-    assert_eq!(palette.row_focus, hex("#161616"));
-    assert_eq!(palette.row_focus_inactive, hex("#0b0b0b"));
-    assert_eq!(palette.surface, hex("#0a0a0a"));
-    assert_eq!(palette.accent, hex("#9fb3c8"));
-    assert_eq!(palette.ok, hex("#8fb38a"));
-    assert_eq!(palette.ok_dim, hex("#4f6b4c"));
-    assert_eq!(palette.err, hex("#c98b84"));
-    assert_eq!(palette.idle, hex("#333333"));
-    assert_eq!(palette.paused, hex("#5a5a5a"));
-    assert_eq!(palette.inactive_file, hex("#7a7a7a"));
-    assert_eq!(palette.inactive_dir, hex("#a0a0a0"));
+    assert_eq!(palette.bg, color_of(scheme.bg));
+    assert_eq!(palette.fg_bright, color_of(scheme.fg_bright));
+    assert_eq!(palette.fg_focus, color_of(scheme.fg_focus));
+    assert_eq!(palette.fg, color_of(scheme.fg));
+    assert_eq!(palette.fg_muted, color_of(scheme.fg_muted));
+    assert_eq!(palette.fg_dim, color_of(scheme.fg_dim));
+    assert_eq!(palette.line, color_of(scheme.line));
+    assert_eq!(palette.line_strong, color_of(scheme.line_strong));
+    assert_eq!(palette.row_focus, color_of(scheme.row_focus));
+    assert_eq!(palette.row_focus_inactive, color_of(scheme.row_focus_inactive));
+    assert_eq!(palette.surface, color_of(scheme.surface));
+    assert_eq!(palette.accent, color_of(scheme.accent));
+    assert_eq!(palette.ok, color_of(scheme.ok));
+    assert_eq!(palette.ok_dim, color_of(scheme.ok_dim));
+    assert_eq!(palette.err, color_of(scheme.err));
+    assert_eq!(palette.idle, color_of(scheme.idle));
+    assert_eq!(palette.paused, color_of(scheme.paused));
+    assert_eq!(palette.inactive_file, color_of(scheme.inactive_file));
+    assert_eq!(palette.inactive_dir, color_of(scheme.inactive_dir));
 }
 
 #[test]
@@ -81,15 +82,6 @@ fn a_missing_gui_table_is_silent() {
 }
 
 #[test]
-fn parse_accepts_six_hex_digits_only() {
-    assert_eq!(Rgb::parse("#9fb3c8"), Some(Rgb(0x9f, 0xb3, 0xc8)));
-    assert_eq!(Rgb::parse("9fb3c8"), None);
-    assert_eq!(Rgb::parse("#9fb3c"), None);
-    assert_eq!(Rgb::parse("#9fb3c8ff"), None);
-    assert_eq!(Rgb::parse("#9fb3cg"), None);
-}
-
-#[test]
 fn the_iced_theme_uses_the_palette_for_background_text_and_accent() {
     let palette = Palette::new(&ThemeSettings::default());
 
@@ -99,4 +91,25 @@ fn the_iced_theme_uses_the_palette_for_background_text_and_accent() {
     assert_eq!(iced_palette.text, palette.fg);
     assert_eq!(iced_palette.primary, palette.accent);
     assert_eq!(iced_palette.danger, palette.err);
+}
+
+#[test]
+fn a_scheme_from_the_theme_file_sets_the_palette() {
+    let scheme = ColorScheme { bg: Rgb(1, 2, 3), row_focus: Rgb(0x30, 0x40, 0x50), ..ColorScheme::dark() };
+
+    let palette = Palette::new(&ThemeSettings::default().with_scheme(scheme));
+
+    assert_eq!(palette.bg, hex("#010203"));
+    assert_eq!(palette.row_focus, hex("#304050"));
+    assert_eq!(palette.fg, color_of(ColorScheme::dark().fg));
+}
+
+#[test]
+fn a_scheme_accent_beats_the_config_accent_once_the_file_is_loaded() {
+    let from_config = ThemeSettings { accent: Some(Rgb(9, 9, 9)), ..ThemeSettings::default() };
+    let from_file = ColorScheme { accent: Rgb(7, 7, 7), ..ColorScheme::dark() };
+
+    let palette = Palette::new(&from_config.with_scheme(from_file));
+
+    assert_eq!(palette.accent, hex("#070707"));
 }

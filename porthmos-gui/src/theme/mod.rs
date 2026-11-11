@@ -1,28 +1,11 @@
 use iced::Color;
+use porthmos_core::theme::ColorScheme;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rgb(pub u8, pub u8, pub u8);
+pub use porthmos_core::theme::Rgb;
 
-impl Rgb {
-    pub fn parse(text: &str) -> Option<Rgb> {
-        let digits = text.strip_prefix('#')?;
-        if digits.len() != 6 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
-            return None;
-        }
-        let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&digits[range], 16).ok();
-        Some(Rgb(channel(0..2)?, channel(2..4)?, channel(4..6)?))
-    }
-
-    fn color(self) -> Color {
-        Color::from_rgb8(self.0, self.1, self.2)
-    }
+fn color_of(rgb: Rgb) -> Color {
+    Color::from_rgb8(rgb.0, rgb.1, rgb.2)
 }
-
-const fn rgb(red: u8, green: u8, blue: u8) -> Rgb {
-    Rgb(red, green, blue)
-}
-
-const ACCENT: Rgb = rgb(0x9f, 0xb3, 0xc8);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
@@ -49,26 +32,27 @@ pub struct Palette {
 
 impl Palette {
     pub fn new(settings: &ThemeSettings) -> Palette {
+        let scheme = settings.scheme.with_accent(settings.accent);
         Palette {
-            bg: rgb(0x00, 0x00, 0x00).color(),
-            fg_bright: rgb(0xed, 0xed, 0xed).color(),
-            fg_focus: rgb(0xff, 0xff, 0xff).color(),
-            fg: rgb(0xb3, 0xb3, 0xb3).color(),
-            fg_muted: rgb(0x8a, 0x8a, 0x8a).color(),
-            fg_dim: rgb(0x6e, 0x6e, 0x6e).color(),
-            line: rgb(0x1c, 0x1c, 0x1c).color(),
-            line_strong: rgb(0x26, 0x26, 0x26).color(),
-            row_focus: rgb(0x16, 0x16, 0x16).color(),
-            row_focus_inactive: rgb(0x0b, 0x0b, 0x0b).color(),
-            surface: rgb(0x0a, 0x0a, 0x0a).color(),
-            accent: settings.accent.unwrap_or(ACCENT).color(),
-            ok: rgb(0x8f, 0xb3, 0x8a).color(),
-            ok_dim: rgb(0x4f, 0x6b, 0x4c).color(),
-            err: rgb(0xc9, 0x8b, 0x84).color(),
-            idle: rgb(0x33, 0x33, 0x33).color(),
-            paused: rgb(0x5a, 0x5a, 0x5a).color(),
-            inactive_file: rgb(0x7a, 0x7a, 0x7a).color(),
-            inactive_dir: rgb(0xa0, 0xa0, 0xa0).color(),
+            bg: color_of(scheme.bg),
+            fg_bright: color_of(scheme.fg_bright),
+            fg_focus: color_of(scheme.fg_focus),
+            fg: color_of(scheme.fg),
+            fg_muted: color_of(scheme.fg_muted),
+            fg_dim: color_of(scheme.fg_dim),
+            line: color_of(scheme.line),
+            line_strong: color_of(scheme.line_strong),
+            row_focus: color_of(scheme.row_focus),
+            row_focus_inactive: color_of(scheme.row_focus_inactive),
+            surface: color_of(scheme.surface),
+            accent: color_of(scheme.accent),
+            ok: color_of(scheme.ok),
+            ok_dim: color_of(scheme.ok_dim),
+            err: color_of(scheme.err),
+            idle: color_of(scheme.idle),
+            paused: color_of(scheme.paused),
+            inactive_file: color_of(scheme.inactive_file),
+            inactive_dir: color_of(scheme.inactive_dir),
         }
     }
 
@@ -90,9 +74,14 @@ impl Palette {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ThemeSettings {
     pub accent: Option<Rgb>,
+    pub scheme: ColorScheme,
 }
 
 impl ThemeSettings {
+    pub fn with_scheme(self, scheme: ColorScheme) -> Self {
+        Self { scheme, accent: None }
+    }
+
     pub fn from_frontend(frontend: &toml::Table) -> (Self, Vec<String>) {
         let mut settings = Self::default();
         let mut warnings = Vec::new();

@@ -62,7 +62,13 @@ pub fn local_start(remembered: Option<VfsPath>, home: Option<PathBuf>, current: 
 pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
-    let (theme, theme_warnings) = ThemeSettings::from_frontend(&settings.frontend);
+    let (theme, mut theme_warnings) = ThemeSettings::from_frontend(&settings.frontend);
+    let (scheme, scheme_warnings) = porthmos_core::theme::file::load_onto(
+        &paths,
+        porthmos_core::theme::ColorScheme::dark().with_accent(theme.accent),
+    );
+    theme_warnings.extend(scheme_warnings);
+    let theme = theme.with_scheme(scheme);
     let (shortcuts, key_warnings) = Shortcuts::from_frontend(&settings.frontend);
     let gui_settings = GuiSettings {
         editor: settings.edit.editor.clone(),

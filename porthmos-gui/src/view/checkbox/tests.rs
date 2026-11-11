@@ -56,7 +56,7 @@ fn a_checked_box_is_filled_with_the_accent_and_keeps_a_visible_edge() {
 
 #[test]
 fn a_dark_user_accent_still_leaves_the_checked_box_visible() {
-    let palette = Palette::new(&ThemeSettings { accent: Some(Rgb(0x10, 0x10, 0x10)) });
+    let palette = Palette::new(&ThemeSettings { accent: Some(Rgb(0x10, 0x10, 0x10)), ..ThemeSettings::default() });
 
     let style = face(&palette, Status::Active { is_checked: true });
 
