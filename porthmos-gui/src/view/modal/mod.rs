@@ -13,6 +13,7 @@ use crate::modal::{Modal, delete_lines, edit_question_title, quit_text};
 use crate::theme::Palette;
 use crate::view::text_fit::fit;
 use porthmos_core::edit::{EditChoice, EditQuestionKind, printable};
+use porthmos_core::permissions::{mode_text, symbolic};
 
 const DIALOG_WIDTH: f32 = 440.0;
 const CONFLICT_WIDTH: f32 = 720.0;
@@ -46,6 +47,43 @@ fn name_prompt<'a>(value: &str, error: &Option<String>, palette: &Palette) -> El
         content = content.push(label(error.clone(), palette.err));
     }
     content.into()
+}
+
+const PERMISSION_CLASSES: [(&str, u32); 3] = [("User", 0o100), ("Group", 0o010), ("Other", 0o001)];
+const PERMISSION_KINDS: [(&str, u32); 3] = [("Read", 4), ("Write", 2), ("Execute", 1)];
+const PERMISSION_LABEL_WIDTH: f32 = 60.0;
+const PERMISSION_CELL_WIDTH: f32 = 80.0;
+
+fn permissions_title(entries: &[porthmos_core::Entry]) -> String {
+    match entries {
+        [only] => format!("Permissions of {}", fit(&printable(&only.name), NAME_CELLS)),
+        many => format!("Permissions of {} items", many.len()),
+    }
+}
+
+fn permissions_grid<'a>(mode: u32, palette: &Palette) -> Element<'a, Message> {
+    let cell = |content: Element<'a, Message>| container(content).width(Length::Fixed(PERMISSION_CELL_WIDTH));
+    let mut header = row![label(String::new(), palette.fg_dim).width(Length::Fixed(PERMISSION_LABEL_WIDTH))].spacing(8);
+    for (kind, _) in PERMISSION_KINDS {
+        header = header.push(cell(label(kind.to_string(), palette.fg_dim).into()));
+    }
+    let mut rows = column![header].spacing(10);
+    for (class, unit) in PERMISSION_CLASSES {
+        let mut line = row![label(class.to_string(), palette.fg_dim).width(Length::Fixed(PERMISSION_LABEL_WIDTH))]
+            .spacing(8)
+            .align_y(alignment::Vertical::Center);
+        for (_, weight) in PERMISSION_KINDS {
+            let bit = unit * weight;
+            line = line.push(cell(
+                checkbox(mode & bit != 0)
+                    .on_toggle(move |on| Message::PermissionToggled(bit, on))
+                    .style(crate::view::checkbox::style(palette))
+                    .into(),
+            ));
+        }
+        rows = rows.push(line);
+    }
+    column![rows, label(format!("{}   {}", mode_text(mode), symbolic(mode)), palette.fg_dim)].spacing(12).into()
 }
 
 fn buttons<'a>(accept: &str, decline: &str, palette: &Palette) -> Element<'a, Message> {
@@ -102,6 +140,9 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             body_text("Clear the whole transfer history?".to_string(), palette),
             cautious_buttons("Clear", "Cancel", palette),
         ),
+        Modal::Permissions { mode, entries, .. } => {
+            (permissions_title(entries), permissions_grid(*mode, palette), buttons("Apply", "Cancel", palette))
+        }
         Modal::Rename { text, error, .. } => {
             ("Rename".to_string(), name_prompt(text, error, palette), buttons("Rename", "Cancel", palette))
         }

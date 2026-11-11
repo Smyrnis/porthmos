@@ -50,6 +50,8 @@ use crate::update_view::UpdateView;
 use crate::view::toolbar::ToolbarState;
 use crate::windows::Windows;
 
+const PERMISSION_BITS: u32 = 0o777;
+const UNKNOWN_MODE: u32 = 0o644;
 const NOTICE_LIMIT: usize = 50;
 const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -146,6 +148,7 @@ pub enum Message {
     LabelsSavePressed,
     MissingHostChosen(MissingChoice),
     PasswordSaveToggled(bool),
+    PermissionToggled(u32, bool),
     FormTestPressed,
     FormTestCancelled,
     TestPasswordTyped(Typed),
@@ -1175,6 +1178,15 @@ impl App {
             | Message::SyncFlipPressed
             | Message::SyncRunPressed
             | Message::SyncScrolled(_)) => return self.tool_message(message),
+            Message::PermissionToggled(bit, on) => {
+                if let Some(Modal::Permissions { mode, .. }) = self.modals.front_mut() {
+                    if on {
+                        *mode |= bit;
+                    } else {
+                        *mode &= !bit;
+                    }
+                }
+            }
             Message::PasswordSaveToggled(on) => {
                 if let Some(Modal::Question(Dialog::Password { save: Some(save), .. })) = self.modals.front_mut() {
                     *save = on;
@@ -1617,6 +1629,12 @@ impl App {
                     self.core.send(Command::Rename { location, from: original.path, to: parent.join(text.as_str()) });
                 }
             }
+            (true, Modal::Permissions { side, entries, mode }) => {
+                if let Some(location) = self.location_of(side) {
+                    let paths = entries.into_iter().map(|entry| entry.path).collect();
+                    self.core.send(Command::SetPermissions { location, paths, mode });
+                }
+            }
             (true, Modal::BookmarkName { location, path, text, .. }) => {
                 self.core.send(Command::AddBookmark { label: text.trim().to_string(), location, path });
             }
@@ -1943,6 +1961,16 @@ impl App {
                 if let Some(original) = original {
                     let text = original.name.clone();
                     self.modals.push(Modal::Rename { side, original, text, error: None });
+                }
+            }
+            Action::Permissions => {
+                let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
+                if !entries.is_empty() {
+                    let mode = entries
+                        .iter()
+                        .find_map(|entry| entry.permissions)
+                        .map_or(UNKNOWN_MODE, |mode| mode & PERMISSION_BITS);
+                    self.modals.push(Modal::Permissions { side, entries, mode });
                 }
             }
             Action::Delete => {

@@ -22,6 +22,7 @@ const COMMANDS: &[(Action, Available)] = &[
     (Action::Edit, App::single_file),
     (Action::NewFolder, |app| app.panel_of(app.active).is_some()),
     (Action::Rename, |app| app.panel_of(app.active).is_some_and(|panel| panel.cursor_entry().is_some())),
+    (Action::Permissions, |app| app.panel_of(app.active).is_some_and(|panel| !panel.target_entries().is_empty())),
     (Action::Delete, |app| app.panel_of(app.active).is_some_and(|panel| !panel.target_entries().is_empty())),
     (Action::Refresh, |app| app.location_of(app.active).is_some()),
     (Action::SelectAll, |_| true),

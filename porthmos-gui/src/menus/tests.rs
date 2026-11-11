@@ -51,12 +51,13 @@ fn entries_menu_lists_all_actions_when_a_connection_exists() {
             MenuItem::CopyToOther,
             MenuItem::MoveToOther,
             MenuItem::Rename,
+            MenuItem::Permissions,
             MenuItem::Delete,
             MenuItem::NewFolder,
             MenuItem::Refresh
         ]
     );
-    assert_eq!(enabled(&items).len(), 9);
+    assert_eq!(enabled(&items).len(), 10);
 }
 
 #[test]
@@ -168,4 +169,24 @@ fn the_more_item_is_disabled_without_a_listed_connection() {
 
     assert_eq!(sync_for(true), ("Synchronize…".to_string(), true));
     assert_eq!(sync_for(false), ("Synchronize…".to_string(), false));
+}
+
+#[test]
+fn permissions_work_on_any_number_of_real_entries() {
+    use super::{MenuItem, MenuTarget, context_items};
+
+    let several = context_items(&MenuTarget::Entries { count: 3, only_parent: false, file: false }, true);
+    let parent = context_items(&MenuTarget::Entries { count: 1, only_parent: true, file: false }, true);
+
+    assert!(enabled(&several).contains(&MenuItem::Permissions));
+    assert!(!enabled(&parent).contains(&MenuItem::Permissions));
+}
+
+#[test]
+fn the_permissions_item_maps_to_the_permissions_action() {
+    use super::MenuItem;
+    use crate::shortcuts::Action;
+
+    assert_eq!(MenuItem::Permissions.action(), Action::Permissions);
+    assert_eq!(MenuItem::Permissions.title(), "Permissions…");
 }

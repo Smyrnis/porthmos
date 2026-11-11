@@ -4053,3 +4053,172 @@ fn two_prompts_in_a_row_use_different_request_ids() {
 
     assert_ne!(first, second);
 }
+
+fn entry_with_mode(folder: &VfsPath, name: &str, mode: u32) -> porthmos_core::Entry {
+    porthmos_core::Entry { permissions: Some(mode), ..entry(folder, name) }
+}
+
+fn shift_p(harness: &mut Harness) {
+    key(harness, Key::Character("p".into()), Modifiers::SHIFT);
+}
+
+fn toggle_permission(harness: &mut Harness, bit: u32, on: bool) {
+    harness.press(Message::PermissionToggled(bit, on));
+}
+
+fn permission_mode(harness: &Harness) -> u32 {
+    match open_modal(harness) {
+        crate::modal::Modal::Permissions { mode, .. } => *mode,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn permissions_start_with_the_cursor_mode_and_send_the_chosen_one() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o100644)]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    shift_p(&mut harness);
+    assert_eq!(permission_mode(&harness), 0o644);
+    toggle_permission(&mut harness, 0o100, true);
+    toggle_permission(&mut harness, 0o010, true);
+    toggle_permission(&mut harness, 0o001, true);
+    harness.press(Message::ModalAccepted);
+
+    assert!(harness.app.modal().is_none());
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::new("/home/tester/a")],
+            mode: 0o755
+        }]
+    );
+}
+
+#[test]
+fn unticking_a_box_clears_only_that_bit() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o100777)]);
+    plain(&mut harness, Named::ArrowDown);
+    shift_p(&mut harness);
+
+    toggle_permission(&mut harness, 0o020, false);
+    toggle_permission(&mut harness, 0o002, false);
+
+    assert_eq!(permission_mode(&harness), 0o755);
+}
+
+#[test]
+fn the_special_bits_of_the_entry_are_not_part_of_the_boxes() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o104755)]);
+    plain(&mut harness, Named::ArrowDown);
+
+    shift_p(&mut harness);
+
+    assert_eq!(permission_mode(&harness), 0o755);
+}
+
+#[test]
+fn permissions_start_at_644_when_the_mode_is_unknown() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+
+    shift_p(&mut harness);
+
+    assert_eq!(permission_mode(&harness), 0o644);
+}
+
+#[test]
+fn a_selection_gets_one_mode_for_every_entry() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(
+        &mut harness,
+        vec![entry_with_mode(&folder, "a", 0o100644), entry_with_mode(&folder, "b", 0o100600)],
+    );
+    select_rows(&mut harness, &[1, 2]);
+    harness.sent();
+
+    shift_p(&mut harness);
+    toggle_permission(&mut harness, 0o040, false);
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::new("/home/tester/a"), VfsPath::new("/home/tester/b")],
+            mode: 0o604
+        }]
+    );
+}
+
+#[test]
+fn permissions_on_a_connection_go_to_that_session() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    let folder = VfsPath::new("/srv");
+    harness.feed(Event::Listed {
+        location: Location::Session(1),
+        path: folder.clone(),
+        entries: vec![entry_with_mode(&folder, "page.html", 0o100644)],
+    });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 1));
+    harness.sent();
+
+    shift_p(&mut harness);
+    toggle_permission(&mut harness, 0o020, true);
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Session(1),
+            paths: vec![VfsPath::new("/srv/page.html")],
+            mode: 0o664
+        }]
+    );
+}
+
+#[test]
+fn cancelling_the_permissions_prompt_sends_nothing() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+    shift_p(&mut harness);
+
+    harness.press(Message::ModalDeclined);
+
+    assert!(harness.app.modal().is_none());
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn permissions_on_the_parent_row_do_nothing() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+
+    shift_p(&mut harness);
+
+    assert!(harness.app.modal().is_none());
+}
+
+#[test]
+fn the_permissions_action_is_reachable_from_the_action_bar() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+
+    harness.press(Message::ActionRequested(crate::shortcuts::Action::Permissions));
+
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { .. }));
+}

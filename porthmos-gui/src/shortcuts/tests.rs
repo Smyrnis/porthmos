@@ -357,22 +357,23 @@ fn rank(action: Action) -> usize {
         Action::PreviousTab => 17,
         Action::NewFolder => 18,
         Action::Rename => 19,
-        Action::Delete => 20,
-        Action::Copy => 21,
-        Action::Move => 22,
-        Action::ToggleQueue => 23,
-        Action::Preview => 24,
-        Action::Edit => 25,
-        Action::Terminal => 26,
-        Action::Search => 27,
-        Action::Bookmarks => 28,
-        Action::BookmarkHere => 29,
-        Action::History => 30,
-        Action::Sync => 31,
-        Action::Palette => 32,
-        Action::Settings => 33,
-        Action::CheckForUpdates => 34,
-        Action::Quit => 35,
+        Action::Permissions => 20,
+        Action::Delete => 21,
+        Action::Copy => 22,
+        Action::Move => 23,
+        Action::ToggleQueue => 24,
+        Action::Preview => 25,
+        Action::Edit => 26,
+        Action::Terminal => 27,
+        Action::Search => 28,
+        Action::Bookmarks => 29,
+        Action::BookmarkHere => 30,
+        Action::History => 31,
+        Action::Sync => 32,
+        Action::Palette => 33,
+        Action::Settings => 34,
+        Action::CheckForUpdates => 35,
+        Action::Quit => 36,
     }
 }
 
@@ -629,4 +630,14 @@ fn labels_spell_the_page_keys_in_camel_case() {
     assert_eq!(chord(named(Named::PageDown), Modifiers::ALT).label(), "Alt+PageDown");
     assert_eq!(chord(named(Named::Escape), Modifiers::empty()).label(), "Escape");
     assert_eq!(chord(named(Named::F5), Modifiers::empty()).label(), "F5");
+}
+
+#[test]
+fn shift_p_opens_the_permissions_prompt() {
+    let shortcuts = Shortcuts::default();
+
+    assert_eq!(lookup(&shortcuts, character("p"), Modifiers::SHIFT), Some(Action::Permissions));
+    assert_eq!(lookup(&shortcuts, character("p"), Modifiers::empty()), Some(Action::Preview));
+    assert_eq!(Action::Permissions.name(), "permissions");
+    assert_eq!(Action::from_name("permissions"), Some(Action::Permissions));
 }

@@ -32,6 +32,11 @@ pub enum Modal {
         text: String,
         error: Option<String>,
     },
+    Permissions {
+        side: PanelSide,
+        entries: Vec<Entry>,
+        mode: u32,
+    },
     BookmarkName {
         location: Location,
         path: VfsPath,
