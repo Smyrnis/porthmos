@@ -38,6 +38,10 @@ impl HistoryLog {
     pub(crate) fn remember_session(&mut self, session_id: u64, name: String) {
         self.session_names.insert(session_id, name);
     }
+
+    pub(crate) fn skip_recording(&mut self, kind: RowKind) {
+        self.recorded.insert(kind);
+    }
 }
 
 fn common_directory<'a>(paths: impl Iterator<Item = &'a VfsPath>) -> VfsPath {

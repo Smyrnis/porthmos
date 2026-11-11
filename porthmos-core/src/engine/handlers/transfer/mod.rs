@@ -714,7 +714,9 @@ impl Engine {
                     removed_local |= std::fs::remove_file(part).is_ok();
                 }
                 Direction::Upload => {
-                    remote_parts.entry(job.session_id).or_default().push(format!("{}{PART_SUFFIX}", job.remote_path))
+                    if let Some(session_id) = self.usable_session_for(job.session_id) {
+                        remote_parts.entry(session_id).or_default().push(format!("{}{PART_SUFFIX}", job.remote_path));
+                    }
                 }
             }
         }

@@ -13,9 +13,9 @@ pub mod logging;
 pub mod message;
 pub mod names;
 pub mod panel_memory;
-pub mod permissions;
 mod path_text;
 pub mod paths;
+pub mod permissions;
 pub mod persist;
 pub mod preview;
 pub mod profiles;
@@ -366,6 +366,7 @@ impl CoreBuilder {
         engine.publish_bookmarks();
         engine.publish_last_used();
         engine.load_ui_state();
+        engine.restore_unfinished_transfers();
         engine.offer_reopen();
         let local_folder =
             engine.ui_state.local_folder.as_deref().map(VfsPath::new).filter(|folder| to_os_path(folder).is_dir());

@@ -7,6 +7,7 @@ pub mod plan;
 pub mod queue;
 pub mod quit;
 pub mod rows;
+pub mod saved;
 pub mod snapshot;
 
 pub use execute::{Executed, TransferOutcome, execute as run, execute_preserving};

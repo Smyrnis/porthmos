@@ -13,7 +13,7 @@ use porthmos_core::{
     sync::{SyncOptions, SyncPlan},
     transfer::{
         conflicts::{ConflictInfo, ConflictPolicy, Resolution},
-        rows::RowState,
+        rows::{QueueRow, RowState},
     },
 };
 use porthmos_lfs::from_os_path;
@@ -31,6 +31,10 @@ pub struct Rig {
     pub session: u64,
     pub max_active: usize,
     pub notices: Vec<String>,
+    pub rows: Vec<QueueRow>,
+    protocol: Option<Arc<dyn Protocol>>,
+    settings: Settings,
+    password: Option<&'static str>,
     _config: tempfile::TempDir,
     _remote: RemoteHold,
 }
@@ -94,9 +98,12 @@ pub async fn rig(max_parallel: usize, policy: ConflictPolicy) -> Rig {
     std::fs::write(paths.connections_file(), &remote.profile).unwrap();
     let settings =
         Settings { transfers: TransferSettings { max_parallel, on_conflict: policy }, ..Settings::default() };
-    let builder =
-        Core::builder().without_keyring().paths(paths).settings(settings).local_home(local.path().to_path_buf());
-    let builder = match remote.protocol {
+    let builder = Core::builder()
+        .without_keyring()
+        .paths(paths)
+        .settings(settings.clone())
+        .local_home(local.path().to_path_buf());
+    let builder = match remote.protocol.clone() {
         Some(protocol) => builder.protocol(protocol),
         None => builder,
     };
@@ -109,38 +116,71 @@ pub async fn rig(max_parallel: usize, policy: ConflictPolicy) -> Rig {
         session: 0,
         max_active: 0,
         notices: Vec::new(),
+        rows: Vec::new(),
+        protocol: remote.protocol,
+        settings,
+        password: remote.password,
         _config: config,
         _remote: remote.hold,
     };
-    rig.core.send(Command::Connect { profile: "box".into() });
-    loop {
-        match rig.event().await {
-            Event::Question { request_id, question: Question::TrustHostKey { .. } } => {
-                rig.core.send(Command::Answer { request_id, answer: Some(Answer::Confirmed), save: false })
-            }
-            Event::Question { request_id, question: Question::Password { .. } } => rig.core.send(Command::Answer {
-                request_id,
-                answer: Some(Answer::Password(remote.password.expect("the server asked for a password").into())),
-                save: false,
-            }),
-            Event::Connected { session, .. } => {
-                rig.session = session;
-                return rig;
-            }
-            Event::ConnectFailed { message, .. } => panic!("connect failed: {message}"),
-            _ => {}
-        }
-    }
+    rig.connect().await;
+    rig
 }
 
 impl Rig {
+    async fn connect(&mut self) {
+        self.core.send(Command::Connect { profile: "box".into() });
+        loop {
+            match self.event().await {
+                Event::Question { request_id, question: Question::TrustHostKey { .. } } => {
+                    self.core.send(Command::Answer { request_id, answer: Some(Answer::Confirmed), save: false })
+                }
+                Event::Question { request_id, question: Question::Password { .. } } => {
+                    self.core.send(Command::Answer {
+                        request_id,
+                        answer: Some(Answer::Password(self.password.expect("the server asked for a password").into())),
+                        save: false,
+                    })
+                }
+                Event::Connected { session, .. } => {
+                    self.session = session;
+                    return;
+                }
+                Event::ConnectFailed { message, .. } => panic!("connect failed: {message}"),
+                _ => {}
+            }
+        }
+    }
+
+    pub async fn restart(&mut self) {
+        self.core.shutdown().await;
+        let builder = Core::builder()
+            .without_keyring()
+            .paths(self.state_paths())
+            .settings(self.settings.clone())
+            .local_home(self.local.path().to_path_buf());
+        let builder = match self.protocol.clone() {
+            Some(protocol) => builder.protocol(protocol),
+            None => builder,
+        };
+        let (core, events) = builder.start().unwrap();
+        self.core = core;
+        self.events = events;
+        self.rows.clear();
+        self.max_active = 0;
+        self.connect().await;
+    }
+
     pub async fn event(&mut self) -> Event {
         let event = tokio::time::timeout(Duration::from_secs(30), self.events.recv())
             .await
             .expect("an event within 30 seconds")
             .expect("the core is running");
         match &event {
-            Event::TransfersChanged(snapshot) => self.max_active = self.max_active.max(snapshot.active.len()),
+            Event::TransfersChanged(snapshot) => {
+                self.max_active = self.max_active.max(snapshot.active.len());
+                self.rows = snapshot.rows.clone();
+            }
             Event::Notice { message, .. } => self.notices.push(message.to_string()),
             _ => {}
         }

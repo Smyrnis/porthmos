@@ -12,6 +12,7 @@ mod preview;
 mod profiles;
 mod reopen;
 mod reorder;
+mod saved_transfers;
 mod search;
 mod secrets;
 mod speed_limit;

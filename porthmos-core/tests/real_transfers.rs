@@ -569,3 +569,51 @@ async fn a_skipped_file_keeps_its_folder_when_moving_over_ssh() {
     assert!(gone(rig.local("tree/new.txt")).await);
     assert_eq!(std::fs::read(rig.local("tree/old.txt")).unwrap(), b"mine");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upload_stopped_by_quitting_comes_back_and_finishes_after_a_restart() {
+    let mut rig = rig(1, ConflictPolicy::Ask).await;
+    let full = data(8_000_000, 5);
+    std::fs::write(rig.local("big.bin"), &full).unwrap();
+    rig.core.send(Command::SetSpeedLimit { bytes_per_second: Some(SLOW_BYTES_PER_SECOND * 8) });
+    rig.upload(&[("big.bin", false)]);
+    loop {
+        if let Event::TransfersChanged(snapshot) = rig.event().await
+            && snapshot.active.iter().any(|job| job.transferred_bytes > 0)
+        {
+            break;
+        }
+    }
+
+    rig.restart().await;
+
+    assert_eq!(rig.rows.len(), 1, "{:?}", rig.rows);
+    assert_eq!(rig.rows[0].state, RowState::Failed);
+    assert_eq!(rig.rows[0].label, "big.bin");
+    assert!(!rig.remote("big.bin").exists());
+    assert!(rig.notices.iter().any(|notice| notice.contains("1 transfer from last time")), "{:?}", rig.notices);
+    rig.core.send(Command::RetryRow { kind: rig.rows[0].kind });
+    loop {
+        if let Event::TransfersChanged(snapshot) = rig.event().await
+            && snapshot.rows.iter().all(|row| row.state == RowState::Done)
+        {
+            break;
+        }
+    }
+
+    assert_eq!(std::fs::read(rig.remote("big.bin")).unwrap(), full);
+    assert!(!rig.remote("big.bin.part").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn nothing_comes_back_after_a_restart_when_everything_had_finished() {
+    let mut rig = rig(4, ConflictPolicy::Ask).await;
+    std::fs::write(rig.local("a.txt"), b"hello").unwrap();
+    rig.upload(&[("a.txt", false)]);
+    assert_eq!(rig.settle(no_conflicts).await, vec![RowState::Done]);
+
+    rig.restart().await;
+
+    assert!(rig.rows.is_empty(), "{:?}", rig.rows);
+    assert!(!rig.state_paths().unfinished_transfers_file().exists());
+}

@@ -170,6 +170,7 @@ pub(crate) struct Engine {
     pub(crate) flush_grace: Duration,
     pub(crate) state_protected: bool,
     pub(crate) state_write_warned: bool,
+    pub(crate) unfinished_protected: bool,
     pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
     sessions: BTreeMap<SessionId, LiveSession>,
@@ -270,6 +271,7 @@ impl Engine {
             flush_grace: PERSIST_FLUSH_GRACE,
             state_protected: false,
             state_write_warned: false,
+            unfinished_protected: false,
             ui_state: crate::state::UiState::default(),
             writer,
             sessions: BTreeMap::new(),
@@ -361,6 +363,7 @@ impl Engine {
     }
 
     async fn shutdown_work(&mut self, internal: &mut UnboundedReceiver<Internal>) {
+        self.save_unfinished_transfers();
         self.cancel_all_work();
         self.tasks.cancel_all();
         self.record_interrupted();
@@ -590,7 +593,18 @@ impl Engine {
     }
 
     fn snapshot(&self) -> TransferSnapshot {
-        TransferSnapshot { speed_limit: self.speed_limit.get(), ..TransferSnapshot::of(&self.transfers, &self.scans()) }
+        let mut snapshot = TransferSnapshot {
+            speed_limit: self.speed_limit.get(),
+            ..TransferSnapshot::of(&self.transfers, &self.scans())
+        };
+        snapshot.connections = snapshot
+            .rows
+            .iter()
+            .filter_map(|row| row.session_id)
+            .filter(|session_id| !self.sessions.contains_key(session_id))
+            .map(|session_id| (session_id, self.session_name(session_id)))
+            .collect();
+        snapshot
     }
 
     fn publish_transfers(&mut self) {

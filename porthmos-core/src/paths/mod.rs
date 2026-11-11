@@ -92,6 +92,10 @@ impl Paths {
         self.state_dir.join("history.toml")
     }
 
+    pub fn unfinished_transfers_file(&self) -> PathBuf {
+        self.state_dir.join("unfinished-transfers.toml")
+    }
+
     pub fn last_used_file(&self) -> PathBuf {
         self.state_dir.join("last_used.toml")
     }
