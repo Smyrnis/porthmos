@@ -256,6 +256,37 @@ fn a_route_survives_the_disconnect_of_its_session() {
 }
 
 #[test]
+fn a_route_uses_the_name_core_gives_for_a_connection_that_is_not_open() {
+    let mut test = app_on_transfers_screen();
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 40, Direction::Upload, "a.txt", JobStatus::Failed("stopped".to_string()));
+    let snapshot = TransferSnapshot {
+        connections: [(40, "prod".to_string())].into_iter().collect(),
+        ..TransferSnapshot::of(&queue, &[])
+    };
+
+    test.app.apply_core_event(Event::TransfersChanged(snapshot));
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "local \u{2192} prod");
+}
+
+#[test]
+fn an_open_connection_keeps_its_own_name_over_the_one_in_a_snapshot() {
+    let mut test = app_on_transfers_screen();
+    test.connect(5, "prod");
+    let mut queue = TransferQueue::new();
+    job_for(&mut queue, 5, Direction::Upload, "a.txt", JobStatus::Queued);
+    let snapshot = TransferSnapshot {
+        connections: [(5, "stale".to_string())].into_iter().collect(),
+        ..TransferSnapshot::of(&queue, &[])
+    };
+
+    test.app.apply_core_event(Event::TransfersChanged(snapshot));
+
+    assert_eq!(test.app.route_of(&first_row(&test)), "local \u{2192} prod");
+}
+
+#[test]
 fn a_scan_row_has_no_route() {
     let mut test = app_on_transfers_screen();
     show(&mut test, &TransferQueue::new(), &[scan(1, "folder")]);

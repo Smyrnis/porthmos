@@ -16,6 +16,9 @@ impl App {
     }
 
     pub(super) fn apply_transfer_snapshot(&mut self, snapshot: TransferSnapshot) {
+        for (session, name) in &snapshot.connections {
+            self.session_names.entry(*session).or_insert_with(|| name.clone());
+        }
         self.transfers = snapshot;
         self.tick_rates(Instant::now());
         self.track_failure_times();
