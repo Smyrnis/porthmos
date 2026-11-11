@@ -407,6 +407,7 @@ async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
     assert_eq!(saved_on_disk(&t)[0].display_name, "kept.bin");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn the_saved_file_is_private_to_the_user() {
     use std::os::unix::fs::PermissionsExt;

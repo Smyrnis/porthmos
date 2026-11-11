@@ -768,6 +768,7 @@ async fn setting_permissions_ignores_the_file_type_bits_of_the_mode() {
     assert_eq!(remote.mode_of("/a.txt"), Some(0o755));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn setting_permissions_on_the_local_side_changes_the_file() {
     use std::os::unix::fs::PermissionsExt;
