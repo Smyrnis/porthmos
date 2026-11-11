@@ -33,7 +33,7 @@ pub mod update;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-pub use config::{ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
+pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};
@@ -336,6 +336,7 @@ impl CoreBuilder {
             update_timing: update::UpdateTiming::for_settings(&self.settings.update),
             update: self.settings.update,
             reopen: self.settings.startup.reopen,
+            reconnect: self.settings.connection.reconnect,
             update_record,
             updater,
             executable: std::env::current_exe().ok(),

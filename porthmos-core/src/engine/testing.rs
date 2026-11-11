@@ -51,6 +51,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         edit: crate::config::settings::EditSettings::default(),
         update: crate::config::UpdateSettings { mode: crate::config::UpdateMode::Off, ..Default::default() },
         reopen: crate::config::ReopenMode::Off,
+        reconnect: false,
         update_record,
         updater: None,
         update_timing: crate::update::UpdateTiming::for_settings(&crate::config::UpdateSettings::default()),

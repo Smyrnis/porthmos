@@ -10,6 +10,7 @@ mod moves;
 mod pause;
 mod preview;
 mod profiles;
+mod reconnect;
 mod reopen;
 mod reorder;
 mod saved_transfers;
@@ -31,6 +32,7 @@ pub(crate) use moves::{MoveBatch, without_symlinks};
 #[cfg(test)]
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};
+pub(crate) use reconnect::ReconnectState;
 pub(crate) use reopen::ReopenState;
 pub(crate) use sync::SyncState;
 pub(crate) use update::UpdateEngine;

@@ -501,7 +501,11 @@ fn a_failed_connect_is_in_the_log_as_well_as_shown() {
     let mut t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_internal(Internal::ConnectFailed { name: "prod".to_string(), message: "refused".into() });
+        t.engine.handle_internal(Internal::ConnectFailed {
+            name: "prod".to_string(),
+            message: "refused".into(),
+            retryable: true,
+        });
     });
 
     assert!(logs.contains("ERROR") && logs.contains("refused"), "{logs}");
@@ -603,6 +607,7 @@ fn a_cancelled_connection_is_not_logged_as_an_error() {
         t.engine.handle_internal(Internal::ConnectFailed {
             name: "prod".to_string(),
             message: crate::CONNECTION_CANCELLED.into(),
+            retryable: false,
         });
     });
 

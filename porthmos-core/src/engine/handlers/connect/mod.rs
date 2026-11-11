@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
+use porthmos_vfs::{ErrorKind, FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
 
 use super::{
     super::{
@@ -117,7 +117,9 @@ impl Engine {
                 Err(err) => {
                     tracing::debug!("{err:?}");
                     let message = connect_failure_message(&err, &entry.name, protocol.display_name());
-                    Internal::ConnectFailed { name: entry.name, message }
+                    let retryable =
+                        !matches!(err.kind(), ErrorKind::Cancelled | ErrorKind::Auth | ErrorKind::AuthRejected);
+                    Internal::ConnectFailed { name: entry.name, message, retryable }
                 }
             };
             let _ = internal.send(done);
@@ -129,6 +131,7 @@ impl Engine {
         typed: Option<TypedPassword>,
     ) {
         self.connecting.remove(&entry.name);
+        self.reconnect_succeeded(&entry.name);
         if let Some(typed) = typed {
             self.keep_typed_password(&entry, typed);
         }

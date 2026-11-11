@@ -174,5 +174,7 @@ async fn each_session_is_judged_on_its_own() {
     tokio::time::sleep(PROBE_INTERVAL * 4).await;
 
     assert_eq!(health_events(&t.drain()), vec![(first, false)]);
-    assert!(t.internal.try_recv().is_err());
+    while let Ok(done) = t.internal.try_recv() {
+        assert!(matches!(done, Internal::ReconnectDue { .. }), "unexpected news about the other session");
+    }
 }

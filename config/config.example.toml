@@ -66,6 +66,15 @@ preview = false
 # The window app also has this in Settings.
 reopen = "off"
 
+[connection]
+# Reconnect by itself when a connection drops. It tries again after 2, 5, 10,
+# 20 and 40 seconds, then says to connect by hand; the remote panel returns to
+# the folder it was in. It stops at once if a password is refused or a prompt
+# is declined, so a wrong saved password cannot lock the account. Transfers of
+# the lost connection are cancelled; press retry on them afterwards.
+# The window app also has this in Settings.
+reconnect = false
+
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with

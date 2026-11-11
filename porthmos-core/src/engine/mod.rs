@@ -72,6 +72,11 @@ pub(crate) enum Internal {
     ConnectFailed {
         name: String,
         message: Message,
+        retryable: bool,
+    },
+    ReconnectDue {
+        name: String,
+        attempt: u32,
     },
     Transfer(TransferEvent),
     Edit(handlers::EditEvent),
@@ -194,6 +199,7 @@ pub(crate) struct Engine {
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
     reopen: handlers::ReopenState,
+    reconnect: handlers::ReconnectState,
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     preview_busy: bool,
@@ -225,6 +231,7 @@ pub(crate) struct EngineParts {
     pub(crate) edit: EditSettings,
     pub(crate) update: crate::config::UpdateSettings,
     pub(crate) reopen: crate::config::ReopenMode,
+    pub(crate) reconnect: bool,
     pub(crate) update_record: crate::update::record::UpdateRecord,
     pub(crate) updater: Option<crate::update::SharedUpdater>,
     pub(crate) update_timing: crate::update::UpdateTiming,
@@ -295,6 +302,7 @@ impl Engine {
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
             reopen: handlers::ReopenState::new(parts.reopen),
+            reconnect: handlers::ReconnectState::new(parts.reconnect),
             speed_limit: crate::transfer::limit::SpeedLimit::new(),
             preview_request: None,
             preview_busy: false,
@@ -388,7 +396,11 @@ impl Engine {
             Command::Connect { profile } => self.connect(&profile),
             Command::ReopenConnections => self.reopen_connections(),
             Command::SetReopenMode { mode } => self.set_reopen_mode(mode),
-            Command::Disconnect { session } => self.disconnect(session),
+            Command::SetReconnect { enabled } => self.set_reconnect(enabled),
+            Command::Disconnect { session } => {
+                self.stop_reconnecting_session(session);
+                self.disconnect(session);
+            }
             Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
             Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
@@ -476,9 +488,11 @@ impl Engine {
     pub(crate) fn handle_internal(&mut self, done: Internal) {
         match done {
             Internal::Connected { entry, protocol, fs, typed } => self.finish_connect(entry, protocol, fs, typed),
-            Internal::ConnectFailed { name, message } => {
+            Internal::ReconnectDue { name, attempt } => self.reconnect_due(name, attempt),
+            Internal::ConnectFailed { name, message, retryable } => {
                 self.connecting.remove(&name);
                 self.connect_failed(name.clone(), message);
+                self.reconnect_failed(&name, retryable);
                 self.reopen_progressed(&name);
             }
             Internal::Edit(event) => self.handle_edit_event(event),

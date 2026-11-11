@@ -76,6 +76,11 @@ impl ReopenMode {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConnectionSettings {
+    pub reconnect: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StartupSettings {
     pub reopen: ReopenMode,
 }
@@ -103,6 +108,7 @@ pub struct Settings {
     pub update: UpdateSettings,
     pub search: SearchSettings,
     pub startup: StartupSettings,
+    pub connection: ConnectionSettings,
     pub frontend: toml::Table,
 }
 
@@ -122,6 +128,8 @@ pub(crate) struct SettingsFile {
     pub search: SearchSettingsFile,
     #[serde(default)]
     pub startup: StartupSettingsFile,
+    #[serde(default)]
+    pub connection: ConnectionSettingsFile,
     #[serde(flatten)]
     pub frontend: toml::Table,
 }
@@ -135,6 +143,11 @@ pub(crate) struct TransferSettingsFile {
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub(crate) struct SearchSettingsFile {
     pub preview: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct ConnectionSettingsFile {
+    pub reconnect: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -263,6 +276,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
             search: SearchSettings { preview: file.search.preview.unwrap_or(false) },
             startup: StartupSettings { reopen },
+            connection: ConnectionSettings { reconnect: file.connection.reconnect.unwrap_or(false) },
             frontend: file.frontend,
         },
         warnings,

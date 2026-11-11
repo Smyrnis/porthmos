@@ -26,6 +26,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         update: UpdateSettingsFile::default(),
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
+        connection: ConnectionSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -47,6 +48,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         update: UpdateSettingsFile::default(),
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
+        connection: ConnectionSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -401,4 +403,41 @@ fn reopen_modes_name_themselves_the_way_the_config_file_does() {
     for (mode, name) in [(ReopenMode::Off, "off"), (ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto")] {
         assert_eq!(mode.id(), name);
     }
+}
+
+#[test]
+fn reconnecting_defaults_to_off() {
+    let (settings, warnings) = settings_from_file(SettingsFile::default());
+
+    assert!(warnings.is_empty());
+    assert!(!settings.connection.reconnect);
+    assert!(!Settings::default().connection.reconnect);
+}
+
+#[test]
+fn reconnecting_reads_true_from_the_connection_table() {
+    let file: SettingsFile = toml::from_str("[connection]\nreconnect = true\n").unwrap();
+
+    let (settings, warnings) = settings_from_file(file);
+
+    assert!(warnings.is_empty());
+    assert!(settings.connection.reconnect);
+}
+
+#[test]
+fn reconnecting_false_is_kept() {
+    let file: SettingsFile = toml::from_str("[connection]\nreconnect = false\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(!settings.connection.reconnect);
+}
+
+#[test]
+fn the_connection_table_is_not_passed_on_to_the_front_ends() {
+    let file: SettingsFile = toml::from_str("[connection]\nreconnect = true\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(!settings.frontend.contains_key("connection"));
 }

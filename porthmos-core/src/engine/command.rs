@@ -23,6 +23,7 @@ pub enum Command {
     Connect { profile: String },
     ReopenConnections,
     SetReopenMode { mode: ReopenMode },
+    SetReconnect { enabled: bool },
     Disconnect { session: SessionId },
     TestConnection { test_id: u64, original: Option<String>, draft: Box<ProfileDraft> },
     CancelTest,
