@@ -118,6 +118,7 @@ move = ["m", "f6"]
 mkdir = ["n", "f7"]
 delete = ["d", "f8"]
 rename = ["r", "f2"]
+permissions = "P"
 edit = ["e", "f3"]
 preview = "p"
 open_transfers = "t"

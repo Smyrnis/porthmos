@@ -164,7 +164,7 @@ pub(crate) fn permissions_string(entry: &porthmos_core::Entry) -> Option<String>
     } else {
         '-'
     };
-    Some(format!("{kind}{}", permission_triplets(mode)))
+    Some(format!("{kind}{}", porthmos_core::permissions::symbolic(mode)))
 }
 
 pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
@@ -176,22 +176,6 @@ pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
 
 pub fn format_size(size: u64, is_dir: bool) -> String {
     if is_dir { "\u{2014}".to_string() } else { size_text(size) }
-}
-
-fn permission_triplets(mode: u32) -> String {
-    const BITS: [(u32, char); 9] = [
-        (0o400, 'r'),
-        (0o200, 'w'),
-        (0o100, 'x'),
-        (0o040, 'r'),
-        (0o020, 'w'),
-        (0o010, 'x'),
-        (0o004, 'r'),
-        (0o002, 'w'),
-        (0o001, 'x'),
-    ];
-
-    BITS.iter().map(|(bit, ch)| if mode & bit != 0 { *ch } else { '-' }).collect()
 }
 
 #[cfg(test)]

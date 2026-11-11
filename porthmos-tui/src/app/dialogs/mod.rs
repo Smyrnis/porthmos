@@ -6,6 +6,7 @@ use porthmos_core::{
         delete_summary,
     },
     names::entry_name_problem,
+    permissions::{mode_text, parse_mode},
 };
 
 use super::*;
@@ -45,6 +46,31 @@ impl App {
 
         self.dialog = Some(Dialog::TextInput(TextInputDialog::new("Rename to", current_name)));
         self.pending_action = Some(PendingAction::Rename { location, from });
+    }
+
+    pub(super) fn open_permissions_dialog(&mut self) {
+        if self.screen != Screen::Files {
+            return;
+        }
+
+        let Some(location) = self.active_location() else {
+            return;
+        };
+        let Some(panel) = self.panel(location) else {
+            return;
+        };
+        let (entries, paths) = (panel.target_entries(), panel.targets());
+        if paths.is_empty() {
+            return;
+        }
+        let current = entries.iter().find_map(|entry| entry.permissions).map(mode_text).unwrap_or_default();
+        let title = match paths.len() {
+            1 => "Permissions (octal)".to_string(),
+            count => format!("Permissions of {count} items (octal)"),
+        };
+
+        self.dialog = Some(Dialog::TextInput(TextInputDialog::new(title, current)));
+        self.pending_action = Some(PendingAction::Permissions { location, paths });
     }
 
     pub(super) fn open_delete_dialog(&mut self) {
@@ -122,6 +148,13 @@ impl App {
         self.core.send(Command::Rename { location, from, to });
     }
 
+    fn submitted_mode_problem(&self, text: &str) -> Option<String> {
+        match self.pending_action.as_ref()? {
+            PendingAction::Permissions { .. } => parse_mode(text).err(),
+            _ => None,
+        }
+    }
+
     fn submitted_name_problem(&self, name: &str) -> Option<String> {
         let (location, original) = match self.pending_action.as_ref()? {
             PendingAction::Mkdir => (self.active_location()?, None),
@@ -184,8 +217,10 @@ impl App {
                     _ => {}
                 }
             }
-            DialogOutcome::Submitted(value) if self.submitted_name_problem(&value).is_some() => {
-                let problem = self.submitted_name_problem(&value);
+            DialogOutcome::Submitted(value)
+                if self.submitted_name_problem(&value).or_else(|| self.submitted_mode_problem(&value)).is_some() =>
+            {
+                let problem = self.submitted_name_problem(&value).or_else(|| self.submitted_mode_problem(&value));
                 if let Some(Dialog::TextInput(input)) = self.dialog.as_mut() {
                     input.error = problem;
                 }
@@ -195,6 +230,11 @@ impl App {
                 match self.pending_action.take() {
                     Some(PendingAction::Mkdir) => self.create_directory(&value),
                     Some(PendingAction::Rename { location, from }) => self.rename_entry(location, from, &value),
+                    Some(PendingAction::Permissions { location, paths }) => {
+                        if let Ok(mode) = parse_mode(&value) {
+                            self.core.send(Command::SetPermissions { location, paths, mode });
+                        }
+                    }
                     Some(PendingAction::AddBookmark) => self.add_bookmark(value),
                     Some(PendingAction::SpeedLimit) => self.apply_speed_limit(&value),
                     Some(PendingAction::SubmitPassword { .. })

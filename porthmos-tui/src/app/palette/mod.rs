@@ -21,6 +21,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::Mkdir, "New folder", Availability::On(Screen::Files)),
     (Action::Delete, "Delete", Availability::On(Screen::Files)),
     (Action::Rename, "Rename", Availability::On(Screen::Files)),
+    (Action::Permissions, "Change permissions", Availability::On(Screen::Files)),
     (Action::Edit, "Edit in $EDITOR", Availability::On(Screen::Files)),
     (Action::SwitchPanel, "Switch panel", Availability::On(Screen::Files)),
     (Action::ToggleHidden, "Show or hide hidden files", Availability::On(Screen::Files)),

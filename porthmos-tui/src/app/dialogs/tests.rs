@@ -1,4 +1,4 @@
-use porthmos_core::VfsPath;
+use porthmos_core::{Entry, VfsPath};
 
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
@@ -584,4 +584,171 @@ fn two_prompts_in_a_row_use_different_request_ids() {
     let (second, ..) = counting_request(&mut test);
 
     assert_ne!(first, second);
+}
+
+fn app_with_modes(files: &[(&str, Option<u32>)]) -> TestApp {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let entries = files
+        .iter()
+        .map(|(name, permissions)| Entry { permissions: *permissions, ..entry(&VfsPath::new("/d"), name, false) })
+        .collect();
+    test.list_local(entries);
+    test.app.local.cursor = 1;
+    test
+}
+
+fn dialog_title(test: &TestApp) -> Option<&str> {
+    match test.app.dialog.as_ref() {
+        Some(Dialog::TextInput(dialog)) => Some(dialog.title.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn the_permissions_dialog_starts_with_the_mode_of_the_entry_under_the_cursor() {
+    let mut test = app_with_modes(&[("run.sh", Some(0o100750))]);
+
+    test.app.apply_action(Action::Permissions);
+
+    assert_eq!(dialog_value(&test), Some("750"));
+    assert_eq!(dialog_title(&test), Some("Permissions (octal)"));
+}
+
+#[test]
+fn the_permissions_dialog_starts_empty_when_the_mode_is_unknown() {
+    let mut test = app_with_modes(&[("a.txt", None)]);
+
+    test.app.apply_action(Action::Permissions);
+
+    assert_eq!(dialog_value(&test), Some(""));
+}
+
+#[test]
+fn a_typed_mode_is_sent_for_the_entry_under_the_cursor() {
+    let mut test = app_with_modes(&[("run.sh", Some(0o100644))]);
+
+    submit_name(&mut test, Action::Permissions, "755");
+
+    assert!(test.app.dialog.is_none());
+    assert_eq!(
+        test.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::from("/d/run.sh")],
+            mode: 0o755
+        }]
+    );
+}
+
+#[test]
+fn a_selection_gets_one_mode_for_all_of_it() {
+    let mut test = app_with_modes(&[("a.txt", Some(0o100644)), ("b.txt", Some(0o100600))]);
+    test.app.local.cursor = 1;
+    test.app.local.toggle_selection();
+    test.app.local.cursor = 2;
+    test.app.local.toggle_selection();
+
+    test.app.apply_action(Action::Permissions);
+    assert_eq!(dialog_title(&test), Some("Permissions of 2 items (octal)"));
+    assert_eq!(dialog_value(&test), Some("644"));
+    submit_name(&mut test, Action::Noop, "640");
+
+    let mut sent = test.sent();
+    assert_eq!(sent.len(), 1);
+    let Some(Command::SetPermissions { location, mut paths, mode }) = sent.pop() else {
+        panic!("expected SetPermissions")
+    };
+    paths.sort();
+    assert_eq!(location, Location::Local);
+    assert_eq!(paths, vec![VfsPath::from("/d/a.txt"), VfsPath::from("/d/b.txt")]);
+    assert_eq!(mode, 0o640);
+}
+
+#[test]
+fn a_bad_mode_keeps_the_dialog_open_with_what_was_typed() {
+    for (text, message) in [
+        ("", "Type a mode such as 644 or 755"),
+        ("rwx", "A mode is made of the digits 0 to 7"),
+        ("999", "A mode is made of the digits 0 to 7"),
+        ("64", "A mode has three or four digits"),
+        ("12345", "A mode has three or four digits"),
+    ] {
+        let mut test = app_with_modes(&[("a.txt", Some(0o100644))]);
+
+        submit_name(&mut test, Action::Permissions, text);
+
+        assert!(test.sent().is_empty(), "{text:?} was sent");
+        assert_eq!(dialog_value(&test), Some(text), "{text:?} was lost");
+        assert_eq!(dialog_error(&test), Some(message), "{text:?}");
+        assert!(test.app.pending_action.is_some(), "{text:?} dropped the pending action");
+    }
+}
+
+#[test]
+fn correcting_a_bad_mode_and_submitting_again_goes_through() {
+    let mut test = app_with_modes(&[("a.txt", Some(0o100644))]);
+    submit_name(&mut test, Action::Permissions, "8");
+    assert!(dialog_error(&test).is_some());
+
+    test.app.apply_dialog_key(key(KeyCode::End));
+    test.app.apply_dialog_key(key(KeyCode::Backspace));
+    for digit in "700".chars() {
+        test.app.apply_dialog_key(key(KeyCode::Char(digit)));
+    }
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+
+    assert!(test.app.dialog.is_none());
+    assert_eq!(
+        test.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::from("/d/a.txt")],
+            mode: 0o700
+        }]
+    );
+}
+
+#[test]
+fn the_permissions_dialog_on_the_remote_panel_goes_to_that_session() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let session = test.connect(2, "srv");
+    test.list_remote(
+        session,
+        "/srv",
+        vec![Entry { permissions: Some(0o100644), ..entry(&VfsPath::new("/srv"), "page.html", false) }],
+    );
+    test.app.active_panel = ActivePanel::Remote;
+    test.app.sessions.active_mut().unwrap().panel.cursor = 1;
+
+    submit_name(&mut test, Action::Permissions, "664");
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Session(session),
+            paths: vec![VfsPath::from("/srv/page.html")],
+            mode: 0o664
+        }]
+    );
+}
+
+#[test]
+fn cancelling_the_permissions_dialog_changes_nothing() {
+    let mut test = app_with_modes(&[("a.txt", Some(0o100644))]);
+    test.app.apply_action(Action::Permissions);
+
+    test.app.apply_dialog_key(key(KeyCode::Esc));
+
+    assert!(test.app.dialog.is_none());
+    assert!(test.app.pending_action.is_none());
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn there_is_no_permissions_dialog_on_an_empty_folder() {
+    let mut test = test_app(&VfsPath::new("/d"));
+
+    test.app.apply_action(Action::Permissions);
+
+    assert!(test.app.dialog.is_none());
 }

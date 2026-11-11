@@ -80,6 +80,7 @@ struct DeleteCount {
 enum PendingAction {
     Mkdir,
     Rename { location: Location, from: VfsPath },
+    Permissions { location: Location, paths: Vec<VfsPath> },
     Delete { location: Location, paths: Vec<VfsPath>, count: Option<DeleteCount> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },

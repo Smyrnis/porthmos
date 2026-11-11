@@ -906,3 +906,14 @@ fn page_keys_can_be_written_in_the_config() {
     assert_eq!(parse_key_spec("pageup").unwrap().code, KeyCode::PageUp);
     assert_eq!(parse_key_spec("PageDown").unwrap().code, KeyCode::PageDown);
 }
+
+#[test]
+fn permissions_is_bound_to_capital_p_on_the_files_screen_and_round_trips_by_name() {
+    assert_eq!(
+        map_key_via_defaults_with_modifiers(Scope::Files, KeyCode::Char('P'), KeyModifiers::SHIFT),
+        Action::Permissions
+    );
+    assert_eq!(Action::Permissions.name(), "permissions");
+    assert_eq!(Action::from_name("permissions"), Some(Action::Permissions));
+    assert!(ALL_ACTIONS.contains(&Action::Permissions));
+}
