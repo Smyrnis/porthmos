@@ -29,6 +29,7 @@ pub struct Script {
     pub mdtm_reply: Option<&'static str>,
     pub listing_delay: Option<Duration>,
     pub mfmt: bool,
+    pub site_chmod: bool,
     pub silent_on_feat: bool,
     pub feat_delay: Option<Duration>,
 }
@@ -40,6 +41,7 @@ pub struct Scripted {
     pub connections: Arc<AtomicUsize>,
     pub passwords: Arc<Mutex<Vec<String>>>,
     pub mfmt_calls: Arc<Mutex<Vec<(String, String)>>>,
+    pub site_commands: Arc<Mutex<Vec<String>>>,
 }
 
 impl Scripted {
@@ -112,12 +114,14 @@ pub async fn start(script: Script) -> Scripted {
     let connections: Arc<AtomicUsize> = Arc::default();
     let passwords: Arc<Mutex<Vec<String>>> = Arc::default();
     let mfmt_calls: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let site_commands: Arc<Mutex<Vec<String>>> = Arc::default();
     let scripted = Scripted {
         port,
         tree: tree.clone(),
         connections: connections.clone(),
         passwords: passwords.clone(),
         mfmt_calls: mfmt_calls.clone(),
+        site_commands: site_commands.clone(),
     };
     tokio::spawn(async move {
         loop {
@@ -125,7 +129,14 @@ pub async fn start(script: Script) -> Scripted {
                 return;
             };
             connections.fetch_add(1, Ordering::SeqCst);
-            tokio::spawn(serve(stream, tree.clone(), script.clone(), passwords.clone(), mfmt_calls.clone()));
+            tokio::spawn(serve(
+                stream,
+                tree.clone(),
+                script.clone(),
+                passwords.clone(),
+                mfmt_calls.clone(),
+                site_commands.clone(),
+            ));
         }
     });
     scripted
@@ -140,7 +151,7 @@ fn record_password(
 
 async fn serve(
     stream: TcpStream, tree: Arc<Mutex<BTreeMap<String, Node>>>, script: Script, passwords: Arc<Mutex<Vec<String>>>,
-    mfmt_calls: Arc<Mutex<Vec<(String, String)>>>,
+    mfmt_calls: Arc<Mutex<Vec<(String, String)>>>, site_commands: Arc<Mutex<Vec<String>>>,
 ) {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -215,6 +226,23 @@ async fn serve(
                     }
                     _ => "550 No such file or directory".to_string(),
                 }
+            }
+            "SITE" if script.site_chmod => {
+                site_commands.lock().unwrap().push(argument.to_string());
+                let mut words = argument.splitn(3, ' ');
+                match (words.next(), words.next(), words.next()) {
+                    (Some("CHMOD"), Some(_), Some(path))
+                        if tree.lock().unwrap().contains_key(&absolute(&cwd, path)) =>
+                    {
+                        "200 SITE CHMOD command successful".to_string()
+                    }
+                    (Some("CHMOD"), Some(_), Some(_)) => "550 No such file or directory".to_string(),
+                    _ => "500 unknown SITE command".to_string(),
+                }
+            }
+            "SITE" => {
+                site_commands.lock().unwrap().push(argument.to_string());
+                "502 SITE not implemented".to_string()
             }
             "MKD" => {
                 tree.lock().unwrap().insert(absolute(&cwd, argument), Node::Dir);

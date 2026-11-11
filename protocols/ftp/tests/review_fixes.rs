@@ -302,3 +302,61 @@ async fn a_time_beyond_year_9999_is_refused_without_asking_the_server() {
 
     assert_eq!(server.mfmt_calls.lock().unwrap().as_slice(), [("99991231235959".to_string(), "/a.txt".to_string())]);
 }
+
+#[tokio::test]
+async fn a_server_that_accepts_site_chmod_can_set_permissions() {
+    let server = scripted::start(Script { site_chmod: true, ..Script::default() }).await;
+    server.file("/a.txt", b"12345");
+    let fs = connect(server.port).await;
+
+    assert!(fs.can_set_permissions());
+    fs.set_permissions(&VfsPath::new("/a.txt"), 0o640).await.unwrap();
+    fs.set_permissions(&VfsPath::new("/a.txt"), 0o7).await.unwrap();
+
+    assert_eq!(
+        server.site_commands.lock().unwrap().as_slice(),
+        ["CHMOD 640 /a.txt".to_string(), "CHMOD 007 /a.txt".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn site_chmod_keeps_the_special_bits() {
+    let server = scripted::start(Script { site_chmod: true, ..Script::default() }).await;
+    server.file("/a.txt", b"12345");
+    let fs = connect(server.port).await;
+
+    fs.set_permissions(&VfsPath::new("/a.txt"), 0o4755).await.unwrap();
+    fs.set_permissions(&VfsPath::new("/a.txt"), 0o100644).await.unwrap();
+
+    assert_eq!(
+        server.site_commands.lock().unwrap().as_slice(),
+        ["CHMOD 4755 /a.txt".to_string(), "CHMOD 644 /a.txt".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn site_chmod_on_a_missing_file_is_not_found_and_is_still_offered() {
+    let server = scripted::start(Script { site_chmod: true, ..Script::default() }).await;
+    let fs = connect(server.port).await;
+
+    let error = fs.set_permissions(&VfsPath::new("/missing"), 0o644).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(fs.can_set_permissions());
+}
+
+#[tokio::test]
+async fn a_server_that_refuses_site_chmod_is_asked_once_and_then_given_up_on() {
+    let server = scripted::start(Script::default()).await;
+    server.file("/a.txt", b"12345");
+    let fs = connect(server.port).await;
+    assert!(fs.can_set_permissions());
+
+    let first = fs.set_permissions(&VfsPath::new("/a.txt"), 0o644).await.unwrap_err();
+    let second = fs.set_permissions(&VfsPath::new("/a.txt"), 0o644).await.unwrap_err();
+
+    assert_eq!(first.kind(), ErrorKind::Unsupported);
+    assert_eq!(second.kind(), ErrorKind::Unsupported);
+    assert!(!fs.can_set_permissions());
+    assert_eq!(server.site_commands.lock().unwrap().len(), 1);
+}
