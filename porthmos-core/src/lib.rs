@@ -13,6 +13,7 @@ pub mod logging;
 pub mod message;
 pub mod names;
 pub mod panel_memory;
+pub mod permissions;
 mod path_text;
 pub mod paths;
 pub mod persist;

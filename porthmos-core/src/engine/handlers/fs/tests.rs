@@ -3,7 +3,7 @@ use std::time::Duration;
 use super::*;
 use crate::engine::{Command, testing::test_engine};
 use porthmos_lfs::from_os_path;
-use porthmos_vfs::VfsPath;
+use porthmos_vfs::{VfsPath, testing::FakeFs};
 
 #[tokio::test]
 async fn listing_the_local_side_sends_its_entries() {
@@ -731,4 +731,129 @@ async fn a_rejected_path_is_never_announced_as_opened() {
     t.settle().await;
 
     assert!(opened(&t.drain()).is_empty());
+}
+
+#[tokio::test]
+async fn setting_permissions_changes_every_chosen_path_and_refreshes_the_listing() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file_with_mode("/a.txt", b"a", None, 0o644).file_with_mode("/b.txt", b"b", None, 0o600);
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt"), VfsPath::from("/b.txt")],
+        mode: 0o750,
+    });
+
+    assert!(
+        matches!(t.next_event().await, Event::LocationChanged { location: Location::Session(id) } if id == session)
+    );
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o750));
+    assert_eq!(remote.mode_of("/b.txt"), Some(0o750));
+}
+
+#[tokio::test]
+async fn setting_permissions_ignores_the_file_type_bits_of_the_mode() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file_with_mode("/a.txt", b"a", None, 0o644);
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt")],
+        mode: 0o100755,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { .. }));
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o755));
+}
+
+#[tokio::test]
+async fn setting_permissions_on_the_local_side_changes_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut t = test_engine();
+    let path = t.dir.path().join("run.sh");
+    std::fs::write(&path, b"x").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Local,
+        paths: vec![from_os_path(&path)],
+        mode: 0o700,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o700);
+}
+
+#[tokio::test]
+async fn a_refused_change_is_reported_once_and_the_others_still_apply() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote
+        .file_with_mode("/a.txt", b"a", None, 0o644)
+        .file_with_mode("/locked.txt", b"b", None, 0o644)
+        .file_with_mode("/c.txt", b"c", None, 0o644)
+        .refuse_permissions("/locked.txt");
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt"), VfsPath::from("/locked.txt"), VfsPath::from("/c.txt")],
+        mode: 0o600,
+    });
+
+    let events = {
+        let first = t.next_event().await;
+        let second = t.next_event().await;
+        [first, second]
+    };
+    let notices: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "{events:?}");
+    assert!(notices[0].starts_with("Unable to change permissions of \"locked.txt\":\n"), "{}", notices[0]);
+    assert!(events.iter().any(|event| matches!(event, Event::LocationChanged { .. })), "{events:?}");
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o600));
+    assert_eq!(remote.mode_of("/locked.txt"), Some(0o644));
+    assert_eq!(remote.mode_of("/c.txt"), Some(0o600));
+}
+
+#[tokio::test]
+async fn a_connection_that_cannot_set_permissions_says_so_without_trying() {
+    let mut t = test_engine();
+    let remote = FakeFs::new().with_permission_support(false);
+    remote.file_with_mode("/a.txt", b"a", None, 0o644);
+    let session = t.add_session_with("flat", Arc::new(remote.clone()));
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt")],
+        mode: 0o600,
+    });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Warning, message } => {
+            assert_eq!(message, "flat can't change permissions");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o644));
+    assert!(t.drain().is_empty());
+}
+
+#[tokio::test]
+async fn setting_permissions_for_a_session_that_is_gone_does_nothing() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(99),
+        paths: vec![VfsPath::from("/a.txt")],
+        mode: 0o600,
+    });
+
+    assert!(t.drain().is_empty());
 }

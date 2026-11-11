@@ -26,6 +26,7 @@ fn differs_only_in_case(from: &VfsPath, to: &VfsPath) -> bool {
     from.to_string_lossy().to_lowercase() == to.to_string_lossy().to_lowercase()
 }
 
+const PERMISSION_BITS: u32 = 0o7777;
 const FREE_SPACE_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsPath, events: &UnboundedSender<Event>) {
@@ -340,6 +341,40 @@ impl Engine {
                 }
             }
             let _ = events.send(Event::LocationChanged { location });
+        });
+    }
+
+    pub(crate) fn set_permissions(&mut self, location: Location, paths: Vec<VfsPath>, mode: u32) {
+        let Some(fs) = self.filesystem_or_drop(location) else {
+            return;
+        };
+        if !fs.can_set_permissions() {
+            let subject = match location {
+                Location::Local => crate::delete_prompt::THIS_COMPUTER.to_string(),
+                Location::Session(session) => self.session_name(session),
+            };
+            self.report(Severity::Warning, format!("{subject} can't change permissions"));
+            return;
+        }
+        let events = self.events.clone();
+        let reporter = self.reporter.clone();
+        self.tasks.spawn("set-permissions", scope_for(location), move |_| async move {
+            let mut changed = false;
+            let mut refused: Option<(VfsPath, ProtocolError)> = None;
+            for path in paths {
+                match fs.set_permissions(&path, mode & PERMISSION_BITS).await {
+                    Ok(()) => changed = true,
+                    Err(err) if refused.is_none() => refused = Some((path, err)),
+                    Err(_) => {}
+                }
+            }
+            if let Some((path, err)) = refused {
+                let context = format!("Unable to change permissions of {}", quoted_name(&path));
+                send_failure(&reporter, failure_message(location, context, &err), &err);
+            }
+            if changed {
+                let _ = events.send(Event::LocationChanged { location });
+            }
         });
     }
 }
