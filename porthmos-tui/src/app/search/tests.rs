@@ -48,7 +48,7 @@ fn typing_a_pattern_streams_matching_results_back_into_the_search_view() {
         test.app.apply_search_key(key(KeyCode::Char(c)));
     }
     test.app.apply_core_event(Event::SearchFound(entry(&VfsPath::new("/d"), "target.log", false)));
-    test.app.apply_core_event(Event::SearchDone { truncated: false });
+    test.app.apply_core_event(Event::SearchDone { truncated: false, incomplete: false });
 
     assert!(test.app.search.as_ref().unwrap().view.results.iter().any(|entry| entry.name == "target.log"));
     assert_eq!(
@@ -509,4 +509,26 @@ fn searching_a_connection_names_it_with_its_folder() {
     test.app.apply_action(Action::OpenSearch);
 
     assert_eq!(test.app.search.as_ref().unwrap().view.scope, "prod \u{b7} /srv/data");
+}
+
+#[test]
+fn a_search_that_skipped_folders_warns_that_results_may_be_missing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+
+    test.app.apply_core_event(Event::SearchDone { truncated: false, incomplete: true });
+
+    let notice = test.app.notifications.current().unwrap();
+    assert_eq!(notice.severity, Severity::Warning);
+    assert_eq!(notice.message, porthmos_core::SEARCH_INCOMPLETE_NOTE);
+}
+
+#[test]
+fn a_complete_search_says_nothing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+
+    test.app.apply_core_event(Event::SearchDone { truncated: false, incomplete: false });
+
+    assert!(test.app.notifications.current().is_none());
 }

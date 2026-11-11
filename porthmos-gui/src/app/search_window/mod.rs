@@ -150,9 +150,9 @@ impl App {
         self.sync_search_preview();
     }
 
-    pub(in crate::app) fn search_done(&mut self, truncated: bool) {
+    pub(in crate::app) fn search_done(&mut self, truncated: bool, incomplete: bool) {
         if let Some(state) = self.search.as_mut() {
-            state.finished(truncated);
+            state.finished(truncated, incomplete);
         }
     }
 

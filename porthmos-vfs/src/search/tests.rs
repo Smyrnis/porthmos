@@ -81,7 +81,7 @@ async fn drain(mut rx: mpsc::UnboundedReceiver<SearchEvent>) -> (Vec<Entry>, boo
     while let Some(event) = rx.recv().await {
         match event {
             SearchEvent::Found(entry) => found.push(entry),
-            SearchEvent::Done { truncated: t } => {
+            SearchEvent::Done { truncated: t, .. } => {
                 truncated = t;
                 break;
             }
@@ -202,4 +202,65 @@ async fn search_finds_names_that_look_like_windows_paths() {
     let mut paths: Vec<String> = found.iter().map(|entry| entry.path.to_string_lossy().into_owned()).collect();
     paths.sort();
     assert_eq!(paths, vec!["/root/a\\b.log", "/root/con.log", "/root/x:1.log"]);
+}
+
+async fn search_outcome(fs: &FakeFs, root: &str) -> (Vec<String>, bool) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    walk_search(
+        fs,
+        SearchQuery { root: VfsPath::new(root), pattern: "*.log".to_string(), max_depth: 16, max_results: 1000 },
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await;
+    let mut names = Vec::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            SearchEvent::Found(entry) => names.push(entry.name),
+            SearchEvent::Done { incomplete, .. } => return (names, incomplete),
+            SearchEvent::Failed(message) => panic!("search failed: {message}"),
+        }
+    }
+    panic!("no Done event");
+}
+
+#[tokio::test]
+async fn a_search_that_reads_every_folder_is_complete() {
+    let fs = FakeFs::new();
+    fs.file("/root/a.log", b"x", None).file("/root/sub/b.log", b"x", None);
+
+    let (_, incomplete) = search_outcome(&fs, "/root").await;
+
+    assert!(!incomplete);
+}
+
+#[tokio::test]
+async fn folders_that_cannot_be_listed_make_the_search_incomplete_but_the_rest_is_still_searched() {
+    let fs = FakeFs::new();
+    fs.file("/root/a.log", b"x", None).file("/root/ok/b.log", b"x", None);
+    fs.dir("/root/locked").fail_read_dir("/root/locked");
+    fs.dir("/root/ok/deep-locked").fail_read_dir("/root/ok/deep-locked");
+
+    let (mut names, incomplete) = search_outcome(&fs, "/root").await;
+
+    names.sort();
+    assert_eq!(names, ["a.log", "b.log"]);
+    assert!(incomplete);
+}
+
+#[tokio::test]
+async fn a_root_that_cannot_be_listed_still_fails_the_whole_search() {
+    let fs = FakeFs::new();
+    fs.dir("/root").fail_read_dir("/root");
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    walk_search(
+        &fs,
+        SearchQuery { root: VfsPath::new("/root"), pattern: "*".to_string(), max_depth: 16, max_results: 1000 },
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await;
+
+    assert!(matches!(rx.recv().await, Some(SearchEvent::Failed(_))));
 }

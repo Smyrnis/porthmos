@@ -30,6 +30,7 @@ pub fn failure_report(context: impl AsRef<str>, err: &dyn Display) -> Message {
 }
 
 pub const CONNECTION_CANCELLED: &str = "Connection cancelled";
+pub const SEARCH_INCOMPLETE_NOTE: &str = "Some folders could not be read, so results may be missing";
 
 pub fn connect_failure_message(error: &ProtocolError, name: &str, protocol_display: &str) -> Message {
     match error.kind() {

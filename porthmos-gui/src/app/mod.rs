@@ -836,7 +836,7 @@ impl App {
             Event::History(entries) => self.history_arrived(entries),
             Event::Bookmarks(items) => self.bookmarks_arrived(items),
             Event::SearchFound(entry) => self.search_found(entry),
-            Event::SearchDone { truncated } => self.search_done(truncated),
+            Event::SearchDone { truncated, incomplete } => self.search_done(truncated, incomplete),
             Event::SearchFailed(message) => self.search_failed(message),
             Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
             Event::ContentsCounted { request_id, contents } => self.contents_counted(request_id, contents),

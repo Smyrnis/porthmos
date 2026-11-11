@@ -354,7 +354,7 @@ fn search_events_do_not_disturb_the_bookmark_list() {
     ctrl(&mut harness, "b");
 
     harness.feed(Event::SearchFound(hit("/x/a")));
-    harness.feed(Event::SearchDone { truncated: false });
+    harness.feed(Event::SearchDone { truncated: false, incomplete: false });
 
     assert!(matches!(harness.app.tool(), Some(Tool::Bookmarks(_))));
 }

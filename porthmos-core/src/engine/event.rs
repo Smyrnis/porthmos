@@ -50,7 +50,7 @@ pub enum Event {
     ConflictsFound { batch_id: u64, files: Vec<ConflictInfo> },
     ConflictsWithdrawn { batch_ids: Vec<u64> },
     SearchFound(Entry),
-    SearchDone { truncated: bool },
+    SearchDone { truncated: bool, incomplete: bool },
     SearchFailed(String),
     KeyringStatus { available: bool },
     KeyringWaiting { waiting: bool },

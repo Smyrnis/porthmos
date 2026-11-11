@@ -259,7 +259,7 @@ fn late_search_events_after_closing_are_ignored() {
     named(&mut harness, Named::Escape);
 
     found(&mut harness, "/home/tester/a");
-    harness.feed(Event::SearchDone { truncated: true });
+    harness.feed(Event::SearchDone { truncated: true, incomplete: false });
     harness.feed(Event::SearchFailed("late".to_string()));
 
     assert!(harness.app.search_state().is_none());
@@ -282,7 +282,7 @@ fn done_failed_and_truncated_events_reach_the_status_line() {
     let mut harness = Harness::new();
     open_search(&mut harness);
     search(&mut harness, "a");
-    harness.feed(Event::SearchDone { truncated: false });
+    harness.feed(Event::SearchDone { truncated: false, incomplete: false });
     assert_eq!(search_state(&harness).status_text(), "Nothing found");
 
     search(&mut harness, "b");

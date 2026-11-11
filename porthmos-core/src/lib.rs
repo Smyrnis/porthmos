@@ -36,7 +36,9 @@ use anyhow::{Context, Result};
 pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
-pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};
+pub use error::{
+    CONNECTION_CANCELLED, SEARCH_INCOMPLETE_NOTE, Severity, connect_failure_message, failure_report, user_message,
+};
 pub use message::Message;
 pub use panel_memory::PanelKind;
 pub use paths::{ConfigMigration, Paths};

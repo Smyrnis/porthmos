@@ -492,9 +492,12 @@ impl App {
                     self.sync_search_pane();
                 }
             }
-            Event::SearchDone { truncated } => {
+            Event::SearchDone { truncated, incomplete } => {
                 if let Some(search) = self.search.as_mut() {
                     search.view.finish(truncated);
+                    if incomplete {
+                        self.notifications.push(Severity::Warning, porthmos_core::SEARCH_INCOMPLETE_NOTE.to_string());
+                    }
                 }
             }
             Event::SearchFailed(message) => {

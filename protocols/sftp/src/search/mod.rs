@@ -72,7 +72,7 @@ pub async fn search_remote(
             Outcome::Cancelled | Outcome::ReceiverGone => return,
             Outcome::Finished { found, truncated } => {
                 if found > 0 || find_completed(&exit) {
-                    let _ = tx.send(SearchEvent::Done { truncated });
+                    let _ = tx.send(SearchEvent::Done { truncated, incomplete: find_incomplete(&exit) });
                     return;
                 }
             }
@@ -84,6 +84,10 @@ pub async fn search_remote(
 
 fn find_completed(exit: &AtomicI64) -> bool {
     matches!(exit.load(Ordering::Relaxed), 0..=FIND_PARTIAL_FAILURE)
+}
+
+fn find_incomplete(exit: &AtomicI64) -> bool {
+    exit.load(Ordering::Relaxed) == FIND_PARTIAL_FAILURE
 }
 
 async fn describe(sftp: &SftpSession, identities: &Identities, path: String) -> Option<Entry> {
@@ -163,6 +167,7 @@ async fn search_remote_walk(
     let glob = Glob::new(&pattern);
     let mut found = 0usize;
     let mut truncated = false;
+    let mut incomplete = false;
     let mut stack: Vec<(String, usize)> = vec![(root, 0)];
 
     while let Some((dir, depth)) = stack.pop() {
@@ -175,7 +180,10 @@ async fn search_remote_walk(
 
         let entries = match sftp.read_dir(&dir).await {
             Ok(read_dir) => read_dir.collect::<Vec<_>>(),
-            Err(_) => continue,
+            Err(_) => {
+                incomplete = true;
+                continue;
+            }
         };
 
         for dir_entry in entries {
@@ -218,5 +226,8 @@ async fn search_remote_walk(
         }
     }
 
-    let _ = tx.send(SearchEvent::Done { truncated });
+    let _ = tx.send(SearchEvent::Done { truncated, incomplete });
 }
+
+#[cfg(test)]
+mod tests;
