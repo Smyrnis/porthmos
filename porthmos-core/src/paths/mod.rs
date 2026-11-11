@@ -72,6 +72,10 @@ impl Paths {
         self.config_dir.join("config.toml")
     }
 
+    pub fn theme_file(&self) -> PathBuf {
+        self.config_dir.join("theme.toml")
+    }
+
     pub fn connections_file(&self) -> PathBuf {
         self.config_dir.join("connections.toml")
     }

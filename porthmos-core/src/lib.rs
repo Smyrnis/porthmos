@@ -27,6 +27,7 @@ pub mod state;
 pub mod sync;
 pub mod tasks;
 mod test_connection;
+pub mod theme;
 pub mod transfer;
 pub mod update;
 

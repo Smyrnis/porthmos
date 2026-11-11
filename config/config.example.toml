@@ -167,3 +167,29 @@ delete = ["c", "f8"]
 accent = "#9fb3c8"
 # "black" paints the whole screen #000000. "terminal" keeps your terminal's own background.
 background = "black"
+
+# Colours for both apps live in their own file next to this one, theme.toml.
+# It is optional: leave a colour out to keep its default. Colours are written
+# as "#rrggbb". An accent set in theme.toml wins over the accent above and
+# over [gui.theme]. Changes are read when the app starts. Example:
+#
+#   [colors]
+#   bg = "#000000"                  # screen background
+#   surface = "#101215"             # toasts and popups
+#   fg = "#d0d0d0"                  # normal text
+#   fg_bright = "#f2f2f2"           # headings, names, typed text
+#   fg_focus = "#ffffff"            # the name under the cursor
+#   fg_muted = "#b0b0b0"            # secondary text
+#   fg_dim = "#9a9a9a"              # hints and disabled text
+#   line = "#2e2e2e"                # thin separators
+#   line_strong = "#555555"         # borders of popups
+#   row_focus = "#222b36"           # the cursor row in the active panel
+#   row_focus_inactive = "#161a20"  # the cursor row in the other panel
+#   accent = "#9fb3c8"              # focus and progress
+#   ok = "#8fb38a"                  # success
+#   ok_dim = "#84a380"              # finished progress
+#   err = "#d99a93"                 # errors
+#   idle = "#4a4a4a"                # unfilled progress
+#   paused = "#969696"              # paused transfers
+#   inactive_file = "#a4a4a4"       # file names in the other panel
+#   inactive_dir = "#bcbcbc"        # folder names in the other panel
