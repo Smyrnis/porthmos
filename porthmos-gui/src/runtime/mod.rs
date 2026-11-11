@@ -71,6 +71,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         update_mode: settings.update.mode,
         search_preview: settings.search.preview,
         reopen: settings.startup.reopen,
+        reconnect: settings.connection.reconnect,
     };
     let config_file = paths.config_file();
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();

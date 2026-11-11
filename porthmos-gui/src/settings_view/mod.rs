@@ -10,6 +10,7 @@ pub struct GuiSettings {
     pub update_mode: UpdateMode,
     pub search_preview: bool,
     pub reopen: ReopenMode,
+    pub reconnect: bool,
 }
 
 impl Default for GuiSettings {
@@ -21,6 +22,7 @@ impl Default for GuiSettings {
             update_mode: UpdateMode::Auto,
             search_preview: false,
             reopen: ReopenMode::Off,
+            reconnect: false,
         }
     }
 }

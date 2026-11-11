@@ -345,3 +345,20 @@ fn set_reopen_mode_keeps_the_other_tables_and_comments() {
     assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
     assert!(kept.contains("[startup]\nreopen = \"ask\"\n"), "{kept}");
 }
+
+#[test]
+fn set_reconnect_writes_a_bool_under_connection() {
+    assert_eq!(apply("", &Edit::SetReconnect(true)).unwrap(), "[connection]\nreconnect = true\n");
+    assert_eq!(
+        apply("[connection]\nreconnect = true\n", &Edit::SetReconnect(false)).unwrap(),
+        "[connection]\nreconnect = false\n"
+    );
+}
+
+#[test]
+fn set_reconnect_keeps_the_other_tables_and_comments() {
+    let kept = apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetReconnect(true)).unwrap();
+
+    assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
+    assert!(kept.contains("[connection]\nreconnect = true\n"), "{kept}");
+}

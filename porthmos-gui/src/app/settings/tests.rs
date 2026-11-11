@@ -95,6 +95,7 @@ fn opening_shows_the_saved_editor() {
         search_preview: false,
         update_mode: UpdateMode::Off,
         reopen: porthmos_core::ReopenMode::Off,
+        reconnect: false,
     };
     let mut harness = Harness::with_gui_settings(settings);
 
@@ -675,4 +676,39 @@ fn turning_reopening_off_withdraws_a_pending_offer() {
 #[test]
 fn reopening_is_off_unless_the_user_chose_otherwise() {
     assert_eq!(GuiSettings::default().reopen, porthmos_core::ReopenMode::Off);
+}
+
+#[test]
+fn reconnecting_is_off_until_the_user_turns_it_on() {
+    let harness = Harness::new();
+
+    assert!(!harness.app.gui_settings().reconnect);
+}
+
+#[test]
+fn the_reconnect_checkbox_writes_the_setting_tells_core_and_applies_at_once() {
+    for on in [true, false] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsReconnectToggled(on));
+
+        assert_eq!(config_text(&harness), format!("[connection]\nreconnect = {on}\n"));
+        assert_eq!(harness.app.gui_settings().reconnect, on);
+        assert!(harness.sent().contains(&porthmos_core::Command::SetReconnect { enabled: on }));
+        assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+    }
+}
+
+#[test]
+fn a_failed_save_leaves_the_reconnect_setting_unchanged_and_tells_core_nothing() {
+    let mut harness = Harness::new();
+    std::fs::write(config_path(&harness), "[connection\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsReconnectToggled(true));
+
+    assert!(!harness.app.gui_settings().reconnect);
+    assert!(!harness.sent().iter().any(|command| matches!(command, porthmos_core::Command::SetReconnect { .. })));
+    assert!(matches!(state(&harness).message, Some(SettingsMessage::Error(_))));
 }

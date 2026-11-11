@@ -189,6 +189,7 @@ pub enum Message {
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
     SettingsReopenChosen(porthmos_core::ReopenMode),
+    SettingsReconnectToggled(bool),
     ReopenPressed,
     SettingsClosed,
     MoreMenuToggled,
@@ -1137,7 +1138,8 @@ impl App {
             | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsClosed
             | Message::SettingsUpdateModeChosen(_)
-            | Message::SettingsReopenChosen(_)) => return self.settings_message(message),
+            | Message::SettingsReopenChosen(_)
+            | Message::SettingsReconnectToggled(_)) => return self.settings_message(message),
             Message::ReopenPressed => self.reopen_pressed(),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
                 return self.palette_message(message);

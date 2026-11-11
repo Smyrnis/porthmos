@@ -10,6 +10,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         update_mode: UpdateMode::Notify,
         search_preview: false,
         reopen: porthmos_core::ReopenMode::Off,
+        reconnect: false,
     }
 }
 

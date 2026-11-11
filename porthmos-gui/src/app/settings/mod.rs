@@ -237,6 +237,13 @@ impl App {
                     self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
                 }
             }
+            Message::SettingsReconnectToggled(on) => {
+                if self.save_setting(Edit::SetReconnect(on)) {
+                    self.gui_settings.reconnect = on;
+                    self.core.send(Command::SetReconnect { enabled: on });
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
+            }
             Message::SettingsClosed => return self.close_settings(),
             _ => {}
         }

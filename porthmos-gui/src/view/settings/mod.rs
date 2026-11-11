@@ -86,6 +86,24 @@ fn startup_section<'a>(app: &'a App) -> Element<'a, Message> {
     .into()
 }
 
+fn connection_section<'a>(app: &'a App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let reconnect = checkbox(app.gui_settings().reconnect)
+        .label("Reconnect automatically when a connection drops")
+        .on_toggle(Message::SettingsReconnectToggled)
+        .style(crate::view::checkbox::style(palette));
+    column![
+        section("Connections", palette),
+        reconnect,
+        wrapped_label(
+            "Tries up to five times, then asks you to connect by hand. Stops at once if a password is refused.",
+            palette.fg_dim
+        ),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
     wrapped_label("Takes effect the next time Porthmos starts.", palette.fg_dim).into()
 }
@@ -189,6 +207,7 @@ fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
         editing_section(app, state),
         search_section(app),
         startup_section(app),
+        connection_section(app),
         terminal_section(app, state),
         updates_section(app)
     ]
