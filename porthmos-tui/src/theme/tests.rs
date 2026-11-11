@@ -33,115 +33,55 @@ fn colorterm_wins_over_a_missing_windows_terminal_session() {
 }
 
 #[test]
-fn rgb_parse_accepts_only_seven_character_hex() {
-    assert_eq!(Rgb::parse("#9fb3c8"), Some(Rgb(0x9f, 0xb3, 0xc8)));
-    assert_eq!(Rgb::parse("#9FB3C8"), Some(Rgb(0x9f, 0xb3, 0xc8)));
-    for bad in ["9fb3c8", "#9fb3c", "#9fb3c8f", "#gggggg", "", "#", "red", "#9fb3c8 "] {
-        assert_eq!(Rgb::parse(bad), None, "{bad:?}");
-    }
-}
-
-#[test]
-fn nearest_indexed_maps_into_the_colour_cube_and_the_grey_ramp() {
-    assert_eq!(Rgb(0, 0, 0).nearest_indexed(), 16);
-    assert_eq!(Rgb(255, 255, 255).nearest_indexed(), 231);
-    assert_eq!(Rgb(255, 0, 0).nearest_indexed(), 196);
-    assert_eq!(Rgb(0x1c, 0x1c, 0x1c).nearest_indexed(), 234);
-    assert_eq!(Rgb(0x6e, 0x6e, 0x6e).nearest_indexed(), 242);
-}
-
-#[test]
-fn nearest_indexed_matches_the_xterm_palette_at_saturated_and_boundary_inputs() {
-    let expected = [
-        (Rgb(255, 0, 255), 201),
-        (Rgb(0, 255, 0), 46),
-        (Rgb(0, 0, 255), 21),
-        (Rgb(255, 255, 0), 226),
-        (Rgb(0, 255, 255), 51),
-        (Rgb(95, 95, 95), 59),
-        (Rgb(135, 135, 135), 102),
-        (Rgb(3, 3, 3), 16),
-        (Rgb(4, 4, 4), 16),
-        (Rgb(5, 5, 5), 232),
-        (Rgb(8, 8, 8), 232),
-        (Rgb(18, 18, 18), 233),
-        (Rgb(48, 48, 48), 236),
-        (Rgb(128, 128, 128), 244),
-        (Rgb(238, 238, 238), 255),
-        (Rgb(47, 255, 0), 46),
-        (Rgb(48, 255, 0), 82),
-        (Rgb(194, 0, 0), 124),
-        (Rgb(196, 0, 0), 160),
-    ];
-
-    for (rgb, index) in expected {
-        assert_eq!(rgb.nearest_indexed(), index, "{rgb:?}");
-    }
-}
-
-#[test]
-fn nearest_indexed_never_returns_a_system_colour_or_panics() {
-    let channel_values = (0..=255u8).step_by(15).chain([1, 94, 95, 96, 254, 255]);
-    let channel_values: Vec<u8> = channel_values.collect();
-
-    for red in &channel_values {
-        for green in &channel_values {
-            for blue in &channel_values {
-                let index = Rgb(*red, *green, *blue).nearest_indexed();
-                assert!(index >= 16, "{red} {green} {blue} -> {index}");
-            }
-        }
-    }
-}
-
-#[test]
-fn truecolor_theme_uses_the_spec_hex_values() {
+fn truecolor_theme_takes_every_colour_from_the_shared_dark_scheme() {
     let theme = Theme::new(ColorDepth::TrueColor, &ThemeSettings::default());
+    let scheme = ColorScheme::dark();
+    let colour = |rgb: Rgb| Color::Rgb(rgb.0, rgb.1, rgb.2);
 
-    assert_eq!(theme.bg, Color::Rgb(0x00, 0x00, 0x00));
-    assert_eq!(theme.fg_bright, Color::Rgb(0xed, 0xed, 0xed));
-    assert_eq!(theme.fg_focus, Color::Rgb(0xff, 0xff, 0xff));
-    assert_eq!(theme.fg, Color::Rgb(0xb3, 0xb3, 0xb3));
-    assert_eq!(theme.fg_muted, Color::Rgb(0x8a, 0x8a, 0x8a));
-    assert_eq!(theme.fg_dim, Color::Rgb(0x6e, 0x6e, 0x6e));
-    assert_eq!(theme.line, Color::Rgb(0x1c, 0x1c, 0x1c));
-    assert_eq!(theme.line_strong, Color::Rgb(0x26, 0x26, 0x26));
-    assert_eq!(theme.row_focus, Color::Rgb(0x16, 0x16, 0x16));
-    assert_eq!(theme.row_focus_inactive, Color::Rgb(0x0b, 0x0b, 0x0b));
-    assert_eq!(theme.surface, Color::Rgb(0x0a, 0x0a, 0x0a));
-    assert_eq!(theme.accent, Color::Rgb(0x9f, 0xb3, 0xc8));
-    assert_eq!(theme.ok, Color::Rgb(0x8f, 0xb3, 0x8a));
-    assert_eq!(theme.ok_dim, Color::Rgb(0x4f, 0x6b, 0x4c));
-    assert_eq!(theme.err, Color::Rgb(0xc9, 0x8b, 0x84));
-    assert_eq!(theme.idle, Color::Rgb(0x33, 0x33, 0x33));
-    assert_eq!(theme.paused, Color::Rgb(0x5a, 0x5a, 0x5a));
-    assert_eq!(theme.inactive_file, Color::Rgb(0x7a, 0x7a, 0x7a));
-    assert_eq!(theme.inactive_dir, Color::Rgb(0xa0, 0xa0, 0xa0));
+    assert_eq!(theme.bg, colour(scheme.bg));
+    assert_eq!(theme.fg_bright, colour(scheme.fg_bright));
+    assert_eq!(theme.fg_focus, colour(scheme.fg_focus));
+    assert_eq!(theme.fg, colour(scheme.fg));
+    assert_eq!(theme.fg_muted, colour(scheme.fg_muted));
+    assert_eq!(theme.fg_dim, colour(scheme.fg_dim));
+    assert_eq!(theme.line, colour(scheme.line));
+    assert_eq!(theme.line_strong, colour(scheme.line_strong));
+    assert_eq!(theme.row_focus, colour(scheme.row_focus));
+    assert_eq!(theme.row_focus_inactive, colour(scheme.row_focus_inactive));
+    assert_eq!(theme.surface, colour(scheme.surface));
+    assert_eq!(theme.accent, colour(scheme.accent));
+    assert_eq!(theme.ok, colour(scheme.ok));
+    assert_eq!(theme.ok_dim, colour(scheme.ok_dim));
+    assert_eq!(theme.err, colour(scheme.err));
+    assert_eq!(theme.idle, colour(scheme.idle));
+    assert_eq!(theme.paused, colour(scheme.paused));
+    assert_eq!(theme.inactive_file, colour(scheme.inactive_file));
+    assert_eq!(theme.inactive_dir, colour(scheme.inactive_dir));
 }
 
 #[test]
-fn indexed_theme_uses_the_spec_fallback_column() {
+fn indexed_theme_uses_the_computed_fallback_column() {
     let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default());
 
     assert_eq!(theme.bg, Color::Indexed(16));
     assert_eq!(theme.fg_bright, Color::Indexed(255));
     assert_eq!(theme.fg_focus, Color::Indexed(231));
-    assert_eq!(theme.fg, Color::Indexed(249));
-    assert_eq!(theme.fg_muted, Color::Indexed(245));
-    assert_eq!(theme.fg_dim, Color::Indexed(242));
-    assert_eq!(theme.line, Color::Indexed(234));
-    assert_eq!(theme.line_strong, Color::Indexed(235));
-    assert_eq!(theme.row_focus, Color::Indexed(233));
-    assert_eq!(theme.row_focus_inactive, Color::Indexed(232));
-    assert_eq!(theme.surface, Color::Indexed(232));
+    assert_eq!(theme.fg, Color::Indexed(252));
+    assert_eq!(theme.fg_muted, Color::Indexed(145));
+    assert_eq!(theme.fg_dim, Color::Indexed(247));
+    assert_eq!(theme.line, Color::Indexed(236));
+    assert_eq!(theme.line_strong, Color::Indexed(240));
+    assert_eq!(theme.row_focus, Color::Indexed(236));
+    assert_eq!(theme.row_focus_inactive, Color::Indexed(234));
+    assert_eq!(theme.surface, Color::Indexed(233));
     assert_eq!(theme.accent, Color::Indexed(110));
     assert_eq!(theme.ok, Color::Indexed(108));
-    assert_eq!(theme.ok_dim, Color::Indexed(65));
+    assert_eq!(theme.ok_dim, Color::Indexed(108));
     assert_eq!(theme.err, Color::Indexed(174));
-    assert_eq!(theme.idle, Color::Indexed(236));
-    assert_eq!(theme.paused, Color::Indexed(240));
-    assert_eq!(theme.inactive_file, Color::Indexed(243));
-    assert_eq!(theme.inactive_dir, Color::Indexed(247));
+    assert_eq!(theme.idle, Color::Indexed(239));
+    assert_eq!(theme.paused, Color::Indexed(246));
+    assert_eq!(theme.inactive_file, Color::Indexed(248));
+    assert_eq!(theme.inactive_dir, Color::Indexed(250));
 }
 
 #[test]
@@ -199,7 +139,10 @@ fn settings_read_accent_and_background() {
     let (settings, warnings) =
         ThemeSettings::from_frontend(&table("[theme]\naccent = \"#c8b89a\"\nbackground = \"terminal\"\n"));
 
-    assert_eq!(settings, ThemeSettings { accent: Some(Rgb(0xc8, 0xb8, 0x9a)), terminal_background: true });
+    assert_eq!(
+        settings,
+        ThemeSettings { accent: Some(Rgb(0xc8, 0xb8, 0x9a)), terminal_background: true, ..ThemeSettings::default() }
+    );
     assert!(warnings.is_empty());
 }
 
@@ -337,7 +280,10 @@ fn the_example_config_documents_the_default_theme() {
     let (settings, warnings) = ThemeSettings::from_frontend(&frontend);
 
     assert!(warnings.is_empty(), "{warnings:?}");
-    assert_eq!(settings, ThemeSettings { accent: Some(Rgb(0x9f, 0xb3, 0xc8)), terminal_background: false });
+    assert_eq!(
+        settings,
+        ThemeSettings { accent: Some(Rgb(0x9f, 0xb3, 0xc8)), terminal_background: false, ..ThemeSettings::default() }
+    );
     assert_eq!(Theme::new(ColorDepth::TrueColor, &settings), Theme::default());
     assert_eq!(Theme::new(ColorDepth::Indexed, &settings), Theme::new(ColorDepth::Indexed, &ThemeSettings::default()));
 }
@@ -378,4 +324,44 @@ fn backdrop_is_the_line_strong_foreground_only() {
     assert_eq!(style.fg, Some(theme.line_strong));
     assert_eq!(style.bg, None);
     assert!(style.add_modifier.is_empty());
+}
+
+#[test]
+fn a_scheme_from_the_theme_file_sets_the_colours() {
+    let scheme = ColorScheme { bg: Rgb(1, 2, 3), fg: Rgb(0x10, 0x20, 0x30), ..ColorScheme::dark() };
+    let settings = ThemeSettings::default().with_scheme(scheme);
+
+    let theme = Theme::new(ColorDepth::TrueColor, &settings);
+
+    assert_eq!(theme.bg, Color::Rgb(1, 2, 3));
+    assert_eq!(theme.fg, Color::Rgb(0x10, 0x20, 0x30));
+    assert_eq!(theme.accent, Color::Rgb(0x9f, 0xb3, 0xc8));
+}
+
+#[test]
+fn a_scheme_colour_follows_the_depth_with_the_nearest_indexed_colour() {
+    let scheme = ColorScheme { fg: Rgb(255, 0, 0), ..ColorScheme::dark() };
+
+    let theme = Theme::new(ColorDepth::Indexed, &ThemeSettings::default().with_scheme(scheme));
+
+    assert_eq!(theme.fg, Color::Indexed(196));
+}
+
+#[test]
+fn the_terminal_background_setting_still_wins_over_a_scheme_background() {
+    let scheme = ColorScheme { bg: Rgb(1, 2, 3), ..ColorScheme::dark() };
+    let settings = ThemeSettings { terminal_background: true, ..ThemeSettings::default() }.with_scheme(scheme);
+
+    assert_eq!(Theme::new(ColorDepth::TrueColor, &settings).bg, Color::Reset);
+}
+
+#[test]
+fn a_scheme_accent_beats_the_config_accent_once_the_file_is_loaded() {
+    let from_config = ThemeSettings { accent: Some(Rgb(9, 9, 9)), ..ThemeSettings::default() };
+    let file_scheme = ColorScheme::dark().with_accent(from_config.accent);
+    let from_file = ColorScheme { accent: Rgb(7, 7, 7), ..file_scheme };
+
+    let theme = Theme::new(ColorDepth::TrueColor, &from_config.with_scheme(from_file));
+
+    assert_eq!(theme.accent, Color::Rgb(7, 7, 7));
 }

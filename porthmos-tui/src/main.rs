@@ -40,7 +40,13 @@ fn start_app(
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
-    let (theme_settings, theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
+    let (theme_settings, mut theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
+    let (scheme, scheme_warnings) = porthmos_core::theme::file::load_onto(
+        &paths,
+        porthmos_core::theme::ColorScheme::dark().with_accent(theme_settings.accent),
+    );
+    theme_warnings.extend(scheme_warnings);
+    let theme_settings = theme_settings.with_scheme(scheme);
     let update_mode = settings.update.mode;
     let search_preview = settings.search.preview;
     let exit_update = ExitUpdate { paths: paths.clone(), mode: update_mode };
