@@ -119,6 +119,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
                 content = content.push(
                     checkbox(*save)
                         .label("Save in keyring")
+                        .text_size(13.0)
                         .on_toggle(Message::PasswordSaveToggled)
                         .style(crate::view::checkbox::style(palette)),
                 );
@@ -204,7 +205,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         }
     };
     let width = if matches!(app.modal(), Some(Modal::Conflict { .. })) { CONFLICT_WIDTH } else { DIALOG_WIDTH };
-    let border = Border { color: palette.line_strong, width: 1.0, ..Border::default() };
+    let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
     let surface = palette.surface;
     let body = column![bold_label(title, palette.fg_bright), content, buttons].spacing(12);
     let boxed = container(body).padding(16).width(Length::Fill).max_width(width).style(move |_| container::Style {

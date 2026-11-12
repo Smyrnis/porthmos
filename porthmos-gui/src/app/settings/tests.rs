@@ -861,3 +861,66 @@ mod theme_base {
         );
     }
 }
+
+mod categories {
+    use super::*;
+    use crate::settings_view::SettingsCategory;
+
+    #[test]
+    fn choosing_a_category_shows_it() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsCategoryChosen(SettingsCategory::Appearance));
+
+        assert_eq!(state(&harness).category, SettingsCategory::Appearance);
+    }
+
+    #[test]
+    fn choosing_a_category_clears_the_message_and_stops_a_shortcut_capture() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+        harness.press(Message::SettingsChangePressed(Action::Refresh));
+        harness.press(Message::SettingsReconnectToggled(true));
+        harness.sent();
+
+        harness.press(Message::SettingsCategoryChosen(SettingsCategory::Updates));
+
+        assert_eq!(state(&harness).message, None);
+        assert_eq!(state(&harness).capturing, None);
+    }
+
+    #[test]
+    fn choosing_a_category_changes_no_setting_and_tells_core_nothing() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+        let before = harness.app.gui_settings().clone();
+
+        harness.press(Message::SettingsCategoryChosen(SettingsCategory::Shortcuts));
+
+        assert_eq!(*harness.app.gui_settings(), before);
+        assert!(harness.sent().is_empty());
+        assert_eq!(config_text(&harness), "");
+    }
+
+    #[test]
+    fn reopening_the_settings_starts_on_the_first_category_again() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+        harness.press(Message::SettingsCategoryChosen(SettingsCategory::Updates));
+        harness.press(Message::SettingsClosed);
+
+        open(&mut harness);
+
+        assert_eq!(state(&harness).category, SettingsCategory::General);
+    }
+
+    #[test]
+    fn a_category_message_with_the_settings_closed_does_nothing() {
+        let mut harness = Harness::new();
+
+        harness.press(Message::SettingsCategoryChosen(SettingsCategory::Updates));
+
+        assert!(harness.app.settings_state().is_none());
+    }
+}

@@ -69,6 +69,7 @@ pub fn list<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, shown: Columns,
     }
     content = content.push(space().height(Length::Fixed(rows.len().saturating_sub(range.end) as f32 * ROW_HEIGHT)));
     let list = scrollable(content)
+        .style(crate::view::scroll::style(palette))
         .id(side.list_id())
         .on_scroll(move |viewport| Message::ScrollChanged(side, viewport.absolute_offset().y))
         .width(Length::Fill)

@@ -82,6 +82,7 @@ fn body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message> {
         rows = rows.push(result_row(app, state, index, entry, state.selected_row() == Some(index)));
     }
     let results = scrollable(rows)
+        .style(crate::view::scroll::style(palette))
         .id(App::search_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(search_list_height(app.search_window_size(), state.preview_enabled())));

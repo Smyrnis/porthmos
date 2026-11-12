@@ -30,6 +30,60 @@ impl Default for GuiSettings {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSection {
+    Shortcuts,
+    Appearance,
+    Editing,
+    Terminal,
+    Search,
+    Startup,
+    Connections,
+    Updates,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SettingsCategory {
+    #[default]
+    General,
+    EditorAndTerminal,
+    Appearance,
+    Shortcuts,
+    Updates,
+}
+
+impl SettingsCategory {
+    pub const ALL: [SettingsCategory; 5] = [
+        SettingsCategory::General,
+        SettingsCategory::EditorAndTerminal,
+        SettingsCategory::Appearance,
+        SettingsCategory::Shortcuts,
+        SettingsCategory::Updates,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            SettingsCategory::General => "General",
+            SettingsCategory::EditorAndTerminal => "Editor and terminal",
+            SettingsCategory::Appearance => "Appearance",
+            SettingsCategory::Shortcuts => "Shortcuts",
+            SettingsCategory::Updates => "Updates",
+        }
+    }
+
+    pub fn sections(self) -> &'static [SettingsSection] {
+        match self {
+            SettingsCategory::General => {
+                &[SettingsSection::Startup, SettingsSection::Connections, SettingsSection::Search]
+            }
+            SettingsCategory::EditorAndTerminal => &[SettingsSection::Editing, SettingsSection::Terminal],
+            SettingsCategory::Appearance => &[SettingsSection::Appearance],
+            SettingsCategory::Shortcuts => &[SettingsSection::Shortcuts],
+            SettingsCategory::Updates => &[SettingsSection::Updates],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsMessage {
     Error(String),
@@ -38,6 +92,7 @@ pub enum SettingsMessage {
 
 #[derive(Debug)]
 pub struct SettingsState {
+    pub category: SettingsCategory,
     pub capturing: Option<Action>,
     pub editor_text: String,
     pub terminal_text: String,
@@ -47,6 +102,7 @@ pub struct SettingsState {
 impl SettingsState {
     pub fn new(settings: &GuiSettings) -> Self {
         Self {
+            category: SettingsCategory::default(),
             capturing: None,
             editor_text: settings.editor.clone().unwrap_or_default(),
             terminal_text: settings.terminal.clone().unwrap_or_default(),

@@ -82,6 +82,7 @@ pub fn body<'a>(view: &ConflictView, apply_to_rest: bool, palette: &Palette) -> 
     }
     let toggle = checkbox(apply_to_rest)
         .label(apply_text())
+        .text_size(13.0)
         .on_toggle(|_| Message::ConflictApplyToRestToggled)
         .size(16)
         .text_size(13)

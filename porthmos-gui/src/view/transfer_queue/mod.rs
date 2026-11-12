@@ -182,6 +182,7 @@ fn list<'a>(app: &'a App, cells: usize) -> Element<'a, Message> {
     }
     content = content.push(space().height(Length::Fixed((rows.len() - range.end) as f32 * QUEUE_ROW_HEIGHT)));
     scrollable(content)
+        .style(crate::view::scroll::style(palette))
         .on_scroll(|viewport| Message::QueueScrolled(viewport.absolute_offset().y))
         .width(Length::Fill)
         .height(Length::Fill)

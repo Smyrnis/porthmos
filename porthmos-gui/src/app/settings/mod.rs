@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::Id;
+use iced::widget::operation::{self, RelativeOffset};
 use iced::{Size, Task, window};
 use porthmos_core::theme::{self, ThemeBase};
 use porthmos_core::{Command, ReopenMode, UpdateMode};
@@ -275,6 +276,15 @@ impl App {
                 }
             }
             Message::SettingsThemeChosen(base) => self.choose_theme(base),
+            Message::SettingsCategoryChosen(category) => {
+                let Some(state) = self.settings_state_mut() else {
+                    return Task::none();
+                };
+                state.category = category;
+                state.capturing = None;
+                state.message = None;
+                return operation::snap_to(App::settings_list_id(), RelativeOffset::START);
+            }
             Message::SettingsClosed => return self.close_settings(),
             _ => {}
         }

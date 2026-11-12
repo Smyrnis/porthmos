@@ -173,3 +173,54 @@ fn chosen_text_is_readable_on_every_chosen_fill_in_the_default_scheme() {
         assert!(to_rgb(style.text_color).contrast(to_rgb(background(&style))) >= 4.5, "{status:?}");
     }
 }
+
+mod nav {
+    use iced::widget::button::Status;
+
+    use super::{background, palette, palette_with_surface};
+    use crate::view::button::nav_face;
+    use porthmos_core::theme::Rgb;
+
+    #[test]
+    fn an_unselected_item_is_transparent_until_hovered() {
+        let palette = palette();
+
+        assert_eq!(background(&nav_face(&palette, false, Status::Active)), iced::Color::TRANSPARENT);
+        assert_ne!(background(&nav_face(&palette, false, Status::Hovered)), iced::Color::TRANSPARENT);
+    }
+
+    #[test]
+    fn the_selected_item_is_filled_like_the_selected_row_of_a_file_list() {
+        let palette = palette();
+
+        for status in [Status::Active, Status::Hovered, Status::Pressed] {
+            assert_eq!(background(&nav_face(&palette, true, status)), palette.row_focus);
+        }
+    }
+
+    #[test]
+    fn text_is_bright_for_the_selected_item_and_normal_for_the_rest() {
+        let palette = palette();
+
+        assert_eq!(nav_face(&palette, true, Status::Active).text_color, palette.fg_focus);
+        assert_eq!(nav_face(&palette, false, Status::Active).text_color, palette.fg);
+    }
+
+    #[test]
+    fn the_hover_fill_comes_from_the_palette() {
+        let palette = palette_with_surface(Rgb(0x30, 0x10, 0x50));
+
+        let hovered = background(&nav_face(&palette, false, Status::Hovered));
+
+        assert!(hovered.b > palette.surface.b);
+    }
+
+    #[test]
+    fn an_item_has_no_border() {
+        let palette = palette();
+
+        for selected in [false, true] {
+            assert_eq!(nav_face(&palette, selected, Status::Active).border.width, 0.0);
+        }
+    }
+}

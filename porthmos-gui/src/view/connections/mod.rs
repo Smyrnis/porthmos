@@ -133,7 +133,7 @@ fn list<'a>(app: &'a App) -> Element<'a, Message> {
             TreeRow::Connection { index: entry, depth } => connection_row(app, index, *entry, *depth),
         });
     }
-    scrollable(lines).width(Length::Fill).height(Length::Fill).into()
+    scrollable(lines).style(crate::view::scroll::style(palette)).width(Length::Fill).height(Length::Fill).into()
 }
 
 fn details<'a>(app: &'a App) -> Element<'a, Message> {
@@ -194,15 +194,16 @@ pub fn window(app: &App) -> Option<Element<'_, Message>> {
     }
     let content = column![
         bold_label("Connections", palette.fg_bright),
+        hairline_across(palette),
         filter,
         container(body).height(Length::Fill).style(bordered(palette)),
         hairline_across(palette),
         footer(app),
     ]
-    .spacing(10);
-    let surface = palette.surface;
+    .spacing(12);
+    let ground = palette.bg;
     let page = container(content).padding(MARGIN).width(Length::Fill).height(Length::Fill).style(move |_| {
-        container::Style { background: Some(iced::Background::Color(surface)), ..container::Style::default() }
+        container::Style { background: Some(iced::Background::Color(ground)), ..container::Style::default() }
     });
     match super::connection_form::overlay(app) {
         Some(dialog) => Some(stack![page, dialog].into()),

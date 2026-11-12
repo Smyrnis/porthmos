@@ -20,6 +20,7 @@ pub enum Look {
     Disabled,
 }
 
+const NAV_ITEM_HEIGHT: f32 = 30.0;
 const HOVER_LIFT: f32 = 0.07;
 const PRESS_LIFT: f32 = 0.13;
 const CHOSEN_TINT: f32 = 0.22;
@@ -79,6 +80,37 @@ fn pressable<'a>(
         .on_press_maybe(press)
         .style(move |_, status| face(&palette, look, status))
         .into()
+}
+
+pub fn nav_face(palette: &Palette, selected: bool, status: Status) -> button::Style {
+    let fill = match (selected, status) {
+        (true, _) => palette.row_focus,
+        (false, Status::Hovered | Status::Pressed) => lifted(palette, HOVER_LIFT),
+        (false, _) => Color::TRANSPARENT,
+    };
+    button::Style {
+        background: Some(Background::Color(fill)),
+        text_color: if selected { palette.fg_focus } else { palette.fg },
+        border: Border { radius: 4.0.into(), ..Border::default() },
+        ..button::Style::default()
+    }
+}
+
+pub fn nav_item<'a>(title: &str, selected: bool, press: Message, palette: &Palette) -> Element<'a, Message> {
+    let palette = *palette;
+    let edge = if selected { palette.accent } else { Color::TRANSPARENT };
+    let marker = container(iced::widget::space())
+        .width(Length::Fixed(2.0))
+        .height(Length::Fill)
+        .style(move |_| container::Style { background: Some(Background::Color(edge)), ..container::Style::default() });
+    let caption = container(text(title.to_string()).size(13.0).font(Font::DEFAULT)).center_y(Length::Fill);
+    let item = button_widget(caption)
+        .padding([0.0, 12.0])
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .on_press(press)
+        .style(move |_, status| nav_face(&palette, selected, status));
+    row![marker, item].height(Length::Fixed(NAV_ITEM_HEIGHT)).into()
 }
 
 pub fn flat(

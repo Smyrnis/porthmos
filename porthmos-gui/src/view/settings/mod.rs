@@ -1,11 +1,11 @@
-use iced::widget::{checkbox, column, container, row, scrollable, space, text_input};
-use iced::{Alignment, Border, Element, Font, Length, Size};
+use iced::widget::{checkbox, column, container, row, scrollable, text_input};
+use iced::{Alignment, Element, Font, Length, Size};
 
-use super::button::{Look, text_button};
-use super::{bold_label, hairline_across, label, wrapped_label};
+use super::button::{Look, nav_item, text_button};
+use super::{bold_label, hairline_across, hairline_down, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
-use crate::settings_view::{SettingsMessage, SettingsState};
+use crate::settings_view::{SettingsCategory, SettingsMessage, SettingsSection, SettingsState};
 use crate::shortcuts::{Action, Shortcuts};
 use crate::theme::Palette;
 
@@ -28,7 +28,7 @@ pub fn shortcut_text(shortcuts: &Shortcuts, action: Action) -> String {
 }
 
 fn section<'a>(title: &str, palette: &Palette) -> Element<'a, Message> {
-    column![space().height(Length::Fixed(6.0)), bold_label(title.to_string(), palette.fg_bright)].into()
+    column![bold_label(title.to_string(), palette.fg_bright), hairline_across(palette)].spacing(8).into()
 }
 
 fn shortcut_row<'a>(app: &App, state: &SettingsState, action: Action) -> Element<'a, Message> {
@@ -114,6 +114,7 @@ fn connection_section<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     let reconnect = checkbox(app.gui_settings().reconnect)
         .label("Reconnect automatically when a connection drops")
+        .text_size(13.0)
         .on_toggle(Message::SettingsReconnectToggled)
         .style(crate::view::checkbox::style(palette));
     column![
@@ -143,6 +144,7 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
         .font(Font::DEFAULT);
     let auto_upload = checkbox(app.gui_settings().auto_upload)
         .label("Upload edited files without asking")
+        .text_size(13.0)
         .on_toggle(Message::SettingsAutoUploadToggled)
         .style(crate::view::checkbox::style(palette));
     column![
@@ -162,6 +164,7 @@ fn search_section<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     let preview = checkbox(app.gui_settings().search_preview)
         .label("Show a preview of the file under the cursor")
+        .text_size(13.0)
         .on_toggle(Message::SettingsSearchPreviewToggled)
         .style(crate::view::checkbox::style(palette));
     column![section("Search", palette), preview].spacing(8).into()
@@ -215,46 +218,67 @@ pub fn window_list_height(window: Size) -> f32 {
 pub fn window(app: &App) -> Option<Element<'_, Message>> {
     let state = app.settings_state()?;
     let palette = app.palette();
-    let surface = palette.surface;
+    let ground = palette.bg;
     let content = container(body(app, state)).padding(16).width(Length::Fill).height(Length::Fill).style(move |_| {
-        container::Style { background: Some(iced::Background::Color(surface)), ..container::Style::default() }
+        container::Style { background: Some(iced::Background::Color(ground)), ..container::Style::default() }
     });
     Some(content.into())
 }
 
+const SIDEBAR_WIDTH: f32 = 170.0;
+
+fn section_view<'a>(app: &'a App, state: &'a SettingsState, which: SettingsSection) -> Element<'a, Message> {
+    let palette = app.palette();
+    match which {
+        SettingsSection::Shortcuts => {
+            let mut shortcuts = column![section("Keyboard shortcuts", palette)].spacing(2);
+            for action in Action::all() {
+                shortcuts = shortcuts.push(shortcut_row(app, state, action));
+            }
+            shortcuts.into()
+        }
+        SettingsSection::Appearance => appearance_section(app),
+        SettingsSection::Editing => editing_section(app, state),
+        SettingsSection::Terminal => terminal_section(app, state),
+        SettingsSection::Search => search_section(app),
+        SettingsSection::Startup => startup_section(app),
+        SettingsSection::Connections => connection_section(app),
+        SettingsSection::Updates => updates_section(app),
+    }
+}
+
+fn sidebar<'a>(app: &App, state: &SettingsState) -> Element<'a, Message> {
+    let palette = app.palette();
+    let mut entries = column![].spacing(2);
+    for category in SettingsCategory::ALL {
+        let selected = category == state.category;
+        entries =
+            entries.push(nav_item(category.title(), selected, Message::SettingsCategoryChosen(category), palette));
+    }
+    container(entries).width(Length::Fixed(SIDEBAR_WIDTH)).padding([0, 8]).into()
+}
+
 fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
-    let mut shortcuts = column![section("Keyboard shortcuts", palette)].spacing(2);
-    for action in Action::all() {
-        shortcuts = shortcuts.push(shortcut_row(app, state, action));
+    let mut content = column![].spacing(24).padding([0, 16]);
+    for section in state.category.sections() {
+        content = content.push(section_view(app, state, *section));
     }
-    let content = column![
-        shortcuts,
-        appearance_section(app),
-        editing_section(app, state),
-        search_section(app),
-        startup_section(app),
-        connection_section(app),
-        terminal_section(app, state),
-        updates_section(app)
-    ]
-    .spacing(16)
-    .padding([0, 12]);
     let list = scrollable(content)
+        .style(crate::view::scroll::style(palette))
         .id(App::settings_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(window_list_height(app.settings_window_size())));
-    let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
-    let boxed = container(list).style(move |_| container::Style { border, ..container::Style::default() });
     column![
         bold_label("Settings", palette.fg_bright),
-        boxed,
-        message_line(state, palette),
         hairline_across(palette),
-        row![space().width(Length::Fill), text_button("Close", Some(Message::SettingsClosed), Look::Primary, palette)]
-            .spacing(8),
+        row![sidebar(app, state), hairline_down(palette), list].spacing(8),
+        hairline_across(palette),
+        row![message_line(state, palette), text_button("Close", Some(Message::SettingsClosed), Look::Primary, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
     ]
-    .spacing(10)
+    .spacing(12)
     .into()
 }
 

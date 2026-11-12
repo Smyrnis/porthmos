@@ -191,6 +191,7 @@ pub enum Message {
     SettingsReopenChosen(porthmos_core::ReopenMode),
     SettingsReconnectToggled(bool),
     SettingsThemeChosen(porthmos_core::theme::ThemeBase),
+    SettingsCategoryChosen(crate::settings_view::SettingsCategory),
     ReopenPressed,
     QuickConnectPressed(String),
     SettingsClosed,
@@ -1146,7 +1147,8 @@ impl App {
             | Message::SettingsUpdateModeChosen(_)
             | Message::SettingsReopenChosen(_)
             | Message::SettingsReconnectToggled(_)
-            | Message::SettingsThemeChosen(_)) => return self.settings_message(message),
+            | Message::SettingsThemeChosen(_)
+            | Message::SettingsCategoryChosen(_)) => return self.settings_message(message),
             Message::ReopenPressed => self.reopen_pressed(),
             Message::QuickConnectPressed(name) => self.quick_connect_pressed(&name),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {

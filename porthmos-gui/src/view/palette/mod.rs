@@ -59,6 +59,7 @@ pub fn body<'a>(app: &'a App, state: &'a PaletteState) -> Element<'a, Message> {
         rows = rows.push(container(label(hint, palette.fg_dim)).padding(12));
     }
     let list = scrollable(rows)
+        .style(crate::view::scroll::style(palette))
         .id(App::tool_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(palette_list_height(app.window_size())));

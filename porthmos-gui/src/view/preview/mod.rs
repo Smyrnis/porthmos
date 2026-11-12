@@ -41,6 +41,7 @@ fn rows_view<'a>(
     let width = state.columns() as f32 * CHARACTER_WIDTH + 2.0 * SIDE_PADDING;
     let content = container(lines).width(Length::Fixed(width));
     scrollable(content)
+        .style(crate::view::scroll::style(palette))
         .id(scrolling.id)
         .direction(Direction::Both { vertical: Scrollbar::default(), horizontal: Scrollbar::default() })
         .on_scroll(move |viewport| (scrolling.on_scroll)(viewport.absolute_offset().y))

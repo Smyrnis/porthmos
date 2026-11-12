@@ -136,6 +136,7 @@ fn bookmarks_body<'a>(app: &'a App, state: &'a BookmarksState) -> Element<'a, Me
         rows = rows.push(container(label(hint, palette.fg_dim)).padding(12));
     }
     let list = scrollable(rows)
+        .style(crate::view::scroll::style(palette))
         .id(App::tool_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(bookmarks_list_height(app.window_size())));
@@ -198,6 +199,7 @@ fn history_body<'a>(app: &'a App, state: &'a HistoryState) -> Element<'a, Messag
         rows = rows.push(container(label(hint, palette.fg_dim)).padding(12));
     }
     let list = scrollable(rows)
+        .style(crate::view::scroll::style(palette))
         .id(App::tool_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(history_list_height(app.window_size())));

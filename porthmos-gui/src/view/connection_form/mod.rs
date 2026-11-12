@@ -70,6 +70,9 @@ fn control<'a>(state: &'a FormState, field: &FieldView, palette: &Palette) -> El
                 Message::FormChoiceChanged(key.clone(), choice.value)
             })
             .text_size(13.0)
+            .padding([6.0, 8.0])
+            .style(crate::view::dropdown::style(palette))
+            .menu_style(crate::view::dropdown::menu_style(palette))
             .width(Length::Fill)
             .into()
         }
@@ -92,7 +95,8 @@ fn form_body<'a>(app: &'a App, state: &'a FormState) -> (Element<'a, Message>, E
         .spacing(8);
         fields = fields.push(line);
     }
-    let mut body = column![scrollable(fields).height(Length::Fill)].spacing(8);
+    let mut body =
+        column![scrollable(fields).style(crate::view::scroll::style(palette)).height(Length::Shrink)].spacing(8);
     if let Some(error) = &state.error {
         body = body.push(wrapped_label(error.clone(), palette.err));
     }
@@ -189,6 +193,7 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
         body = body.push(
             checkbox(labels.forget_password)
                 .label("Forget the saved password")
+                .text_size(13.0)
                 .on_toggle(Message::LabelsForgetToggled)
                 .style(crate::view::checkbox::style(palette)),
         );
@@ -261,16 +266,22 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let size = dialog_size(app.connections_window_size(), width, height);
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let content =
-        column![bold_label(title, palette.fg_bright), container(body).height(Length::Fill), footer].spacing(12);
+    let content = column![
+        bold_label(title, palette.fg_bright),
+        crate::view::hairline_across(palette),
+        container(body).height(Length::Shrink),
+        crate::view::hairline_across(palette),
+        footer
+    ]
+    .spacing(12);
     let boxed =
-        container(content).padding(16).width(Length::Fixed(size.width)).height(Length::Fixed(size.height)).style(
-            move |_| container::Style {
+        container(content).padding(16).width(Length::Fixed(size.width)).max_height(size.height).style(move |_| {
+            container::Style {
                 background: Some(iced::Background::Color(surface)),
                 border,
                 ..container::Style::default()
-            },
-        );
+            }
+        });
     let blocked = mouse_area(boxed).on_press(Message::ManagerIgnored);
     let backdrop = mouse_area(crate::view::scrim(palette)).on_press(Message::ManagerIgnored);
     let placed = container(blocked)

@@ -50,3 +50,56 @@ fn the_state_starts_with_the_saved_terminal_command() {
     assert_eq!(SettingsState::new(&GuiSettings::default()).terminal_text, "");
     assert_eq!(GuiSettings::default().terminal, None);
 }
+
+mod categories {
+    use super::super::{SettingsCategory, SettingsSection, SettingsState};
+    use crate::settings_view::GuiSettings;
+
+    #[test]
+    fn the_categories_come_in_a_fixed_order_with_their_titles() {
+        let titles: Vec<_> = SettingsCategory::ALL.iter().map(|category| category.title()).collect();
+
+        assert_eq!(titles, vec!["General", "Editor and terminal", "Appearance", "Shortcuts", "Updates"]);
+    }
+
+    #[test]
+    fn the_settings_open_on_the_first_category() {
+        assert_eq!(SettingsState::new(&GuiSettings::default()).category, SettingsCategory::General);
+    }
+
+    #[test]
+    fn every_section_belongs_to_exactly_one_category() {
+        let all = [
+            SettingsSection::Shortcuts,
+            SettingsSection::Appearance,
+            SettingsSection::Editing,
+            SettingsSection::Terminal,
+            SettingsSection::Search,
+            SettingsSection::Startup,
+            SettingsSection::Connections,
+            SettingsSection::Updates,
+        ];
+
+        for section in all {
+            let homes = SettingsCategory::ALL.iter().filter(|category| category.sections().contains(&section)).count();
+            assert_eq!(homes, 1, "{section:?}");
+        }
+        let total: usize = SettingsCategory::ALL.iter().map(|category| category.sections().len()).sum();
+        assert_eq!(total, all.len());
+    }
+
+    #[test]
+    fn no_category_is_empty() {
+        for category in SettingsCategory::ALL {
+            assert!(!category.sections().is_empty(), "{category:?}");
+        }
+    }
+
+    #[test]
+    fn general_holds_the_startup_connection_and_search_options() {
+        assert_eq!(
+            SettingsCategory::General.sections(),
+            &[SettingsSection::Startup, SettingsSection::Connections, SettingsSection::Search]
+        );
+    }
+}

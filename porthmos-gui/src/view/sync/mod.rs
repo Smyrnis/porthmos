@@ -172,6 +172,7 @@ fn rows_view<'a>(app: &'a App, view: &'a SyncView, times: bool, palette: &Palett
     let below = total.saturating_sub(first + count);
     lines = lines.push(space().height(Length::Fixed(below as f32 * ROW_HEIGHT)));
     scrollable(lines)
+        .style(crate::view::scroll::style(palette))
         .id(App::tool_list_id())
         .on_scroll(|viewport| Message::SyncScrolled(viewport.absolute_offset().y))
         .width(Length::Fill)
