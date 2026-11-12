@@ -89,6 +89,10 @@ impl App {
         if self.screen != Screen::Files {
             return;
         }
+        if self.sessions.active().is_none() {
+            self.quick_connect(usize::from(number));
+            return;
+        }
         let target = usize::from(number).checked_sub(1).and_then(|index| self.sessions.iter().nth(index));
         if let Some(id) = target.map(|session| session.id)
             && self.sessions.activate(id)

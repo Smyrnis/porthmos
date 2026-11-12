@@ -154,7 +154,33 @@ fn no_connection<'a>(app: &App, side: PanelSide) -> Element<'a, Message> {
         content =
             content.push(button::text_button(&offer, Some(Message::ReopenPressed), button::Look::Primary, palette));
     }
+    content = content.push(saved_connections(app));
     container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill).into()
+}
+
+fn saved_connections<'a>(app: &App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let names = app.quick_connections();
+    if names.is_empty() {
+        return column![
+            label("No saved connections yet", palette.fg_dim),
+            button::text_button("Add a connection", Some(Message::ManagerToggled), button::Look::Primary, palette),
+        ]
+        .spacing(8)
+        .align_x(iced::Alignment::Center)
+        .into();
+    }
+    let mut list = column![label("Connect to", palette.fg_dim)].spacing(6).align_x(iced::Alignment::Center);
+    for name in names {
+        let press = Message::QuickConnectPressed(name.clone());
+        list = list.push(button::text_button(&name, Some(press), button::Look::Normal, palette));
+    }
+    let hidden = app.quick_connections_hidden();
+    if hidden > 0 {
+        let more = format!("{hidden} more in Connections");
+        list = list.push(button::text_button(&more, Some(Message::ManagerToggled), button::Look::Normal, palette));
+    }
+    list.into()
 }
 
 #[cfg(test)]

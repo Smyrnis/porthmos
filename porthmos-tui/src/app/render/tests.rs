@@ -763,8 +763,8 @@ fn the_unconnected_remote_panel_says_not_connected_and_names_the_connect_key() {
     app.key_bindings = input::KeyBindings::from_overrides(&overrides).0;
     let remapped = render_app(&app, 120, 24);
 
-    assert!(find_text(&default_keys, "press F9 to connect").is_some());
-    assert!(find_text(&remapped, "press Ctrl+G to connect").is_some());
+    assert!(find_text(&default_keys, "press F9 to add a connection").is_some());
+    assert!(find_text(&remapped, "press Ctrl+G to add a connection").is_some());
 }
 
 #[test]

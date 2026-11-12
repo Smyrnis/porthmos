@@ -61,6 +61,7 @@ mod history;
 mod palette;
 mod path_edit;
 mod preview;
+mod quick_connect;
 mod render;
 mod search;
 mod sync;
@@ -632,6 +633,7 @@ async fn sleep_until_or_pending(deadline: Option<Instant>) {
 
 #[cfg(test)]
 pub(crate) mod testing;
+
 
 #[cfg(test)]
 mod tests;

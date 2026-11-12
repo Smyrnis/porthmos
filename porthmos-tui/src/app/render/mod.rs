@@ -379,7 +379,7 @@ impl App {
         }
     }
 
-    fn remote_placeholder_lines(&self) -> Vec<String> {
+    pub(super) fn remote_placeholder_lines(&self) -> Vec<String> {
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
             return vec![format!("connecting to {name}\u{2026}")];
         }
@@ -390,8 +390,24 @@ impl App {
                 lines.push(format!("press {}, then choose {REOPEN_LABEL}", input::format_key_spec(spec)));
             }
         }
+        let names = self.quick_connections();
+        let any = !names.is_empty();
+        for (index, name) in names.iter().enumerate() {
+            let number = u8::try_from(index + 1).unwrap_or(u8::MAX);
+            let bound = self.key_bindings.key_for(input::Scope::Files, Action::JumpToSession(number));
+            lines.push(match bound {
+                Some(spec) => format!("{}  {}", input::format_key_spec(spec), printable(name)),
+                None => printable(name).to_string(),
+            });
+        }
         if let Some(spec) = self.key_bindings.key_for(input::Scope::Files, Action::OpenConnections) {
-            lines.push(format!("press {} to connect", input::format_key_spec(spec)));
+            let key = input::format_key_spec(spec);
+            let hidden = self.quick_connections_hidden();
+            lines.push(match (any, hidden) {
+                (false, _) => format!("press {key} to add a connection"),
+                (true, 0) => format!("press {key} for all connections"),
+                (true, hidden) => format!("press {key} for {hidden} more"),
+            });
         }
         lines
     }

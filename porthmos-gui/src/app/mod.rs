@@ -192,6 +192,7 @@ pub enum Message {
     SettingsReconnectToggled(bool),
     SettingsThemeChosen(porthmos_core::theme::ThemeBase),
     ReopenPressed,
+    QuickConnectPressed(String),
     SettingsClosed,
     MoreMenuToggled,
     RowRightPressed(PanelSide, usize),
@@ -324,6 +325,7 @@ pub struct App {
     gui_settings: GuiSettings,
     config_file: Option<PathBuf>,
     theme_accent: Option<porthmos_core::theme::Rgb>,
+    last_used: std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>>,
 }
 
 impl App {
@@ -403,6 +405,7 @@ impl App {
             gui_settings: GuiSettings::default(),
             config_file: None,
             theme_accent: None,
+            last_used: Default::default(),
         };
         app.local.panel.apply(local_panel);
         app.list(Location::Local, Some(local_start));
@@ -829,6 +832,7 @@ impl App {
                 }
             }
             Event::Profiles(entries) => self.profiles_arrived(entries),
+            Event::LastUsed(times) => self.last_used = times,
             Event::ProfileSaved => self.profile_saved(),
             Event::KeyringStatus { available } => self.keyring_available = available,
             Event::KeyringWaiting { waiting } => self.keyring_waiting = waiting,
@@ -865,7 +869,6 @@ impl App {
             Event::Update(state) => self.update_arrived(state),
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
-            _ => {}
         }
     }
 
@@ -1145,6 +1148,7 @@ impl App {
             | Message::SettingsReconnectToggled(_)
             | Message::SettingsThemeChosen(_)) => return self.settings_message(message),
             Message::ReopenPressed => self.reopen_pressed(),
+            Message::QuickConnectPressed(name) => self.quick_connect_pressed(&name),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
                 return self.palette_message(message);
             }
@@ -2099,6 +2103,7 @@ mod connections;
 mod editing;
 mod palette;
 mod preview;
+mod quick_connect;
 mod quit;
 mod reopen;
 mod search_window;
