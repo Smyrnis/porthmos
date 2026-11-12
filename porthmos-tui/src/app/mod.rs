@@ -457,6 +457,9 @@ impl App {
             Event::ShellReady { .. } | Event::LocalShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
             Event::PathOpened { location } => self.finish_path_edit(location),
+            Event::PathCompleted { location, text, completion } => {
+                self.apply_path_completion(location, text, completion)
+            }
             Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
             Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),

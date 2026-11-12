@@ -3,14 +3,14 @@ use std::collections::HashSet;
 use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
 use porthmos_core::{
-    Entry, VfsPath,
+    Completion, Entry, VfsPath,
     listing::{Listing, SortKey, SortOrder, SortSpec},
 };
 use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Paragraph},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -20,7 +20,7 @@ use crate::{
         file_list,
         filter_line::{self, FilterLine},
         form_fields::render_caret_value,
-        frame::{accent_underline, hairline},
+        frame::{accent_underline, clear_popup, hairline},
         history_view::printable,
         paging::{PageRows, Paged},
         path_field::PathField,
@@ -275,6 +275,7 @@ pub struct PanelContext<'a> {
 const HEADER_GAP: usize = 2;
 const MIN_LOCATION_WIDTH: usize = 8;
 const FOOTER_GAP: usize = 3;
+const CANDIDATE_FRAME: u16 = 2;
 
 pub fn render_panel(frame: &mut Frame, area: Rect, panel: &PanelView, context: &PanelContext<'_>, theme: &Theme) {
     if area.width == 0 || area.height == 0 {
@@ -293,6 +294,35 @@ pub fn render_panel(frame: &mut Frame, area: Rect, panel: &PanelView, context: &
     }
     if has_footer {
         render_footer(frame, Rect::new(area.x, area.bottom() - 1, area.width, 1), panel, theme);
+    }
+}
+
+pub fn render_candidates(frame: &mut Frame, area: Rect, listing: &Completion, theme: &Theme) {
+    let (shown, more) = listing.shown();
+    let mut lines: Vec<String> = shown.iter().map(|name| printable(name)).collect();
+    if more > 0 {
+        lines.push(format!("and {more} more"));
+    }
+    let inner_width = lines.iter().map(|line| line.width()).max().unwrap_or(0);
+    let width = (inner_width as u16).saturating_add(CANDIDATE_FRAME).min(area.width);
+    let height = (lines.len() as u16).saturating_add(CANDIDATE_FRAME).min(area.height.saturating_sub(2));
+    if width <= CANDIDATE_FRAME || height <= CANDIDATE_FRAME {
+        return;
+    }
+    let popup = Rect::new(area.x, area.y + 2, width, height);
+    clear_popup(frame, popup, theme);
+    let block = Block::bordered().border_style(theme.popup_border());
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let budget = usize::from(inner.width);
+    let last_is_summary = more > 0;
+    for (index, line) in lines.iter().take(usize::from(inner.height)).enumerate() {
+        let style = if last_is_summary && index == lines.len() - 1 { theme.dim() } else { theme.bright() };
+        let text = truncate_with_ellipsis(line, budget);
+        frame.render_widget(
+            Paragraph::new(Span::styled(text, style)),
+            Rect::new(inner.x, inner.y + index as u16, inner.width, 1),
+        );
     }
 }
 

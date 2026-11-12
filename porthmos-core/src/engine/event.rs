@@ -6,7 +6,7 @@ use porthmos_vfs::{Entry, Question, ShellInvocation, VfsPath};
 
 use super::{Location, RequestId, SessionId};
 use crate::{
-    ConnectionState, Message, Severity,
+    Completion, ConnectionState, Message, Severity,
     config::bookmarks::Bookmark,
     delete_prompt::count::Contents,
     edit::{EditQuestionKind, EditorCommand},
@@ -39,6 +39,7 @@ pub enum Event {
     Revealed { location: Location, folder: VfsPath, name: String },
     PathOpened { location: Location },
     PathRejected { location: Location },
+    PathCompleted { location: Location, text: String, completion: Completion },
     FreeSpace { location: Location, path: VfsPath, bytes: Option<u64> },
     LocationChanged { location: Location },
     Profiles(Vec<ConnectionEntry>),

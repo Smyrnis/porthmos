@@ -104,7 +104,17 @@ fn enter_submits_and_escape_cancels() {
 fn other_keys_are_pending() {
     let mut field = PathField::new("/a".to_string());
 
-    for code in [KeyCode::Tab, KeyCode::Up, KeyCode::F(5), KeyCode::PageDown] {
+    for code in [KeyCode::Up, KeyCode::F(5), KeyCode::PageDown] {
         assert_eq!(field.handle_key(key(code)), PathOutcome::Pending);
     }
+}
+
+#[test]
+fn tab_asks_for_completion_without_changing_the_text() {
+    let mut field = PathField::new("/var/lo".to_string());
+
+    assert_eq!(field.handle_key(key(KeyCode::Tab)), PathOutcome::Complete);
+
+    assert_eq!(field.text, "/var/lo");
+    assert_eq!(field.cursor, 7);
 }

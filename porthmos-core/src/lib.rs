@@ -13,6 +13,7 @@ pub mod logging;
 pub mod message;
 pub mod names;
 pub mod panel_memory;
+mod path_completion;
 mod path_text;
 pub mod paths;
 pub mod permissions;
@@ -42,6 +43,7 @@ pub use error::{
 };
 pub use message::Message;
 pub use panel_memory::PanelKind;
+pub use path_completion::{Completion, CompletionStep, MAX_SHOWN, complete, split_directory};
 pub use paths::{ConfigMigration, Paths};
 pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{

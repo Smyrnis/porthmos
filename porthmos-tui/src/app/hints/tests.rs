@@ -413,10 +413,10 @@ fn an_unbound_go_to_path_is_left_out_of_the_files_help() {
 }
 
 #[test]
-fn editing_a_path_shows_enter_go_and_esc_cancel() {
+fn editing_a_path_shows_enter_go_tab_complete_and_esc_cancel() {
     let hints = path_edit_hints();
 
-    assert_eq!(keys_and_labels(&hints), vec![pair("enter", "go")]);
+    assert_eq!(keys_and_labels(&hints), vec![pair("enter", "go"), pair("tab", "complete")]);
     assert_eq!(hints.right.map(|hint| (hint.key, hint.label)), Some(("esc".to_string(), "cancel")));
 }
 

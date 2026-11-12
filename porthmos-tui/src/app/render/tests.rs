@@ -1988,3 +1988,19 @@ fn a_connected_session_hides_the_reopen_hint() {
 
     assert!(find_text(&terminal, "last time").is_none());
 }
+
+#[test]
+fn the_candidate_list_is_drawn_under_the_path_bar_with_an_and_n_more_line() {
+    let TestApp { mut app, .. } = test_app(&VfsPath::new("/d"));
+    app.apply_action(crate::input::Action::GoToPath);
+    let candidates: Vec<String> = (0..25).map(|index| format!("folder{index:02}")).collect();
+    app.path_edit.as_mut().unwrap().listing =
+        Some(porthmos_core::Completion { prefix: "/d/".to_string(), candidates, completed: "/d".to_string() });
+
+    let terminal = render_app(&app, 100, 40);
+
+    assert!(find_text(&terminal, "folder00").is_some());
+    assert!(find_text(&terminal, "folder19").is_some());
+    assert!(find_text(&terminal, "folder20").is_none());
+    assert!(find_text(&terminal, "and 5 more").is_some());
+}

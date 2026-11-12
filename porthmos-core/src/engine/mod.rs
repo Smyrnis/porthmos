@@ -412,6 +412,7 @@ impl Engine {
             Command::Reveal { location, path } => self.reveal(location, path),
             Command::Navigate { location, from, to } => self.navigate(location, &from, to),
             Command::GoToPath { location, from, text } => self.go_to_path(location, from, text),
+            Command::CompletePath { location, from, text } => self.complete_path(location, from, text),
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),
             Command::Delete { location, paths } => self.delete(location, paths),

@@ -13,6 +13,7 @@ use porthmos_core::transfer::rows::RowKind;
 use porthmos_core::{
     Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath, to_os_path,
 };
+use porthmos_core::{Completion, CompletionStep};
 
 use porthmos_core::config::bookmarks::Bookmark;
 use porthmos_core::config::settings::PanelSettings;
@@ -207,6 +208,7 @@ pub enum Message {
     CrumbPressed(PanelSide, VfsPath),
     PathEditStarted(PanelSide),
     PathTyped(String),
+    PathCandidateChosen(String),
     PathSubmitted,
     MoreItemChosen(MoreItem),
     DialogTyped(Typed),
@@ -827,6 +829,9 @@ impl App {
                 }
             }
             Event::LocationChanged { location } => self.relist(location),
+            Event::PathCompleted { location, text, completion } => {
+                self.apply_path_completion(location, text, completion)
+            }
             Event::PathOpened { location } | Event::PathRejected { location } => {
                 if let Some(pane) = self.pane_mut(location) {
                     pane.finish_typed();
@@ -960,6 +965,47 @@ impl App {
         self.core.send(Command::GoToPath { location, from, text });
     }
 
+    fn complete_path(&mut self) {
+        let Some((side, text)) =
+            self.path_edit.as_ref().filter(|edit| !edit.pending).map(|edit| (edit.side, edit.text.clone()))
+        else {
+            return;
+        };
+        let Some(location) = self.location_of(side) else {
+            return;
+        };
+        let Some(from) = self.pane_mut(location).map(|pane| pane.panel.path().clone()) else {
+            return;
+        };
+        if let Some(edit) = self.path_edit.as_mut() {
+            edit.pending = true;
+            edit.listing = None;
+        }
+        self.core.send(Command::CompletePath { location, from, text });
+    }
+
+    fn apply_path_completion(&mut self, location: Location, text: String, completion: Completion) {
+        let Some(side) = self.path_edit.as_ref().map(|edit| edit.side) else {
+            return;
+        };
+        let same_location = self.location_of(side) == Some(location);
+        let Some(edit) = self.path_edit.as_mut() else {
+            return;
+        };
+        edit.pending = false;
+        if !same_location || edit.text != text {
+            return;
+        }
+        match completion.step(&text) {
+            CompletionStep::Replace(completed) => {
+                edit.text = completed;
+                edit.listing = None;
+            }
+            CompletionStep::Show(_) => edit.listing = Some(completion),
+            CompletionStep::Nothing => {}
+        }
+    }
+
     fn relist(&mut self, location: Location) {
         let Some(pane) = self.pane_mut(location) else {
             return;
@@ -1017,8 +1063,15 @@ impl App {
                     Event::Disconnected { session, .. } => self.close_search_on(Location::Session(*session)),
                     _ => Task::none(),
                 };
+                let typed_before = self.path_edit.as_ref().map(|edit| edit.text.clone());
                 self.apply(event);
-                return Task::batch([search_closed, self.reveal_focused(), self.resync_scroll(&before)]);
+                let cursor = match &self.path_edit {
+                    Some(edit) if typed_before.is_some_and(|text| text != edit.text) => {
+                        operation::move_cursor_to_end(edit.side.path_input_id())
+                    }
+                    _ => Task::none(),
+                };
+                return Task::batch([search_closed, self.reveal_focused(), self.resync_scroll(&before), cursor]);
             }
             Message::CloseRequested => return self.request_close(),
             Message::WindowCloseRequested(id) => return self.window_close_requested(id),
@@ -1100,13 +1153,23 @@ impl App {
                     PanelSide::Local => to_os_path(panel.path()).display().to_string(),
                     PanelSide::Remote => panel.path().to_string_lossy().into_owned(),
                 };
-                self.path_edit = Some(PathEdit { side, text });
+                self.path_edit = Some(PathEdit { side, text, pending: false, listing: None });
                 return operation::focus(side.path_input_id());
             }
             Message::PathTyped(text) => {
                 if let Some(edit) = self.path_edit.as_mut() {
                     edit.text = text;
+                    edit.listing = None;
                 }
+            }
+            Message::PathCandidateChosen(name) => {
+                let Some(edit) = self.path_edit.as_mut() else {
+                    return Task::none();
+                };
+                if let Some(listing) = edit.listing.take() {
+                    edit.text = listing.path_for(&name);
+                }
+                return operation::move_cursor_to_end(edit.side.path_input_id());
             }
             Message::PathSubmitted => {
                 if let Some(edit) = self.path_edit.take() {
@@ -1766,6 +1829,16 @@ impl App {
             self.conflict_key(&press);
             return Task::none();
         }
+        if press.key == keyboard::Key::Named(keyboard::key::Named::Tab)
+            && self.path_edit.is_some()
+            && self.modals.is_empty()
+            && self.tool.is_none()
+        {
+            if !press.modifiers.shift() {
+                self.complete_path();
+            }
+            return Task::none();
+        }
         if press.key == keyboard::Key::Named(keyboard::key::Named::Tab) && self.text_fields_are_shown() {
             return if press.modifiers.shift() { operation::focus_previous() } else { operation::focus_next() };
         }
@@ -1797,9 +1870,14 @@ impl App {
         }
         if self.path_edit.is_some() || self.more_open || self.context_menu.is_some() {
             if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
-                self.path_edit = None;
-                self.more_open = false;
-                self.context_menu = None;
+                match self.path_edit.as_mut().filter(|edit| edit.listing.is_some()) {
+                    Some(edit) => edit.listing = None,
+                    None => {
+                        self.path_edit = None;
+                        self.more_open = false;
+                        self.context_menu = None;
+                    }
+                }
             }
             return Task::none();
         }

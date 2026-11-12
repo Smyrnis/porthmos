@@ -98,6 +98,9 @@ pub fn root(app: &App) -> Element<'_, Message> {
     let page = page.push(status::bar(app));
     let page = container(page).width(Length::Fill).height(Length::Fill).style(filled(palette.bg));
     let mut layers = stack![page];
+    if let Some(list) = path_bar::candidates(app) {
+        layers = layers.push(list);
+    }
     if let Some(tool) = tools::overlay(app) {
         layers = layers.push(tool);
     }

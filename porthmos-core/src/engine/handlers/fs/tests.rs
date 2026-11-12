@@ -696,6 +696,110 @@ async fn a_closed_session_is_rejected() {
     assert_eq!(rejected(&t.drain()), vec![Location::Session(99)]);
 }
 
+fn complete_path(t: &mut crate::engine::testing::TestEngine, location: Location, from: VfsPath, text: &str) {
+    t.engine.handle_command(Command::CompletePath { location, from, text: text.to_string() });
+}
+
+fn completions(events: &[Event]) -> Vec<(String, crate::Completion)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PathCompleted { text, completion, .. } => Some((text.clone(), completion.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn completing_a_local_path_lists_matching_folders_and_leaves_the_panel_alone() {
+    let mut t = test_engine();
+    for name in ["sub", "subway"] {
+        std::fs::create_dir(t.dir.path().join(name)).unwrap();
+    }
+    std::fs::write(t.dir.path().join("file.txt"), b"x").unwrap();
+    let base = from_os_path(t.dir.path());
+
+    complete_path(&mut t, Location::Local, base, "su");
+    t.settle().await;
+
+    let events = t.drain();
+    let replies = completions(&events);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].0, "su");
+    assert_eq!(replies[0].1.candidates, ["sub", "subway"]);
+    assert_eq!(replies[0].1.completed, "sub");
+    assert!(listed_paths(&events).is_empty());
+}
+
+#[tokio::test]
+async fn completing_expands_tilde_with_the_filesystem_home() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/home/user/projects");
+
+    complete_path(&mut t, Location::Session(session), VfsPath::new("/srv"), "~/pro");
+    t.settle().await;
+
+    let replies = completions(&t.drain());
+    assert_eq!(replies[0].1.completed, "~/projects/");
+}
+
+#[tokio::test]
+async fn completing_resolves_dot_dot_segments() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/a").dir("/a/b").dir("/a/lib");
+
+    complete_path(&mut t, Location::Session(session), VfsPath::new("/a/b"), "../li");
+    t.settle().await;
+
+    let replies = completions(&t.drain());
+    assert_eq!(replies[0].1.candidates, ["lib"]);
+    assert_eq!(replies[0].1.completed, "../lib/");
+}
+
+#[tokio::test]
+async fn a_lone_tilde_completes_without_listing_anything() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    complete_path(&mut t, Location::Session(session), VfsPath::new("/srv"), "~");
+    t.settle().await;
+
+    let replies = completions(&t.drain());
+    assert_eq!(replies[0].1.completed, "~/");
+}
+
+#[tokio::test]
+async fn a_failing_listing_completes_nothing_and_raises_no_notice() {
+    let mut t = test_engine();
+    let base = from_os_path(t.dir.path());
+
+    complete_path(&mut t, Location::Local, base, "missing/x");
+    t.settle().await;
+
+    let events = t.drain();
+    let replies = completions(&events);
+    assert_eq!(replies.len(), 1);
+    assert!(replies[0].1.candidates.is_empty());
+    assert_eq!(replies[0].1.completed, "missing/x");
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { .. })), "{events:?}");
+}
+
+#[tokio::test]
+async fn completing_without_a_filesystem_replies_with_nothing() {
+    let mut t = test_engine();
+
+    complete_path(&mut t, Location::Session(99), VfsPath::new("/srv"), "x");
+    t.settle().await;
+
+    let events = t.drain();
+    let replies = completions(&events);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].1.completed, "x");
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { .. })), "{events:?}");
+}
+
 fn opened(events: &[Event]) -> Vec<Location> {
     events
         .iter()

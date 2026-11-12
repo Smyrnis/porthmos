@@ -36,6 +36,7 @@ pub enum Command {
     Reveal { location: Location, path: VfsPath },
     Navigate { location: Location, from: VfsPath, to: VfsPath },
     GoToPath { location: Location, from: VfsPath, text: String },
+    CompletePath { location: Location, from: VfsPath, text: String },
     CreateDir { location: Location, path: VfsPath },
     Rename { location: Location, from: VfsPath, to: VfsPath },
     Delete { location: Location, paths: Vec<VfsPath> },

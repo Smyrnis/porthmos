@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{
     Message, Severity, failure_report,
+    path_completion::{complete, split_directory},
     path_text::{needs_home, resolve_path_text},
     tasks::Scope,
 };
@@ -42,6 +43,11 @@ async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsP
         }
     };
     let _ = events.send(Event::FreeSpace { location, path, bytes });
+}
+
+fn unchanged_completion(location: Location, text: String) -> Event {
+    let completion = complete(&text, location, &[]);
+    Event::PathCompleted { location, text, completion }
 }
 
 fn announce_folder(internal: &UnboundedSender<Internal>, location: Location, path: &VfsPath) {
@@ -246,6 +252,33 @@ impl Engine {
             let target = resolve_path_text(location, &text, &from, &home);
             let opened = list_into(fs, location, Some(target), None, events.clone(), internal, reporter).await;
             let _ = events.send(if opened { Event::PathOpened { location } } else { Event::PathRejected { location } });
+        });
+    }
+
+    pub(crate) fn complete_path(&mut self, location: Location, from: VfsPath, text: String) {
+        let fs = if text == "~" { None } else { self.filesystem_or_drop(location) };
+        let Some(fs) = fs else {
+            self.emit(unchanged_completion(location, text));
+            return;
+        };
+        let events = self.events.clone();
+        self.tasks.spawn("complete-path", scope_for(location), move |_| async move {
+            let (prefix, _) = split_directory(&text, location);
+            let home = if needs_home(prefix) {
+                match fs.home().await {
+                    Ok(home) => home,
+                    Err(_) => {
+                        let _ = events.send(unchanged_completion(location, text));
+                        return;
+                    }
+                }
+            } else {
+                from.clone()
+            };
+            let folder = resolve_path_text(location, prefix, &from, &home);
+            let entries = fs.list(&folder).await.unwrap_or_default();
+            let completion = complete(&text, location, &entries);
+            let _ = events.send(Event::PathCompleted { location, text, completion });
         });
     }
 

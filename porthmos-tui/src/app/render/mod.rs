@@ -311,6 +311,9 @@ impl App {
                 now: &now,
             };
             panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
+            if let Some(listing) = self.path_listing(Location::Local) {
+                panel_view::render_candidates(frame, layout.local, listing, theme);
+            }
         }
 
         if !single || !local_active {
@@ -327,6 +330,9 @@ impl App {
                         now: &now,
                     };
                     panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
+                    if let Some(listing) = self.path_listing(Location::Session(session.id)) {
+                        panel_view::render_candidates(frame, layout.remote, listing, theme);
+                    }
                 }
                 _ => {
                     let context = PanelContext {

@@ -78,7 +78,10 @@ pub(super) fn form_hints() -> Hints {
 
 pub(super) fn path_edit_hints() -> Hints {
     Hints {
-        entries: vec![Hint { key: "enter".to_string(), label: "go" }],
+        entries: vec![
+            Hint { key: "enter".to_string(), label: "go" },
+            Hint { key: "tab".to_string(), label: "complete" },
+        ],
         pinned: None,
         right: Some(Hint { key: "esc".to_string(), label: "cancel" }),
     }

@@ -3203,6 +3203,176 @@ fn submitting_a_path_hands_the_text_to_core_and_closes_the_editor() {
     assert!(harness.app.path_edit().is_none());
 }
 
+fn complete_paths(sent: &[Command]) -> Vec<(Location, VfsPath, String)> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::CompletePath { location, from, text } => Some((*location, from.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn path_completed(text: &str, prefix: &str, candidates: &[&str], completed: &str) -> Event {
+    Event::PathCompleted {
+        location: Location::Local,
+        text: text.to_string(),
+        completion: porthmos_core::Completion {
+            prefix: prefix.to_string(),
+            candidates: candidates.iter().map(|name| name.to_string()).collect(),
+            completed: completed.to_string(),
+        },
+    }
+}
+
+fn editing_path(harness: &mut Harness, text: &str) {
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped(text.to_string()));
+    harness.sent();
+}
+
+fn with_candidates_shown(harness: &mut Harness) {
+    editing_path(harness, "/d/s");
+    plain(harness, Named::Tab);
+    harness.feed(path_completed("/d/s", "/d/", &["sub", "subway"], "/d/s"));
+    plain(harness, Named::Tab);
+    harness.feed(path_completed("/d/s", "/d/", &["sub", "subway"], "/d/s"));
+}
+
+#[test]
+fn tab_in_the_path_edit_sends_complete_path_with_the_typed_text() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+
+    plain(&mut harness, Named::Tab);
+
+    let sent = harness.sent();
+    assert_eq!(complete_paths(&sent), vec![(Location::Local, harness.start_folder(), "/tm".to_string())]);
+    assert_eq!(harness.app.path_edit().unwrap().text, "/tm");
+}
+
+#[test]
+fn tab_while_a_completion_is_pending_sends_nothing() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    harness.sent();
+
+    plain(&mut harness, Named::Tab);
+
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn a_reply_for_the_typed_text_replaces_it() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+
+    harness.feed(path_completed("/tm", "/", &["tmp"], "/tmp/"));
+
+    assert_eq!(harness.app.path_edit().unwrap().text, "/tmp/");
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+}
+
+#[test]
+fn a_stuck_reply_with_several_candidates_shows_them() {
+    let mut harness = Harness::new();
+
+    with_candidates_shown(&mut harness);
+
+    let listing = harness.app.path_edit().unwrap().listing.as_ref().unwrap();
+    assert_eq!(listing.candidates, ["sub", "subway"]);
+    assert_eq!(harness.app.path_edit().unwrap().text, "/d/s");
+}
+
+#[test]
+fn a_reply_for_text_that_has_since_changed_is_ignored() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    harness.press(Message::PathTyped("/tmx".to_string()));
+
+    harness.feed(path_completed("/tm", "/", &["tmp"], "/tmp/"));
+
+    assert_eq!(harness.app.path_edit().unwrap().text, "/tmx");
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+}
+
+#[test]
+fn a_reply_for_another_location_still_releases_the_pending_flag() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    harness.sent();
+
+    harness.feed(Event::PathCompleted {
+        location: Location::Session(99),
+        text: "/tm".to_string(),
+        completion: porthmos_core::Completion::default(),
+    });
+    plain(&mut harness, Named::Tab);
+
+    assert_eq!(complete_paths(&harness.sent()).len(), 1);
+}
+
+#[test]
+fn a_reply_after_the_edit_was_cancelled_is_ignored() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    plain(&mut harness, Named::Escape);
+
+    harness.feed(path_completed("/tm", "/", &["tmp"], "/tmp/"));
+
+    assert!(harness.app.path_edit().is_none());
+}
+
+#[test]
+fn typing_clears_the_candidate_list() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+
+    harness.press(Message::PathTyped("/d/su".to_string()));
+
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+}
+
+#[test]
+fn escape_clears_the_list_first_and_cancels_the_edit_second() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+
+    plain(&mut harness, Named::Escape);
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+
+    plain(&mut harness, Named::Escape);
+    assert!(harness.app.path_edit().is_none());
+}
+
+#[test]
+fn submitting_with_a_list_shown_still_goes_to_the_typed_text() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+    harness.sent();
+
+    harness.press(Message::PathSubmitted);
+
+    let sent = harness.sent();
+    assert_eq!(go_to_paths(&sent), vec![(Location::Local, harness.start_folder(), "/d/s".to_string())]);
+}
+
+#[test]
+fn choosing_a_candidate_inserts_its_path_with_a_trailing_slash_and_closes_the_list() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+
+    harness.press(Message::PathCandidateChosen("subway".to_string()));
+
+    let edit = harness.app.path_edit().unwrap();
+    assert_eq!(edit.text, "/d/subway/");
+    assert!(edit.listing.is_none());
+}
+
 #[test]
 fn a_typed_tilde_is_left_for_core_to_resolve() {
     let mut harness = Harness::new();

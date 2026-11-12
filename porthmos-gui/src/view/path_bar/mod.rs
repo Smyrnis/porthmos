@@ -5,7 +5,7 @@ use super::button::{Look, flat, tool_button};
 use super::{bold_label, filled, label};
 use crate::app::{App, Message, PanelSide};
 use crate::breadcrumbs::{Crumb, crumbs};
-use crate::geometry::PATH_BAR_HEIGHT;
+use crate::geometry::{HAIRLINE, PATH_BAR_HEIGHT, ROW_HEIGHT, TAB_HEIGHT, TOOLBAR_HEIGHT, TRANSFER_COLUMN_WIDTH};
 use crate::icons::Icon;
 use crate::panel::Panel;
 
@@ -117,6 +117,63 @@ pub fn bar<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, width: f32) -> E
     .align_y(alignment::Vertical::Center)
     .style(filled(palette.bg))
     .into()
+}
+
+pub fn more_text(more: usize) -> Option<String> {
+    (more > 0).then(|| format!("and {more} more"))
+}
+
+const CANDIDATE_INSET: f32 = 118.0;
+const CANDIDATE_MIN_WIDTH: f32 = 180.0;
+const CANDIDATE_CHAR_WIDTH: f32 = 8.0;
+const CANDIDATE_PADDING: f32 = 16.0;
+
+fn panel_left(app: &App, side: PanelSide) -> f32 {
+    match side {
+        PanelSide::Local => 0.0,
+        PanelSide::Remote => {
+            let panel_width = (app.window_size().width - TRANSFER_COLUMN_WIDTH - 2.0 * HAIRLINE) / 2.0;
+            panel_width + TRANSFER_COLUMN_WIDTH + 2.0 * HAIRLINE
+        }
+    }
+}
+
+pub fn candidates(app: &App) -> Option<Element<'_, Message>> {
+    let edit = app.path_edit()?;
+    let listing = edit.listing.as_ref()?;
+    let palette = app.palette();
+    let (shown, more) = listing.shown();
+    let widest = shown.iter().map(|name| name.chars().count()).max().unwrap_or(0);
+    let width = (widest as f32 * CANDIDATE_CHAR_WIDTH + CANDIDATE_PADDING).max(CANDIDATE_MIN_WIDTH);
+    let mut rows = iced::widget::column![];
+    for name in shown {
+        let entry = button(label(name.clone(), palette.fg))
+            .on_press(Message::PathCandidateChosen(name.clone()))
+            .padding([0.0, 8.0])
+            .height(Length::Fixed(ROW_HEIGHT))
+            .width(Length::Fill)
+            .style(flat(palette, palette.fg, true));
+        rows = rows.push(entry);
+    }
+    if let Some(text) = more_text(more) {
+        rows = rows.push(container(label(text, palette.fg_dim)).padding([0.0, 8.0]).height(Length::Fixed(ROW_HEIGHT)));
+    }
+    let border = Border { color: palette.line_strong, width: 1.0, radius: 4.0.into() };
+    let surface = palette.surface;
+    let boxed = container(rows).width(Length::Fixed(width)).padding(2).style(move |_| container::Style {
+        background: Some(Background::Color(surface)),
+        border,
+        ..container::Style::default()
+    });
+    let top = TAB_HEIGHT + HAIRLINE + TOOLBAR_HEIGHT + HAIRLINE + PATH_BAR_HEIGHT + HAIRLINE;
+    let left = panel_left(app, edit.side) + CANDIDATE_INSET;
+    Some(
+        container(boxed)
+            .padding(iced::Padding { top, left, ..iced::Padding::ZERO })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into(),
+    )
 }
 
 #[cfg(test)]
