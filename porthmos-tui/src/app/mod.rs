@@ -634,6 +634,5 @@ async fn sleep_until_or_pending(deadline: Option<Instant>) {
 #[cfg(test)]
 pub(crate) mod testing;
 
-
 #[cfg(test)]
 mod tests;
