@@ -40,6 +40,7 @@ pub fn glyph(action: SyncAction) -> &'static str {
     match action {
         SyncAction::Upload => "\u{2191}",
         SyncAction::Download => "\u{2193}",
+        SyncAction::Delete => "\u{2715}",
         SyncAction::Skip => "\u{b7}",
     }
 }
@@ -91,7 +92,7 @@ fn tick_box<'a>(ticked: bool, palette: &Palette) -> Element<'a, Message> {
 }
 
 fn text_color(row: &SyncRow, palette: &Palette) -> Color {
-    if row.reason == reason_text(SyncReason::KindMismatch) {
+    if row.reason == reason_text(SyncReason::KindMismatch) || row.reason == reason_text(SyncReason::OnlyOnTarget) {
         palette.err
     } else if row.ticked {
         palette.fg

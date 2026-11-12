@@ -31,12 +31,18 @@ fn plan(items: Vec<SyncItem>) -> Arc<SyncPlan> {
         session: 3,
         local_root: VfsPath::from("/home/me/site"),
         remote_root: VfsPath::from("/srv/site"),
-        options: SyncOptions { direction: SyncDirection::LocalToRemote, by: SyncBy::Time, subfolders: true },
+        options: SyncOptions {
+            direction: SyncDirection::LocalToRemote,
+            by: SyncBy::Time,
+            subfolders: true,
+            mirror: false,
+        },
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
         case_clashes: 0,
         unstorable: 0,
+        mirror_skipped_empty_source: false,
     })
 }
 
@@ -145,6 +151,25 @@ fn the_action_glyphs_are_distinct() {
     assert_eq!(glyph(SyncAction::Upload), "\u{2191}");
     assert_eq!(glyph(SyncAction::Download), "\u{2193}");
     assert_eq!(glyph(SyncAction::Skip), "\u{b7}");
+    assert_eq!(glyph(SyncAction::Delete), "\u{2715}");
+}
+
+#[test]
+fn a_delete_row_is_drawn_in_the_error_colour_even_when_unticked() {
+    let palette = crate::theme::Palette::new(&crate::theme::ThemeSettings::default());
+    let mut view = SyncView::default();
+    let mut item = copy_item(0, "gone.txt");
+    item.action = SyncAction::Delete;
+    item.reason = SyncReason::OnlyOnTarget;
+    item.ticked = false;
+    item.local = None;
+    view.load(plan(vec![item]));
+
+    let row = view.row(0).unwrap();
+
+    assert_eq!(row_texts(&row).glyph, "\u{2715}");
+    assert_eq!(row_texts(&row).reason, "only on the target");
+    assert_eq!(super::text_color(&row, &palette), palette.err);
 }
 
 #[test]

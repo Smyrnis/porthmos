@@ -28,6 +28,7 @@ pub struct Summary {
     pub upload_bytes: u64,
     pub downloads: usize,
     pub download_bytes: u64,
+    pub deletes: usize,
     pub skipped: usize,
 }
 
@@ -55,12 +56,14 @@ pub fn reason_text(reason: SyncReason) -> &'static str {
         SyncReason::SizeDiffersTimeUnknown => "size differs, no time",
         SyncReason::KindMismatch => "file vs folder",
         SyncReason::EmptyFolder => "new empty folder",
+        SyncReason::OnlyOnTarget => "only on the target",
     }
 }
 
 pub fn summary_text(summary: &Summary) -> String {
+    let deletes = if summary.deletes > 0 { format!(" \u{b7} \u{2715} {}", summary.deletes) } else { String::new() };
     format!(
-        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}) \u{b7} {} skipped",
+        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}){deletes} \u{b7} {} skipped",
         summary.ticked,
         summary.uploads,
         size(summary.upload_bytes, false),
@@ -243,6 +246,7 @@ impl SyncView {
                     summary.downloads += 1;
                     summary.download_bytes += item.remote.map_or(0, |facts| facts.size);
                 }
+                SyncAction::Delete => summary.deletes += 1,
                 SyncAction::Skip => {}
             }
         }

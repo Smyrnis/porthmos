@@ -1714,9 +1714,10 @@ impl App {
                 self.core.send(Command::AddBookmark { label: text.trim().to_string(), location, path });
             }
             (true, Modal::ConfirmClearHistory) => self.core.send(Command::ClearHistory),
-            (true, Modal::SyncOptions { session, direction, by, subfolders, .. }) => {
-                self.start_sync(session, SyncOptions { direction, by, subfolders })
+            (true, Modal::SyncOptions { session, direction, by, subfolders, mirror, .. }) => {
+                self.start_sync(session, SyncOptions { direction, by, subfolders, mirror })
             }
+            (true, Modal::ConfirmSyncDelete { sync_id, choices, .. }) => self.send_sync_run(sync_id, choices),
             (true, Modal::ConfirmDelete { side, entries, count, .. }) => {
                 self.stop_counting(count);
                 if let Some(location) = self.location_of(side) {

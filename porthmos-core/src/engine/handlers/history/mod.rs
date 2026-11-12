@@ -183,10 +183,16 @@ impl Engine {
         for kind in kinds {
             match self.transfers.row(kind) {
                 None => {
+                    if let RowKind::Batch(batch_id) = kind {
+                        self.forget_pending_deletions(batch_id);
+                    }
                     self.history.recorded.remove(&kind);
                     self.history.counted.remove(&kind);
                 }
                 Some(row) if row.is_finished() => {
+                    if let RowKind::Batch(batch_id) = kind {
+                        self.finish_pending_deletions(batch_id, row.state == RowState::Done);
+                    }
                     if self.history.recorded.insert(kind) {
                         let entry = self.entry_for_row(&row);
                         self.log_failed_jobs(&row, &entry.connection);

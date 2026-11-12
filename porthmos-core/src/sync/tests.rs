@@ -19,7 +19,11 @@ fn tree(entries: &[(&str, TreeEntry)]) -> Tree {
 }
 
 fn options(direction: SyncDirection, by: SyncBy) -> SyncOptions {
-    SyncOptions { direction, by, subfolders: true }
+    SyncOptions { direction, by, subfolders: true, mirror: false }
+}
+
+fn mirrored(direction: SyncDirection) -> SyncOptions {
+    SyncOptions { mirror: true, ..options(direction, Time) }
 }
 
 type Row = (String, SyncAction, SyncReason, bool);
@@ -36,7 +40,7 @@ fn run(local: &[(&str, TreeEntry)], remote: &[(&str, TreeEntry)], options: SyncO
     rows(&diff(&tree(local), &tree(remote), options, 2))
 }
 
-use SyncAction::{Download, Skip, Upload};
+use SyncAction::{Delete, Download, Skip, Upload};
 use SyncBy::{Size, Time};
 use SyncDirection::{Both, LocalToRemote, RemoteToLocal};
 use SyncReason::*;
@@ -623,4 +627,197 @@ fn drop_unstorable_removes_every_spelling_that_collides_within_the_tree() {
 
     assert_eq!(dropped, 2);
     assert_eq!(keys(&from), ["other.txt"]);
+}
+
+fn row_for<'a>(items: &'a [SyncItem], path: &str) -> &'a SyncItem {
+    items.iter().find(|item| item.path.to_string() == path).unwrap()
+}
+
+#[test]
+fn mirror_with_both_is_refused_with_its_own_message() {
+    let message = mirrored(Both).validate().unwrap_err();
+
+    assert!(message.starts_with("Mirror needs a direction"), "{message}");
+    assert!(mirrored(LocalToRemote).validate().is_ok());
+    assert!(mirrored(RemoteToLocal).validate().is_ok());
+}
+
+#[test]
+fn a_file_only_on_the_target_becomes_an_unticked_delete_row_when_mirroring() {
+    let source = [("keep", file(1, Some(10)))];
+    let target = [("keep", file(1, Some(10))), ("gone", file(2, Some(10)))];
+
+    let up = diff(&tree(&source), &tree(&target), mirrored(LocalToRemote), 2);
+    let down = diff(&tree(&target), &tree(&source), mirrored(RemoteToLocal), 2);
+
+    for items in [up, down] {
+        assert_eq!(rows(&items), vec![("gone".into(), Delete, OnlyOnTarget, false)]);
+        assert!(!items[0].flippable);
+    }
+}
+
+#[test]
+fn without_mirror_target_only_files_are_left_out_as_before() {
+    let items = run(&[("keep", file(1, Some(10)))], &[("gone", file(2, Some(10)))], options(LocalToRemote, Time));
+
+    assert_eq!(items, vec![("keep".into(), Upload, OnlyLocal, true)]);
+}
+
+#[test]
+fn a_target_only_empty_folder_becomes_a_delete_row_with_the_empty_folder_reason() {
+    let items =
+        run(&[("keep", file(1, Some(10)))], &[("keep", file(1, Some(10))), ("old", dir())], mirrored(LocalToRemote));
+
+    assert_eq!(items, vec![("old".into(), Delete, EmptyFolder, false)]);
+}
+
+#[test]
+fn a_target_only_folder_with_files_gets_rows_for_its_files_only() {
+    let items = run(
+        &[("keep", file(1, Some(10)))],
+        &[("keep", file(1, Some(10))), ("old", dir()), ("old/a", file(1, None)), ("old/b", file(1, None))],
+        mirrored(LocalToRemote),
+    );
+
+    assert_eq!(
+        items,
+        vec![("old/a".into(), Delete, OnlyOnTarget, false), ("old/b".into(), Delete, OnlyOnTarget, false)]
+    );
+}
+
+#[test]
+fn a_target_only_folder_holding_only_a_symlink_gets_no_row() {
+    let items = run(
+        &[("keep", file(1, Some(10)))],
+        &[("keep", file(1, Some(10))), ("old", dir()), ("old/link", symlink())],
+        mirrored(LocalToRemote),
+    );
+
+    assert!(items.is_empty());
+}
+
+#[test]
+fn an_empty_source_tree_proposes_no_deletions_even_when_mirroring() {
+    let items = run(&[], &[("a", file(1, Some(10))), ("old", dir())], mirrored(LocalToRemote));
+
+    assert!(items.is_empty());
+}
+
+#[test]
+fn delete_is_allowed_only_on_items_planned_as_delete() {
+    let items =
+        diff(&tree(&[("up", file(1, Some(10)))]), &tree(&[("gone", file(2, Some(10)))]), mirrored(LocalToRemote), 2);
+    let delete = row_for(&items, "gone");
+    let upload = row_for(&items, "up");
+
+    assert_eq!(delete.allowed_actions(LocalToRemote), vec![Skip, Delete]);
+    assert!(!upload.allows(Delete, LocalToRemote));
+    assert!(upload.allows(Upload, LocalToRemote));
+}
+
+#[test]
+fn copies_are_unchanged_by_mirroring() {
+    let source = [("new", file(1, Some(10))), ("changed", file(5, Some(200))), ("same", file(1, Some(10)))];
+    let target = [("changed", file(5, Some(100))), ("same", file(1, Some(10))), ("gone", file(1, Some(10)))];
+
+    let plain = run(&source, &target, options(LocalToRemote, Time));
+    let with_mirror: Vec<Row> =
+        run(&source, &target, mirrored(LocalToRemote)).into_iter().filter(|row| row.1 != Delete).collect();
+
+    assert_eq!(plain, with_mirror);
+}
+
+fn plan_with(items: Vec<SyncItem>) -> SyncPlan {
+    SyncPlan {
+        sync_id: 1,
+        session: 7,
+        local_root: VfsPath::new("/l"),
+        remote_root: VfsPath::new("/r"),
+        options: mirrored(LocalToRemote),
+        items,
+        skipped_symlinks: 0,
+        unreadable_folders: Vec::new(),
+        case_clashes: 0,
+        unstorable: 0,
+        mirror_skipped_empty_source: false,
+    }
+}
+
+fn deletion_plan() -> SyncPlan {
+    let items = diff(
+        &tree(&[("keep", file(1, Some(10)))]),
+        &tree(&[("keep", file(1, Some(10))), ("a", file(1, None)), ("b", file(1, None)), ("old", dir())]),
+        mirrored(LocalToRemote),
+        2,
+    );
+    plan_with(items)
+}
+
+#[test]
+fn deletion_counts_split_ticked_deletes_into_files_and_empty_folders() {
+    let plan = deletion_plan();
+    let choices: Vec<(u32, SyncAction)> = plan.items.iter().map(|item| (item.id, Delete)).collect();
+
+    assert_eq!(plan.deletion_counts(&choices), (2, 1));
+}
+
+#[test]
+fn deletion_counts_ignore_choices_that_are_not_deletes() {
+    let plan = deletion_plan();
+    let first = plan.items[0].id;
+
+    assert_eq!(plan.deletion_counts(&[(first, Skip)]), (0, 0));
+    assert_eq!(plan.deletion_counts(&[]), (0, 0));
+    assert_eq!(plan.deletion_counts(&[(999, Delete)]), (0, 0));
+}
+
+#[test]
+fn the_delete_prompt_names_the_counts_and_the_place() {
+    assert_eq!(
+        mirror_delete_prompt(4, 1, "prod"),
+        "Delete 4 files and 1 empty folder from prod? Folders left empty are removed too. This can't be undone."
+    );
+    assert_eq!(
+        mirror_delete_prompt(1, 0, "This computer"),
+        "Delete 1 file from This computer? Folders left empty are removed too. This can't be undone."
+    );
+    assert_eq!(
+        mirror_delete_prompt(0, 2, "prod"),
+        "Delete 2 empty folders from prod? Folders left empty are removed too. This can't be undone."
+    );
+}
+
+#[test]
+fn dropping_unstorable_source_names_also_drops_the_target_names_that_fold_to_them() {
+    let mut from = tree(&[
+        ("Readme.md", file(1, Some(1))),
+        ("README.md", file(1, Some(1))),
+        ("Docs", dir()),
+        ("Docs/a.txt", file(1, Some(1))),
+        ("docs", dir()),
+        ("keep.txt", file(1, Some(1))),
+    ]);
+    let mut onto = tree(&[
+        ("readme.md", file(1, Some(1))),
+        ("DOCS", dir()),
+        ("DOCS/b.txt", file(1, Some(1))),
+        ("other.txt", file(1, Some(1))),
+        ("keep.txt", file(1, Some(1))),
+    ]);
+
+    let dropped = drop_unstorable_with_counterparts(&mut from, &mut onto, NameRules::Windows);
+
+    assert_eq!(dropped, 4);
+    assert_eq!(keys(&from), ["keep.txt"]);
+    assert_eq!(keys(&onto), ["keep.txt", "other.txt"]);
+}
+
+#[test]
+fn dropping_unstorable_source_names_leaves_the_target_alone_under_case_sensitive_rules() {
+    let mut from = tree(&[("a:b.txt", file(1, Some(1))), ("keep.txt", file(1, Some(1)))]);
+    let mut onto = tree(&[("A:B.TXT", file(1, Some(1)))]);
+
+    drop_unstorable_with_counterparts(&mut from, &mut onto, NameRules::Permissive);
+
+    assert_eq!(keys(&onto), ["A:B.TXT"]);
 }

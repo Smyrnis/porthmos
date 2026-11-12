@@ -713,3 +713,25 @@ fn the_probe_sees_read_only_folders_block_writes_for_an_ordinary_user() {
     let is_root = std::fs::metadata("/proc/self").is_ok_and(|meta| std::os::unix::fs::MetadataExt::uid(&meta) == 0);
     assert_eq!(super::read_only_folders_block_writes(), !is_root);
 }
+
+#[tokio::test]
+async fn a_path_marked_as_refusing_delete_keeps_existing_and_fails() {
+    let fs = FakeFs::new();
+    fs.file("/data/keep.txt", b"x", None);
+    fs.refusing_delete("/data/keep.txt");
+
+    assert!(fs.delete(&VfsPath::new("/data/keep.txt")).await.is_err());
+
+    assert!(fs.exists("/data/keep.txt"));
+}
+
+#[tokio::test]
+async fn a_fake_without_remove_dir_reports_it_as_unsupported_and_keeps_the_folder() {
+    let fs = FakeFs::new().without_remove_dir();
+    fs.dir("/data/empty");
+
+    let err = fs.remove_dir(&VfsPath::new("/data/empty")).await.unwrap_err();
+
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+    assert!(fs.exists("/data/empty"));
+}

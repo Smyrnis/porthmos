@@ -22,12 +22,16 @@ pub struct SyncOptions {
     pub direction: SyncDirection,
     pub by: SyncBy,
     pub subfolders: bool,
+    pub mirror: bool,
 }
 
 impl SyncOptions {
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.direction == SyncDirection::Both && self.by == SyncBy::Size {
             return Err("Comparing by size can't decide a direction, so it can't be used with Both");
+        }
+        if self.mirror && self.direction == SyncDirection::Both {
+            return Err("Mirror needs a direction: choose local to remote or remote to local");
         }
         Ok(())
     }
@@ -38,6 +42,7 @@ pub enum SyncAction {
     Upload,
     Download,
     Skip,
+    Delete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +57,7 @@ pub enum SyncReason {
     SizeDiffersTimeUnknown,
     KindMismatch,
     EmptyFolder,
+    OnlyOnTarget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +86,9 @@ impl SyncItem {
         let upload = self.local.is_some() && direction != SyncDirection::RemoteToLocal;
         let download = self.remote.is_some() && direction != SyncDirection::LocalToRemote;
         let mut allowed = vec![SyncAction::Skip];
+        if self.action == SyncAction::Delete {
+            allowed.push(SyncAction::Delete);
+        }
         if upload {
             allowed.push(SyncAction::Upload);
         }
@@ -118,6 +127,37 @@ pub struct SyncPlan {
     pub unreadable_folders: Vec<VfsPath>,
     pub case_clashes: usize,
     pub unstorable: usize,
+    pub mirror_skipped_empty_source: bool,
+}
+
+impl SyncPlan {
+    pub fn deletion_counts(&self, choices: &[(u32, SyncAction)]) -> (usize, usize) {
+        let mut files = 0;
+        let mut folders = 0;
+        for (id, action) in choices {
+            if *action != SyncAction::Delete {
+                continue;
+            }
+            match self.items.iter().find(|item| item.id == *id) {
+                Some(item) if item.reason == SyncReason::EmptyFolder => folders += 1,
+                Some(_) => files += 1,
+                None => {}
+            }
+        }
+        (files, folders)
+    }
+}
+
+pub fn mirror_delete_prompt(files: usize, folders: usize, place: &str) -> String {
+    let counted = |count: usize, word: &str| {
+        if count == 1 { format!("{count} {word}") } else { format!("{count} {word}s") }
+    };
+    let what = match (files, folders) {
+        (files, 0) => counted(files, "file"),
+        (0, folders) => counted(folders, "empty folder"),
+        (files, folders) => format!("{} and {}", counted(files, "file"), counted(folders, "empty folder")),
+    };
+    format!("Delete {what} from {place}? Folders left empty are removed too. This can't be undone.")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,7 +182,7 @@ impl TreeEntry {
 
 pub type Tree = BTreeMap<VfsPath, TreeEntry>;
 
-pub(crate) fn drop_unstorable(from: &mut Tree, rules: NameRules) -> usize {
+fn unstorable_roots(from: &Tree, rules: NameRules) -> BTreeSet<VfsPath> {
     let mut dropped: BTreeSet<VfsPath> = from
         .keys()
         .filter(|path| path.segments().any(|segment| rules.problem(&segment.to_string_lossy()).is_some()))
@@ -155,12 +195,29 @@ pub(crate) fn drop_unstorable(from: &mut Tree, rules: NameRules) -> usize {
         }
         dropped.extend(by_folded.into_values().filter(|group| group.len() > 1).flatten().cloned());
     }
-    let roots: BTreeSet<VfsPath> = dropped
+    dropped
         .iter()
         .filter(|path| !path.ancestors().skip(1).any(|ancestor| dropped.contains(&ancestor)))
         .cloned()
-        .collect();
+        .collect()
+}
+
+pub(crate) fn drop_unstorable(from: &mut Tree, rules: NameRules) -> usize {
+    let roots = unstorable_roots(from, rules);
     from.retain(|path, _| !path.ancestors().any(|ancestor| roots.contains(&ancestor)));
+    roots.len()
+}
+
+pub(crate) fn drop_unstorable_with_counterparts(from: &mut Tree, onto: &mut Tree, rules: NameRules) -> usize {
+    let roots = unstorable_roots(from, rules);
+    from.retain(|path, _| !path.ancestors().any(|ancestor| roots.contains(&ancestor)));
+    if !rules.is_case_sensitive() {
+        let folded: Vec<String> = roots.iter().map(|root| rules.fold(&root.to_string_lossy())).collect();
+        onto.retain(|path, _| {
+            let name = rules.fold(&path.to_string_lossy());
+            !folded.iter().any(|root| name == *root || name.starts_with(&format!("{root}/")))
+        });
+    }
     roots.len()
 }
 
@@ -218,6 +275,23 @@ fn only_one_side(on_local: bool, direction: SyncDirection) -> Option<Verdict> {
 
 fn empty_folder_on_one_side(on_local: bool, direction: SyncDirection) -> Option<Verdict> {
     only_one_side(on_local, direction).map(|verdict| Verdict { reason: SyncReason::EmptyFolder, ..verdict })
+}
+
+fn mirror_verdict(target_entry: &TreeEntry, path: &VfsPath, target_holds: &HashSet<VfsPath>) -> Option<Verdict> {
+    let reason = match target_entry.kind {
+        TreeKind::File => SyncReason::OnlyOnTarget,
+        TreeKind::Dir if !target_holds.contains(path) => SyncReason::EmptyFolder,
+        _ => return None,
+    };
+    Some(Verdict { action: SyncAction::Delete, reason, ticked: false })
+}
+
+pub(crate) fn has_content(tree: &Tree) -> bool {
+    tree.values().any(|entry| matches!(entry.kind, TreeKind::File | TreeKind::Dir))
+}
+
+fn folders_holding_anything(tree: &Tree) -> HashSet<VfsPath> {
+    tree.keys().filter_map(|path| path.parent()).collect()
 }
 
 fn folders_holding_something(tree: &Tree) -> HashSet<VfsPath> {
@@ -291,6 +365,13 @@ pub fn compare(
     }
     let paths: BTreeSet<&VfsPath> = local.keys().chain(remote.keys()).collect();
     let (local_holds, remote_holds) = (folders_holding_something(local), folders_holding_something(remote));
+    let mirror_target_is_local = match (options.mirror, options.direction) {
+        (true, SyncDirection::LocalToRemote) if has_content(local) => Some(false),
+        (true, SyncDirection::RemoteToLocal) if has_content(remote) => Some(true),
+        _ => None,
+    };
+    let target_tree = mirror_target_is_local.map(|is_local| if is_local { local } else { remote });
+    let target_holds = target_tree.map(folders_holding_anything).unwrap_or_default();
     let mut mismatched: HashSet<VfsPath> = HashSet::new();
     let mut items = Vec::new();
     for path in paths {
@@ -316,6 +397,14 @@ pub fn compare(
             }
             _ => None,
         };
+        let verdict = verdict.or_else(|| {
+            let is_local = mirror_target_is_local?;
+            let (target, source) = if is_local { (local, remote) } else { (remote, local) };
+            match (target.get(path), source.get(path)) {
+                (Some(entry), None) => mirror_verdict(entry, path, &target_holds),
+                _ => None,
+            }
+        });
         let Some(verdict) = verdict else {
             continue;
         };

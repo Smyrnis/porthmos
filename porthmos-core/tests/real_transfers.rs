@@ -358,7 +358,7 @@ fn modified_seconds(path: &std::path::Path) -> u64 {
 }
 
 fn sync_options(direction: SyncDirection) -> SyncOptions {
-    SyncOptions { direction, by: SyncBy::Time, subfolders: true }
+    SyncOptions { direction, by: SyncBy::Time, subfolders: true, mirror: false }
 }
 
 fn make_tree(rig: &Rig) {

@@ -21,7 +21,7 @@ use crate::{
 const REMOTE_ROOT: &str = "/srv";
 
 fn options(direction: SyncDirection, by: SyncBy) -> SyncOptions {
-    SyncOptions { direction, by, subfolders: true }
+    SyncOptions { direction, by, subfolders: true, mirror: false }
 }
 
 fn connect(t: &mut TestEngine, name: &str) -> (u64, FakeFs) {
@@ -1242,7 +1242,8 @@ async fn without_subfolders_a_real_nested_remote_folder_produces_only_depth_one_
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::create_dir_all(work_dir(&t).join("a")).unwrap();
     std::os::unix::fs::symlink(&outside, work_dir(&t).join("a/s")).unwrap();
-    let flat = SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Time, subfolders: false };
+    let flat =
+        SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Time, subfolders: false, mirror: false };
     let plan = scan(&mut t, session, flat).await;
 
     run(&mut t, &plan, ticked(&plan)).await;
@@ -1364,4 +1365,263 @@ async fn a_folder_that_already_exists_on_the_target_by_the_time_of_the_run_is_le
     run(&mut t, &plan, ticked(&plan)).await;
 
     assert_eq!(remote.contents("/srv/empty/kept.txt").unwrap(), b"keep");
+}
+
+fn mirror(direction: SyncDirection) -> SyncOptions {
+    SyncOptions { mirror: true, ..options(direction, SyncBy::Time) }
+}
+
+fn item_id(plan: &SyncPlan, path: &str) -> u32 {
+    plan.items.iter().find(|item| item.path.to_string() == path).unwrap().id
+}
+
+async fn run_and_settle(t: &mut TestEngine, plan: &SyncPlan, choices: Vec<(u32, SyncAction)>) {
+    run(t, plan, choices).await;
+    t.settle().await;
+}
+
+fn messages(t: &mut TestEngine) -> Vec<String> {
+    t.notices().into_iter().map(|(_, message)| message).collect()
+}
+
+#[tokio::test]
+async fn mirror_planning_with_an_empty_source_proposes_nothing_and_says_so() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/theirs.txt", b"x", Some(10));
+    work_dir(&t);
+    start(&mut t, session, mirror(SyncDirection::LocalToRemote));
+
+    t.run_internal().await;
+
+    let events = t.drain();
+    assert!(plan_of(events.clone()).is_none());
+    assert!(
+        events.iter().any(
+            |event| matches!(event, Event::Notice { message, .. } if message.to_string().contains("Mirror skipped"))
+        ),
+        "{events:?}"
+    );
+    assert!(remote.exists("/srv/theirs.txt"));
+}
+
+#[tokio::test]
+async fn a_ticked_delete_removes_the_target_only_file_after_the_copy_finishes() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    write_local(&t, "new.txt", b"fresh", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let mut choices = ticked(&plan);
+    choices.push((item_id(&plan, "gone.txt"), SyncAction::Delete));
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert_eq!(remote.contents("/srv/new.txt").unwrap(), b"fresh");
+    assert!(!remote.exists("/srv/gone.txt"));
+    assert!(messages(&mut t).iter().any(|message| message == "Deleted 1 file from prod"));
+}
+
+#[tokio::test]
+async fn a_failed_copy_skips_the_deletions_and_warns() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    remote.fail_shutdown("/srv/new.txt.part");
+    write_local(&t, "new.txt", b"fresh", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let mut choices = ticked(&plan);
+    choices.push((item_id(&plan, "gone.txt"), SyncAction::Delete));
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(remote.exists("/srv/gone.txt"));
+    assert!(
+        messages(&mut t).iter().any(|message| message == "Deletions skipped because the copies did not all finish")
+    );
+}
+
+#[tokio::test]
+async fn a_run_with_only_delete_choices_deletes_immediately_and_reports_the_count() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/keep.txt", b"same", Some(1_000));
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    remote.file("/srv/gone2.txt", b"old", Some(10));
+    write_local(&t, "keep.txt", b"same", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let choices =
+        vec![(item_id(&plan, "gone.txt"), SyncAction::Delete), (item_id(&plan, "gone2.txt"), SyncAction::Delete)];
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(remote.exists("/srv/keep.txt"));
+    assert!(!remote.exists("/srv/gone.txt") && !remote.exists("/srv/gone2.txt"));
+    assert!(messages(&mut t).iter().any(|message| message == "Deleted 2 files from prod"));
+}
+
+#[tokio::test]
+async fn an_unticked_row_is_not_sent_so_nothing_is_deleted() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    write_local(&t, "new.txt", b"fresh", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+
+    run_and_settle(&mut t, &plan, ticked(&plan)).await;
+
+    assert!(remote.exists("/srv/gone.txt"));
+    assert_eq!(remote.contents("/srv/new.txt").unwrap(), b"fresh");
+}
+
+#[tokio::test]
+async fn a_delete_choice_for_an_upload_item_or_a_repeated_id_is_refused_and_counted() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    write_local(&t, "new.txt", b"fresh", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let (upload, delete) = (item_id(&plan, "new.txt"), item_id(&plan, "gone.txt"));
+    t.drain();
+
+    run_and_settle(
+        &mut t,
+        &plan,
+        vec![(upload, SyncAction::Delete), (delete, SyncAction::Delete), (delete, SyncAction::Delete)],
+    )
+    .await;
+
+    assert!(!remote.exists("/srv/gone.txt"));
+    assert!(!remote.exists("/srv/new.txt"));
+    assert_eq!(refusal_warnings(&mut t), vec!["Ignored 2 sync choices that don't apply".to_string()]);
+}
+
+#[tokio::test]
+async fn folders_emptied_by_the_deletions_are_removed_deepest_first() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/keep.txt", b"same", Some(1_000));
+    remote.file("/srv/old/a/f.txt", b"x", Some(10));
+    write_local(&t, "keep.txt", b"same", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+
+    run_and_settle(&mut t, &plan, vec![(item_id(&plan, "old/a/f.txt"), SyncAction::Delete)]).await;
+
+    assert!(!remote.exists("/srv/old/a/f.txt"));
+    assert!(!remote.exists("/srv/old/a"));
+    assert!(!remote.exists("/srv/old"));
+    assert!(remote.exists("/srv/keep.txt"));
+}
+
+#[tokio::test]
+async fn a_folder_that_still_holds_a_file_or_symlink_is_left_alone() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/keep.txt", b"same", Some(1_000));
+    remote.file("/srv/old/a.txt", b"x", Some(10));
+    remote.file("/srv/old/b.txt", b"x", Some(10));
+    remote.file("/srv/linked/f.txt", b"x", Some(10));
+    remote.symlink("/srv/linked/link", "/srv/keep.txt");
+    write_local(&t, "keep.txt", b"same", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let choices =
+        vec![(item_id(&plan, "old/a.txt"), SyncAction::Delete), (item_id(&plan, "linked/f.txt"), SyncAction::Delete)];
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(!remote.exists("/srv/old/a.txt"));
+    assert!(remote.exists("/srv/old/b.txt"));
+    assert!(remote.exists("/srv/old"));
+    assert!(!remote.exists("/srv/linked/f.txt"));
+    assert!(remote.exists("/srv/linked/link"));
+    assert!(remote.exists("/srv/linked"));
+}
+
+#[tokio::test]
+async fn removing_a_folder_falls_back_to_list_then_delete_when_remove_dir_is_unsupported() {
+    let mut t = test_engine();
+    let remote = FakeFs::new().without_remove_dir();
+    remote.file("/srv/keep.txt", b"same", Some(1_000));
+    remote.file("/srv/old/f.txt", b"x", Some(10));
+    remote.file("/srv/full/f.txt", b"x", Some(10));
+    remote.file("/srv/full/stay.txt", b"x", Some(10));
+    let session = connect_with(&mut t, "prod", remote.clone());
+    write_local(&t, "keep.txt", b"same", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let choices =
+        vec![(item_id(&plan, "old/f.txt"), SyncAction::Delete), (item_id(&plan, "full/f.txt"), SyncAction::Delete)];
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(!remote.exists("/srv/old"));
+    assert!(remote.exists("/srv/full/stay.txt"));
+}
+
+#[tokio::test]
+async fn a_delete_failure_stops_the_run_and_names_the_failure() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/keep.txt", b"same", Some(1_000));
+    remote.file("/srv/a.txt", b"x", Some(10));
+    remote.file("/srv/b.txt", b"x", Some(10));
+    remote.refusing_delete("/srv/a.txt");
+    write_local(&t, "keep.txt", b"same", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    t.drain();
+    let choices = vec![(item_id(&plan, "a.txt"), SyncAction::Delete), (item_id(&plan, "b.txt"), SyncAction::Delete)];
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(remote.exists("/srv/a.txt") && remote.exists("/srv/b.txt"));
+    let notices = messages(&mut t);
+    assert!(notices.iter().any(|message| message.contains("Unable to delete")), "{notices:?}");
+}
+
+#[tokio::test]
+async fn a_target_name_that_only_looks_target_only_because_the_source_spellings_clash_is_not_offered_for_deletion() {
+    let mut t = test_engine();
+    let remote = FakeFs::new().with_name_rules(porthmos_vfs::NameRules::Windows);
+    remote.file("/srv/readme.md", b"old", Some(10));
+    let session = connect_with(&mut t, "prod", remote.clone());
+    write_local(&t, "Readme.md", b"a", 1_000);
+    write_local(&t, "README.md", b"b", 1_000);
+    write_local(&t, "keep.txt", b"c", 1_000);
+
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+
+    assert!(plan.items.iter().all(|item| item.action != SyncAction::Delete), "{:?}", plan.items);
+}
+
+#[tokio::test]
+async fn deletions_still_run_when_the_copy_only_creates_empty_folders() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    std::fs::create_dir_all(work_dir(&t).join("fresh")).unwrap();
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let mut choices = ticked(&plan);
+    choices.push((item_id(&plan, "gone.txt"), SyncAction::Delete));
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(remote.exists("/srv/fresh"));
+    assert!(!remote.exists("/srv/gone.txt"));
+    assert!(messages(&mut t).iter().any(|message| message == "Deleted 1 file from prod"));
+    assert!(t.engine.sync.pending_deletions.is_empty());
+}
+
+#[tokio::test]
+async fn a_target_file_whose_source_twin_appeared_after_planning_is_not_deleted() {
+    let mut t = test_engine();
+    let (session, remote) = connect(&mut t, "prod");
+    remote.file("/srv/gone.txt", b"old", Some(10));
+    write_local(&t, "new.txt", b"fresh", 1_000);
+    let plan = scan(&mut t, session, mirror(SyncDirection::LocalToRemote)).await;
+    let mut choices = ticked(&plan);
+    choices.push((item_id(&plan, "gone.txt"), SyncAction::Delete));
+    write_local(&t, "gone.txt", b"back again", 1_000);
+
+    run_and_settle(&mut t, &plan, choices).await;
+
+    assert!(remote.exists("/srv/gone.txt"), "{:?}", messages(&mut t));
 }

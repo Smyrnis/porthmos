@@ -206,6 +206,7 @@ impl App {
                     }
                     Some(PendingAction::ClearHistory) => self.core.send(Command::ClearHistory),
                     Some(PendingAction::ConfirmQuit) => self.should_quit = true,
+                    Some(PendingAction::ConfirmSyncDelete { sync_id, choices }) => self.send_sync_run(sync_id, choices),
                     Some(PendingAction::EditUpload { edit_id }) => {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Upload })
                     }
@@ -254,6 +255,7 @@ impl App {
                     | Some(PendingAction::EditConflict { .. })
                     | Some(PendingAction::ConfirmQuit)
                     | Some(PendingAction::StartSync { .. })
+                    | Some(PendingAction::ConfirmSyncDelete { .. })
                     | None => {}
                 }
             }

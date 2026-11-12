@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use porthmos_core::sync::{SyncBy, SyncDirection, SyncOptions, SyncPlan};
+use porthmos_core::{
+    delete_prompt::THIS_COMPUTER,
+    sync::{SyncAction, SyncBy, SyncDirection, SyncOptions, SyncPlan, mirror_delete_prompt},
+};
 
 use super::*;
 use crate::widgets::{
@@ -12,6 +15,7 @@ use crate::widgets::{
 const DIRECTION: &str = "direction";
 const BY: &str = "by";
 const SUBFOLDERS: &str = "subfolders";
+const MIRROR: &str = "mirror";
 
 fn choices(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
     pairs.iter().map(|(value, label)| (value.to_string(), label.to_string())).collect()
@@ -43,6 +47,12 @@ impl App {
             FormField::choice(DIRECTION, "Direction", choices(&directions), "local_to_remote"),
             FormField::choice(BY, "Compare by", choices(&[("time", "Modification time"), ("size", "Size")]), "time"),
             FormField::choice(SUBFOLDERS, "Subfolders", choices(&[("yes", "Included"), ("no", "Not included")]), "yes"),
+            FormField::choice(
+                MIRROR,
+                "Mirror",
+                choices(&[("no", "Off"), ("yes", "Delete files missing from the source")]),
+                "no",
+            ),
         ];
         let mut form = FormDialog::new(format!("Synchronize with {}", session.name), fields);
         if !session.preserves_times {
@@ -137,9 +147,31 @@ impl App {
             self.notifications.push(Severity::Warning, message);
             return;
         }
+        let (files, folders) = self.sync_view.plan().map_or((0, 0), |plan| plan.deletion_counts(&choices));
+        if files + folders > 0 {
+            let place = self.sync_delete_place();
+            let message = mirror_delete_prompt(files, folders, &place);
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
+            self.pending_action = Some(PendingAction::ConfirmSyncDelete { sync_id, choices });
+            return;
+        }
+        self.send_sync_run(sync_id, choices);
+    }
+
+    pub(super) fn send_sync_run(&mut self, sync_id: u64, choices: Vec<(u32, SyncAction)>) {
         self.core.send(Command::RunSync { sync_id, choices });
         self.sync_view.clear();
         self.screen = Screen::Files;
+    }
+
+    fn sync_delete_place(&self) -> String {
+        let Some(plan) = self.sync_view.plan() else {
+            return String::new();
+        };
+        match plan.options.direction {
+            SyncDirection::RemoteToLocal => THIS_COMPUTER.to_string(),
+            _ => self.sessions.by_id(plan.session).map(|session| session.name.clone()).unwrap_or_default(),
+        }
     }
 
     pub(super) fn leave_sync_screen(&mut self) {
@@ -174,7 +206,12 @@ fn parse_options(values: &[(&'static str, String)]) -> Result<SyncOptions, Strin
         "no" => false,
         other => return Err(unknown_choice("subfolders option", other)),
     };
-    let options = SyncOptions { direction, by, subfolders };
+    let mirror = match value(MIRROR) {
+        "yes" => true,
+        "no" => false,
+        other => return Err(unknown_choice("mirror option", other)),
+    };
+    let options = SyncOptions { direction, by, subfolders, mirror };
     options.validate().map_err(str::to_string)?;
     Ok(options)
 }

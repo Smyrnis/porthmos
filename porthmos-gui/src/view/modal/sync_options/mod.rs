@@ -41,7 +41,8 @@ fn direction_titles(offer_both: bool) -> Vec<(&'static str, SyncDirection)> {
 }
 
 pub fn body<'a>(
-    direction: SyncDirection, by: SyncBy, subfolders: bool, offer_both: bool, error: &Option<String>, palette: &Palette,
+    direction: SyncDirection, by: SyncBy, subfolders: bool, mirror: bool, offer_both: bool, error: &Option<String>,
+    palette: &Palette,
 ) -> Element<'a, Message> {
     let directions: Vec<_> = direction_titles(offer_both)
         .into_iter()
@@ -55,10 +56,15 @@ pub fn body<'a>(
         choice("Included", subfolders, SyncChoice::Subfolders(true), palette),
         choice("Not included", !subfolders, SyncChoice::Subfolders(false), palette),
     ];
+    let mirroring = vec![
+        choice("Off", !mirror, SyncChoice::Mirror(false), palette),
+        choice("Delete files missing from the source", mirror, SyncChoice::Mirror(true), palette),
+    ];
     let mut content = column![
         line("Direction", stacked(directions), palette),
         line("Compare by", beside(comparisons), palette),
         line("Subfolders", beside(folders), palette),
+        line("Mirror", beside(mirroring), palette),
     ]
     .spacing(10);
     if !offer_both {

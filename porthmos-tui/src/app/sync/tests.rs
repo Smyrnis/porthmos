@@ -97,7 +97,12 @@ fn enter_with_the_defaults_starts_a_local_to_remote_sync_of_the_two_panel_folder
             session: 3,
             local_dir: VfsPath::from("/d"),
             remote_dir: VfsPath::from("/srv"),
-            options: SyncOptions { direction: SyncDirection::LocalToRemote, by: SyncBy::Time, subfolders: true },
+            options: SyncOptions {
+                direction: SyncDirection::LocalToRemote,
+                by: SyncBy::Time,
+                subfolders: true,
+                mirror: false
+            },
         }]
     );
 }
@@ -120,7 +125,12 @@ fn every_field_can_be_changed_with_left_and_right() {
             session: 3,
             local_dir: VfsPath::from("/d"),
             remote_dir: VfsPath::from("/srv"),
-            options: SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Size, subfolders: false },
+            options: SyncOptions {
+                direction: SyncDirection::RemoteToLocal,
+                by: SyncBy::Size,
+                subfolders: false,
+                mirror: false
+            },
         }]
     );
 }
@@ -171,7 +181,12 @@ fn session_capabilities_are_remembered_per_session() {
 }
 
 fn values(direction: &str, by: &str, subfolders: &str) -> Vec<(&'static str, String)> {
-    vec![("direction", direction.to_string()), ("by", by.to_string()), ("subfolders", subfolders.to_string())]
+    vec![
+        ("direction", direction.to_string()),
+        ("by", by.to_string()),
+        ("subfolders", subfolders.to_string()),
+        ("mirror", "no".to_string()),
+    ]
 }
 
 #[test]
@@ -220,11 +235,11 @@ fn unknown_choice_values_are_refused_instead_of_replaced_by_defaults() {
 fn every_known_choice_value_is_parsed() {
     assert_eq!(
         parse_options(&values("remote_to_local", "size", "no")),
-        Ok(SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Size, subfolders: false })
+        Ok(SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Size, subfolders: false, mirror: false })
     );
     assert_eq!(
         parse_options(&values("both", "time", "yes")),
-        Ok(SyncOptions { direction: SyncDirection::Both, by: SyncBy::Time, subfolders: true })
+        Ok(SyncOptions { direction: SyncDirection::Both, by: SyncBy::Time, subfolders: true, mirror: false })
     );
     assert!(parse_options(&values("both", "size", "yes")).is_err());
 }
@@ -280,7 +295,12 @@ fn shift_tab_moves_back_to_the_previous_field() {
             session: 3,
             local_dir: VfsPath::from("/d"),
             remote_dir: VfsPath::from("/srv"),
-            options: SyncOptions { direction: SyncDirection::RemoteToLocal, by: SyncBy::Size, subfolders: true },
+            options: SyncOptions {
+                direction: SyncDirection::RemoteToLocal,
+                by: SyncBy::Size,
+                subfolders: true,
+                mirror: false
+            },
         }]
     );
 }
@@ -295,12 +315,18 @@ fn plan_with_id(sync_id: u64, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         session: 3,
         local_root: VfsPath::from("/d"),
         remote_root: VfsPath::from("/srv"),
-        options: SyncOptions { direction: SyncDirection::LocalToRemote, by: SyncBy::Time, subfolders: true },
+        options: SyncOptions {
+            direction: SyncDirection::LocalToRemote,
+            by: SyncBy::Time,
+            subfolders: true,
+            mirror: false,
+        },
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
         case_clashes: 0,
         unstorable: 0,
+        mirror_skipped_empty_source: false,
     })
 }
 
@@ -740,4 +766,162 @@ fn jumping_to_the_last_row_of_a_filtered_plan_stays_inside_the_matches() {
     press(&mut test, KeyCode::End);
 
     assert_eq!(test.app.sync_view.cursor(), test.app.sync_view.matched() - 1);
+}
+
+fn target_only(id: u32, path: &str, reason: SyncReason) -> SyncItem {
+    SyncItem {
+        id,
+        path: VfsPath::from(path),
+        local: None,
+        remote: Some(SyncFacts { size: 5, modified: Some(10) }),
+        action: SyncAction::Delete,
+        reason,
+        ticked: false,
+        flippable: false,
+    }
+}
+
+fn mirror_plan(direction: SyncDirection, items: Vec<SyncItem>) -> Arc<SyncPlan> {
+    let plan = plan_with(items);
+    Arc::new(SyncPlan { options: SyncOptions { direction, mirror: true, ..plan.options }, ..(*plan).clone() })
+}
+
+fn with_mirror_plan(direction: SyncDirection, items: Vec<SyncItem>) -> TestApp {
+    let mut test = connected(true);
+    test.app.apply_core_event(Event::SyncPlanReady(mirror_plan(direction, items)));
+    test.sent();
+    test
+}
+
+fn confirm_message(test: &TestApp) -> String {
+    match &test.app.dialog {
+        Some(Dialog::Confirm(dialog)) => dialog.message.clone(),
+        _ => panic!("expected the delete confirmation"),
+    }
+}
+
+#[test]
+fn the_dialog_offers_the_mirror_choice_off_by_default() {
+    let mut test = connected(true);
+    open(&mut test);
+
+    assert_eq!(choice_values(form(&test), "mirror"), ["no", "yes"]);
+    press(&mut test, KeyCode::Enter);
+
+    assert!(matches!(test.sent().as_slice(), [Command::StartSync { options, .. }] if !options.mirror));
+}
+
+#[test]
+fn choosing_mirror_is_carried_into_the_sync_options() {
+    let mut test = connected(true);
+    open(&mut test);
+    for _ in 0..3 {
+        press(&mut test, KeyCode::Tab);
+    }
+    press(&mut test, KeyCode::Right);
+
+    press(&mut test, KeyCode::Enter);
+
+    assert!(matches!(test.sent().as_slice(), [Command::StartSync { options, .. }] if options.mirror));
+}
+
+#[test]
+fn mirror_with_both_is_refused_inside_the_dialog() {
+    let mut test = connected(true);
+    open(&mut test);
+    press(&mut test, KeyCode::Right);
+    press(&mut test, KeyCode::Right);
+    for _ in 0..3 {
+        press(&mut test, KeyCode::Tab);
+    }
+    press(&mut test, KeyCode::Right);
+
+    press(&mut test, KeyCode::Enter);
+
+    assert!(form(&test).error.as_deref().is_some_and(|error| error.contains("Mirror")));
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn an_unknown_mirror_value_is_refused() {
+    let mut values = values("both", "time", "yes");
+    values[3].1 = "maybe".to_string();
+
+    assert!(parse_options(&values).is_err());
+}
+
+#[test]
+fn enter_with_a_ticked_delete_asks_first_and_sends_nothing_until_accepted() {
+    let mut test = with_mirror_plan(
+        SyncDirection::LocalToRemote,
+        vec![upload(0, "a.txt"), target_only(1, "gone.txt", SyncReason::OnlyOnTarget)],
+    );
+    press(&mut test, KeyCode::Down);
+    press(&mut test, KeyCode::Char(' '));
+
+    press(&mut test, KeyCode::Enter);
+
+    assert!(test.sent().is_empty());
+    assert_eq!(test.app.screen, Screen::Sync);
+    assert_eq!(
+        confirm_message(&test),
+        "Delete 1 file from prod? Folders left empty are removed too. This can't be undone."
+    );
+
+    press(&mut test, KeyCode::Char('y'));
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::RunSync { sync_id: 11, choices: vec![(0, SyncAction::Upload), (1, SyncAction::Delete)] }]
+    );
+    assert_eq!(test.app.screen, Screen::Files);
+    assert!(!test.app.sync_view.has_plan());
+}
+
+#[test]
+fn declining_the_delete_confirmation_keeps_the_plan_and_sends_nothing() {
+    let mut test =
+        with_mirror_plan(SyncDirection::LocalToRemote, vec![target_only(0, "gone.txt", SyncReason::OnlyOnTarget)]);
+    press(&mut test, KeyCode::Char(' '));
+    press(&mut test, KeyCode::Enter);
+
+    press(&mut test, KeyCode::Char('n'));
+
+    assert!(test.sent().is_empty());
+    assert!(test.app.dialog.is_none() && test.app.pending_action.is_none());
+    assert_eq!(test.app.screen, Screen::Sync);
+    assert!(test.app.sync_view.has_plan());
+}
+
+#[test]
+fn the_delete_confirmation_counts_files_and_empty_folders_and_names_this_computer_when_downloading() {
+    let mut test = with_mirror_plan(
+        SyncDirection::RemoteToLocal,
+        vec![
+            target_only(0, "a.txt", SyncReason::OnlyOnTarget),
+            target_only(1, "b.txt", SyncReason::OnlyOnTarget),
+            target_only(2, "old", SyncReason::EmptyFolder),
+        ],
+    );
+    press(&mut test, KeyCode::Char('a'));
+
+    press(&mut test, KeyCode::Enter);
+
+    assert_eq!(
+        confirm_message(&test),
+        "Delete 2 files and 1 empty folder from this computer? Folders left empty are removed too. This can't be undone."
+    );
+}
+
+#[test]
+fn enter_without_a_ticked_delete_runs_at_once_even_in_a_mirror_plan() {
+    let mut test = with_mirror_plan(
+        SyncDirection::LocalToRemote,
+        vec![upload(0, "a.txt"), target_only(1, "gone.txt", SyncReason::OnlyOnTarget)],
+    );
+
+    press(&mut test, KeyCode::Enter);
+
+    assert!(test.app.dialog.is_none());
+    assert_eq!(test.sent(), vec![Command::RunSync { sync_id: 11, choices: vec![(0, SyncAction::Upload)] }]);
 }

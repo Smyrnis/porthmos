@@ -32,12 +32,13 @@ fn plan(direction: SyncDirection, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         session: 3,
         local_root: VfsPath::from("/home/me/site"),
         remote_root: VfsPath::from("/srv/site"),
-        options: SyncOptions { direction, by: SyncBy::Time, subfolders: true },
+        options: SyncOptions { direction, by: SyncBy::Time, subfolders: true, mirror: false },
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
         case_clashes: 0,
         unstorable: 0,
+        mirror_skipped_empty_source: false,
     })
 }
 
@@ -672,4 +673,79 @@ fn the_source_no_longer_uses_the_reversed_modifier_or_a_box() {
 
     assert!(!source.contains("REVERSED"));
     assert!(!source.contains("Borders"));
+}
+
+fn mirror_view() -> SyncView {
+    let mut view = SyncView::new();
+    let base = plan(
+        SyncDirection::LocalToRemote,
+        vec![
+            item(0, "a.txt", SyncAction::Upload, SyncReason::OnlyLocal, true, facts(100, 1_000), None),
+            item(1, "gone.txt", SyncAction::Delete, SyncReason::OnlyOnTarget, false, None, facts(50, 1_000)),
+            item(2, "old", SyncAction::Delete, SyncReason::EmptyFolder, false, None, facts(0, 1_000)),
+        ],
+    );
+    view.load(Arc::new(SyncPlan { options: SyncOptions { mirror: true, ..base.options }, ..(*base).clone() }));
+    view
+}
+
+#[test]
+fn the_reason_of_a_target_only_row_reads_only_on_the_target() {
+    assert_eq!(reason_text(SyncReason::OnlyOnTarget), "only on the target");
+}
+
+#[test]
+fn delete_rows_start_unticked_and_are_counted_apart_from_copies_when_ticked() {
+    let mut view = mirror_view();
+
+    assert_eq!(view.summary(), Summary { ticked: 1, uploads: 1, upload_bytes: 100, skipped: 2, ..Summary::default() });
+
+    view.move_cursor(1);
+    view.toggle();
+
+    let summary = view.summary();
+    assert_eq!((summary.ticked, summary.uploads, summary.downloads, summary.deletes, summary.skipped), (2, 1, 0, 1, 1));
+    assert_eq!(view.choices(), vec![(0, SyncAction::Upload), (1, SyncAction::Delete)]);
+}
+
+#[test]
+fn a_delete_row_can_be_ticked_and_unticked_but_not_flipped() {
+    let mut view = mirror_view();
+    view.move_cursor(1);
+
+    view.toggle();
+    view.flip();
+    assert_eq!(view.choices().last(), Some(&(1, SyncAction::Delete)));
+
+    view.toggle();
+    assert_eq!(view.choices(), vec![(0, SyncAction::Upload)]);
+}
+
+#[test]
+fn the_summary_line_shows_the_delete_count_only_when_something_is_ticked_to_delete() {
+    let mut view = mirror_view();
+    assert!(!view.top_bar_summary().contains('\u{2715}'), "{}", view.top_bar_summary());
+
+    view.move_cursor(1);
+    view.toggle();
+
+    assert_eq!(
+        view.top_bar_summary(),
+        "2 ticked \u{b7} \u{2191} 1 (100 B) \u{b7} \u{2193} 0 (0 B) \u{b7} \u{2715} 1 \u{b7} 1 skipped"
+    );
+}
+
+#[test]
+fn a_delete_row_draws_the_cross_glyph_its_reason_and_the_error_colour_even_when_unticked() {
+    let view = mirror_view();
+    let theme = indexed();
+    let terminal = draw(&view, 100, 8);
+    let rows = screen_rows(&terminal);
+
+    let line = rows.iter().find(|row| row.contains("gone.txt")).expect("the delete row is drawn");
+    assert!(line.contains("\u{2715}"), "{line}");
+    assert!(line.contains("only on the target"), "{line}");
+    assert!(line.contains("[ ]"), "{line}");
+    let (x, y) = find_text(&terminal, "only on the target").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
 }

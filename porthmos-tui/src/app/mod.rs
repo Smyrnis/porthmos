@@ -13,6 +13,7 @@ use porthmos_core::{
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
+    sync::SyncAction,
     transfer::{
         Direction, TransferSnapshot,
         conflicts::{ConflictInfo, Resolution},
@@ -100,6 +101,7 @@ enum PendingAction {
     EditConflict { edit_id: u64 },
     ConfirmQuit,
     StartSync { session: SessionId },
+    ConfirmSyncDelete { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     SpeedLimit,
 }
 

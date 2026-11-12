@@ -4,8 +4,9 @@ use iced::Task;
 use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::{Id, operation};
+use porthmos_core::delete_prompt::THIS_COMPUTER;
 use porthmos_core::edit::printable;
-use porthmos_core::sync::{SyncBy, SyncDirection, SyncOptions, SyncPlan};
+use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection, SyncOptions, SyncPlan, mirror_delete_prompt};
 use porthmos_core::{Command, Severity};
 
 use super::{App, Message};
@@ -25,6 +26,7 @@ pub enum SyncChoice {
     Direction(SyncDirection),
     By(SyncBy),
     Subfolders(bool),
+    Mirror(bool),
 }
 
 impl App {
@@ -69,12 +71,14 @@ impl App {
             direction: SyncDirection::LocalToRemote,
             by: SyncBy::Time,
             subfolders: true,
+            mirror: false,
             error: None,
         });
     }
 
     pub(in crate::app) fn sync_option_chosen(&mut self, choice: SyncChoice) {
-        let Some(Modal::SyncOptions { offer_both, direction, by, subfolders, error, .. }) = self.modals.front_mut()
+        let Some(Modal::SyncOptions { offer_both, direction, by, subfolders, mirror, error, .. }) =
+            self.modals.front_mut()
         else {
             return;
         };
@@ -83,6 +87,7 @@ impl App {
             SyncChoice::Direction(chosen) => *direction = chosen,
             SyncChoice::By(chosen) => *by = chosen,
             SyncChoice::Subfolders(chosen) => *subfolders = chosen,
+            SyncChoice::Mirror(chosen) => *mirror = chosen,
         }
         *error = None;
     }
@@ -103,10 +108,10 @@ impl App {
     }
 
     pub(in crate::app) fn sync_options_rejected(&mut self) -> bool {
-        let Some(Modal::SyncOptions { direction, by, subfolders, error, .. }) = self.modals.front_mut() else {
+        let Some(Modal::SyncOptions { direction, by, subfolders, mirror, error, .. }) = self.modals.front_mut() else {
             return false;
         };
-        let options = SyncOptions { direction: *direction, by: *by, subfolders: *subfolders };
+        let options = SyncOptions { direction: *direction, by: *by, subfolders: *subfolders, mirror: *mirror };
         match options.validate() {
             Ok(()) => false,
             Err(message) => {
@@ -185,9 +190,30 @@ impl App {
             };
             return self.push_notice(Severity::Warning, message.to_string());
         }
+        let (files, folders) = self.sync_view.plan().map_or((0, 0), |plan| plan.deletion_counts(&choices));
+        if files + folders > 0 {
+            let place = self.sync_delete_place();
+            let message = mirror_delete_prompt(files, folders, &place);
+            self.modals.push(Modal::ConfirmSyncDelete { sync_id, choices, message });
+            return;
+        }
+        self.send_sync_run(sync_id, choices);
+    }
+
+    pub(in crate::app) fn send_sync_run(&mut self, sync_id: u64, choices: Vec<(u32, SyncAction)>) {
         self.core.send(Command::RunSync { sync_id, choices });
         self.sync_view.clear();
         self.tool = None;
+    }
+
+    fn sync_delete_place(&self) -> String {
+        let Some(plan) = self.sync_view.plan() else {
+            return String::new();
+        };
+        match plan.options.direction {
+            SyncDirection::RemoteToLocal => THIS_COMPUTER.to_string(),
+            _ => self.sessions.by_id(plan.session).map(|session| session.name.clone()).unwrap_or_default(),
+        }
     }
 
     fn sync_page(&self) -> isize {

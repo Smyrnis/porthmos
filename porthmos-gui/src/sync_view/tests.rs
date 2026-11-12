@@ -28,12 +28,13 @@ fn plan(direction: SyncDirection, items: Vec<SyncItem>) -> Arc<SyncPlan> {
         session: 3,
         local_root: VfsPath::from("/home/me/site"),
         remote_root: VfsPath::from("/srv/site"),
-        options: SyncOptions { direction, by: SyncBy::Time, subfolders: true },
+        options: SyncOptions { direction, by: SyncBy::Time, subfolders: true, mirror: false },
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
         case_clashes: 0,
         unstorable: 0,
+        mirror_skipped_empty_source: false,
     })
 }
 
@@ -406,6 +407,7 @@ fn reason_text_matches_the_terminal_front_end() {
         (SyncReason::SizeDiffersTimeUnknown, "size differs, no time"),
         (SyncReason::KindMismatch, "file vs folder"),
         (SyncReason::EmptyFolder, "new empty folder"),
+        (SyncReason::OnlyOnTarget, "only on the target"),
     ];
 
     for (reason, text) in expected {
@@ -446,4 +448,48 @@ fn select_ignores_a_row_past_the_end() {
     view.select(100);
 
     assert_eq!(view.cursor(), 1);
+}
+
+fn mirror_view() -> SyncView {
+    let mut view = SyncView::default();
+    view.load(plan(
+        SyncDirection::LocalToRemote,
+        vec![
+            item(0, "a.txt", SyncAction::Upload, SyncReason::OnlyLocal, true, facts(100, 1_000), None),
+            item(1, "gone.txt", SyncAction::Delete, SyncReason::OnlyOnTarget, false, None, facts(50, 1_000)),
+        ],
+    ));
+    view
+}
+
+#[test]
+fn a_delete_row_is_unticked_counted_apart_and_not_flippable() {
+    let mut view = mirror_view();
+    assert_eq!(choices(&view), vec![(0, SyncAction::Upload)]);
+
+    view.select(1);
+    view.flip();
+    view.toggle();
+
+    let summary = view.summary();
+    assert_eq!((summary.ticked, summary.uploads, summary.downloads, summary.deletes, summary.skipped), (2, 1, 0, 1, 0));
+    assert_eq!(choices(&view), vec![(0, SyncAction::Upload), (1, SyncAction::Delete)]);
+    assert_eq!(view.row(1).unwrap().action, SyncAction::Delete);
+}
+
+#[test]
+fn the_summary_text_shows_deletes_only_when_some_are_ticked() {
+    let mut view = mirror_view();
+    assert_eq!(
+        summary_text(&view.summary()),
+        "1 ticked \u{b7} \u{2191} 1 (100 B) \u{b7} \u{2193} 0 (0 B) \u{b7} 1 skipped"
+    );
+
+    view.select(1);
+    view.toggle();
+
+    assert_eq!(
+        summary_text(&view.summary()),
+        "2 ticked \u{b7} \u{2191} 1 (100 B) \u{b7} \u{2193} 0 (0 B) \u{b7} \u{2715} 1 \u{b7} 0 skipped"
+    );
 }

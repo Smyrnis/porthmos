@@ -53,7 +53,7 @@ fn last_notice(harness: &Harness) -> (Severity, String) {
 
 fn options_modal(harness: &Harness) -> (u64, String, bool, SyncDirection, SyncBy, bool, Option<String>) {
     match harness.app.modal() {
-        Some(Modal::SyncOptions { session, name, offer_both, direction, by, subfolders, error }) => {
+        Some(Modal::SyncOptions { session, name, offer_both, direction, by, subfolders, error, .. }) => {
             (*session, name.clone(), *offer_both, *direction, *by, *subfolders, error.clone())
         }
         other => panic!("expected the sync options, found {other:?}"),
@@ -163,7 +163,7 @@ fn start_sends_start_sync_with_the_local_and_remote_folders_and_options() {
             session: 3,
             local_dir: harness.start_folder(),
             remote_dir: VfsPath::new("/srv/site"),
-            options: SyncOptions { direction: SyncDirection::Both, by: SyncBy::Time, subfolders: false },
+            options: SyncOptions { direction: SyncDirection::Both, by: SyncBy::Time, subfolders: false, mirror: false },
         }]
     );
     assert!(harness.app.modal().is_none());
@@ -192,12 +192,13 @@ fn size_with_both_shows_the_core_message_and_keeps_the_dialog() {
         direction: SyncDirection::Both,
         by: SyncBy::Size,
         subfolders: true,
+        mirror: false,
         error: None,
     });
 
     harness.press(Message::ModalAccepted);
 
-    let expected = SyncOptions { direction: SyncDirection::Both, by: SyncBy::Size, subfolders: true }
+    let expected = SyncOptions { direction: SyncDirection::Both, by: SyncBy::Size, subfolders: true, mirror: false }
         .validate()
         .unwrap_err()
         .to_string();
@@ -216,6 +217,7 @@ fn changing_a_choice_clears_the_error() {
         direction: SyncDirection::Both,
         by: SyncBy::Size,
         subfolders: true,
+        mirror: false,
         error: Some("old".to_string()),
     });
 
@@ -334,12 +336,13 @@ fn plan_in(direction: SyncDirection, sync_id: u64, items: Vec<SyncItem>) -> Arc<
         session: 3,
         local_root: VfsPath::from("/home/me/site"),
         remote_root: VfsPath::from("/srv/site"),
-        options: SyncOptions { direction, by: SyncBy::Time, subfolders: true },
+        options: SyncOptions { direction, by: SyncBy::Time, subfolders: true, mirror: false },
         items,
         skipped_symlinks: 0,
         unreadable_folders: Vec::new(),
         case_clashes: 0,
         unstorable: 0,
+        mirror_skipped_empty_source: false,
     })
 }
 
@@ -762,4 +765,161 @@ fn the_arrow_keys_skip_both_when_the_connection_cannot_keep_times() {
     assert_eq!(options_modal(&harness).3, SyncDirection::RemoteToLocal);
     key(&mut harness, Key::Named(Named::ArrowRight), Modifiers::empty());
     assert_eq!(options_modal(&harness).3, SyncDirection::LocalToRemote);
+}
+
+fn mirror_chosen(harness: &Harness) -> bool {
+    match harness.app.modal() {
+        Some(Modal::SyncOptions { mirror, .. }) => *mirror,
+        other => panic!("expected the sync options, found {other:?}"),
+    }
+}
+
+#[test]
+fn mirror_is_off_when_the_dialog_opens_and_the_choice_is_remembered_only_in_the_dialog() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    ctrl_u(&mut harness);
+    assert!(!mirror_chosen(&harness));
+
+    harness.press(Message::SyncOptionChosen(SyncChoice::Mirror(true)));
+    assert!(mirror_chosen(&harness));
+    harness.press(Message::ModalDeclined);
+
+    ctrl_u(&mut harness);
+    assert!(!mirror_chosen(&harness));
+}
+
+#[test]
+fn start_carries_the_mirror_choice() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    ctrl_u(&mut harness);
+    harness.press(Message::SyncOptionChosen(SyncChoice::Mirror(true)));
+
+    harness.press(Message::ModalAccepted);
+
+    assert!(matches!(harness.sent().as_slice(), [Command::StartSync { options, .. }] if options.mirror));
+}
+
+#[test]
+fn mirror_with_both_shows_the_core_message_and_keeps_the_dialog() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    ctrl_u(&mut harness);
+    harness.press(Message::SyncOptionChosen(SyncChoice::Direction(SyncDirection::Both)));
+    harness.press(Message::SyncOptionChosen(SyncChoice::Mirror(true)));
+
+    harness.press(Message::ModalAccepted);
+
+    assert!(options_modal(&harness).6.is_some_and(|error| error.starts_with("Mirror")));
+    assert!(harness.sent().is_empty());
+}
+
+fn delete_item(id: u32, path: &str, reason: SyncReason) -> SyncItem {
+    SyncItem {
+        id,
+        path: VfsPath::from(path),
+        local: None,
+        remote: facts(5, 10),
+        action: SyncAction::Delete,
+        reason,
+        ticked: false,
+        flippable: false,
+    }
+}
+
+fn mirror_review(harness: &mut Harness, direction: SyncDirection, items: Vec<SyncItem>) {
+    let base = plan_in(direction, 11, items);
+    review(harness, Arc::new(SyncPlan { options: SyncOptions { mirror: true, ..base.options }, ..(*base).clone() }));
+}
+
+#[test]
+fn run_with_a_ticked_delete_asks_first_and_sends_nothing_until_accepted() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    mirror_review(
+        &mut harness,
+        SyncDirection::LocalToRemote,
+        vec![copy_item(0, "a.txt"), delete_item(1, "gone.txt", SyncReason::OnlyOnTarget)],
+    );
+    harness.app.sync_view.select(1);
+    harness.press(Message::SyncRowPressed(1));
+
+    harness.press(Message::SyncRunPressed);
+
+    assert!(harness.sent().is_empty());
+    assert!(sync_open(&harness));
+    match harness.app.modal() {
+        Some(Modal::ConfirmSyncDelete { message, .. }) => {
+            assert_eq!(message, "Delete 1 file from alpha? Folders left empty are removed too. This can't be undone.")
+        }
+        other => panic!("expected the delete confirmation, found {other:?}"),
+    }
+
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::RunSync { sync_id: 11, choices: vec![(0, SyncAction::Upload), (1, SyncAction::Delete)] }]
+    );
+    assert!(!sync_open(&harness));
+    assert!(!harness.app.sync_view.has_plan());
+}
+
+#[test]
+fn declining_the_delete_confirmation_keeps_the_review_open_and_sends_nothing() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    mirror_review(
+        &mut harness,
+        SyncDirection::RemoteToLocal,
+        vec![delete_item(0, "gone.txt", SyncReason::OnlyOnTarget)],
+    );
+    harness.press(Message::SyncRowPressed(0));
+    harness.press(Message::SyncRunPressed);
+    match harness.app.modal() {
+        Some(Modal::ConfirmSyncDelete { message, .. }) => assert!(message.contains("from this computer"), "{message}"),
+        other => panic!("expected the delete confirmation, found {other:?}"),
+    }
+
+    harness.press(Message::ModalDeclined);
+
+    assert!(harness.sent().is_empty());
+    assert!(harness.app.modal().is_none());
+    assert!(sync_open(&harness));
+    assert!(harness.app.sync_view.has_plan());
+}
+
+#[test]
+fn enter_on_the_delete_confirmation_declines_it() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    mirror_review(
+        &mut harness,
+        SyncDirection::LocalToRemote,
+        vec![delete_item(0, "gone.txt", SyncReason::OnlyOnTarget)],
+    );
+    harness.press(Message::SyncRowPressed(0));
+    harness.press(Message::SyncRunPressed);
+
+    key(&mut harness, Key::Named(Named::Enter), Modifiers::empty());
+
+    assert!(harness.sent().is_empty());
+    assert!(harness.app.modal().is_none());
+}
+
+#[test]
+fn run_without_a_ticked_delete_runs_at_once_even_in_a_mirror_plan() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true, true);
+    mirror_review(
+        &mut harness,
+        SyncDirection::LocalToRemote,
+        vec![copy_item(0, "a.txt"), delete_item(1, "gone.txt", SyncReason::OnlyOnTarget)],
+    );
+
+    harness.press(Message::SyncRunPressed);
+
+    assert!(harness.app.modal().is_none());
+    assert_eq!(harness.sent(), vec![Command::RunSync { sync_id: 11, choices: vec![(0, SyncAction::Upload)] }]);
 }

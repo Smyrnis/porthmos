@@ -194,11 +194,14 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             body_text(quit_text(*transfers, *edits), palette),
             cautious_buttons("Quit", "Cancel", palette),
         ),
-        Modal::SyncOptions { name, offer_both, direction, by, subfolders, error, .. } => (
+        Modal::SyncOptions { name, offer_both, direction, by, subfolders, mirror, error, .. } => (
             format!("Synchronize with {}", fit(&printable(name), NAME_CELLS)),
-            sync_options::body(*direction, *by, *subfolders, *offer_both, error, palette),
+            sync_options::body(*direction, *by, *subfolders, *mirror, *offer_both, error, palette),
             buttons("Start", "Cancel", palette),
         ),
+        Modal::ConfirmSyncDelete { message, .. } => {
+            ("Delete".to_string(), body_text(message.clone(), palette), cautious_buttons("Delete", "Cancel", palette))
+        }
         Modal::ConfirmDelete { entries, place, count, .. } => {
             let lines = delete_lines(entries, place, count.as_ref()).join("\n");
             ("Delete".to_string(), body_text(lines, palette), cautious_buttons("Delete", "Cancel", palette))

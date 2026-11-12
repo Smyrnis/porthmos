@@ -44,6 +44,7 @@ pub struct Summary {
     pub upload_bytes: u64,
     pub downloads: usize,
     pub download_bytes: u64,
+    pub deletes: usize,
     pub skipped: usize,
 }
 
@@ -59,6 +60,7 @@ pub fn reason_text(reason: SyncReason) -> &'static str {
         SyncReason::SizeDiffersTimeUnknown => "size differs, no time",
         SyncReason::KindMismatch => "file vs folder",
         SyncReason::EmptyFolder => "new empty folder",
+        SyncReason::OnlyOnTarget => "only on the target",
     }
 }
 
@@ -225,6 +227,7 @@ impl SyncView {
                     summary.downloads += 1;
                     summary.download_bytes += item.remote.map_or(0, |facts| facts.size);
                 }
+                SyncAction::Delete => summary.deletes += 1,
                 SyncAction::Skip => {}
             }
         }
@@ -371,6 +374,7 @@ fn row_line(
     let arrow = match action {
         SyncAction::Upload => "\u{2191} ",
         SyncAction::Download => "\u{2193} ",
+        SyncAction::Delete => "\u{2715} ",
         SyncAction::Skip => "\u{b7} ",
     };
     let size = match action {
@@ -406,7 +410,7 @@ fn row_line(
 
 fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
     match (item.reason, ticked) {
-        (SyncReason::KindMismatch, _) => theme.err_text(),
+        (SyncReason::KindMismatch | SyncReason::OnlyOnTarget, _) => theme.err_text(),
         (_, true) => theme.text(),
         (SyncReason::TargetNewer | SyncReason::SameTimeDifferentSize | SyncReason::SizeDiffersTimeUnknown, false) => {
             theme.bright()
@@ -416,8 +420,9 @@ fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
 }
 
 fn summary_text(summary: &Summary) -> String {
+    let deletes = if summary.deletes > 0 { format!(" \u{b7} \u{2715} {}", summary.deletes) } else { String::new() };
     format!(
-        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}) \u{b7} {} skipped",
+        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}){deletes} \u{b7} {} skipped",
         summary.ticked,
         summary.uploads,
         format_size(summary.upload_bytes, false),

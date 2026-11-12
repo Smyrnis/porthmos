@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use porthmos_core::delete_prompt::count::{Contents, contents_line};
 use porthmos_core::edit::{EditQuestionKind, printable};
-use porthmos_core::sync::{SyncBy, SyncDirection};
+use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection};
 use porthmos_core::{Entry, Location, SessionId, VfsPath};
 
 use crate::app::PanelSide;
@@ -78,7 +78,13 @@ pub enum Modal {
         direction: SyncDirection,
         by: SyncBy,
         subfolders: bool,
+        mirror: bool,
         error: Option<String>,
+    },
+    ConfirmSyncDelete {
+        sync_id: u64,
+        choices: Vec<(u32, SyncAction)>,
+        message: String,
     },
 }
 
@@ -88,6 +94,7 @@ impl Modal {
             self,
             Modal::Question(Dialog::Confirm { risky: true, .. })
                 | Modal::ConfirmDelete { .. }
+                | Modal::ConfirmSyncDelete { .. }
                 | Modal::ConfirmClearHistory
                 | Modal::ConfirmQuit { .. }
         )

@@ -38,6 +38,7 @@ struct Tree {
     server_info: Option<String>,
     failing_shutdowns: BTreeSet<VfsPath>,
     refused_permissions: BTreeSet<VfsPath>,
+    refused_deletes: BTreeSet<VfsPath>,
     written_sizes: Vec<(VfsPath, u64)>,
 }
 
@@ -102,6 +103,7 @@ pub struct FakeFs {
     time_resolution: u64,
     holds_connection: bool,
     name_rules: NameRules,
+    remove_dir_support: bool,
 }
 
 impl Default for FakeFs {
@@ -121,6 +123,7 @@ impl FakeFs {
             time_resolution: 2,
             holds_connection: false,
             name_rules: NameRules::Permissive,
+            remove_dir_support: true,
         };
         fs.dir("/home/user");
         fs
@@ -213,6 +216,16 @@ impl FakeFs {
 
     pub fn refuse_permissions(&self, path: impl Into<VfsPath>) -> &Self {
         self.tree.lock().unwrap().refused_permissions.insert(path.into());
+        self
+    }
+
+    pub fn refusing_delete(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().refused_deletes.insert(path.into());
+        self
+    }
+
+    pub fn without_remove_dir(mut self) -> Self {
+        self.remove_dir_support = false;
         self
     }
 
@@ -520,6 +533,9 @@ impl FileSystem for FakeFs {
     }
 
     async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        if !self.remove_dir_support {
+            return Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("remove_dir is not supported")));
+        }
         let mut tree = self.tree.lock().unwrap();
         match tree.nodes.get(path) {
             None => Err(not_found(path)),
@@ -538,6 +554,9 @@ impl FileSystem for FakeFs {
         let mut tree = self.tree.lock().unwrap();
         if !tree.nodes.contains_key(path) {
             return Err(not_found(path));
+        }
+        if tree.refused_deletes.contains(path) {
+            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("{} can't be deleted", path)));
         }
         tree.nodes.retain(|candidate, _| !candidate.starts_with(path));
         Ok(())
