@@ -171,7 +171,15 @@ background = "black"
 # Colours for both apps live in their own file next to this one, theme.toml.
 # It is optional: leave a colour out to keep its default. Colours are written
 # as "#rrggbb". An accent set in theme.toml wins over the accent above and
-# over [gui.theme]. Changes are read when the app starts. Example:
+# over [gui.theme]. Changes are read when the app starts.
+#
+# The colours start from a base, chosen with a line before [colors]:
+#
+#   base = "dark"            # the default
+#   base = "high-contrast"   # dark, with stronger text, lines and borders
+#   base = "light"           # dark text on a light background
+#
+# The colours below are the defaults of the dark base. Example:
 #
 #   [colors]
 #   bg = "#000000"                  # screen background

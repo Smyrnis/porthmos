@@ -6,7 +6,7 @@ use iced::{Background, Border, Color, Element, Font, Length, Padding, alignment}
 
 use crate::app::Message;
 use crate::icons::{self, Icon};
-use crate::theme::Palette;
+use crate::theme::{Palette, mix};
 
 const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
 const ICON_SIZE: f32 = 16.0;
@@ -16,22 +16,38 @@ const DISABLED_OPACITY: f32 = 0.4;
 pub enum Look {
     Normal,
     Primary,
+    Chosen,
     Disabled,
 }
 
-fn grey(level: u8) -> Color {
-    Color::from_rgb8(level, level, level)
+const HOVER_LIFT: f32 = 0.07;
+const PRESS_LIFT: f32 = 0.13;
+const CHOSEN_TINT: f32 = 0.22;
+const CHOSEN_HOVER_TINT: f32 = 0.30;
+const CHOSEN_PRESS_TINT: f32 = 0.38;
+
+fn lifted(palette: &Palette, amount: f32) -> Color {
+    mix(palette.surface, palette.fg_bright, amount)
+}
+
+fn tinted(palette: &Palette, amount: f32) -> Color {
+    mix(palette.surface, palette.accent, amount)
 }
 
 pub fn face(palette: &Palette, look: Look, status: Status) -> button::Style {
     let fill = match (look, status) {
-        (Look::Disabled, _) | (_, Status::Active | Status::Disabled) => grey(0x11),
-        (_, Status::Hovered) => grey(0x1c),
-        (_, Status::Pressed) => grey(0x26),
+        (Look::Disabled, _) => palette.surface,
+        (Look::Chosen, Status::Active | Status::Disabled) => tinted(palette, CHOSEN_TINT),
+        (Look::Chosen, Status::Hovered) => tinted(palette, CHOSEN_HOVER_TINT),
+        (Look::Chosen, Status::Pressed) => tinted(palette, CHOSEN_PRESS_TINT),
+        (_, Status::Active | Status::Disabled) => palette.surface,
+        (_, Status::Hovered) => lifted(palette, HOVER_LIFT),
+        (_, Status::Pressed) => lifted(palette, PRESS_LIFT),
     };
     let (text_color, border_color) = match look {
         Look::Normal => (palette.fg_bright, palette.line_strong),
         Look::Primary => (palette.accent, palette.accent),
+        Look::Chosen => (palette.fg_focus, palette.accent),
         Look::Disabled => (palette.fg_dim, palette.line_strong),
     };
     button::Style {
@@ -42,11 +58,11 @@ pub fn face(palette: &Palette, look: Look, status: Status) -> button::Style {
     }
 }
 
-fn content<'a>(icon: Option<Icon>, title: &str, show_title: bool, look: Look) -> Element<'a, Message> {
+fn content<'a>(icon: Option<Icon>, title: &str, show_title: bool, look: Look, light: bool) -> Element<'a, Message> {
     let mut line = row![].spacing(6).align_y(alignment::Vertical::Center);
     if let Some(icon) = icon {
         let opacity = if look == Look::Disabled { DISABLED_OPACITY } else { 1.0 };
-        line = line.push(svg(icons::handle(icon)).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity));
+        line = line.push(svg(icons::handle(icon, light)).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity));
     }
     if show_title || icon.is_none() {
         line = line.push(text(title.to_string()).size(13.0).font(Font::DEFAULT));
@@ -65,10 +81,13 @@ fn pressable<'a>(
         .into()
 }
 
-pub fn flat(text_color: Color, hoverable: bool) -> impl Fn(&iced::Theme, Status) -> button::Style {
+pub fn flat(
+    palette: &Palette, text_color: Color, hoverable: bool,
+) -> impl Fn(&iced::Theme, Status) -> button::Style + use<> {
+    let hover_fill = lifted(palette, HOVER_LIFT);
     move |_, status| {
         let hovered = hoverable && matches!(status, Status::Hovered | Status::Pressed);
-        let fill = if hovered { grey(0x1c) } else { Color::TRANSPARENT };
+        let fill = if hovered { hover_fill } else { Color::TRANSPARENT };
         button::Style {
             background: Some(Background::Color(fill)),
             text_color,
@@ -84,7 +103,7 @@ pub fn tool_button<'a>(
 ) -> Element<'a, Message> {
     let look = if press.is_none() { Look::Disabled } else { look };
     let padding = if show_title || icon.is_none() { Padding::from([5.0, 10.0]) } else { Padding::from([5.0, 8.0]) };
-    let body = content(icon, title, show_title, look);
+    let body = content(icon, title, show_title, look, palette.light);
     let button = pressable(body, padding, press, look, palette);
     hinted(button, hint, tooltip::Position::Bottom, palette)
 }
@@ -102,13 +121,13 @@ pub fn hinted<'a>(
 
 pub fn text_button<'a>(title: &str, press: Option<Message>, look: Look, palette: &Palette) -> Element<'a, Message> {
     let look = if press.is_none() { Look::Disabled } else { look };
-    let body = container(content(None, title, true, look)).width(Length::Shrink);
+    let body = container(content(None, title, true, look, palette.light)).width(Length::Shrink);
     pressable(body.into(), Padding::from([5.0, 16.0]), press, look, palette)
 }
 
 pub fn compact_button<'a>(title: &str, press: Option<Message>, palette: &Palette) -> Element<'a, Message> {
     let look = if press.is_none() { Look::Disabled } else { Look::Normal };
-    let body = content(None, title, true, look);
+    let body = content(None, title, true, look, palette.light);
     pressable(body, Padding::from([1.0, 8.0]), press, look, palette)
 }
 

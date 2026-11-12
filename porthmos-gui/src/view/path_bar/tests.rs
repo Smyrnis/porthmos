@@ -1,6 +1,6 @@
 use porthmos_core::VfsPath;
 
-use super::visible_crumbs;
+use super::{frame_border, visible_crumbs};
 use crate::breadcrumbs::crumbs;
 
 #[test]
@@ -32,4 +32,13 @@ fn the_last_crumb_is_kept_even_when_it_alone_is_too_long() {
 
     assert!(clipped);
     assert_eq!(shown.len(), 1);
+}
+
+#[test]
+fn the_path_field_frame_takes_the_accent_edge_only_while_editing() {
+    let palette = crate::theme::Palette::new(&crate::theme::ThemeSettings::default());
+
+    assert_eq!(frame_border(true, &palette).color, palette.accent);
+    assert_eq!(frame_border(false, &palette).color, palette.line_strong);
+    assert!(frame_border(true, &palette).width > frame_border(false, &palette).width);
 }

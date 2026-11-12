@@ -11,6 +11,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         search_preview: false,
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
+        theme_base: porthmos_core::theme::ThemeBase::Dark,
     }
 }
 

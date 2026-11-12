@@ -15,6 +15,7 @@ const CAPTURE_HINT: &str = "Press the new shortcut, Esc to cancel";
 const EDITOR_PLACEHOLDER: &str = "Editor command, for example: code --wait";
 const TERMINAL_PLACEHOLDER: &str = "Terminal command, for example: kitty";
 const TERMINAL_HELP: &str = "Used by Open terminal here. Leave empty to use $TERMINAL or a terminal found on this system. Put {command} where the command to run belongs if the program needs it elsewhere.";
+const THEME_HELP: &str = "Colours you set in theme.toml are kept and applied on top of the theme you pick. The terminal app reads theme.toml when it starts.";
 const EDITOR_HELP: &str = "Leave empty to use $VISUAL, $EDITOR or the system default.";
 
 pub fn reset_enabled(shortcuts: &Shortcuts, action: Action) -> bool {
@@ -57,7 +58,7 @@ fn update_choices<'a>(app: &App) -> Element<'a, Message> {
     let current = app.gui_settings().update_mode;
     let mut line = row![].spacing(8);
     for (mode, title) in App::update_mode_choices() {
-        let look = if mode == current { Look::Primary } else { Look::Normal };
+        let look = if mode == current { Look::Chosen } else { Look::Normal };
         line = line.push(text_button(title, Some(Message::SettingsUpdateModeChosen(mode)), look, palette));
     }
     line.into()
@@ -68,10 +69,33 @@ fn reopen_choices<'a>(app: &App) -> Element<'a, Message> {
     let current = app.gui_settings().reopen;
     let mut line = row![].spacing(8);
     for (mode, title) in App::reopen_choices() {
-        let look = if mode == current { Look::Primary } else { Look::Normal };
+        let look = if mode == current { Look::Chosen } else { Look::Normal };
         line = line.push(text_button(title, Some(Message::SettingsReopenChosen(mode)), look, palette));
     }
     line.into()
+}
+
+fn theme_choices<'a>(app: &App) -> Element<'a, Message> {
+    let palette = app.palette();
+    let current = app.gui_settings().theme_base;
+    let mut line = row![].spacing(8);
+    for (base, title) in App::theme_choices() {
+        let look = if base == current { Look::Chosen } else { Look::Normal };
+        line = line.push(text_button(title, Some(Message::SettingsThemeChosen(base)), look, palette));
+    }
+    line.into()
+}
+
+fn appearance_section<'a>(app: &'a App) -> Element<'a, Message> {
+    let palette = app.palette();
+    column![
+        section("Appearance", palette),
+        label("Colour theme:", palette.fg),
+        theme_choices(app),
+        wrapped_label(THEME_HELP, palette.fg_dim),
+    ]
+    .spacing(8)
+    .into()
 }
 
 fn startup_section<'a>(app: &'a App) -> Element<'a, Message> {
@@ -111,6 +135,7 @@ fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
 fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
     let input = text_input(EDITOR_PLACEHOLDER, &state.editor_text)
+        .style(crate::view::input::style(palette))
         .id(App::settings_editor_id())
         .on_input(Message::SettingsEditorTyped)
         .on_submit(Message::SettingsEditorApplied)
@@ -145,6 +170,7 @@ fn search_section<'a>(app: &'a App) -> Element<'a, Message> {
 fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
     let input = text_input(TERMINAL_PLACEHOLDER, &state.terminal_text)
+        .style(crate::view::input::style(palette))
         .id(App::settings_terminal_id())
         .on_input(Message::SettingsTerminalTyped)
         .on_submit(Message::SettingsTerminalApplied)
@@ -204,6 +230,7 @@ fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     }
     let content = column![
         shortcuts,
+        appearance_section(app),
         editing_section(app, state),
         search_section(app),
         startup_section(app),

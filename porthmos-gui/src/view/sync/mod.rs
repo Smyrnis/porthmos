@@ -191,6 +191,7 @@ pub fn body<'a>(app: &'a App, view: &'a SyncView) -> Element<'a, Message> {
     let palette = app.palette();
     let times = show_times(frame_size(&Tool::Sync, app.window_size()).width);
     let input = text_input("Filter rows", view.filter().unwrap_or_default())
+        .style(crate::view::input::style(palette))
         .id(App::sync_filter_id())
         .on_input(Message::SyncFilterTyped)
         .size(13.0)

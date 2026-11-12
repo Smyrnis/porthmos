@@ -1,5 +1,5 @@
 use iced::widget::{button, container, mouse_area, row, space, text_input};
-use iced::{Background, Border, Color, Element, Length, alignment};
+use iced::{Background, Border, Element, Length, alignment};
 
 use super::button::{Look, flat, tool_button};
 use super::{bold_label, filled, label};
@@ -47,7 +47,7 @@ fn crumb_strip<'a>(app: &'a App, side: PanelSide, panel: &Panel, width: f32) -> 
         let item = button(title)
             .padding([2.0, 4.0])
             .on_press(Message::CrumbPressed(side, target))
-            .style(flat(palette.fg, true));
+            .style(flat(&palette, palette.fg, true));
         strip = strip.push(item);
         if !current {
             strip = strip.push(label("›", palette.fg_dim));
@@ -55,12 +55,22 @@ fn crumb_strip<'a>(app: &'a App, side: PanelSide, panel: &Panel, width: f32) -> 
     }
     let rest = mouse_area(space().width(Length::Fill).height(Length::Fill)).on_press(Message::PathEditStarted(side));
     let line = row![strip, rest].align_y(alignment::Vertical::Center).height(Length::Fill);
-    field_frame(line.into(), &palette)
+    field_frame(line.into(), &palette, false)
 }
 
-fn field_frame<'a>(content: Element<'a, Message>, palette: &crate::theme::Palette) -> Element<'a, Message> {
-    let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let fill = Color::from_rgb8(0x05, 0x05, 0x05);
+fn frame_border(editing: bool, palette: &crate::theme::Palette) -> Border {
+    if editing {
+        Border { color: palette.accent, width: 1.5, radius: 6.0.into() }
+    } else {
+        Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() }
+    }
+}
+
+fn field_frame<'a>(
+    content: Element<'a, Message>, palette: &crate::theme::Palette, editing: bool,
+) -> Element<'a, Message> {
+    let border = frame_border(editing, palette);
+    let fill = palette.surface;
     container(content)
         .padding([0.0, 6.0])
         .width(Length::Fill)
@@ -85,8 +95,9 @@ pub fn bar<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, width: f32) -> E
                 .id(side.path_input_id())
                 .on_input(Message::PathTyped)
                 .on_submit(Message::PathSubmitted)
-                .size(13.0);
-            field_frame(input.into(), palette)
+                .size(13.0)
+                .style(super::input::bare_style(palette));
+            field_frame(input.into(), palette, true)
         }
         None => crumb_strip(app, side, panel, width),
     };

@@ -97,7 +97,8 @@ fn run_window() -> Result<()> {
     let local_start = runtime::local_start(started.core.remembered_local_folder(), home, std::env::current_dir().ok());
     let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts)
         .with_update_mode(update_mode)
-        .with_settings(started.settings, started.config_file);
+        .with_settings(started.settings, started.config_file)
+        .with_theme_accent(started.config_accent);
     for warning in started.warnings {
         app.warn(warning);
     }

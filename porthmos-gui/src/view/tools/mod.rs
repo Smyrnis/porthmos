@@ -110,7 +110,7 @@ fn bookmark_row<'a>(
     let line = row![
         container(space()).width(Length::Fixed(2.0)).height(Length::Fill).style(filled(accent)),
         space().width(Length::Fixed(6.0)),
-        svg(icons::handle(Icon::Folder)).width(ICON_SIZE).height(ICON_SIZE),
+        svg(icons::handle(Icon::Folder, palette.light)).width(ICON_SIZE).height(ICON_SIZE),
         space().width(Length::Fixed(6.0)),
         container(bold_label(title, name_color)).width(Length::FillPortion(2)).clip(true),
         container(label(fit_place(&place, place_cells), palette.fg_dim)).width(Length::FillPortion(3)).clip(true),
@@ -184,6 +184,7 @@ fn history_row<'a>(
 fn history_body<'a>(app: &'a App, state: &'a HistoryState) -> Element<'a, Message> {
     let palette = app.palette();
     let input = text_input("Filter transfers", state.filter())
+        .style(crate::view::input::style(palette))
         .id(App::history_filter_id())
         .on_input(Message::HistoryFilterTyped)
         .size(13.0)
@@ -242,9 +243,8 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             },
         );
     let blocked = mouse_area(boxed).on_press(Message::ToolIgnored).interaction(mouse::Interaction::Idle);
-    let backdrop = mouse_area(container(space()).width(Length::Fill).height(Length::Fill))
-        .on_press(Message::ToolIgnored)
-        .interaction(mouse::Interaction::Idle);
+    let backdrop =
+        mouse_area(crate::view::scrim(palette)).on_press(Message::ToolIgnored).interaction(mouse::Interaction::Idle);
     let placed = container(blocked)
         .width(Length::Fill)
         .height(Length::Fill)

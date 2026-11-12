@@ -40,7 +40,7 @@ pub fn button<'a>(palette: &Palette) -> Element<'a, Message> {
     let plus = iced::widget::button(label("＋", palette.fg_bright))
         .padding([6.0, 12.0])
         .on_press(Message::ManagerToggled)
-        .style(flat(palette.fg_bright, true));
+        .style(flat(palette, palette.fg_bright, true));
     hinted(plus.into(), "Connections".to_string(), tooltip::Position::Left, palette)
 }
 
@@ -53,7 +53,7 @@ fn group_row<'a>(
     let line = row![
         space().width(Length::Fixed(depth as f32 * INDENT)),
         label(chevron, palette.fg_muted).width(Length::Fixed(16.0)),
-        svg(icons::handle(Icon::Folder)).width(ICON_SIZE).height(ICON_SIZE),
+        svg(icons::handle(Icon::Folder, palette.light)).width(ICON_SIZE).height(ICON_SIZE),
         space().width(Length::Fixed(6.0)),
         bold_label(group_text(name, count), palette.fg_bright),
     ]
@@ -181,6 +181,7 @@ pub fn window(app: &App) -> Option<Element<'_, Message>> {
     let palette = app.palette();
     let size = app.connections_window_size();
     let filter = text_input("Filter connections", app.manager().filter())
+        .style(crate::view::input::style(palette))
         .id(App::filter_input_id())
         .on_input(Message::ManagerFilterTyped)
         .size(13.0)

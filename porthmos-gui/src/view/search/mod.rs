@@ -47,7 +47,7 @@ fn result_row<'a>(app: &App, state: &SearchState, index: usize, entry: &Entry, s
     let line = row![
         container(space()).width(Length::Fixed(2.0)).height(Length::Fill).style(filled(accent)),
         space().width(Length::Fixed(6.0)),
-        svg(icons::handle(icon)).width(ICON_SIZE).height(ICON_SIZE),
+        svg(icons::handle(icon, palette.light)).width(ICON_SIZE).height(ICON_SIZE),
         space().width(Length::Fixed(6.0)),
         container(label(entry.name.clone(), name_color)).width(Length::FillPortion(2)).clip(true),
         container(label(state.shown_parent(entry), palette.fg_dim)).width(Length::FillPortion(3)).clip(true),
@@ -72,6 +72,7 @@ fn status_color(state: &SearchState, palette: &Palette) -> iced::Color {
 fn body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message> {
     let palette = app.palette();
     let input = text_input("Name to search for", state.pattern())
+        .style(crate::view::input::style(palette))
         .id(App::search_input_id())
         .on_input(Message::SearchTyped)
         .size(13.0)

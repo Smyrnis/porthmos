@@ -96,6 +96,7 @@ fn opening_shows_the_saved_editor() {
         update_mode: UpdateMode::Off,
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
+        theme_base: porthmos_core::theme::ThemeBase::Dark,
     };
     let mut harness = Harness::with_gui_settings(settings);
 
@@ -711,4 +712,152 @@ fn a_failed_save_leaves_the_reconnect_setting_unchanged_and_tells_core_nothing()
     assert!(!harness.app.gui_settings().reconnect);
     assert!(!harness.sent().iter().any(|command| matches!(command, porthmos_core::Command::SetReconnect { .. })));
     assert!(matches!(state(&harness).message, Some(SettingsMessage::Error(_))));
+}
+
+mod theme_base {
+    use porthmos_core::theme::{ColorScheme, Rgb, ThemeBase};
+
+    use super::*;
+
+    fn theme_text(harness: &Harness) -> String {
+        std::fs::read_to_string(harness.scratch().join("theme.toml")).unwrap_or_default()
+    }
+
+    #[test]
+    fn choosing_a_base_writes_theme_toml_not_config_toml() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        assert_eq!(theme_text(&harness), "base = \"light\"\n");
+        assert_eq!(config_text(&harness), "");
+        assert_eq!(harness.app.gui_settings().theme_base, ThemeBase::Light);
+    }
+
+    #[test]
+    fn the_palette_changes_at_once_and_the_note_says_saved() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        let light = ColorScheme::light();
+        assert!(harness.app.palette().light);
+        assert_eq!(
+            harness.app.palette().bg,
+            crate::theme::Palette::new(&crate::theme::ThemeSettings::default().with_scheme(light)).bg
+        );
+        assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+    }
+
+    #[test]
+    fn going_back_to_dark_restores_the_dark_palette() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Dark));
+
+        assert!(!harness.app.palette().light);
+        assert_eq!(theme_text(&harness), "base = \"dark\"\n");
+    }
+
+    #[test]
+    fn colours_the_user_wrote_in_theme_toml_survive_a_switch() {
+        let mut harness = Harness::new();
+        std::fs::write(harness.scratch().join("theme.toml"), "[colors]\nfg = \"#123456\"\n").unwrap();
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::HighContrast));
+
+        let kept = Rgb(0x12, 0x34, 0x56);
+        assert_eq!(harness.app.palette().fg, iced::Color::from_rgb8(kept.0, kept.1, kept.2));
+        assert!(theme_text(&harness).contains("fg = \"#123456\""));
+    }
+
+    #[test]
+    fn the_accent_from_config_toml_is_applied_to_the_new_base() {
+        let mut harness = Harness::new();
+        harness.app.theme_accent = Some(Rgb(1, 2, 3));
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        assert_eq!(harness.app.palette().accent, iced::Color::from_rgb8(1, 2, 3));
+    }
+
+    #[test]
+    fn a_failed_save_leaves_the_theme_and_the_choice_unchanged() {
+        let mut harness = Harness::new();
+        std::fs::create_dir(harness.scratch().join("theme.toml")).unwrap();
+        open(&mut harness);
+        let before = *harness.app.palette();
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        assert_eq!(*harness.app.palette(), before);
+        assert_eq!(harness.app.gui_settings().theme_base, ThemeBase::Dark);
+        assert!(error_of(&harness).contains("theme.toml"));
+    }
+
+    #[test]
+    fn a_broken_theme_toml_is_reported_and_not_overwritten() {
+        let mut harness = Harness::new();
+        std::fs::write(harness.scratch().join("theme.toml"), "base = = =\n").unwrap();
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        assert_eq!(theme_text(&harness), "base = = =\n");
+        assert!(error_of(&harness).starts_with("theme.toml has a syntax error"));
+        assert!(!harness.app.palette().light);
+    }
+
+    #[test]
+    fn warnings_from_the_reloaded_file_are_shown_as_the_message() {
+        let mut harness = Harness::new();
+        std::fs::write(harness.scratch().join("theme.toml"), "[colors]\nbogus = \"#000000\"\n").unwrap();
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        match &state(&harness).message {
+            Some(SettingsMessage::Note(text)) => assert!(text.contains("bogus"), "{text}"),
+            other => panic!("expected a note, got {other:?}"),
+        }
+        assert!(harness.app.palette().light);
+    }
+
+    #[test]
+    fn choosing_a_theme_tells_core_nothing() {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        assert!(harness.sent().is_empty());
+    }
+
+    #[test]
+    fn without_a_known_config_folder_the_choice_is_refused() {
+        let mut harness = Harness::new();
+        harness.app.config_file = None;
+        open(&mut harness);
+
+        harness.press(Message::SettingsThemeChosen(ThemeBase::Light));
+
+        assert_eq!(error_of(&harness), "The location of the configuration file is unknown.");
+        assert!(!harness.app.palette().light);
+    }
+
+    #[test]
+    fn the_choices_list_every_base_with_a_title_in_order() {
+        let titles: Vec<_> = App::theme_choices().iter().map(|(base, title)| (*base, *title)).collect();
+
+        assert_eq!(
+            titles,
+            vec![(ThemeBase::Dark, "Dark"), (ThemeBase::HighContrast, "High contrast"), (ThemeBase::Light, "Light")]
+        );
+    }
 }

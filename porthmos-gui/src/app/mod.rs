@@ -190,6 +190,7 @@ pub enum Message {
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
     SettingsReopenChosen(porthmos_core::ReopenMode),
     SettingsReconnectToggled(bool),
+    SettingsThemeChosen(porthmos_core::theme::ThemeBase),
     ReopenPressed,
     SettingsClosed,
     MoreMenuToggled,
@@ -322,6 +323,7 @@ pub struct App {
     update: UpdateView,
     gui_settings: GuiSettings,
     config_file: Option<PathBuf>,
+    theme_accent: Option<porthmos_core::theme::Rgb>,
 }
 
 impl App {
@@ -400,6 +402,7 @@ impl App {
             update: UpdateView::new(porthmos_core::UpdateMode::Auto),
             gui_settings: GuiSettings::default(),
             config_file: None,
+            theme_accent: None,
         };
         app.local.panel.apply(local_panel);
         app.list(Location::Local, Some(local_start));
@@ -1139,7 +1142,8 @@ impl App {
             | Message::SettingsClosed
             | Message::SettingsUpdateModeChosen(_)
             | Message::SettingsReopenChosen(_)
-            | Message::SettingsReconnectToggled(_)) => return self.settings_message(message),
+            | Message::SettingsReconnectToggled(_)
+            | Message::SettingsThemeChosen(_)) => return self.settings_message(message),
             Message::ReopenPressed => self.reopen_pressed(),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
                 return self.palette_message(message);

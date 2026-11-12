@@ -362,3 +362,69 @@ fn set_reconnect_keeps_the_other_tables_and_comments() {
     assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
     assert!(kept.contains("[connection]\nreconnect = true\n"), "{kept}");
 }
+
+mod theme_base {
+    use porthmos_core::theme::ThemeBase;
+
+    use super::{Edit, apply};
+
+    const THEME: &str = "# my colours\n[colors]\nfg = \"#123456\" # keep\n";
+
+    fn set(base: ThemeBase) -> Edit {
+        Edit::SetThemeBase(base)
+    }
+
+    #[test]
+    fn the_base_is_written_as_a_top_level_key_in_an_empty_file() {
+        assert_eq!(apply("", &set(ThemeBase::Light)).unwrap(), "base = \"light\"\n");
+    }
+
+    #[test]
+    fn every_base_is_written_by_its_name() {
+        for base in [ThemeBase::Dark, ThemeBase::HighContrast, ThemeBase::Light] {
+            assert_eq!(apply("", &set(base)).unwrap(), format!("base = \"{}\"\n", base.name()));
+        }
+    }
+
+    #[test]
+    fn the_base_goes_above_the_colours_table_and_everything_else_is_kept() {
+        let written = apply(THEME, &set(ThemeBase::HighContrast)).unwrap();
+
+        let base_at = written.find("base = ").unwrap();
+        let colors_at = written.find("[colors]").unwrap();
+        assert!(base_at < colors_at, "{written}");
+        assert!(written.contains("# my colours") && written.contains("fg = \"#123456\" # keep"), "{written}");
+        let (parsed, warnings) = porthmos_core::theme::file::parse(&written, None);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(parsed.fg, porthmos_core::theme::Rgb(0x12, 0x34, 0x56));
+        assert_eq!(parsed.bg, porthmos_core::theme::ColorScheme::high_contrast().bg);
+    }
+
+    #[test]
+    fn changing_the_base_replaces_the_line_and_keeps_its_comment() {
+        let first = apply("base = \"light\" # my pick\n[colors]\nfg = \"#123456\"\n", &set(ThemeBase::Dark)).unwrap();
+
+        assert_eq!(first, "base = \"dark\" # my pick\n[colors]\nfg = \"#123456\"\n");
+    }
+
+    #[test]
+    fn writing_the_same_base_twice_changes_nothing() {
+        let once = apply(THEME, &set(ThemeBase::Light)).unwrap();
+
+        assert_eq!(apply(&once, &set(ThemeBase::Light)).unwrap(), once);
+    }
+
+    #[test]
+    fn a_syntax_error_names_theme_toml_not_config_toml() {
+        let refused = apply("base = = =\n", &set(ThemeBase::Light)).unwrap_err();
+
+        assert!(refused.starts_with("theme.toml has a syntax error"), "{refused}");
+    }
+
+    #[test]
+    fn other_edits_still_name_config_toml() {
+        let refused = apply("x = = =\n", &Edit::SetReconnect(true)).unwrap_err();
+
+        assert!(refused.starts_with("config.toml has a syntax error"), "{refused}");
+    }
+}

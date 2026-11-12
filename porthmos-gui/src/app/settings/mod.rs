@@ -4,12 +4,14 @@ use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::Id;
 use iced::{Size, Task, window};
+use porthmos_core::theme::{self, ThemeBase};
 use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
 use crate::config_file::{self, Edit};
 use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, editor_from_text};
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
+use crate::theme::{Palette, ThemeSettings};
 use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
 
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
@@ -25,6 +27,11 @@ impl App {
     pub fn with_settings(mut self, settings: GuiSettings, config_file: PathBuf) -> App {
         self.gui_settings = settings;
         self.config_file = Some(config_file);
+        self
+    }
+
+    pub fn with_theme_accent(mut self, accent: Option<theme::Rgb>) -> App {
+        self.theme_accent = accent;
         self
     }
 
@@ -107,6 +114,29 @@ impl App {
                 false
             }
         }
+    }
+
+    fn theme_file(&self) -> Option<PathBuf> {
+        self.config_file.as_ref().map(|config| config.with_file_name(theme::file::FILE_NAME))
+    }
+
+    fn choose_theme(&mut self, base: ThemeBase) {
+        let Some(path) = self.theme_file() else {
+            self.show_settings_message(Some(SettingsMessage::Error(NO_CONFIG_TEXT.to_string())));
+            return;
+        };
+        if let Err(message) = config_file::save(&path, &Edit::SetThemeBase(base)) {
+            self.show_settings_message(Some(SettingsMessage::Error(message)));
+            return;
+        }
+        let (scheme, warnings) = theme::file::load_from(&path, self.theme_accent);
+        self.palette = Palette::new(&ThemeSettings::default().with_scheme(scheme));
+        self.gui_settings.theme_base = base;
+        let message = match warnings.first() {
+            Some(warning) => SettingsMessage::Note(warning.clone()),
+            None => SettingsMessage::Note(APPLIED_NOTE.to_string()),
+        };
+        self.show_settings_message(Some(message));
     }
 
     fn core_setting_saved(&mut self, edit: Edit, apply: impl FnOnce(&mut GuiSettings)) {
@@ -244,6 +274,7 @@ impl App {
                     self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
                 }
             }
+            Message::SettingsThemeChosen(base) => self.choose_theme(base),
             Message::SettingsClosed => return self.close_settings(),
             _ => {}
         }
@@ -256,6 +287,10 @@ impl App {
             (ReopenMode::Ask, "Offer to reopen"),
             (ReopenMode::Auto, "Reopen automatically"),
         ]
+    }
+
+    pub fn theme_choices() -> [(ThemeBase, &'static str); 3] {
+        [(ThemeBase::Dark, "Dark"), (ThemeBase::HighContrast, "High contrast"), (ThemeBase::Light, "Light")]
     }
 
     pub fn update_mode_choices() -> [(UpdateMode, &'static str); 3] {

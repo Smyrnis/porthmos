@@ -113,3 +113,27 @@ fn a_scheme_accent_beats_the_config_accent_once_the_file_is_loaded() {
 
     assert_eq!(palette.accent, hex("#070707"));
 }
+
+#[test]
+fn mixing_nothing_keeps_the_first_colour_and_mixing_everything_gives_the_second() {
+    let (from, to) = (Color::from_rgb8(10, 20, 30), Color::from_rgb8(210, 120, 90));
+
+    assert_eq!(mix(from, to, 0.0), from);
+    assert_eq!(mix(from, to, 1.0), to);
+}
+
+#[test]
+fn mixing_halfway_lands_between_the_two_colours() {
+    let mixed = mix(Color::from_rgb8(0, 0, 0), Color::from_rgb8(200, 100, 50), 0.5);
+
+    assert_eq!(mixed, Color::from_rgb(100.0 / 255.0, 50.0 / 255.0, 25.0 / 255.0));
+}
+
+#[test]
+fn only_a_palette_on_a_light_ground_asks_for_light_icons() {
+    let on = |scheme: ColorScheme| Palette::new(&ThemeSettings::default().with_scheme(scheme)).light;
+
+    assert!(on(ColorScheme::light()));
+    assert!(!on(ColorScheme::dark()));
+    assert!(!on(ColorScheme::high_contrast()));
+}

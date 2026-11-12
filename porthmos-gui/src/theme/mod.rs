@@ -7,6 +7,15 @@ fn color_of(rgb: Rgb) -> Color {
     Color::from_rgb8(rgb.0, rgb.1, rgb.2)
 }
 
+pub fn mix(from: Color, to: Color, amount: f32) -> Color {
+    Color {
+        r: from.r + (to.r - from.r) * amount,
+        g: from.g + (to.g - from.g) * amount,
+        b: from.b + (to.b - from.b) * amount,
+        a: from.a + (to.a - from.a) * amount,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
     pub bg: Color,
@@ -28,6 +37,7 @@ pub struct Palette {
     pub paused: Color,
     pub inactive_file: Color,
     pub inactive_dir: Color,
+    pub light: bool,
 }
 
 impl Palette {
@@ -53,6 +63,7 @@ impl Palette {
             paused: color_of(scheme.paused),
             inactive_file: color_of(scheme.inactive_file),
             inactive_dir: color_of(scheme.inactive_dir),
+            light: scheme.is_light(),
         }
     }
 

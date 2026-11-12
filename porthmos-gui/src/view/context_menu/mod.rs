@@ -32,7 +32,7 @@ fn item<'a>(app: &App, entry: (crate::menus::MenuItem, bool)) -> Element<'a, Mes
         .width(Length::Fixed(MENU_WIDTH - 2.0 * MENU_PADDING))
         .height(Length::Fixed(ITEM_HEIGHT))
         .on_press_maybe(enabled.then_some(Message::MenuItemChosen(menu_item)))
-        .style(flat(color, enabled))
+        .style(flat(&palette, color, enabled))
         .into()
 }
 

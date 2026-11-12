@@ -132,6 +132,7 @@ fn header<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
         None => format_speed_limit(app.transfer_speed_limit()),
     };
     let field = text_input("off", &shown)
+        .style(crate::view::input::style(palette))
         .on_input(Message::SpeedLimitTyped)
         .on_submit(Message::SpeedLimitSubmitted)
         .size(12.0)

@@ -159,7 +159,7 @@ pub fn more_menu(app: &App) -> Element<'_, Message> {
             .padding([6.0, 12.0])
             .width(Length::Fixed(MORE_MENU_WIDTH))
             .on_press_maybe(enabled.then_some(Message::MoreItemChosen(item)))
-            .style(flat(color, enabled));
+            .style(flat(&palette, color, enabled));
         items = items.push(row_button);
     }
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };

@@ -40,20 +40,20 @@ pub fn secret_placeholder(saved: bool, forgotten: bool) -> &'static str {
     }
 }
 
-fn input<'a>(placeholder: &str, value: &str) -> text_input::TextInput<'a, Message> {
-    text_input(placeholder, value).size(13.0).font(Font::DEFAULT)
+fn input<'a>(placeholder: &str, value: &str, palette: &Palette) -> text_input::TextInput<'a, Message> {
+    text_input(placeholder, value).size(13.0).font(Font::DEFAULT).style(crate::view::input::style(palette))
 }
 
 fn control<'a>(state: &'a FormState, field: &FieldView, palette: &Palette) -> Element<'a, Message> {
     let key = field.key.clone();
     match &field.kind {
-        FieldKind::Text(value) => input("", value)
+        FieldKind::Text(value) => input("", value, palette)
             .id(App::form_input_id(&key))
             .on_input(move |typed| Message::FormTextTyped(key.clone(), typed))
             .into(),
         FieldKind::Secret { saved, forgotten, .. } => {
             let secret_key = key.clone();
-            let field_input = input(secret_placeholder(*saved, *forgotten), state.secret_text(&key))
+            let field_input = input(secret_placeholder(*saved, *forgotten), state.secret_text(&key), palette)
                 .id(App::form_input_id(&key))
                 .secure(true)
                 .on_input(move |typed| Message::FormSecretTyped(secret_key.clone(), Typed::new(typed)));
@@ -137,7 +137,7 @@ fn test_line<'a>(app: &App, state: &FormState) -> Option<Element<'a, Message>> {
 
 fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
     let palette = app.palette();
-    let field = input("", prompt.text.as_str())
+    let field = input("", prompt.text.as_str(), palette)
         .id(App::test_password_id())
         .secure(true)
         .on_input(|typed| Message::TestPasswordTyped(Typed::new(typed)))
@@ -159,8 +159,7 @@ fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
         ..container::Style::default()
     });
     let blocked = mouse_area(boxed).on_press(Message::ManagerIgnored);
-    let backdrop =
-        mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(Message::ManagerIgnored);
+    let backdrop = mouse_area(crate::view::scrim(palette)).on_press(Message::ManagerIgnored);
     let placed = container(blocked)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -174,7 +173,7 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
     let line = |name: &'static str, value: &str, message: fn(String) -> Message, id: &str| -> Element<'a, Message> {
         row![
             label(name, palette.fg_dim).width(Length::Fixed(LABEL_WIDTH)),
-            input("", value).id(App::form_input_id(id)).on_input(message).width(Length::Fill),
+            input("", value, palette).id(App::form_input_id(id)).on_input(message).width(Length::Fill),
         ]
         .align_y(Alignment::Center)
         .spacing(8)
@@ -273,8 +272,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             },
         );
     let blocked = mouse_area(boxed).on_press(Message::ManagerIgnored);
-    let backdrop =
-        mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(Message::ManagerIgnored);
+    let backdrop = mouse_area(crate::view::scrim(palette)).on_press(Message::ManagerIgnored);
     let placed = container(blocked)
         .width(Length::Fill)
         .height(Length::Fill)

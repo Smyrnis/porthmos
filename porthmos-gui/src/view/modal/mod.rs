@@ -1,7 +1,7 @@
 mod conflict;
 mod sync_options;
 
-use iced::widget::{checkbox, column, container, row, space, stack, text, text_input};
+use iced::widget::{checkbox, column, container, row, stack, text, text_input};
 use iced::{Border, Element, Font, Length, alignment};
 
 use super::button::{Look, text_button};
@@ -31,8 +31,9 @@ pub(super) fn body_text<'a>(content: String, palette: &Palette) -> Element<'a, M
     text(content).size(13.0).font(Font::DEFAULT).color(palette.fg).into()
 }
 
-fn name_input<'a>(value: &str) -> Element<'a, Message> {
+fn name_input<'a>(value: &str, palette: &Palette) -> Element<'a, Message> {
     text_input("Name", value)
+        .style(crate::view::input::style(palette))
         .id(App::dialog_input_id())
         .on_input(Message::ModalTyped)
         .on_submit(Message::ModalAccepted)
@@ -42,7 +43,7 @@ fn name_input<'a>(value: &str) -> Element<'a, Message> {
 }
 
 fn name_prompt<'a>(value: &str, error: &Option<String>, palette: &Palette) -> Element<'a, Message> {
-    let mut content = column![name_input(value)].spacing(6);
+    let mut content = column![name_input(value, palette)].spacing(6);
     if let Some(error) = error {
         content = content.push(label(error.clone(), palette.err));
     }
@@ -106,6 +107,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         }
         Modal::Question(Dialog::Password { title, prompt, text: typed, save, .. }) => {
             let input = text_input("", typed.as_str())
+                .style(crate::view::input::style(palette))
                 .id(App::dialog_input_id())
                 .secure(true)
                 .on_input(|value| Message::DialogTyped(Typed::new(value)))
@@ -205,13 +207,14 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let border = Border { color: palette.line_strong, width: 1.0, ..Border::default() };
     let surface = palette.surface;
     let body = column![bold_label(title, palette.fg_bright), content, buttons].spacing(12);
-    let boxed = container(body).padding(16).width(Length::Fixed(width)).style(move |_| container::Style {
+    let boxed = container(body).padding(16).width(Length::Fill).max_width(width).style(move |_| container::Style {
         background: Some(iced::Background::Color(surface)),
         border,
         ..container::Style::default()
     });
-    let backdrop = container(space()).width(Length::Fill).height(Length::Fill);
+    let backdrop = crate::view::scrim(palette);
     let placed = container(boxed)
+        .padding(16)
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(alignment::Horizontal::Center)

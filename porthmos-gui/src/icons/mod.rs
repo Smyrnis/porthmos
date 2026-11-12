@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use iced::widget::svg::Handle;
@@ -76,10 +77,38 @@ icons! {
     Link => "main/symlink.svg",
 }
 
-static HANDLES: OnceLock<Vec<Handle>> = OnceLock::new();
+pub const LIGHT_SWAPS: &[(&str, &str)] = &[
+    ("#CED0D6", "#4B4E55"),
+    ("#B4B8BF", "#5C6068"),
+    ("#43454A", "#D9DBE0"),
+    ("#25324D", "#D6E2FA"),
+    ("#1E1F22", "#EDEEF1"),
+    ("#402929", "#F5DADA"),
+    ("#2F2936", "#E8DEF5"),
+    ("#253627", "#DCEEDD"),
+    ("#45322B", "#F2E0D6"),
+];
 
-pub fn handle(icon: Icon) -> Handle {
-    let handles = HANDLES.get_or_init(|| Icon::ALL.iter().map(|icon| Handle::from_memory(bytes(*icon))).collect());
+pub fn recolored(icon: Icon, light: bool) -> Cow<'static, [u8]> {
+    let original = bytes(icon);
+    if !light {
+        return Cow::Borrowed(original);
+    }
+    let mut text = String::from_utf8_lossy(original).into_owned();
+    for (from, to) in LIGHT_SWAPS {
+        text = text.replace(from, to);
+    }
+    Cow::Owned(text.into_bytes())
+}
+
+static DARK_HANDLES: OnceLock<Vec<Handle>> = OnceLock::new();
+static LIGHT_HANDLES: OnceLock<Vec<Handle>> = OnceLock::new();
+
+pub fn handle(icon: Icon, light: bool) -> Handle {
+    let cache = if light { &LIGHT_HANDLES } else { &DARK_HANDLES };
+    let handles = cache.get_or_init(|| {
+        Icon::ALL.iter().map(|icon| Handle::from_memory(recolored(*icon, light).into_owned())).collect()
+    });
     handles[icon as usize].clone()
 }
 

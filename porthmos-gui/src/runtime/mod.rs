@@ -43,6 +43,7 @@ pub struct Started {
     pub events: EventSource,
     pub warnings: Vec<String>,
     pub theme: ThemeSettings,
+    pub config_accent: Option<porthmos_core::theme::Rgb>,
     pub shortcuts: Shortcuts,
     pub settings: GuiSettings,
     pub config_file: PathBuf,
@@ -63,11 +64,9 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
     let (theme, mut theme_warnings) = ThemeSettings::from_frontend(&settings.frontend);
-    let (scheme, scheme_warnings) = porthmos_core::theme::file::load_onto(
-        &paths,
-        porthmos_core::theme::ColorScheme::dark().with_accent(theme.accent),
-    );
+    let (scheme, scheme_warnings) = porthmos_core::theme::file::load(&paths, theme.accent);
     theme_warnings.extend(scheme_warnings);
+    let config_accent = theme.accent;
     let theme = theme.with_scheme(scheme);
     let (shortcuts, key_warnings) = Shortcuts::from_frontend(&settings.frontend);
     let gui_settings = GuiSettings {
@@ -78,6 +77,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         search_preview: settings.search.preview,
         reopen: settings.startup.reopen,
         reconnect: settings.connection.reconnect,
+        theme_base: porthmos_core::theme::file::read_base(&paths.theme_file()),
     };
     let config_file = paths.config_file();
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();
@@ -94,6 +94,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         events: EventSource::new(receiver),
         warnings,
         theme,
+        config_accent,
         shortcuts,
         settings: gui_settings,
         config_file,

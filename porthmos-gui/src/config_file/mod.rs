@@ -2,10 +2,12 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use porthmos_core::theme::ThemeBase;
 use porthmos_core::{ReopenMode, UpdateMode};
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, Value};
 
 const FILE_NAME: &str = "config.toml";
+const THEME_FILE_NAME: &str = "theme.toml";
 const NEW_FILE_MODE: u32 = 0o644;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,14 +21,24 @@ pub enum Edit {
     SetSearchPreview(bool),
     SetReopenMode(ReopenMode),
     SetReconnect(bool),
+    SetThemeBase(ThemeBase),
 }
 
-fn syntax_error(text: &str, error: &toml_edit::TomlError) -> String {
+impl Edit {
+    fn file_name(&self) -> &'static str {
+        match self {
+            Edit::SetThemeBase(_) => THEME_FILE_NAME,
+            _ => FILE_NAME,
+        }
+    }
+}
+
+fn syntax_error(file_name: &str, text: &str, error: &toml_edit::TomlError) -> String {
     let start = error.span().map_or(0, |span| span.start).min(text.len());
     let before = &text[..start];
     let line = before.matches('\n').count() + 1;
     let column = before.rsplit('\n').next().map_or(0, |last| last.chars().count()) + 1;
-    format!("{FILE_NAME} has a syntax error (line {line}, column {column}): {}", error.message())
+    format!("{file_name} has a syntax error (line {line}, column {column}): {}", error.message())
 }
 
 fn section<'a>(root: &'a mut Table, path: &[&str], create: bool) -> Result<Option<&'a mut dyn TableLike>, String> {
@@ -115,7 +127,7 @@ fn prune(document: &mut DocumentMut, path: &[&str]) -> Result<(), String> {
 }
 
 pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
-    let mut document: DocumentMut = text.parse().map_err(|error| syntax_error(text, &error))?;
+    let mut document: DocumentMut = text.parse().map_err(|error| syntax_error(edit.file_name(), text, &error))?;
     match edit {
         Edit::SetKey { action, chords } => {
             if chords.is_empty() {
@@ -136,6 +148,7 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
         Edit::SetUpdateMode(mode) => set_in(&mut document, &["update"], "mode", Value::from(mode_text(*mode)))?,
         Edit::SetReopenMode(mode) => set_in(&mut document, &["startup"], "reopen", Value::from(mode.id()))?,
         Edit::SetReconnect(on) => set_in(&mut document, &["connection"], "reconnect", Value::from(*on))?,
+        Edit::SetThemeBase(base) => set_in(&mut document, &[], "base", Value::from(base.name()))?,
         Edit::SetSearchPreview(on) => set_in(&mut document, &["search"], "preview", Value::from(*on))?,
     }
     Ok(document.to_string())

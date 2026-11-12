@@ -124,3 +124,76 @@ fn all_lists_the_icons_in_declaration_order() {
         assert_eq!(*icon as usize, index, "{icon:?}");
     }
 }
+
+fn text_of(bytes: &[u8]) -> String {
+    String::from_utf8(bytes.to_vec()).unwrap()
+}
+
+#[test]
+fn icons_for_a_dark_background_are_the_vendored_files_untouched() {
+    for icon in Icon::ALL {
+        assert_eq!(recolored(*icon, false).as_ref(), bytes(*icon), "{icon:?}");
+    }
+}
+
+#[test]
+fn icons_for_a_light_background_lose_the_pale_greys_made_for_a_dark_one() {
+    for icon in Icon::ALL {
+        let text = text_of(&recolored(*icon, true));
+        for pale in ["#CED0D6", "#B4B8BF"] {
+            assert!(!text.contains(pale), "{icon:?} still has {pale}");
+        }
+    }
+}
+
+#[test]
+fn light_icons_get_dark_greys_that_stand_out_on_a_light_background() {
+    let ground = porthmos_core::theme::ColorScheme::light().bg;
+
+    for (_, replacement) in LIGHT_SWAPS.iter().filter(|(from, _)| ["#CED0D6", "#B4B8BF"].contains(from)) {
+        let colour = porthmos_core::theme::Rgb::parse(replacement).unwrap();
+        assert!(colour.contrast(ground) >= 4.5, "{replacement}");
+    }
+}
+
+#[test]
+fn light_icons_swap_the_dark_panel_fills_for_pale_ones() {
+    for (from, to) in LIGHT_SWAPS {
+        let (before, after) =
+            (porthmos_core::theme::Rgb::parse(from).unwrap(), porthmos_core::theme::Rgb::parse(to).unwrap());
+        let white = porthmos_core::theme::Rgb(255, 255, 255);
+        let panel = ["#43454A", "#25324D", "#1E1F22", "#402929", "#2F2936", "#253627", "#45322B"].contains(from);
+        if panel {
+            assert!(after.contrast(white) < before.contrast(white), "{from}");
+            assert!(after.contrast(white) < 1.6, "{from} -> {to}");
+        }
+    }
+}
+
+#[test]
+fn every_swap_replaces_a_whole_hex_colour() {
+    for (from, to) in LIGHT_SWAPS {
+        assert_eq!((from.len(), to.len()), (7, 7));
+        assert!(from.starts_with('#') && to.starts_with('#'));
+        assert_eq!(*from, from.to_ascii_uppercase());
+    }
+}
+
+#[test]
+fn recolouring_keeps_the_svg_otherwise_intact() {
+    for icon in Icon::ALL {
+        let original = text_of(bytes(*icon));
+        let light = text_of(&recolored(*icon, true));
+        assert_eq!(original.len(), light.len(), "{icon:?}");
+        assert!(light.starts_with(original.split('<').next().unwrap()));
+        assert_eq!(light.matches("<path").count(), original.matches("<path").count());
+    }
+}
+
+#[test]
+fn handles_exist_for_both_backgrounds() {
+    for icon in Icon::ALL {
+        let _ = handle(*icon, false);
+        let _ = handle(*icon, true);
+    }
+}

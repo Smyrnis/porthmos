@@ -194,3 +194,150 @@ fn the_selected_row_is_more_visible_in_the_active_panel_than_in_the_other() {
 
     assert!(scheme.row_focus.contrast(scheme.bg) > scheme.row_focus_inactive.contrast(scheme.bg));
 }
+
+const STRONG_TEXT: f64 = 7.0;
+
+fn assert_text_at_least(scheme: &ColorScheme, needed: f64) {
+    let grounds = [scheme.bg, scheme.surface, scheme.row_focus, scheme.row_focus_inactive];
+    for (role, colour) in text_roles(scheme) {
+        for ground in grounds {
+            let ratio = colour.contrast(ground);
+            assert!(ratio >= needed, "{role} on {ground:?} is {ratio:.2}:1, needs {needed}:1");
+        }
+    }
+}
+
+fn assert_ladder(scheme: &ColorScheme) {
+    let ladder = [scheme.fg_focus, scheme.fg_bright, scheme.fg, scheme.fg_muted, scheme.fg_dim];
+    for pair in ladder.windows(2) {
+        assert!(pair[0].contrast(scheme.bg) > pair[1].contrast(scheme.bg), "{pair:?}");
+    }
+}
+
+#[test]
+fn every_text_colour_of_the_high_contrast_scheme_reaches_seven_to_one_on_every_ground() {
+    assert_text_at_least(&ColorScheme::high_contrast(), STRONG_TEXT);
+}
+
+#[test]
+fn the_high_contrast_lines_are_clearer_than_the_dark_ones() {
+    let (dark, strong) = (ColorScheme::dark(), ColorScheme::high_contrast());
+
+    assert!(strong.line.contrast(strong.bg) >= 3.0);
+    assert!(strong.line_strong.contrast(strong.bg) >= 7.0);
+    assert!(strong.idle.contrast(strong.bg) >= 3.0);
+    assert!(strong.row_focus.contrast(strong.bg) >= 1.5);
+    assert!(strong.row_focus_inactive.contrast(strong.bg) >= 1.3);
+    assert!(strong.line.contrast(strong.bg) > dark.line.contrast(dark.bg));
+    assert!(strong.line_strong.contrast(strong.bg) > dark.line_strong.contrast(dark.bg));
+}
+
+#[test]
+fn the_high_contrast_text_ladder_gets_dimmer_step_by_step() {
+    assert_ladder(&ColorScheme::high_contrast());
+}
+
+#[test]
+fn the_high_contrast_selected_row_is_more_visible_in_the_active_panel() {
+    let scheme = ColorScheme::high_contrast();
+
+    assert!(scheme.row_focus.contrast(scheme.bg) > scheme.row_focus_inactive.contrast(scheme.bg));
+}
+
+#[test]
+fn every_text_colour_of_the_light_scheme_is_readable_on_every_ground() {
+    assert_text_at_least(&ColorScheme::light(), TEXT);
+}
+
+#[test]
+fn the_lines_graphics_and_selection_of_the_light_scheme_can_be_seen() {
+    let scheme = ColorScheme::light();
+    let checks = [
+        ("line", scheme.line, SEPARATOR),
+        ("line_strong", scheme.line_strong, BORDER),
+        ("idle", scheme.idle, GRAPHIC),
+        ("row_focus", scheme.row_focus, SELECTION),
+        ("row_focus_inactive", scheme.row_focus_inactive, INACTIVE_SELECTION),
+    ];
+    for (role, colour, needed) in checks {
+        let ratio = colour.contrast(scheme.bg);
+        assert!(ratio >= needed, "{role} against bg is {ratio:.2}:1, needs {needed}:1");
+    }
+}
+
+#[test]
+fn the_light_text_ladder_gets_dimmer_step_by_step() {
+    assert_ladder(&ColorScheme::light());
+}
+
+#[test]
+fn the_light_selected_row_is_more_visible_in_the_active_panel() {
+    let scheme = ColorScheme::light();
+
+    assert!(scheme.row_focus.contrast(scheme.bg) > scheme.row_focus_inactive.contrast(scheme.bg));
+}
+
+#[test]
+fn the_light_scheme_has_a_light_ground_and_the_dark_ones_a_dark_ground() {
+    let light = ColorScheme::light();
+    let white = Rgb(255, 255, 255);
+
+    assert!(light.bg.contrast(white) < 1.2);
+    for dark in [ColorScheme::dark(), ColorScheme::high_contrast()] {
+        assert!(dark.bg.contrast(Rgb(0, 0, 0)) < 1.2);
+    }
+}
+
+#[test]
+fn the_three_schemes_differ_in_every_ground_that_matters() {
+    let all = [ThemeBase::Dark.scheme(), ThemeBase::HighContrast.scheme(), ThemeBase::Light.scheme()];
+
+    assert_ne!(all[0], all[1]);
+    assert_ne!(all[0], all[2]);
+    assert_ne!(all[1], all[2]);
+}
+
+#[test]
+fn base_names_round_trip() {
+    for name in ThemeBase::NAMES {
+        assert_eq!(ThemeBase::parse(name).map(ThemeBase::name), Some(name));
+    }
+    assert_eq!(ThemeBase::parse("Dark"), None);
+    assert_eq!(ThemeBase::parse(""), None);
+}
+
+#[test]
+fn the_default_base_is_dark_and_gives_the_default_scheme() {
+    assert_eq!(ThemeBase::default(), ThemeBase::Dark);
+    assert_eq!(ThemeBase::default().scheme(), ColorScheme::default());
+}
+
+#[test]
+fn every_role_of_every_scheme_survives_the_indexed_mapping_without_colliding_in_the_text_ladder() {
+    for base in [ThemeBase::Dark, ThemeBase::HighContrast, ThemeBase::Light] {
+        let scheme = base.scheme();
+        let ladder = [scheme.fg_focus, scheme.fg_bright, scheme.fg, scheme.fg_muted, scheme.fg_dim];
+        let indexes: Vec<u8> = ladder.iter().map(|rgb| rgb.nearest_indexed()).collect();
+        let mut unique = indexes.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert!(unique.len() >= 4, "{base:?}: {indexes:?}");
+    }
+}
+
+#[test]
+fn only_the_light_scheme_counts_as_light() {
+    assert!(ColorScheme::light().is_light());
+    assert!(!ColorScheme::dark().is_light());
+    assert!(!ColorScheme::high_contrast().is_light());
+}
+
+#[test]
+fn a_scheme_is_light_when_its_background_is_nearer_to_white_than_to_black() {
+    let on = |bg| ColorScheme { bg, ..ColorScheme::dark() }.is_light();
+
+    assert!(on(Rgb(0xff, 0xff, 0xff)));
+    assert!(on(Rgb(0xc0, 0xc0, 0xc0)));
+    assert!(!on(Rgb(0x00, 0x00, 0x00)));
+    assert!(!on(Rgb(0x30, 0x30, 0x40)));
+}

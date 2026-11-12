@@ -10,7 +10,7 @@ use crate::theme::Palette;
 const LABEL_WIDTH: f32 = 110.0;
 
 fn choice<'a>(title: &str, chosen: bool, picked: SyncChoice, palette: &Palette) -> Element<'a, Message> {
-    let look = if chosen { Look::Primary } else { Look::Normal };
+    let look = if chosen { Look::Chosen } else { Look::Normal };
     text_button(title, Some(Message::SyncOptionChosen(picked)), look, palette)
 }
 

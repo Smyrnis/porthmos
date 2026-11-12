@@ -7,6 +7,7 @@ mod drag_overlay;
 mod file_list;
 pub mod format;
 mod header;
+mod input;
 mod modal;
 pub mod palette;
 mod path_bar;
@@ -46,6 +47,16 @@ pub fn bold_label<'a>(content: impl Into<String>, color: Color) -> iced::widget:
 
 pub fn filled<'a>(color: Color) -> impl Fn(&iced::Theme) -> container::Style + 'a {
     move |_| container::Style { background: Some(Background::Color(color)), ..container::Style::default() }
+}
+
+pub const SCRIM_ALPHA: f32 = 0.6;
+
+pub fn scrim_color(palette: &Palette) -> Color {
+    palette.bg.scale_alpha(SCRIM_ALPHA)
+}
+
+pub fn scrim<'a>(palette: &Palette) -> container::Container<'a, Message> {
+    container(space()).width(Length::Fill).height(Length::Fill).style(filled(scrim_color(palette)))
 }
 
 pub fn hairline_across<'a>(palette: &Palette) -> Element<'a, Message> {
@@ -127,7 +138,7 @@ fn populated<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, size: iced::Si
         path_bar::bar(app, side, panel, size.width),
         hairline_across(palette),
         header::columns(side, panel, shown, palette),
-        hairline_across(palette),
+        header::rule(app.active_side() == side, palette),
         file_list::list(app, side, panel, shown, size),
         hairline_across(palette),
         status::panel_line(panel, palette, file_list::line_cells(size.width), app.filter_editing_side() == Some(side)),
@@ -145,3 +156,6 @@ fn no_connection<'a>(app: &App, side: PanelSide) -> Element<'a, Message> {
     }
     container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill).into()
 }
+
+#[cfg(test)]
+mod tests;

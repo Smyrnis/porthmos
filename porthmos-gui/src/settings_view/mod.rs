@@ -1,3 +1,4 @@
+use porthmos_core::theme::ThemeBase;
 use porthmos_core::{ReopenMode, UpdateMode};
 
 use crate::shortcuts::Action;
@@ -11,6 +12,7 @@ pub struct GuiSettings {
     pub search_preview: bool,
     pub reopen: ReopenMode,
     pub reconnect: bool,
+    pub theme_base: ThemeBase,
 }
 
 impl Default for GuiSettings {
@@ -23,6 +25,7 @@ impl Default for GuiSettings {
             search_preview: false,
             reopen: ReopenMode::Off,
             reconnect: false,
+            theme_base: ThemeBase::Dark,
         }
     }
 }

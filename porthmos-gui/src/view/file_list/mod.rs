@@ -122,7 +122,7 @@ fn row_view<'a>(
     };
     let background = row_background(state, palette);
     let opacity = if state.focused { 1.0 } else { INACTIVE_ICON_OPACITY };
-    let icon = svg(icons::handle(icon_of(row_data))).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity);
+    let icon = svg(icons::handle(icon_of(row_data), palette.light)).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity);
     let name = label(name, color);
     let name = if is_dir || state.cursor || state.drop { name.font(BOLD) } else { name };
     let name_cell: Element<'a, Message> = match entry.and_then(link_note) {

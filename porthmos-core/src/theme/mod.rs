@@ -1,5 +1,6 @@
 pub mod file;
 
+const MID_LUMINANCE: f64 = 0.179;
 const CUBE_STEPS: [u8; 6] = [0, 95, 135, 175, 215, 255];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,43 @@ pub struct ColorScheme {
     pub inactive_dir: Rgb,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThemeBase {
+    #[default]
+    Dark,
+    HighContrast,
+    Light,
+}
+
+impl ThemeBase {
+    pub const NAMES: [&'static str; 3] = ["dark", "high-contrast", "light"];
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "dark" => Some(Self::Dark),
+            "high-contrast" => Some(Self::HighContrast),
+            "light" => Some(Self::Light),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dark => Self::NAMES[0],
+            Self::HighContrast => Self::NAMES[1],
+            Self::Light => Self::NAMES[2],
+        }
+    }
+
+    pub fn scheme(self) -> ColorScheme {
+        match self {
+            Self::Dark => ColorScheme::dark(),
+            Self::HighContrast => ColorScheme::high_contrast(),
+            Self::Light => ColorScheme::light(),
+        }
+    }
+}
+
 impl Default for ColorScheme {
     fn default() -> Self {
         Self::dark()
@@ -109,6 +147,54 @@ impl ColorScheme {
             paused: Rgb(0x96, 0x96, 0x96),
             inactive_file: Rgb(0xa4, 0xa4, 0xa4),
             inactive_dir: Rgb(0xbc, 0xbc, 0xbc),
+        }
+    }
+
+    pub const fn high_contrast() -> Self {
+        Self {
+            bg: Rgb(0x00, 0x00, 0x00),
+            fg_bright: Rgb(0xf5, 0xf5, 0xf5),
+            fg_focus: Rgb(0xff, 0xff, 0xff),
+            fg: Rgb(0xe6, 0xe6, 0xe6),
+            fg_muted: Rgb(0xd2, 0xd2, 0xd2),
+            fg_dim: Rgb(0xc4, 0xc4, 0xc4),
+            line: Rgb(0x70, 0x70, 0x70),
+            line_strong: Rgb(0xb8, 0xb8, 0xb8),
+            row_focus: Rgb(0x1c, 0x33, 0x54),
+            row_focus_inactive: Rgb(0x18, 0x28, 0x3d),
+            surface: Rgb(0x10, 0x10, 0x10),
+            accent: Rgb(0x8e, 0xc5, 0xff),
+            ok: Rgb(0x86, 0xe5, 0x8a),
+            ok_dim: Rgb(0x7a, 0xd8, 0x7e),
+            err: Rgb(0xff, 0xb0, 0xb0),
+            idle: Rgb(0x76, 0x76, 0x76),
+            paused: Rgb(0xc8, 0xc8, 0xc8),
+            inactive_file: Rgb(0xc8, 0xc8, 0xc8),
+            inactive_dir: Rgb(0xd8, 0xd8, 0xd8),
+        }
+    }
+
+    pub const fn light() -> Self {
+        Self {
+            bg: Rgb(0xfb, 0xfb, 0xfa),
+            fg_bright: Rgb(0x11, 0x11, 0x11),
+            fg_focus: Rgb(0x00, 0x00, 0x00),
+            fg: Rgb(0x2a, 0x2a, 0x2a),
+            fg_muted: Rgb(0x48, 0x48, 0x48),
+            fg_dim: Rgb(0x5a, 0x5a, 0x5a),
+            line: Rgb(0xc8, 0xc8, 0xc8),
+            line_strong: Rgb(0x8a, 0x8a, 0x8a),
+            row_focus: Rgb(0xc3, 0xd7, 0xee),
+            row_focus_inactive: Rgb(0xdc, 0xe5, 0xef),
+            surface: Rgb(0xef, 0xef, 0xed),
+            accent: Rgb(0x1f, 0x4f, 0x80),
+            ok: Rgb(0x1f, 0x5f, 0x26),
+            ok_dim: Rgb(0x26, 0x65, 0x28),
+            err: Rgb(0xa1, 0x28, 0x1f),
+            idle: Rgb(0xb4, 0xb4, 0xb4),
+            paused: Rgb(0x54, 0x54, 0x54),
+            inactive_file: Rgb(0x50, 0x50, 0x50),
+            inactive_dir: Rgb(0x38, 0x38, 0x38),
         }
     }
 
@@ -157,6 +243,10 @@ impl ColorScheme {
             "inactive_dir" => &mut self.inactive_dir,
             _ => return None,
         })
+    }
+
+    pub fn is_light(&self) -> bool {
+        self.bg.luminance() > MID_LUMINANCE
     }
 
     pub fn with_accent(self, accent: Option<Rgb>) -> Self {
