@@ -5,6 +5,7 @@ use porthmos_core::transfer::rows::{QueueRow, RowState, percent_of};
 
 use super::button::{compact_button, hinted};
 use super::file_list::{PADDING, line_cells};
+use super::spacing::{LG, SM};
 use super::text_fit::fit;
 use super::{bold_label, filled, hairline_across, label};
 use crate::app::{App, Message};
@@ -149,11 +150,13 @@ fn header<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
     if let Some(error) = queue.speed_error() {
         line = line.push(label(format!("  {}", fit(error, 60)), palette.err));
     }
-    line = line
-        .push(space().width(Length::Fixed(16.0)))
-        .push(button("Clear finished", Message::QueueClearFinished, palette))
-        .push(button("Cancel all", Message::QueueCancelAll, palette))
-        .push(button("Close", Message::ActionRequested(crate::shortcuts::Action::ToggleQueue), palette));
+    let actions = row![
+        button("Clear finished", Message::QueueClearFinished, palette),
+        button("Cancel all", Message::QueueCancelAll, palette),
+        button("Close", Message::ActionRequested(crate::shortcuts::Action::ToggleQueue), palette),
+    ]
+    .spacing(SM);
+    line = line.push(space().width(Length::Fixed(LG))).push(actions);
     container(line)
         .padding([0.0, PADDING])
         .width(Length::Fill)

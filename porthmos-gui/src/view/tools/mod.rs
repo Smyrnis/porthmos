@@ -3,6 +3,7 @@ use iced::{Alignment, Border, Element, Font, Length, Size, alignment, mouse};
 
 use super::button::{Look, text_button};
 use super::file_list::CELL_WIDTH;
+use super::spacing::{DIALOG_GAP, DIALOG_PADDING, SM};
 use super::{bold_label, filled, hairline_across, label};
 use crate::app::{App, Message};
 use crate::bookmarks::{BookmarksState, row_text};
@@ -13,19 +14,19 @@ use crate::tools::Tool;
 
 pub const PREVIEW_WIDTH: f32 = 960.0;
 pub const PREVIEW_HEIGHT: f32 = 640.0;
-pub const PREVIEW_CHROME: f32 = 120.0;
+pub const PREVIEW_CHROME: f32 = 137.0;
 pub const SYNC_WIDTH: f32 = 960.0;
 pub const SYNC_HEIGHT: f32 = 640.0;
-const SYNC_CHROME: f32 = 190.0;
+const SYNC_CHROME: f32 = 216.0;
 pub const PALETTE_WIDTH: f32 = 640.0;
 pub const PALETTE_HEIGHT: f32 = 420.0;
 pub const PALETTE_CHROME: f32 = 76.0;
 pub const BOOKMARKS_WIDTH: f32 = 560.0;
 pub const BOOKMARKS_HEIGHT: f32 = 380.0;
-const BOOKMARKS_CHROME: f32 = 110.0;
+const BOOKMARKS_CHROME: f32 = 127.0;
 pub const HISTORY_WIDTH: f32 = 760.0;
 pub const HISTORY_HEIGHT: f32 = 460.0;
-const HISTORY_CHROME: f32 = 146.0;
+const HISTORY_CHROME: f32 = 165.0;
 const MARGIN: f32 = 16.0;
 const ICON_SIZE: f32 = 16.0;
 
@@ -140,12 +141,11 @@ fn bookmarks_body<'a>(app: &'a App, state: &'a BookmarksState) -> Element<'a, Me
         .id(App::tool_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(bookmarks_list_height(app.window_size())));
-    let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
-    let boxed = container(list).style(move |_| container::Style { border, ..container::Style::default() });
     let chosen = selected.is_some();
     column![
         bold_label("Bookmarks", palette.fg_bright),
-        boxed,
+        hairline_across(palette),
+        list,
         hairline_across(palette),
         row![
             text_button("Remove", chosen.then_some(Message::BookmarkRemovePressed), Look::Normal, palette),
@@ -153,9 +153,9 @@ fn bookmarks_body<'a>(app: &'a App, state: &'a BookmarksState) -> Element<'a, Me
             text_button("Close", Some(Message::ToolClosed), Look::Normal, palette),
             text_button("Go", chosen.then_some(Message::BookmarkGoPressed), Look::Primary, palette),
         ]
-        .spacing(8),
+        .spacing(SM),
     ]
-    .spacing(10)
+    .spacing(DIALOG_GAP)
     .into()
 }
 
@@ -203,13 +203,12 @@ fn history_body<'a>(app: &'a App, state: &'a HistoryState) -> Element<'a, Messag
         .id(App::tool_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(history_list_height(app.window_size())));
-    let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
-    let boxed = container(list).style(move |_| container::Style { border, ..container::Style::default() });
     let chosen = state.selected().is_some();
     column![
         bold_label("Transfer history", palette.fg_bright),
+        hairline_across(palette),
         input,
-        boxed,
+        list,
         hairline_across(palette),
         row![
             text_button("Clear", (state.total() > 0).then_some(Message::HistoryClearPressed), Look::Normal, palette),
@@ -217,9 +216,9 @@ fn history_body<'a>(app: &'a App, state: &'a HistoryState) -> Element<'a, Messag
             text_button("Close", Some(Message::ToolClosed), Look::Normal, palette),
             text_button("Details", chosen.then_some(Message::HistoryDetailsPressed), Look::Primary, palette),
         ]
-        .spacing(8),
+        .spacing(SM),
     ]
-    .spacing(10)
+    .spacing(DIALOG_GAP)
     .into()
 }
 
@@ -236,14 +235,15 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     };
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let boxed =
-        container(content).padding(16).width(Length::Fixed(size.width)).height(Length::Fixed(size.height)).style(
-            move |_| container::Style {
-                background: Some(iced::Background::Color(surface)),
-                border,
-                ..container::Style::default()
-            },
-        );
+    let boxed = container(content)
+        .padding(DIALOG_PADDING)
+        .width(Length::Fixed(size.width))
+        .height(Length::Fixed(size.height))
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(surface)),
+            border,
+            ..container::Style::default()
+        });
     let blocked = mouse_area(boxed).on_press(Message::ToolIgnored).interaction(mouse::Interaction::Idle);
     let backdrop =
         mouse_area(crate::view::scrim(palette)).on_press(Message::ToolIgnored).interaction(mouse::Interaction::Idle);

@@ -49,3 +49,8 @@ fn a_small_window_keeps_the_whole_list_and_has_no_pane() {
     assert_eq!(search_preview_pane_height(window, true), None);
     assert_eq!(search_list_height(window, true), results_height(window));
 }
+
+#[test]
+fn the_gap_between_list_and_preview_pane_holds_a_hairline_between_two_dialog_gaps() {
+    assert_eq!(PREVIEW_PANE_GAP, 2.0 * crate::view::spacing::DIALOG_GAP + 1.0);
+}

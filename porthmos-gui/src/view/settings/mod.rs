@@ -2,6 +2,7 @@ use iced::widget::{checkbox, column, container, row, scrollable, text_input};
 use iced::{Alignment, Element, Font, Length, Size};
 
 use super::button::{Look, nav_item, text_button};
+use super::spacing::{LG, MD, XL};
 use super::{bold_label, hairline_across, hairline_down, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
@@ -260,7 +261,7 @@ fn sidebar<'a>(app: &App, state: &SettingsState) -> Element<'a, Message> {
 
 fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
-    let mut content = column![].spacing(24).padding([0, 16]);
+    let mut content = column![].spacing(XL).padding([0.0, LG]);
     for section in state.category.sections() {
         content = content.push(section_view(app, state, *section));
     }
@@ -278,7 +279,7 @@ fn body<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
             .spacing(8)
             .align_y(Alignment::Center),
     ]
-    .spacing(12)
+    .spacing(MD)
     .into()
 }
 

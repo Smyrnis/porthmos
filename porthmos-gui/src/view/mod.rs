@@ -16,6 +16,7 @@ pub mod preview;
 mod scroll;
 pub mod search;
 pub mod settings;
+mod spacing;
 mod status;
 pub mod sync;
 mod tabs;

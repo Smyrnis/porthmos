@@ -1,9 +1,10 @@
 use iced::widget::scrollable::{Direction, Scrollbar};
 use iced::widget::text::Wrapping;
 use iced::widget::{column, container, row, scrollable, space, text};
-use iced::{Border, Element, Font, Length};
+use iced::{Element, Font, Length};
 
 use super::button::{Look, text_button};
+use super::spacing::DIALOG_GAP;
 use super::tools::preview_list_height;
 use super::{bold_label, hairline_across, label};
 use crate::app::{App, Message};
@@ -73,8 +74,7 @@ pub fn pane<'a>(app: &'a App, state: &'a SearchPreview, height: f32) -> Element<
             ),
         },
     };
-    let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
-    container(content).style(move |_| container::Style { border, ..container::Style::default() }).into()
+    container(content).into()
 }
 
 pub fn body<'a>(app: &'a App, state: &'a PreviewState) -> Element<'a, Message> {
@@ -90,19 +90,18 @@ pub fn body<'a>(app: &'a App, state: &'a PreviewState) -> Element<'a, Message> {
             Scrolling { id: App::tool_list_id(), offset: app.tool_scroll(), on_scroll: Message::PreviewScrolled },
         ),
     };
-    let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
-    let boxed = container(content).style(move |_| container::Style { border, ..container::Style::default() });
     column![
         row![
             bold_label(state.title(), palette.fg_bright),
             space().width(Length::Fill),
             label(state.info_text(), palette.fg_dim)
         ],
-        boxed,
+        hairline_across(palette),
+        content,
         hairline_across(palette),
         row![space().width(Length::Fill), text_button("Close", Some(Message::ToolClosed), Look::Primary, palette)],
     ]
-    .spacing(10)
+    .spacing(DIALOG_GAP)
     .into()
 }
 
