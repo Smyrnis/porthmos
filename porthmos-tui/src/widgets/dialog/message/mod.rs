@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use porthmos_core::i18n;
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Paragraph};
 use unicode_width::UnicodeWidthStr;
 
@@ -38,7 +39,9 @@ pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog, the
     let title = printable(&dialog.title);
     let lines: Vec<String> = dialog.message.lines().map(printable).collect();
     let longest = lines.iter().map(|line| line.width()).max().unwrap_or(0).min(200) as u16;
-    let width = content_width(&[title.as_str(), "enter close"]).max(longest + 4).clamp(50, 76).min(area.width);
+    let close = i18n::text("footer.close");
+    let close_hint = format!("enter {close}");
+    let width = content_width(&[title.as_str(), close_hint.as_str()]).max(longest + 4).clamp(50, 76).min(area.width);
     let rows: Vec<String> =
         lines.iter().flat_map(|line| wrap_line(line, usize::from(width.saturating_sub(4)))).collect();
     let height = u16::try_from(rows.len() + 4).unwrap_or(u16::MAX).min(area.height);
@@ -50,7 +53,7 @@ pub fn render_message(frame: &mut Frame, area: Rect, dialog: &MessageDialog, the
     let text: Vec<Line> = rows.into_iter().map(|row| Line::styled(row, theme.text())).collect();
     let text_area = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(2));
     frame.render_widget(Paragraph::new(text), text_area);
-    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &[("enter", "close")], theme);
+    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &[("enter", close)], theme);
 }
 
 #[cfg(test)]

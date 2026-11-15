@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -57,10 +58,10 @@ impl App {
         let first = ImportSource::ALL[0];
         let prefilled = default_path_text(first);
         let fields = vec![
-            FormField::choice(SOURCE, "Import from", choices, source_value(first)),
-            FormField::text(PATH, "Path", prefilled.clone()),
+            FormField::choice(SOURCE, i18n::text("import.from"), choices, source_value(first)),
+            FormField::text(PATH, i18n::text("import.path"), prefilled.clone()),
         ];
-        let mut form = FormDialog::new("Import connections", fields);
+        let mut form = FormDialog::new(i18n::text("import.title"), fields);
         form.hint = Some(hint_text(first));
         self.import.prefilled_path = prefilled;
         self.import.waiting = None;
@@ -121,7 +122,7 @@ impl App {
         self.import.waiting = None;
         if !matches!(self.pending_action, Some(PendingAction::ImportSource)) {
             self.core.send(Command::CancelImport { import_id });
-            self.notifications.push(Severity::Warning, "The import was cancelled because another dialog was open");
+            self.notifications.push(Severity::Warning, i18n::text("import.dialog_replaced"));
             return;
         }
         if plan.rows.is_empty() {

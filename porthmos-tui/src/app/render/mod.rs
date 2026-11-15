@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use porthmos_core::offer_summary;
 use porthmos_core::transfer::limit::speed_limit_note;
 use ratatui::{
@@ -10,7 +11,7 @@ use super::{
     hints::{form_hints, help_sections, hints_for, path_edit_hints, search_hints},
     *,
 };
-use crate::palette::REOPEN_LABEL;
+use crate::palette::reopen_label;
 use crate::widgets::{
     connection_details, connection_form, file_list,
     frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
@@ -101,14 +102,14 @@ impl App {
     }
 
     fn render_too_small(&self, frame: &mut Frame, area: Rect) {
-        const MESSAGE: &str = "terminal too small";
-        let width = area.width.min(MESSAGE.len() as u16);
+        let message = i18n::text("terminal.too_small");
+        let width = area.width.min(message.chars().count() as u16);
         let x = area.x + (area.width - width) / 2;
         let y = area.y + area.height / 2;
         if area.height == 0 {
             return;
         }
-        frame.render_widget(Paragraph::new(MESSAGE).style(self.theme.dim()), Rect::new(x, y, width, 1));
+        frame.render_widget(Paragraph::new(message).style(self.theme.dim()), Rect::new(x, y, width, 1));
     }
 
     fn render_top_bar(&self, frame: &mut Frame, area: Rect, rule: Rect) {
@@ -122,7 +123,7 @@ impl App {
             let left = Line::from(vec![
                 name,
                 Span::styled(" / ", theme.dim()),
-                Span::styled("connections", theme.muted()),
+                Span::styled(i18n::text("screen.connections"), theme.muted()),
                 Span::styled(" / ", theme.dim()),
                 Span::styled(label, theme.bright()),
             ]);
@@ -200,7 +201,7 @@ impl App {
         }
         let name =
             self.sync_view.plan().and_then(|plan| self.sessions.by_id(plan.session)).map(|session| &session.name);
-        Some(name.map_or_else(|| "remote".to_string(), |name| printable(name)))
+        Some(name.map_or_else(|| i18n::text("panel.remote"), |name| printable(name)))
     }
 
     fn screen_form(&self) -> Option<&crate::widgets::dialog::FormDialog> {
@@ -210,23 +211,24 @@ impl App {
         }
     }
 
-    fn form_breadcrumb(&self) -> Option<&'static str> {
+    fn form_breadcrumb(&self) -> Option<String> {
         self.screen_form()?;
         match self.pending_action {
-            Some(PendingAction::EditConnection { .. }) => Some("edit"),
-            _ => Some("new"),
+            Some(PendingAction::EditConnection { .. }) => Some(i18n::text("hint.edit")),
+            _ => Some(i18n::text("hint.new")),
         }
     }
 
-    fn screen_title(&self) -> &'static str {
-        match self.screen {
-            Screen::Files => "files",
-            Screen::Connections => "connections",
-            Screen::Search => "search",
-            Screen::Transfers => "transfers",
-            Screen::History => "history",
-            Screen::Sync => "sync",
-        }
+    fn screen_title(&self) -> String {
+        let key = match self.screen {
+            Screen::Files => "screen.files",
+            Screen::Connections => "screen.connections",
+            Screen::Search => "screen.search",
+            Screen::Transfers => "screen.transfers",
+            Screen::History => "screen.history",
+            Screen::Sync => "screen.sync",
+        };
+        i18n::text(key)
     }
 
     fn tab_views(&self) -> Vec<TabView<'_>> {
@@ -272,10 +274,10 @@ impl App {
         }
         let (text, style) = match &self.connection_status {
             ConnectionStatus::Connecting(name) => {
-                (format!("Connecting to {}\u{2026}", printable(name)), self.theme.muted())
+                (i18n::text_with("status.connecting", &[("name", &printable(name))]), self.theme.muted())
             }
             ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
-                (format!("Connection failed: {}", printable(message.summary())), self.theme.err_text())
+                (i18n::text_with("status.failed", &[("summary", &printable(message.summary()))]), self.theme.err_text())
             }
             _ => match speed_limit_note(self.transfers.speed_limit) {
                 Some(note) => (note, self.theme.muted()),
@@ -300,15 +302,17 @@ impl App {
         let marks_for = |side| folder_marks.as_ref().map(|marks| file_list::RowMarks { marks, side });
         let local_active = self.active_panel == ActivePanel::Local;
         let remote_header = self.sessions.active().map(|session| self.remote_header(session));
-        let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
+        let remote_label = i18n::text("panel.remote");
+        let local_label = i18n::text("panel.local");
+        let remote_protocol = remote_header.as_ref().map_or(remote_label.as_str(), |(protocol, _)| protocol.as_str());
 
         if !single || local_active {
             let context = PanelContext {
-                protocol: "local",
+                protocol: &local_label,
                 location: abbreviate_home(self.local.path(), self.home.as_ref()),
                 active: local_active,
                 show_modified,
-                switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
+                switch_hint: single.then(|| format!("{local_label} \u{21c4} {remote_protocol}")),
                 editing: self.editing_field(Location::Local),
                 now: &now,
                 marks: marks_for(file_list::MarkSide::Left),
@@ -320,7 +324,7 @@ impl App {
         }
 
         if !single || !local_active {
-            let switch_hint = single.then(|| format!("{remote_protocol} \u{21c4} local"));
+            let switch_hint = single.then(|| format!("{remote_protocol} \u{21c4} {local_label}"));
             match (self.sessions.active(), &remote_header) {
                 (Some(session), Some((protocol, location))) => {
                     let context = PanelContext {
@@ -340,7 +344,7 @@ impl App {
                 }
                 _ => {
                     let context = PanelContext {
-                        protocol: "remote",
+                        protocol: &remote_label,
                         location: String::new(),
                         active: !local_active,
                         show_modified,
@@ -386,19 +390,25 @@ impl App {
                 let address = if entry.username.is_empty() { host } else { format!("{}@{host}", entry.username) };
                 (entry.protocol.clone(), format!("{address}:{path}"))
             }
-            None => ("remote".to_string(), format!("{}:{path}", session.name)),
+            None => (i18n::text("panel.remote"), format!("{}:{path}", session.name)),
         }
     }
 
     pub(super) fn remote_placeholder_lines(&self) -> Vec<String> {
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
-            return vec![format!("connecting to {name}\u{2026}")];
+            return vec![i18n::text_with("placeholder.connecting", &[("name", name)])];
         }
-        let mut lines = vec!["not connected".to_string()];
+        let mut lines = vec![i18n::text("placeholder.not_connected")];
         if !self.reopen_offer.is_empty() {
-            lines.push(format!("last time: {}", printable(&offer_summary(&self.reopen_offer))));
+            lines.push(i18n::text_with(
+                "placeholder.last_time",
+                &[("names", &printable(&offer_summary(&self.reopen_offer)))],
+            ));
             if let Some(spec) = self.key_bindings.key_for(input::Scope::Global, Action::OpenPalette) {
-                lines.push(format!("press {}, then choose {REOPEN_LABEL}", input::format_key_spec(spec)));
+                lines.push(i18n::text_with(
+                    "placeholder.press_palette",
+                    &[("key", &input::format_key_spec(spec)), ("label", &reopen_label())],
+                ));
             }
         }
         let names = self.quick_connections();
@@ -415,9 +425,9 @@ impl App {
             let key = input::format_key_spec(spec);
             let hidden = self.quick_connections_hidden();
             lines.push(match (any, hidden) {
-                (false, _) => format!("press {key} to add a connection"),
-                (true, 0) => format!("press {key} for all connections"),
-                (true, hidden) => format!("press {key} for {hidden} more"),
+                (false, _) => i18n::text_with("placeholder.add_connection", &[("key", &key)]),
+                (true, 0) => i18n::text_with("placeholder.all_connections", &[("key", &key)]),
+                (true, hidden) => i18n::text_with("placeholder.more", &[("key", &key), ("count", &hidden.to_string())]),
             });
         }
         lines
@@ -491,16 +501,16 @@ impl App {
         let errors = self.last_failure.len();
         let mut parts = Vec::new();
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
-            parts.push(format!("connecting to {}\u{2026}", printable(name)));
+            parts.push(i18n::text_with("placeholder.connecting", &[("name", &printable(name))]));
         }
         if connected > 0 {
-            parts.push(format!("{connected} connected"));
+            parts.push(i18n::text_with("summary.connected", &[("count", &connected.to_string())]));
         }
         if lost > 0 {
-            parts.push(format!("{lost} lost"));
+            parts.push(i18n::text_with("summary.lost", &[("count", &lost.to_string())]));
         }
         if errors > 0 {
-            parts.push(format!("{errors} {}", if errors == 1 { "error" } else { "errors" }));
+            parts.push(i18n::plural("summary.errors", errors));
         }
         parts.join(" \u{b7} ")
     }
@@ -564,7 +574,10 @@ impl App {
                 let details = self.key_bindings.key_for(input::Scope::Connections, Action::ToggleSelect);
                 if let Some(spec) = details {
                     let position = 1.min(hints.entries.len());
-                    hints.entries.insert(position, Hint { key: input::format_key_spec(spec), label: "details" });
+                    hints.entries.insert(
+                        position,
+                        Hint { key: input::format_key_spec(spec), label: i18n::text("hint.details") },
+                    );
                 }
             }
             hint_bar(frame, area, &hints, &self.theme);
@@ -576,7 +589,7 @@ impl App {
     }
 
     fn keyring_waiting_text(&self) -> Option<String> {
-        self.keyring_waiting.then(|| "Waiting for the system keyring\u{2026}".to_string())
+        self.keyring_waiting.then(|| i18n::text("status.keyring_waiting"))
     }
 
     fn waiting_for_answer_text(&self) -> Option<String> {
@@ -585,16 +598,15 @@ impl App {
         }
         match self.conflict_prompts.len() {
             0 => None,
-            1 => Some("A copy is waiting for your answer".to_string()),
-            waiting => Some(format!("{waiting} copies are waiting for your answer")),
+            waiting => Some(i18n::plural("status.copy_waiting", waiting)),
         }
     }
 
     fn planning_status_text(&self) -> Option<String> {
         match self.transfers.scanning.as_slice() {
             [] => None,
-            [name] => Some(format!("Scanning {name}\u{2026}")),
-            scans => Some(format!("Scanning {} copies\u{2026}", scans.len())),
+            [name] => Some(i18n::text_with("status.scanning_one", &[("name", name)])),
+            scans => Some(i18n::text_with("status.scanning_many", &[("count", &scans.len().to_string())])),
         }
     }
 }

@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -110,7 +111,7 @@ impl TextInputDialog {
 pub fn render_text_input(frame: &mut Frame, area: Rect, dialog: &TextInputDialog, theme: &Theme) {
     let title = printable(&dialog.title);
     let value = printable(&dialog.value);
-    let pairs = [("enter", "ok"), ("esc", "cancel")];
+    let pairs = [("enter", i18n::text("footer.ok")), ("esc", i18n::text("footer.cancel"))];
     let footer_line = footer_text(&pairs);
     let error = dialog.error.as_deref().map(|error| format!("\u{2022} {}", printable(error)));
     let error_width = error.as_deref().unwrap_or_default();

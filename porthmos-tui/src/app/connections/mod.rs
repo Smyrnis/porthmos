@@ -1,19 +1,17 @@
 mod form;
 mod missing;
 
+use porthmos_core::i18n;
 use porthmos_core::{Answer, TestOutcome};
 
 use super::*;
 use crate::widgets::dialog::{FormDialog, FormField, FormLayout, TestState};
 
-const NO_KEYRING_HINT: &str = "Passwords are not saved: no system keyring. They are kept until Porthmos quits.";
-
 fn ssh_launch_failure(error: &std::io::Error, windows: bool) -> String {
     if windows && error.kind() == std::io::ErrorKind::NotFound {
-        "ssh.exe was not found. Install the OpenSSH Client under Settings > Apps > Optional features, then try again."
-            .to_string()
+        i18n::text("ssh.windows_missing")
     } else {
-        format!("Failed to launch ssh: {error}")
+        i18n::text_with("ssh.launch_failed", &[("cause", &error.to_string())])
     }
 }
 
@@ -36,20 +34,18 @@ fn login_kind(invocation: &ShellInvocation) -> LoginKind {
 
 fn ssh_exit_failure(code: Option<i32>, login: LoginKind) -> String {
     let Some(code) = code else {
-        return "ssh was stopped before it finished".to_string();
+        return i18n::text("ssh.stopped");
     };
     let hint = match (login, code) {
-        (LoginKind::Sshpass, 5) => Some("the password is incorrect"),
-        (LoginKind::Sshpass, 6) => Some("the host key is not known to ssh; add it to ~/.ssh/known_hosts"),
-        (LoginKind::Sshpass, 7) => Some("the host key has changed; check ~/.ssh/known_hosts"),
-        (LoginKind::Askpass, 255) => Some(
-            "the saved password may be wrong, or ssh asked something that is not answered for you (a host key question or a key passphrase); try ssh once in a plain terminal",
-        ),
+        (LoginKind::Sshpass, 5) => Some("ssh.hint.password"),
+        (LoginKind::Sshpass, 6) => Some("ssh.hint.host_unknown"),
+        (LoginKind::Sshpass, 7) => Some("ssh.hint.host_changed"),
+        (LoginKind::Askpass, 255) => Some("ssh.hint.askpass"),
         _ => None,
     };
     match hint {
-        Some(hint) => format!("ssh exited with code {code} \u{2014} {hint}"),
-        None => format!("ssh exited with code {code}"),
+        Some(hint) => i18n::text_with("ssh.exit_hint", &[("code", &code.to_string()), ("hint", &i18n::text(hint))]),
+        None => i18n::text_with("ssh.exit", &[("code", &code.to_string())]),
     }
 }
 
@@ -58,8 +54,10 @@ fn local_shell_failure(
 ) -> Option<String> {
     match result {
         Ok(Ok(_)) => None,
-        Ok(Err(io_error)) => Some(format!("Failed to launch {program}: {io_error}")),
-        Err(join_error) => Some(format!("terminal task failed: {join_error}")),
+        Ok(Err(io_error)) => {
+            Some(i18n::text_with("ssh.program_failed", &[("program", program), ("cause", &io_error.to_string())]))
+        }
+        Err(join_error) => Some(i18n::text_with("ssh.terminal_task", &[("cause", &join_error.to_string())])),
     }
 }
 
@@ -75,11 +73,11 @@ impl App {
             return;
         }
         let Some(session) = self.sessions.active() else {
-            self.notifications.push(Severity::Warning, "Connect to a server first");
+            self.notifications.push(Severity::Warning, i18n::text("connection.connect_first"));
             return;
         };
         if !session.shell_available {
-            self.notifications.push(Severity::Warning, "This connection doesn't support a terminal session");
+            self.notifications.push(Severity::Warning, i18n::text("connection.no_terminal"));
             return;
         }
         let directory = Some(session.panel.path().clone());
@@ -123,7 +121,7 @@ impl App {
                 self.error(ssh_launch_failure(&io_err, cfg!(windows)));
             }
             Err(join_err) => {
-                self.error(format!("ssh task failed: {join_err}"));
+                self.error(i18n::text_with("ssh.task_failed", &[("cause", &join_err.to_string())]));
             }
         }
 
@@ -157,8 +155,8 @@ impl App {
             return;
         }
 
-        let Some(mut dialog) = form::build("Add connection", self.core.protocols(), None) else {
-            self.notifications.push(Severity::Warning, "No protocols are available in this build");
+        let Some(mut dialog) = form::build(&i18n::text("connections.add_title"), self.core.protocols(), None) else {
+            self.notifications.push(Severity::Warning, i18n::text("connections.no_protocols"));
             return;
         };
         dialog.hint = self.keyring_hint();
@@ -253,7 +251,8 @@ impl App {
             return;
         }
 
-        let Some(mut dialog) = form::build("Edit connection", self.core.protocols(), Some(&entry)) else {
+        let Some(mut dialog) = form::build(&i18n::text("connections.edit_title"), self.core.protocols(), Some(&entry))
+        else {
             return;
         };
         dialog.hint = self.keyring_hint();
@@ -272,13 +271,15 @@ impl App {
             return;
         }
         if entry.source == ConnectionSource::SshConfig {
-            self.notifications
-                .push(Severity::Info, "This connection is defined in ~/.ssh/config and can't be deleted here");
+            self.notifications.push(Severity::Info, i18n::text("connections.ssh_config_nodelete"));
             return;
         }
 
         let name = entry.name.clone();
-        self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(format!("Delete connection \"{name}\"?"))));
+        self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(i18n::text_with(
+            "connections.delete_confirm",
+            &[("name", &name)],
+        ))));
         self.pending_action = Some(PendingAction::DeleteConnection { name });
     }
 
@@ -295,27 +296,40 @@ impl App {
     }
 
     fn keyring_hint(&self) -> Option<String> {
-        (!self.keyring_available).then(|| NO_KEYRING_HINT.to_string())
+        (!self.keyring_available).then(|| i18n::text("connections.no_keyring"))
     }
 
     pub(super) fn open_password_prompt(
         &mut self, request_id: RequestId, username: String, name: String, secret: &'static str,
     ) {
-        let mut fields = vec![FormField::masked("password", secret, "")];
+        let mut fields = vec![FormField::masked("password", i18n::label(secret), "")];
         if self.keyring_available {
-            let choices = vec![("true".to_string(), "Yes".to_string()), ("false".to_string(), "No".to_string())];
+            let choices =
+                vec![("true".to_string(), i18n::text("common.yes")), ("false".to_string(), i18n::text("common.no"))];
             let current = if self.save_choice { "true" } else { "false" };
-            fields.push(FormField::choice("save", "Save in keyring", choices, current));
+            fields.push(FormField::choice("save", i18n::text("connections.save_in_keyring"), choices, current));
         }
-        self.dialog = Some(Dialog::Form(FormDialog::new(format!("{secret} for {username}@{name}"), fields)));
+        self.dialog = Some(Dialog::Form(FormDialog::new(
+            i18n::text_with(
+                "connections.secret_title",
+                &[("secret", &i18n::label(secret)), ("user", &username), ("name", &name)],
+            ),
+            fields,
+        )));
         self.pending_action = Some(PendingAction::SubmitPassword { request_id });
     }
 
     pub(super) fn open_test_password_prompt(
         &mut self, request_id: RequestId, username: String, name: String, secret: &'static str,
     ) {
-        let fields = vec![FormField::masked("password", secret, "")];
-        self.dialog = Some(Dialog::Form(FormDialog::new(format!("{secret} for {username}@{name}"), fields)));
+        let fields = vec![FormField::masked("password", i18n::label(secret), "")];
+        self.dialog = Some(Dialog::Form(FormDialog::new(
+            i18n::text_with(
+                "connections.secret_title",
+                &[("secret", &i18n::label(secret)), ("user", &username), ("name", &name)],
+            ),
+            fields,
+        )));
         self.pending_action = Some(PendingAction::SubmitTestPassword { request_id });
     }
 
@@ -435,7 +449,7 @@ impl App {
         let known =
             self.connections.entries().iter().any(|entry| entry.name == name && !entry.source.is_orphan_labels());
         if !known {
-            self.notifications.push(Severity::Warning, "That connection no longer exists");
+            self.notifications.push(Severity::Warning, i18n::text("connections.gone"));
             return false;
         }
         if let Some(session) = self.sessions.by_name(name) {

@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -26,9 +27,10 @@ pub trait FilterLine {
 }
 
 pub fn status(editing: bool, text: Option<&str>, matched: usize, total: usize, width: usize) -> Option<String> {
+    let count = i18n::text_with("list.matched", &[("matched", &matched.to_string()), ("total", &total.to_string())]);
     let (prefix, text, suffix) = match (editing, text) {
-        (true, text) => ("/", text.unwrap_or_default(), format!("\u{2588} ({matched} of {total})")),
-        (false, Some(text)) => ("filter: ", text, format!(" ({matched} of {total})")),
+        (true, text) => ("/".to_string(), text.unwrap_or_default(), format!("\u{2588} ({count})")),
+        (false, Some(text)) => (i18n::text("list.filter_prefix"), text, format!(" ({count})")),
         (false, None) => return None,
     };
     let room = width.saturating_sub(prefix.width() + suffix.width());
@@ -49,8 +51,11 @@ pub fn render_filter_line(frame: &mut Frame, area: Rect, state: FilterLineState<
         return;
     }
     let width = usize::from(area.width);
-    let count =
-        if state.text.is_some() { format!("{} of {}", state.matched, state.total) } else { state.total.to_string() };
+    let count = if state.text.is_some() {
+        i18n::text_with("list.matched", &[("matched", &state.matched.to_string()), ("total", &state.total.to_string())])
+    } else {
+        state.total.to_string()
+    };
 
     let mut spans = vec![Span::styled("/", theme.accent_text()), Span::raw(" ")];
     match (state.text, state.editing) {

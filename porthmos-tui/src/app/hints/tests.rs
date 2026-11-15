@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use super::*;
 use crate::widgets::{frame::Hint, help::HelpSection};
 
-fn keys_and_labels(hints: &Hints) -> Vec<(String, &'static str)> {
-    hints.entries.iter().map(|hint| (hint.key.clone(), hint.label)).collect()
+fn keys_and_labels(hints: &Hints) -> Vec<(String, String)> {
+    hints.entries.iter().map(|hint| (hint.key.clone(), hint.label.clone())).collect()
 }
 
 fn configured(text: &str) -> KeyBindings {
@@ -12,8 +12,8 @@ fn configured(text: &str) -> KeyBindings {
     KeyBindings::from_frontend(&table).0
 }
 
-fn pair(key: &str, label: &'static str) -> (String, &'static str) {
-    (key.to_string(), label)
+fn pair(key: &str, label: &str) -> (String, String) {
+    (key.to_string(), label.to_string())
 }
 
 fn remapped(overrides: &[(&str, &str)]) -> KeyBindings {
@@ -43,7 +43,7 @@ fn files_hints_use_the_default_keys_in_order() {
             pair("Tab", "panel"),
         ]
     );
-    assert_eq!(hints.pinned, Some(Hint { key: "?".to_string(), label: "help" }));
+    assert_eq!(hints.pinned, Some(Hint { key: "?".to_string(), label: "help".to_string() }));
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn a_remapped_action_shows_its_new_key() {
 fn an_unbound_action_is_omitted_without_leaving_a_gap() {
     let hints = hints_for(Screen::Files, &configured("[keys]\ncopy = []\n"));
 
-    let labels: Vec<&str> = hints.entries.iter().map(|hint| hint.label).collect();
+    let labels: Vec<&str> = hints.entries.iter().map(|hint| hint.label.as_str()).collect();
     assert!(!labels.contains(&"copy"));
     assert_eq!(hints.entries.len(), 11);
 }
@@ -79,7 +79,7 @@ fn removing_the_help_binding_leaves_no_pinned_pair() {
 fn a_remapped_help_key_is_shown_on_the_pinned_pair() {
     let hints = hints_for(Screen::Files, &remapped(&[("help", "ctrl+g")]));
 
-    assert_eq!(hints.pinned, Some(Hint { key: "Ctrl+G".to_string(), label: "help" }));
+    assert_eq!(hints.pinned, Some(Hint { key: "Ctrl+G".to_string(), label: "help".to_string() }));
 }
 
 #[test]
@@ -88,8 +88,8 @@ fn non_files_screens_put_back_in_the_right_slot() {
 
     for screen in [Screen::Connections, Screen::Search, Screen::Transfers, Screen::History, Screen::Sync] {
         let hints = hints_for(screen, &bindings);
-        assert_eq!(hints.right, Some(Hint { key: "Esc".to_string(), label: "back" }), "{screen:?}");
-        assert_eq!(hints.pinned, Some(Hint { key: "?".to_string(), label: "help" }), "{screen:?}");
+        assert_eq!(hints.right, Some(Hint { key: "Esc".to_string(), label: "back".to_string() }), "{screen:?}");
+        assert_eq!(hints.pinned, Some(Hint { key: "?".to_string(), label: "help".to_string() }), "{screen:?}");
     }
 }
 
@@ -142,7 +142,7 @@ fn the_search_screen_hints_are_move_open_and_esc_close() {
     let hints = search_hints(false);
 
     assert_eq!(keys_and_labels(&hints), vec![pair("\u{2191}\u{2193}", "move"), pair("enter", "open")]);
-    assert_eq!(hints.right, Some(Hint { key: "esc".to_string(), label: "close" }));
+    assert_eq!(hints.right, Some(Hint { key: "esc".to_string(), label: "close".to_string() }));
 }
 
 #[test]
@@ -154,15 +154,15 @@ fn section<'a>(sections: &'a [HelpSection], title: &str) -> &'a HelpSection {
     sections.iter().find(|section| section.title == title).unwrap_or_else(|| panic!("no {title} section"))
 }
 
-fn rows_of(section: &HelpSection) -> Vec<(Option<&str>, &'static str)> {
-    section.rows.iter().map(|row| (row.key.as_deref(), row.action)).collect()
+fn rows_of(section: &HelpSection) -> Vec<(Option<&str>, &str)> {
+    section.rows.iter().map(|row| (row.key.as_deref(), row.action.as_str())).collect()
 }
 
 #[test]
 fn help_sections_follow_the_screens_in_order_then_global() {
     let sections = help_sections(&KeyBindings::defaults());
 
-    let titles: Vec<&str> = sections.iter().map(|section| section.title).collect();
+    let titles: Vec<&str> = sections.iter().map(|section| section.title.as_str()).collect();
     assert_eq!(titles, ["files", "connections", "transfers", "history", "sync", "global"]);
 }
 
@@ -231,7 +231,7 @@ fn every_action_is_listed_somewhere_and_no_section_lists_an_action_twice() {
             .chain(LIST_HELP.iter().map(|(action, _)| *action))
             .collect();
     let sections = help_sections(&KeyBindings::defaults());
-    let global: HashSet<&str> = section(&sections, "global").rows.iter().map(|row| row.action).collect();
+    let global: HashSet<&str> = section(&sections, "global").rows.iter().map(|row| row.action.as_str()).collect();
 
     for action in crate::input::ALL_ACTIONS {
         let movement = matches!(action, Action::Up | Action::Down);
@@ -242,18 +242,18 @@ fn every_action_is_listed_somewhere_and_no_section_lists_an_action_twice() {
         );
     }
     for section in &sections {
-        let actions: HashSet<_> = section.rows.iter().map(|row| row.action).collect();
+        let actions: HashSet<_> = section.rows.iter().map(|row| row.action.as_str()).collect();
         assert_eq!(actions.len(), section.rows.len(), "{} repeats an action", section.title);
     }
 }
 
-fn files_rows(bindings: &KeyBindings) -> Vec<(Option<String>, &'static str)> {
+fn files_rows(bindings: &KeyBindings) -> Vec<(Option<String>, String)> {
     let sections = help_sections(bindings);
-    section(&sections, "files").rows.iter().map(|row| (row.key.clone(), row.action)).collect()
+    section(&sections, "files").rows.iter().map(|row| (row.key.clone(), row.action.clone())).collect()
 }
 
-fn row_key(rows: &[(Option<String>, &'static str)], action: &str) -> Option<String> {
-    rows.iter().find(|(_, name)| *name == action).and_then(|(key, _)| key.clone())
+fn row_key(rows: &[(Option<String>, String)], action: &str) -> Option<String> {
+    rows.iter().find(|(_, name)| name == action).and_then(|(key, _)| key.clone())
 }
 
 #[test]
@@ -293,7 +293,7 @@ fn a_remapped_key_replaces_the_defaults_in_the_row() {
 fn an_unbound_action_still_shows_no_key_in_its_row() {
     let rows = files_rows(&configured("[keys]\ncopy = []\n"));
 
-    assert!(rows.contains(&(None, "copy")));
+    assert!(rows.contains(&(None, "copy".to_string())));
 }
 
 #[test]
@@ -419,7 +419,7 @@ fn editing_a_path_shows_enter_go_tab_complete_and_esc_cancel() {
     let hints = path_edit_hints();
 
     assert_eq!(keys_and_labels(&hints), vec![pair("enter", "go"), pair("tab", "complete")]);
-    assert_eq!(hints.right.map(|hint| (hint.key, hint.label)), Some(("esc".to_string(), "cancel")));
+    assert_eq!(hints.right.map(|hint| (hint.key, hint.label)), Some(("esc".to_string(), "cancel".to_string())));
 }
 
 #[test]
@@ -458,4 +458,20 @@ fn the_bottom_hint_bar_of_the_files_screen_stays_short() {
     let hints = hints_for(Screen::Files, &KeyBindings::defaults());
 
     assert!(keys_and_labels(&hints).iter().all(|(_, label)| !label.contains("page") && *label != "parent folder"));
+}
+
+#[test]
+fn every_action_has_a_name_in_the_language_file() {
+    for action in crate::input::ALL_ACTIONS.iter().chain(crate::input::SESSION_ACTIONS.iter()) {
+        let key = format!("action.{}", action.name());
+        assert_ne!(porthmos_core::i18n::text(&key), key, "{key} is missing from en.yml");
+    }
+}
+
+#[test]
+fn every_hint_label_in_the_tables_exists_in_the_language_file() {
+    let tables: [&[(Action, &str)]; 7] = [FILES, FILES_HELP_ONLY, LIST_HELP, CONNECTIONS, HISTORY, TRANSFERS, SYNC];
+    for (_, key) in tables.iter().flat_map(|table| table.iter()) {
+        assert_ne!(porthmos_core::i18n::text(key), *key, "{key} is missing from en.yml");
+    }
 }

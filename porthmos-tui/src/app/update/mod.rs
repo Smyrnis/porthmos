@@ -1,5 +1,6 @@
 use super::*;
 use crate::widgets::update_badge::{BadgeKind, UpdateBadge};
+use porthmos_core::i18n;
 
 impl App {
     pub(crate) fn update_badge(&self) -> Option<UpdateBadge> {
@@ -42,11 +43,13 @@ impl App {
         let Some(badge) = self.update_badge() else { return };
         let version = &badge.version;
         let message = match (&self.ready_update, &self.update_state, badge.kind) {
-            (None, Some(UpdateState::Managed { reason, .. }), _) => format!(
-                "Porthmos {version} is available. This copy is managed ({reason}); update it with your package manager."
-            ),
-            (_, _, BadgeKind::Ready) => format!("Porthmos {version} is ready and will be installed when you quit"),
-            (_, _, BadgeKind::Available) => format!("Porthmos {version} is available"),
+            (None, Some(UpdateState::Managed { reason, .. }), _) => {
+                i18n::text_with("update.managed_available", &[("version", &version.to_string()), ("reason", reason)])
+            }
+            (_, _, BadgeKind::Ready) => i18n::text_with("update.ready_notice", &[("version", &version.to_string())]),
+            (_, _, BadgeKind::Available) => {
+                i18n::text_with("update.available_notice", &[("version", &version.to_string())])
+            }
         };
         self.notifications.push(Severity::Info, message);
     }

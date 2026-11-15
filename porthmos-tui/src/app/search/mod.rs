@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use porthmos_core::preview::PreviewSlot;
 
 use super::*;
@@ -9,12 +10,12 @@ impl App {
         }
 
         let Some(location) = self.active_location() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
 
         let place = match location {
-            Location::Local => porthmos_core::delete_prompt::THIS_COMPUTER.to_string(),
+            Location::Local => porthmos_core::delete_prompt::this_computer(),
             Location::Session(id) => self.sessions.by_id(id).map(|session| session.name.clone()).unwrap_or_default(),
         };
         let folder = self.panel(location).map(|panel| panel.path().to_string()).unwrap_or_default();

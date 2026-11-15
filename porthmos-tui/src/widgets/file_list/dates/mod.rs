@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::fmt::Display;
 
 use chrono::{DateTime, Datelike, TimeZone};
@@ -38,8 +39,8 @@ where
 {
     let Some(file) = in_clock_zone(modified, now) else { return String::new() };
     match day_of(&file, now) {
-        Day::Today => format!("today {}", file.format("%H:%M")),
-        Day::Yesterday => "yesterday".to_string(),
+        Day::Today => i18n::text_with("date.today", &[("time", &file.format("%H:%M").to_string())]),
+        Day::Yesterday => i18n::text("date.yesterday"),
         Day::ThisYear => file.format("%b %d").to_string(),
         Day::OtherYear => file.format("%b %d %Y").to_string(),
     }

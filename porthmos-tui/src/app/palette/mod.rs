@@ -1,10 +1,11 @@
 use crossterm::event::{KeyEvent, KeyModifiers};
+use porthmos_core::i18n;
 use porthmos_core::{Location, offer_summary};
 
 use super::*;
 use crate::{
     input::format_key_spec,
-    palette::{Entry, Group, REOPEN_LABEL, Target},
+    palette::{Entry, Group, Target, reopen_label},
     widgets::{history_view::printable, panel_view::Row},
 };
 
@@ -15,58 +16,60 @@ enum Availability {
 }
 
 const ACTIONS: &[(Action, &str, Availability)] = &[
-    (Action::Copy, "Copy to the other panel", Availability::On(Screen::Files)),
-    (Action::Move, "Move to the other panel", Availability::On(Screen::Files)),
-    (Action::Preview, "Preview the file", Availability::On(Screen::Files)),
-    (Action::Mkdir, "New folder", Availability::On(Screen::Files)),
-    (Action::Delete, "Delete", Availability::On(Screen::Files)),
-    (Action::Rename, "Rename", Availability::On(Screen::Files)),
-    (Action::Permissions, "Change permissions", Availability::On(Screen::Files)),
-    (Action::Properties, "Size and SHA-256 checksum", Availability::On(Screen::Files)),
-    (Action::Edit, "Edit in $EDITOR", Availability::On(Screen::Files)),
-    (Action::SwitchPanel, "Switch panel", Availability::On(Screen::Files)),
-    (Action::ToggleHidden, "Show or hide hidden files", Availability::On(Screen::Files)),
-    (Action::CycleSort, "Change the sort order", Availability::On(Screen::Files)),
-    (Action::BookmarkHere, "Bookmark this folder", Availability::On(Screen::Files)),
-    (Action::OpenBookmarks, "Bookmarks", Availability::On(Screen::Files)),
-    (Action::OpenSearch, "Search files", Availability::On(Screen::Files)),
-    (Action::GoToPath, "Go to folder path", Availability::On(Screen::Files)),
-    (Action::OpenSync, "Synchronize folders", Availability::On(Screen::Files)),
-    (Action::CompareFolders, "Compare folders", Availability::On(Screen::Files)),
-    (Action::CycleSession, "Next session", Availability::On(Screen::Files)),
-    (Action::OpenTerminal, "Open a terminal in the active folder", Availability::On(Screen::Files)),
-    (Action::Filter, "Filter files", Availability::On(Screen::Files)),
-    (Action::Refresh, "Refresh", Availability::On(Screen::Files)),
-    (Action::Open, "Connect", Availability::On(Screen::Connections)),
-    (Action::Rename, "Edit connection", Availability::On(Screen::Connections)),
-    (Action::DeleteConnection, "Delete connection", Availability::On(Screen::Connections)),
-    (Action::Filter, "Filter connections", Availability::On(Screen::Connections)),
-    (Action::Refresh, "Reload connections", Availability::On(Screen::Connections)),
-    (Action::Pause, "Pause or resume the selected transfer", Availability::On(Screen::Transfers)),
-    (Action::RowUp, "Move the selected transfer earlier", Availability::On(Screen::Transfers)),
-    (Action::RowDown, "Move the selected transfer later", Availability::On(Screen::Transfers)),
-    (Action::Open, "Retry the selected transfer", Availability::On(Screen::Transfers)),
-    (Action::Delete, "Cancel the selected transfer", Availability::On(Screen::Transfers)),
-    (Action::Refresh, "Clear finished transfers", Availability::On(Screen::Transfers)),
-    (Action::Open, "Show the details", Availability::On(Screen::History)),
-    (Action::Delete, "Clear the history", Availability::On(Screen::History)),
-    (Action::Filter, "Filter history", Availability::On(Screen::History)),
-    (Action::Filter, "Filter the preview", Availability::On(Screen::Sync)),
-    (Action::Quit, "Quit", Availability::Everywhere),
-    (Action::Help, "Help", Availability::Everywhere),
-    (Action::OpenConnections, "Connections", Availability::Everywhere),
-    (Action::AddConnection, "New connection", Availability::Everywhere),
-    (Action::OpenTransfers, "Transfers", Availability::Everywhere),
-    (Action::OpenHistory, "Transfer history", Availability::Everywhere),
-    (Action::CancelTransfer, "Cancel all transfers", Availability::Everywhere),
-    (Action::SpeedLimit, "Set the speed limit", Availability::Everywhere),
-    (Action::CheckForUpdates, "Check for updates", Availability::Everywhere),
-    (Action::ImportConnections, "Import connections from FileZilla, WinSCP or PuTTY", Availability::Everywhere),
+    (Action::Copy, "palette.action.copy_to_the_other_panel", Availability::On(Screen::Files)),
+    (Action::Move, "palette.action.move_to_the_other_panel", Availability::On(Screen::Files)),
+    (Action::Preview, "palette.action.preview_the_file", Availability::On(Screen::Files)),
+    (Action::Mkdir, "palette.action.new_folder", Availability::On(Screen::Files)),
+    (Action::Delete, "palette.action.delete", Availability::On(Screen::Files)),
+    (Action::Rename, "palette.action.rename", Availability::On(Screen::Files)),
+    (Action::Permissions, "palette.action.change_permissions", Availability::On(Screen::Files)),
+    (Action::Properties, "palette.action.size_and_sha_256_checksum", Availability::On(Screen::Files)),
+    (Action::Edit, "palette.action.edit_in_editor", Availability::On(Screen::Files)),
+    (Action::SwitchPanel, "palette.action.switch_panel", Availability::On(Screen::Files)),
+    (Action::ToggleHidden, "palette.action.show_or_hide_hidden_files", Availability::On(Screen::Files)),
+    (Action::CycleSort, "palette.action.change_the_sort_order", Availability::On(Screen::Files)),
+    (Action::BookmarkHere, "palette.action.bookmark_this_folder", Availability::On(Screen::Files)),
+    (Action::OpenBookmarks, "palette.action.bookmarks", Availability::On(Screen::Files)),
+    (Action::OpenSearch, "palette.action.search_files", Availability::On(Screen::Files)),
+    (Action::GoToPath, "palette.action.go_to_folder_path", Availability::On(Screen::Files)),
+    (Action::OpenSync, "palette.action.synchronize_folders", Availability::On(Screen::Files)),
+    (Action::CompareFolders, "palette.action.compare_folders", Availability::On(Screen::Files)),
+    (Action::CycleSession, "palette.action.next_session", Availability::On(Screen::Files)),
+    (Action::OpenTerminal, "palette.action.open_a_terminal_in_the_active_folder", Availability::On(Screen::Files)),
+    (Action::Filter, "palette.action.filter_files", Availability::On(Screen::Files)),
+    (Action::Refresh, "palette.action.refresh", Availability::On(Screen::Files)),
+    (Action::Open, "palette.action.connect", Availability::On(Screen::Connections)),
+    (Action::Rename, "palette.action.edit_connection", Availability::On(Screen::Connections)),
+    (Action::DeleteConnection, "palette.action.delete_connection", Availability::On(Screen::Connections)),
+    (Action::Filter, "palette.action.filter_connections", Availability::On(Screen::Connections)),
+    (Action::Refresh, "palette.action.reload_connections", Availability::On(Screen::Connections)),
+    (Action::Pause, "palette.action.pause_or_resume_the_selected_transfer", Availability::On(Screen::Transfers)),
+    (Action::RowUp, "palette.action.move_the_selected_transfer_earlier", Availability::On(Screen::Transfers)),
+    (Action::RowDown, "palette.action.move_the_selected_transfer_later", Availability::On(Screen::Transfers)),
+    (Action::Open, "palette.action.retry_the_selected_transfer", Availability::On(Screen::Transfers)),
+    (Action::Delete, "palette.action.cancel_the_selected_transfer", Availability::On(Screen::Transfers)),
+    (Action::Refresh, "palette.action.clear_finished_transfers", Availability::On(Screen::Transfers)),
+    (Action::Open, "palette.action.show_the_details", Availability::On(Screen::History)),
+    (Action::Delete, "palette.action.clear_the_history", Availability::On(Screen::History)),
+    (Action::Filter, "palette.action.filter_history", Availability::On(Screen::History)),
+    (Action::Filter, "palette.action.filter_the_preview", Availability::On(Screen::Sync)),
+    (Action::Quit, "palette.action.quit", Availability::Everywhere),
+    (Action::Help, "palette.action.help", Availability::Everywhere),
+    (Action::OpenConnections, "palette.action.connections", Availability::Everywhere),
+    (Action::AddConnection, "palette.action.new_connection", Availability::Everywhere),
+    (Action::OpenTransfers, "palette.action.transfers", Availability::Everywhere),
+    (Action::OpenHistory, "palette.action.transfer_history", Availability::Everywhere),
+    (Action::CancelTransfer, "palette.action.cancel_all_transfers", Availability::Everywhere),
+    (Action::SpeedLimit, "palette.action.set_the_speed_limit", Availability::Everywhere),
+    (Action::CheckForUpdates, "palette.action.check_for_updates", Availability::Everywhere),
+    (
+        Action::ImportConnections,
+        "palette.action.import_connections_from_filezilla_winscp_or_putt",
+        Availability::Everywhere,
+    ),
 ];
 
 const PAGE: isize = 5;
-const CONNECTED_HINT: &str = "connected";
-const LOCAL_HINT: &str = "local";
 
 impl App {
     pub(super) fn open_palette(&mut self) {
@@ -176,7 +179,7 @@ impl App {
             .filter(|(_, _, availability)| offered(availability))
             .map(|(action, label, _)| Entry {
                 group: Group::Actions,
-                label: (*label).to_string(),
+                label: i18n::text(label),
                 hint: self.key_bindings.key_for(scope, *action).map(format_key_spec),
                 target: Target::Action(*action),
             })
@@ -192,20 +195,20 @@ impl App {
                 .map_or(entry.protocol.as_str(), |info| info.display_name);
             Entry {
                 group: Group::Hosts,
-                label: format!("Connect {}", printable(&entry.name)),
+                label: i18n::text_with("palette.connect", &[("name", &printable(&entry.name))]),
                 hint: Some(printable(protocol)),
                 target: Target::Connect(entry.name.clone()),
             }
         });
         let disconnect = self.sessions.iter().map(|session| Entry {
             group: Group::Hosts,
-            label: format!("Disconnect {}", printable(&session.name)),
-            hint: Some(CONNECTED_HINT.to_string()),
+            label: i18n::text_with("palette.disconnect", &[("name", &printable(&session.name))]),
+            hint: Some(i18n::text("palette.hint.connected")),
             target: Target::Disconnect(session.name.clone()),
         });
         let reopen = (!self.reopen_offer.is_empty()).then(|| Entry {
             group: Group::Hosts,
-            label: REOPEN_LABEL.to_string(),
+            label: reopen_label(),
             hint: Some(printable(&offer_summary(&self.reopen_offer))),
             target: Target::Reopen,
         });
@@ -213,7 +216,7 @@ impl App {
     }
 
     fn file_entries(&self) -> Vec<Entry> {
-        let mut entries = panel_file_entries(&self.local, Location::Local, LOCAL_HINT.to_string());
+        let mut entries = panel_file_entries(&self.local, Location::Local, i18n::text("panel.local"));
         if let Some(session) = self.sessions.active() {
             entries.extend(panel_file_entries(&session.panel, Location::Session(session.id), printable(&session.name)));
         }

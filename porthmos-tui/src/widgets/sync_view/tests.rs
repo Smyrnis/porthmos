@@ -518,7 +518,7 @@ fn row_fg(terminal: &Terminal<TestBackend>, reason: SyncReason) -> Option<ratatu
     let needle = reason_text(reason);
     (0..buffer.area.height).find_map(|y| {
         let row: String = (0..buffer.area.width).map(|x| buffer[(x, y)].symbol().to_string()).collect();
-        let column = row.find(needle).map(|offset| row[..offset].chars().count() as u16)?;
+        let column = row.find(needle.as_str()).map(|offset| row[..offset].chars().count() as u16)?;
         buffer[(column, y)].style().fg
     })
 }

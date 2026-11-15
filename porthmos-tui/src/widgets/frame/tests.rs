@@ -41,8 +41,8 @@ fn row_text(terminal: &Terminal<TestBackend>, y: u16) -> String {
     text
 }
 
-fn hint(key: &str, label: &'static str) -> Hint {
-    Hint { key: key.to_string(), label }
+fn hint(key: &str, label: &str) -> Hint {
+    Hint { key: key.to_string(), label: label.to_string() }
 }
 
 fn sample_hints() -> Hints {

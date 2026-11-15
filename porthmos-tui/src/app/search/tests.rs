@@ -521,7 +521,7 @@ fn a_search_that_skipped_folders_warns_that_results_may_be_missing() {
 
     let notice = test.app.notifications.current().unwrap();
     assert_eq!(notice.severity, Severity::Warning);
-    assert_eq!(notice.message, porthmos_core::SEARCH_INCOMPLETE_NOTE);
+    assert_eq!(notice.message, porthmos_core::search_incomplete_note());
 }
 
 #[test]

@@ -1,16 +1,18 @@
+use porthmos_core::i18n;
+
 const ADVICE: &[(&[&str], &str)] = &[
-    (&["permission denied"], "check the file's permissions or ask the server admin for access"),
-    (&["no space left", "quota"], "free some space on the destination and retry"),
-    (&["no such file", "not found"], "the file was moved or deleted; refresh the listing"),
-    (
-        &["timed out", "connection reset", "broken pipe", "connection refused", "disconnected"],
-        "check the connection, then retry",
-    ),
+    (&["permission denied"], "advice.permissions"),
+    (&["no space left", "quota"], "advice.space"),
+    (&["no such file", "not found"], "advice.moved"),
+    (&["timed out", "connection reset", "broken pipe", "connection refused", "disconnected"], "advice.connection"),
 ];
 
-pub fn advice_for(message: &str) -> Option<&'static str> {
+pub fn advice_for(message: &str) -> Option<String> {
     let lowered = message.to_lowercase();
-    ADVICE.iter().find(|(needles, _)| needles.iter().any(|needle| lowered.contains(needle))).map(|(_, advice)| *advice)
+    ADVICE
+        .iter()
+        .find(|(needles, _)| needles.iter().any(|needle| lowered.contains(needle)))
+        .map(|(_, advice)| i18n::text(advice))
 }
 
 #[cfg(test)]

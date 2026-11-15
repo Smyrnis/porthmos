@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -30,7 +31,6 @@ const COLUMN_GAP: &str = "  ";
 const TICKED: &str = "[x] ";
 const UNTICKED: &str = "[ ] ";
 const NO_BOX: &str = "    ";
-const NOTHING_TICKED: &str = "Tick at least one connection";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportChoice {
@@ -61,7 +61,7 @@ pub struct ImportDialog {
     rows: Vec<RowView>,
     ticked: Vec<bool>,
     cursor: usize,
-    hint: Option<&'static str>,
+    hint: Option<String>,
     scroll: Cell<usize>,
     page: PageRows,
 }
@@ -102,7 +102,7 @@ impl ImportDialog {
             .collect();
         let ticked = rows.iter().map(|row| row.kind == Kind::New).collect();
         Self {
-            title: format!("Import from {}", plan.source.label()),
+            title: i18n::text_with("import.dialog_title", &[("source", plan.source.label())]),
             rows,
             ticked,
             cursor: 0,
@@ -158,7 +158,7 @@ impl ImportDialog {
             KeyCode::Enter => {
                 let chosen = self.ticked_rows();
                 if chosen.is_empty() {
-                    self.hint = Some(NOTHING_TICKED);
+                    self.hint = Some(i18n::text("import.tick_one"));
                 } else {
                     return ImportChoice::Run(chosen);
                 }
@@ -256,12 +256,17 @@ pub fn render_import(frame: &mut Frame, area: Rect, dialog: &ImportDialog, theme
     frame.render_widget(Paragraph::new(visible), Rect::new(inner.x, inner.y, inner.width, inner.height - BOTTOM_ROWS));
 
     let summary_y = inner.bottom() - BOTTOM_ROWS;
-    let summary = match dialog.hint {
-        Some(hint) => Line::styled(hint.to_string(), theme.warning_text()),
+    let summary = match &dialog.hint {
+        Some(hint) => Line::styled(hint.clone(), theme.warning_text()),
         None => {
             let skipped = dialog.not_importable();
-            let extra = if skipped == 0 { String::new() } else { format!(", {skipped} can't be imported") };
-            Line::styled(format!("{} will be added{extra}", dialog.will_be_added()), theme.muted())
+            let extra = if skipped == 0 {
+                String::new()
+            } else {
+                i18n::text_with("import.cannot_import_count", &[("count", &skipped.to_string())])
+            };
+            let added = i18n::text_with("import.will_be_added", &[("count", &dialog.will_be_added().to_string())]);
+            Line::styled(format!("{added}{extra}"), theme.muted())
         }
     };
     frame.render_widget(Paragraph::new(summary), Rect::new(inner.x, summary_y, inner.width, 1));
@@ -273,9 +278,14 @@ pub fn render_import(frame: &mut Frame, area: Rect, dialog: &ImportDialog, theme
         Rect::new(inner.x, summary_y + 1, inner.width, 1),
     );
 
-    let import_label = format!("import {}", dialog.will_be_added());
-    let hints =
-        [("space", "tick"), ("a", "all new"), ("n", "none"), ("enter", import_label.as_str()), ("esc", "cancel")];
+    let import_label = i18n::text_with("footer.import_count", &[("count", &dialog.will_be_added().to_string())]);
+    let hints = [
+        ("space", i18n::text("footer.tick")),
+        ("a", i18n::text("footer.all_new")),
+        ("n", i18n::text("footer.none")),
+        ("enter", import_label),
+        ("esc", i18n::text("footer.cancel")),
+    ];
     footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &hints, theme);
 }
 

@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::sync::Arc;
 
 use porthmos_core::preview::{Preview, PreviewSlot};
@@ -11,21 +12,23 @@ impl App {
             return;
         }
         let Some(location) = self.active_location() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
         let Some(panel) = self.panel(location) else {
             return;
         };
         match panel.current_entry() {
-            Some(entry) if entry.is_dir => self.notifications.push(Severity::Warning, "Can't preview a folder"),
+            Some(entry) if entry.is_dir => self.notifications.push(Severity::Warning, i18n::text("preview.is_folder")),
             Some(entry) => {
                 let (path, name) = (entry.path.clone(), entry.name.clone());
                 self.next_preview_id += 1;
                 self.preview = Some(PreviewView::loading(name));
                 self.core.send(Command::Preview { request_id: self.next_preview_id, location, path });
             }
-            None if panel.on_parent_row() => self.notifications.push(Severity::Warning, "Can't preview a folder"),
+            None if panel.on_parent_row() => {
+                self.notifications.push(Severity::Warning, i18n::text("preview.is_folder"))
+            }
             None => {}
         }
     }

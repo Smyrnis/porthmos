@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::diff::{DiffKind, DiffLine, DiffOutcome};
+use porthmos_core::i18n;
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Paragraph};
 
 use crate::{
@@ -15,8 +16,15 @@ use crate::{
 const MIN_WIDTH: u16 = 40;
 const MAX_WIDTH: u16 = 120;
 const SCREEN_MARGIN: u16 = 2;
-const FOOTER_HINT: [(&str, &str); 5] =
-    [("u", "overwrite"), ("m", "keep copy"), ("c", "cancel"), ("esc", "back"), ("j/k", "scroll")];
+fn footer_hint() -> [(&'static str, String); 5] {
+    [
+        ("u", i18n::text("footer.overwrite")),
+        ("m", i18n::text("footer.keep_copy")),
+        ("c", i18n::text("footer.cancel")),
+        ("esc", i18n::text("footer.back")),
+        ("j/k", i18n::text("footer.scroll")),
+    ]
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffChoice {
@@ -41,7 +49,7 @@ impl DiffDialog {
             _ => Vec::new(),
         };
         Self {
-            title: format!("{name}: the server's file (-) against yours (+)"),
+            title: i18n::text_with("diff.title", &[("name", name)]),
             rows,
             note: outcome.note(),
             scroll: 0,
@@ -110,7 +118,7 @@ pub fn render_diff(frame: &mut Frame, area: Rect, dialog: &DiffDialog, theme: &T
             .collect(),
     };
     frame.render_widget(Paragraph::new(lines), body);
-    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &FOOTER_HINT, theme);
+    footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &footer_hint(), theme);
 }
 
 #[cfg(test)]

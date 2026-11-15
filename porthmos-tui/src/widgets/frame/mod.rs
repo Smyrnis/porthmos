@@ -15,7 +15,7 @@ const PAIR_GAP: usize = 3;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hint {
     pub key: String,
-    pub label: &'static str,
+    pub label: String,
 }
 
 impl Hint {
@@ -111,7 +111,7 @@ pub fn top_bar(frame: &mut Frame, area: Rect, left: Line<'_>, right: Line<'_>) {
 }
 
 fn pair_spans<'a>(hint: &'a Hint, theme: &Theme) -> [Span<'a>; 3] {
-    [Span::styled(hint.key.as_str(), theme.bright()), Span::raw(" "), Span::styled(hint.label, theme.dim())]
+    [Span::styled(hint.key.as_str(), theme.bright()), Span::raw(" "), Span::styled(hint.label.clone(), theme.dim())]
 }
 
 pub fn hint_bar(frame: &mut Frame, area: Rect, hints: &Hints, theme: &Theme) {

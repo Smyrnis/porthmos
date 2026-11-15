@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local};
+use porthmos_core::i18n;
 use porthmos_core::{
     folder_compare::{FolderMarks, Mark},
     size_text,
@@ -115,12 +116,16 @@ pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, contex
 }
 
 fn header_text(columns: Columns) -> String {
-    let mut text = format!("{}{}", " ".repeat(MARKER_WIDTH), pad_right("name", columns.name_width));
+    let mut text = format!("{}{}", " ".repeat(MARKER_WIDTH), pad_right(&i18n::text("header.name"), columns.name_width));
     if columns.show_size {
-        text.push_str(&format!("{}{}", " ".repeat(COLUMN_GAP), pad_left("size", SIZE_WIDTH)));
+        text.push_str(&format!("{}{}", " ".repeat(COLUMN_GAP), pad_left(&i18n::text("header.size"), SIZE_WIDTH)));
     }
     if columns.show_modified {
-        text.push_str(&format!("{}{}", " ".repeat(COLUMN_GAP), pad_right("modified", MODIFIED_WIDTH)));
+        text.push_str(&format!(
+            "{}{}",
+            " ".repeat(COLUMN_GAP),
+            pad_right(&i18n::text("header.modified"), MODIFIED_WIDTH)
+        ));
     }
     text
 }

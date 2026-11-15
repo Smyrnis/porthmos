@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::{Position, Rect},
@@ -18,7 +19,6 @@ use crate::{
 };
 
 pub const LABEL_WIDTH: usize = 19;
-const SAVED_SECRET: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022} (saved)";
 
 struct Item {
     field: usize,
@@ -60,7 +60,7 @@ pub fn displayed_value(field: &FormField) -> String {
     match &field.kind {
         FieldKind::Text => printable(&field.value),
         FieldKind::Masked => "\u{2022}".repeat(field.value.chars().count()),
-        FieldKind::SavedSecret => SAVED_SECRET.to_string(),
+        FieldKind::SavedSecret => i18n::text("form.saved_secret"),
         FieldKind::Choice { choices, selected } => {
             let label = choices.get(*selected).map(|(_, label)| label.as_str()).unwrap_or("");
             format!("\u{25c0} {} \u{25b6}", printable(label))

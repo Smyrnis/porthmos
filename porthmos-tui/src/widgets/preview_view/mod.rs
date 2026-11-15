@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::{
     cell::{Cell, RefCell},
     sync::Arc,
@@ -284,11 +285,14 @@ fn info_text(view: &PreviewView) -> String {
     };
     if preview.truncated {
         return match preview.size {
-            Some(size) => format!("first {} of {}", size_text(preview.shown as u64), size_text(size)),
-            None => format!("first {}", size_text(preview.shown as u64)),
+            Some(size) => i18n::text_with(
+                "preview.first_of",
+                &[("shown", &size_text(preview.shown as u64)), ("total", &size_text(size))],
+            ),
+            None => i18n::text_with("preview.first", &[("shown", &size_text(preview.shown as u64))]),
         };
     }
-    let kind = if view.is_binary() { "binary" } else { "text" };
+    let kind = i18n::text(if view.is_binary() { "preview.binary" } else { "preview.text" });
     format!("{kind} \u{b7} {}", size_text(preview.size.unwrap_or(preview.shown as u64)))
 }
 
@@ -298,7 +302,7 @@ fn digits(number: usize) -> usize {
 
 fn text_layout(lines: &[String], wrap: bool, width: usize) -> Layout {
     if lines.is_empty() {
-        let rows = vec![Row { number: None, text: "(empty file)".to_string(), dim: true }];
+        let rows = vec![Row { number: None, text: i18n::text("preview.empty_file"), dim: true }];
         return Layout { wrap, width, rows, gutter: 0 };
     }
     let gutter = digits(lines.len());
@@ -348,16 +352,16 @@ fn text_window(layout: &Layout, from: usize, count: usize, theme: &Theme) -> Vec
 }
 
 fn footer_line(view: &PreviewView, width: usize, percent: Option<usize>, theme: &Theme) -> Line<'static> {
-    let mut items: Vec<(&str, &str)> = Vec::new();
+    let mut items: Vec<(&str, String)> = Vec::new();
     if matches!(view.state, PreviewState::Ready(_)) {
-        items.push(("\u{2191}\u{2193}", "scroll"));
-        items.push(("space", "page"));
-        items.push(("g/G", "top/bottom"));
+        items.push(("\u{2191}\u{2193}", i18n::text("footer.scroll")));
+        items.push(("space", i18n::text("preview.page")));
+        items.push(("g/G", i18n::text("footer.top_bottom")));
         if !view.is_binary() {
-            items.push(("w", "wrap"));
+            items.push(("w", i18n::text("preview.wrap")));
         }
     }
-    items.push(("esc", "close"));
+    items.push(("esc", i18n::text("footer.close")));
     let right = percent.map(|value| format!("{value}%")).unwrap_or_default();
     let budget = width.saturating_sub(right.width() + 1);
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -385,10 +389,11 @@ fn footer_line(view: &PreviewView, width: usize, percent: Option<usize>, theme: 
 fn title_line(view: &PreviewView, width: usize, theme: &Theme) -> Line<'static> {
     let info = info_text(view);
     let info_width = if info.is_empty() { 0 } else { info.width() + 2 };
-    let name_budget = width.saturating_sub(info_width + "preview \u{b7} ".width());
+    let title = i18n::text("preview.title");
+    let name_budget = width.saturating_sub(info_width + title.width());
     let name = fit_line(&printable(&view.name), name_budget);
-    let left_width = "preview \u{b7} ".width() + name.width();
-    let mut spans = vec![Span::styled("preview \u{b7} ", theme.dim()), Span::styled(name, theme.bright())];
+    let left_width = title.width() + name.width();
+    let mut spans = vec![Span::styled(title, theme.dim()), Span::styled(name, theme.bright())];
     if !info.is_empty() && left_width + info_width <= width {
         spans.push(Span::raw(" ".repeat(width - left_width - info.width())));
         spans.push(Span::styled(info, theme.dim()));
@@ -431,11 +436,11 @@ fn render_view(frame: &mut Frame, area: Rect, view: &PreviewView, theme: &Theme,
     match &view.state {
         PreviewState::Loading => {
             view.max_top.set(0);
-            lines.push(Line::styled("loading\u{2026}", theme.dim()));
+            lines.push(Line::styled(i18n::text("preview.loading"), theme.dim()));
         }
         PreviewState::Folder => {
             view.max_top.set(0);
-            lines.push(Line::styled("folder", theme.dim()));
+            lines.push(Line::styled(i18n::text("preview.folder"), theme.dim()));
         }
         PreviewState::Failed(message) => {
             view.max_top.set(0);

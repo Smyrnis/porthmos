@@ -532,7 +532,7 @@ impl App {
                 if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.finish(truncated);
                     if incomplete {
-                        self.notifications.push(Severity::Warning, porthmos_core::SEARCH_INCOMPLETE_NOTE.to_string());
+                        self.notifications.push(Severity::Warning, porthmos_core::search_incomplete_note());
                     }
                 }
             }

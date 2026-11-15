@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::time::Duration;
 
 use porthmos_core::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestStage};
@@ -41,48 +42,51 @@ fn clean(text: &str) -> String {
     joined_lines(text)
 }
 
-fn stage_phrase(stage: TestStage) -> &'static str {
-    match stage {
-        TestStage::Settings => "while checking the settings",
-        TestStage::Connect => "while connecting",
-        TestStage::Login => "while logging in",
-        TestStage::StartFolder => "while checking the start folder",
-    }
+fn stage_phrase(stage: TestStage) -> String {
+    i18n::text(match stage {
+        TestStage::Settings => "trial.while_settings",
+        TestStage::Connect => "trial.while_connecting",
+        TestStage::Login => "trial.while_login",
+        TestStage::StartFolder => "trial.while_folder",
+    })
 }
 
-fn failure_phrase(stage: TestStage) -> Option<&'static str> {
-    match stage {
-        TestStage::Settings => None,
-        TestStage::Connect => Some("failed to connect"),
-        TestStage::Login => Some("failed at login"),
-        TestStage::StartFolder => Some("failed at the start folder"),
-    }
+fn failure_phrase(stage: TestStage) -> Option<String> {
+    let key = match stage {
+        TestStage::Settings => return None,
+        TestStage::Connect => "trial.failed_connect",
+        TestStage::Login => "trial.failed_login",
+        TestStage::StartFolder => "trial.failed_folder",
+    };
+    Some(i18n::text(key))
 }
 
 fn folder_segment(folder: &StartFolder, theme: &Theme) -> Segment {
     match folder {
-        StartFolder::Opens(path) => Segment::cuttable(format!("{} opens", clean(path)), theme.text()),
+        StartFolder::Opens(path) => {
+            Segment::cuttable(i18n::text_with("trial.opens", &[("path", &clean(path))]), theme.text())
+        }
         StartFolder::Missing(path) => {
-            Segment::cuttable(format!("start folder {} not found", clean(path)), theme.bright())
+            Segment::cuttable(i18n::text_with("trial.folder_missing", &[("path", &clean(path))]), theme.bright())
         }
         StartFolder::Unreadable { path, .. } => {
-            Segment::cuttable(format!("{} not readable", clean(path)), theme.bright())
+            Segment::cuttable(i18n::text_with("trial.not_readable", &[("path", &clean(path))]), theme.bright())
         }
-        StartFolder::Unchecked => Segment::cuttable("start folder not checked", theme.dim()),
+        StartFolder::Unchecked => Segment::cuttable(i18n::text("trial.folder_unchecked"), theme.dim()),
     }
 }
 
 fn describe(state: &TestState, theme: &Theme) -> (&'static str, Style, Vec<Segment>) {
     let outcome = match state {
         TestState::Running => {
-            return ("\u{25cb} ", theme.dim(), vec![Segment::fixed("testing\u{2026}", theme.dim())]);
+            return ("\u{25cb} ", theme.dim(), vec![Segment::fixed(i18n::text("trial.testing"), theme.dim())]);
         }
         TestState::Finished(outcome) => outcome,
     };
     match outcome {
         TestOutcome::Connected(report) => {
             let mut segments = vec![
-                Segment::fixed("connected", theme.text()),
+                Segment::fixed(i18n::text("trial.connected"), theme.text()),
                 Segment::fixed(format_elapsed(report.elapsed), theme.bright()),
             ];
             if let Some(server) = report.server.as_deref().map(clean).filter(|server| !server.is_empty()) {
@@ -93,11 +97,11 @@ fn describe(state: &TestState, theme: &Theme) -> (&'static str, Style, Vec<Segme
         }
         TestOutcome::NotTrusted(untrusted) => {
             let (what, fingerprint) = match untrusted {
-                NotTrusted::HostKey { fingerprint, .. } => ("host key not trusted yet", fingerprint),
-                NotTrusted::Certificate { fingerprint, .. } => ("certificate not trusted yet", fingerprint),
+                NotTrusted::HostKey { fingerprint, .. } => (i18n::text("trial.host_key_untrusted"), fingerprint),
+                NotTrusted::Certificate { fingerprint, .. } => (i18n::text("trial.cert_untrusted"), fingerprint),
             };
             let segments = vec![
-                Segment::fixed("host reachable", theme.text()),
+                Segment::fixed(i18n::text("trial.host_reachable"), theme.text()),
                 Segment::fixed(what, theme.bright()),
                 Segment::cuttable(clean(fingerprint), theme.text()),
             ];
@@ -115,10 +119,15 @@ fn describe(state: &TestState, theme: &Theme) -> (&'static str, Style, Vec<Segme
             ("\u{25cf} ", theme.err_text(), segments)
         }
         TestOutcome::TimedOut(stage) => {
-            let text = format!("timed out after {} s {}", TEST_LIMIT.as_secs(), stage_phrase(*stage));
+            let text = i18n::text_with(
+                "trial.timed_out",
+                &[("seconds", &TEST_LIMIT.as_secs().to_string()), ("stage", &stage_phrase(*stage))],
+            );
             ("\u{25cf} ", theme.err_text(), vec![Segment::cuttable(text, theme.err_text())])
         }
-        TestOutcome::Cancelled => ("\u{25cf} ", theme.dim(), vec![Segment::cuttable("test cancelled", theme.dim())]),
+        TestOutcome::Cancelled => {
+            ("\u{25cf} ", theme.dim(), vec![Segment::cuttable(i18n::text("trial.cancelled"), theme.dim())])
+        }
     }
 }
 

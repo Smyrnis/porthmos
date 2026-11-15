@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use porthmos_core::transfer::limit::{format_speed_limit, parse_speed_limit};
 
 use super::*;
@@ -62,10 +63,10 @@ impl App {
 
     pub(super) fn route_of(&self, row: &QueueRow) -> String {
         let Some(session) = row.session_id else { return String::new() };
-        let name = self.session_names.get(&session).map_or("remote", String::as_str);
+        let name = self.session_names.get(&session).cloned().unwrap_or_else(|| i18n::text("panel.remote"));
         match row.direction {
-            Direction::Upload => format!("local \u{2192} {name}"),
-            Direction::Download => format!("{name} \u{2192} local"),
+            Direction::Upload => i18n::text_with("queue.route_up", &[("name", &name)]),
+            Direction::Download => i18n::text_with("queue.route_down", &[("name", &name)]),
         }
     }
 
@@ -115,7 +116,7 @@ impl App {
 
     pub(super) fn open_speed_limit_dialog(&mut self) {
         let current = format_speed_limit(self.transfers.speed_limit);
-        self.dialog = Some(Dialog::TextInput(TextInputDialog::new("Speed limit (500k, 2M or off)", current)));
+        self.dialog = Some(Dialog::TextInput(TextInputDialog::new(i18n::text("limit.prompt"), current)));
         self.pending_action = Some(PendingAction::SpeedLimit);
     }
 
@@ -124,13 +125,13 @@ impl App {
             Ok(limit) => {
                 self.core.send(Command::SetSpeedLimit { bytes_per_second: limit });
                 let message = match limit {
-                    Some(limit) => format!("Speed limit set to {}", crate::rate::format_speed(limit)),
-                    None => "Speed limit off".to_string(),
+                    Some(limit) => i18n::text_with("limit.set", &[("speed", &crate::rate::format_speed(limit))]),
+                    None => i18n::text("limit.off"),
                 };
                 self.notifications.push(Severity::Info, message);
             }
             Err(message) => {
-                self.dialog = Some(Dialog::TextInput(TextInputDialog::new("Speed limit (500k, 2M or off)", text)));
+                self.dialog = Some(Dialog::TextInput(TextInputDialog::new(i18n::text("limit.prompt"), text)));
                 self.pending_action = Some(PendingAction::SpeedLimit);
                 self.notifications.push(Severity::Warning, message);
             }

@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
@@ -34,7 +35,6 @@ const MAX_NAME_WIDTH: usize = 18;
 const MIN_PROTOCOL_WIDTH: usize = 3;
 const MAX_PROTOCOL_WIDTH: usize = 10;
 const MIN_DETAIL_WIDTH: usize = 14;
-const CONNECTION_LOST: &str = "connection lost";
 const DOT: &str = "\u{2022}";
 
 pub struct ConnectionsContext<'a> {
@@ -109,10 +109,10 @@ pub fn render_connections_list(
     frame.render_stateful_widget(list, body, &mut state);
 }
 
-fn is_hidden_label(entry: &ConnectionEntry) -> Option<&'static str> {
+fn is_hidden_label(entry: &ConnectionEntry) -> Option<String> {
     match entry.source {
-        ConnectionSource::MissingSshHost => Some("not in ~/.ssh/config"),
-        ConnectionSource::ShadowedSshHost => Some("hidden by a saved connection"),
+        ConnectionSource::MissingSshHost => Some(i18n::text("connections.not_in_ssh_config")),
+        ConnectionSource::ShadowedSshHost => Some(i18n::text("connections.hidden_by_saved")),
         ConnectionSource::Profile | ConnectionSource::SshConfig => None,
     }
 }
@@ -174,7 +174,7 @@ fn connection_line(
         let fixed = MARKER_WIDTH + indent.width() + 2 + COLUMN_GAP;
         let budget = width.saturating_sub(fixed);
         let name = truncate_with_ellipsis(&name, budget.min(columns.name.max(MIN_NAME_WIDTH)));
-        let reason = truncate_with_ellipsis(reason, budget.saturating_sub(name.width()));
+        let reason = truncate_with_ellipsis(&reason, budget.saturating_sub(name.width()));
         let name_style = if focused { theme.focused_name() } else { theme.text() };
         return Line::from(vec![
             marker,
@@ -212,7 +212,7 @@ fn connection_line(
     let fixed = MARKER_WIDTH + indent.width() + 2 + columns.name + COLUMN_GAP + columns.protocol + COLUMN_GAP;
     let (detail, detail_style) = match failure {
         Some(message) => (printable(&message.one_line()), theme.err_text()),
-        None if lost => (CONNECTION_LOST.to_string(), theme.err_text()),
+        None if lost => (i18n::text("connections.lost"), theme.err_text()),
         None => (host_text(entry, context.protocols), theme.dim()),
     };
     let age_width = if columns.show_age { COLUMN_GAP + columns.age } else { 0 };

@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::collections::HashMap;
 
 use porthmos_core::transfer::{
@@ -76,7 +77,9 @@ pub fn line_data(rows: &[QueueRow], names: &HashMap<u64, String>, rates: &RateTr
         [row] => Some(LineData {
             arrow: arrow_of(&shown),
             label: row.label.clone(),
-            target: row.session_id.map(|session| names.get(&session).cloned().unwrap_or_else(|| "remote".to_string())),
+            target: row
+                .session_id
+                .map(|session| names.get(&session).cloned().unwrap_or_else(|| i18n::text("panel.remote"))),
             percent: percent(row.bytes_done, row.bytes_total),
             counts: matches!(row.kind, porthmos_core::transfer::rows::RowKind::Batch(_))
                 .then_some((row.files_done, row.files_total)),
@@ -186,8 +189,8 @@ pub fn render_transfer_line(frame: &mut Frame, area: Rect, data: &LineData, them
     let width = usize::from(area.width);
     let label = printable(&data.label);
     let counts: Vec<String> = [
-        (data.queued > 0).then(|| format!("+{} queued", data.queued)),
-        (data.paused > 0).then(|| format!("{} paused", data.paused)),
+        (data.queued > 0).then(|| i18n::text_with("queue.plus_queued", &[("count", &data.queued.to_string())])),
+        (data.paused > 0).then(|| i18n::text_with("queue.count_paused", &[("count", &data.paused.to_string())])),
     ]
     .into_iter()
     .flatten()

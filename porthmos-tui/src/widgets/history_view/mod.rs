@@ -1,4 +1,5 @@
 use chrono::Local;
+use porthmos_core::i18n;
 use porthmos_core::{
     history::{self, HistoryEntry, HistoryResult},
     transfer::Direction,
@@ -70,9 +71,11 @@ impl HistoryView {
 
     pub fn summary(&self) -> String {
         match (&self.filter, self.total()) {
-            (Some(_), total) => format!("{} of {total}", self.matched()),
-            (None, 1) => "1 entry".to_string(),
-            (None, total) => format!("{total} entries"),
+            (Some(_), total) => i18n::text_with(
+                "list.matched",
+                &[("matched", &self.matched().to_string()), ("total", &total.to_string())],
+            ),
+            (None, total) => i18n::plural("list.entries", total),
         }
     }
 
@@ -197,11 +200,13 @@ pub fn joined_lines(text: &str) -> String {
 
 fn status_of(result: &HistoryResult, theme: &Theme) -> (String, Style) {
     match result {
-        HistoryResult::Done => ("done".to_string(), theme.ok_text()),
-        HistoryResult::Failed => ("failed".to_string(), theme.err_text()),
-        HistoryResult::PartlyFailed { failed } => (format!("done, {failed} failed"), theme.err_text()),
-        HistoryResult::Cancelled => ("cancelled".to_string(), theme.dim()),
-        HistoryResult::Interrupted => ("interrupted".to_string(), theme.dim()),
+        HistoryResult::Done => (i18n::text("result.done"), theme.ok_text()),
+        HistoryResult::Failed => (i18n::text("result.failed"), theme.err_text()),
+        HistoryResult::PartlyFailed { failed } => {
+            (i18n::text_with("result.partly", &[("failed", &failed.to_string())]), theme.err_text())
+        }
+        HistoryResult::Cancelled => (i18n::text("result.cancelled"), theme.dim()),
+        HistoryResult::Interrupted => (i18n::text("result.interrupted"), theme.dim()),
     }
 }
 
@@ -223,12 +228,15 @@ struct Columns {
 }
 
 fn columns_for(view: &HistoryView, theme: &Theme, width: usize) -> Columns {
-    let widest = |texts: &mut dyn Iterator<Item = usize>, header: &str| texts.max().unwrap_or(0).max(header.len());
-    let connection = widest(&mut view.rows().map(|entry| printable(&entry.connection).width()), "connection")
-        .min(MAX_CONNECTION_WIDTH);
-    let files = widest(&mut view.rows().map(|entry| files_text(entry).width()), "files");
-    let size = widest(&mut view.rows().map(|entry| format_size(entry.bytes, false).width()), "size");
-    let status = widest(&mut view.rows().map(|entry| status_of(&entry.result, theme).0.width()), "status");
+    let widest = |texts: &mut dyn Iterator<Item = usize>, header: &str| texts.max().unwrap_or(0).max(header.width());
+    let connection =
+        widest(&mut view.rows().map(|entry| printable(&entry.connection).width()), &i18n::text("header.connection"))
+            .min(MAX_CONNECTION_WIDTH);
+    let files = widest(&mut view.rows().map(|entry| files_text(entry).width()), &i18n::text("header.files"));
+    let size =
+        widest(&mut view.rows().map(|entry| format_size(entry.bytes, false).width()), &i18n::text("header.size"));
+    let status =
+        widest(&mut view.rows().map(|entry| status_of(&entry.result, theme).0.width()), &i18n::text("header.status"));
     let base = MARKER_WIDTH + ARROW_WIDTH + GAP + status;
 
     for dropped in 0..=4usize {
@@ -255,20 +263,20 @@ fn header_line(columns: &Columns, theme: &Theme) -> Line<'static> {
     let gap = " ".repeat(GAP);
     let mut text = " ".repeat(MARKER_WIDTH);
     if columns.time {
-        text.push_str(&format!("{}{gap}", pad_right("time", TIME_WIDTH)));
+        text.push_str(&format!("{}{gap}", pad_right(&i18n::text("header.time"), TIME_WIDTH)));
     }
     text.push_str(&" ".repeat(ARROW_WIDTH));
-    text.push_str(&pad_right("item", columns.item));
+    text.push_str(&pad_right(&i18n::text("header.item"), columns.item));
     if let Some(width) = columns.connection {
-        text.push_str(&format!("{gap}{}", pad_right("connection", width)));
+        text.push_str(&format!("{gap}{}", pad_right(&i18n::text("header.connection"), width)));
     }
     if let Some(width) = columns.files {
-        text.push_str(&format!("{gap}{}", pad_left("files", width)));
+        text.push_str(&format!("{gap}{}", pad_left(&i18n::text("header.files"), width)));
     }
     if let Some(width) = columns.size {
-        text.push_str(&format!("{gap}{}", pad_left("size", width)));
+        text.push_str(&format!("{gap}{}", pad_left(&i18n::text("header.size"), width)));
     }
-    text.push_str(&format!("{gap}status"));
+    text.push_str(&format!("{gap}{}", i18n::text("header.status")));
     Line::from(Span::styled(text, theme.dim()))
 }
 
@@ -331,7 +339,7 @@ pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView, theme: 
 
     let body = Rect::new(area.x, area.y + HEADER_ROWS, area.width, area.height - HEADER_ROWS);
     if view.total() == 0 || view.matched() == 0 {
-        let message = if view.total() == 0 { "no transfers yet" } else { "no matches" };
+        let message = i18n::text(if view.total() == 0 { "list.no_transfers_yet" } else { "list.no_matches" });
         frame.render_widget(
             Paragraph::new(Span::styled(message, theme.dim())),
             Rect::new(body.x, body.y, body.width, 1),

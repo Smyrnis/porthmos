@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use porthmos_core::i18n;
 use porthmos_core::{
     Message, OptionKind, ProtocolInfo,
     profiles::{ConnectionEntry, ConnectionSource},
@@ -20,8 +21,6 @@ use crate::{
 };
 
 const KEY_WIDTH: usize = 14;
-const SAVED: &str = "saved";
-const LAST_USED_KEY: &str = "last used";
 
 pub struct DetailsContext<'a> {
     pub protocols: &'a [ProtocolInfo],
@@ -41,7 +40,7 @@ fn protocol_label<'a>(entry: &'a ConnectionEntry, protocols: &'a [ProtocolInfo])
 }
 
 fn choice_label(choices: &[porthmos_core::Choice], value: &str) -> String {
-    choices.iter().find(|choice| choice.value == value).map_or(value, |choice| choice.label).to_string()
+    i18n::label(choices.iter().find(|choice| choice.value == value).map_or(value, |choice| choice.label))
 }
 
 pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec<(String, String)> {
@@ -53,13 +52,13 @@ pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec
         }
     };
 
-    push(info.map_or("host", |info| info.form.host.label), entry.host.clone());
+    push(&i18n::label(info.map_or("Host", |info| info.form.host.label)), entry.host.clone());
     if info.is_none_or(|info| info.form.port.default != entry.port) {
-        push("port", entry.port.to_string());
+        push(&i18n::label("Port"), entry.port.to_string());
     }
-    push(info.map_or("username", |info| info.form.username.label), entry.username.clone());
+    push(&i18n::label(info.map_or("Username", |info| info.form.username.label)), entry.username.clone());
     if entry.saved_password {
-        push(info.map_or("password", |info| info.form.password.label), SAVED.to_string());
+        push(&i18n::label(info.map_or("Password", |info| info.form.password.label)), i18n::text("details.saved"));
     }
 
     match info {
@@ -68,20 +67,23 @@ pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec
                 match &field.kind {
                     OptionKind::Secret => {
                         if entry.in_keyring.iter().any(|saved| saved == field.key) {
-                            push(field.label, SAVED.to_string());
+                            push(&i18n::label(field.label), i18n::text("details.saved"));
                         }
                     }
                     OptionKind::Toggle { .. } => {
                         if let Some(value) = entry.option(field.key) {
-                            push(field.label, if value == "true" { "yes" } else { "no" }.to_string());
+                            push(
+                                &i18n::label(field.label),
+                                i18n::text(if value == "true" { "details.yes" } else { "details.no" }),
+                            );
                         }
                     }
                     OptionKind::Text { .. } => {
-                        push(field.label, entry.option(field.key).unwrap_or_default().to_string());
+                        push(&i18n::label(field.label), entry.option(field.key).unwrap_or_default().to_string());
                     }
                     OptionKind::Choice { choices, .. } => {
                         if let Some(value) = entry.option(field.key) {
-                            push(field.label, choice_label(choices, value));
+                            push(&i18n::label(field.label), choice_label(choices, value));
                         }
                     }
                 }
@@ -90,19 +92,19 @@ pub fn details_lines(entry: &ConnectionEntry, protocols: &[ProtocolInfo]) -> Vec
         None => {
             for (key, value) in entry.options.iter().filter(|(key, _)| key.as_str() != "remote_path") {
                 if entry.in_keyring.iter().any(|saved| saved == key) {
-                    push(key, SAVED.to_string());
+                    push(&i18n::label(key), i18n::text("details.saved"));
                 } else {
-                    push(key, value.clone());
+                    push(&i18n::label(key), value.clone());
                 }
             }
         }
     }
 
-    push("start in", entry.option("remote_path").unwrap_or_default().to_string());
-    push("group", entry.group.clone().unwrap_or_default());
-    push("tags", entry.tags.join(", "));
+    push(&i18n::text("details.start_in"), entry.option("remote_path").unwrap_or_default().to_string());
+    push(&i18n::text("details.group"), entry.group.clone().unwrap_or_default());
+    push(&i18n::text("details.tags"), entry.tags.join(", "));
     if entry.source == ConnectionSource::SshConfig {
-        push("source", "~/.ssh/config".to_string());
+        push(&i18n::text("details.source"), "~/.ssh/config".to_string());
     }
     lines
 }
@@ -131,9 +133,9 @@ fn connection_header(
         let text = truncate_with_ellipsis(&printable(cause), width / 2);
         Some(Span::styled(format!("\u{2022} {text}"), theme.err_text()))
     } else if context.lost {
-        Some(Span::styled("\u{2022} connection lost", theme.err_text()))
+        Some(Span::styled(format!("\u{2022} {}", i18n::text("details.lost")), theme.err_text()))
     } else if context.connected {
-        Some(Span::styled("\u{2022} connected", theme.ok_text()))
+        Some(Span::styled(format!("\u{2022} {}", i18n::text("details.connected")), theme.ok_text()))
     } else {
         None
     };
@@ -162,8 +164,7 @@ pub fn render_connection_details(
     let header = match &selection {
         Selection::Connection(entry) => connection_header(entry, context, width, theme),
         Selection::Group(path) => {
-            let label =
-                if group_count == 1 { "1 connection".to_string() } else { format!("{group_count} connections") };
+            let label = i18n::plural("details.count", group_count);
             let name = truncate_with_ellipsis(&printable(path), width.saturating_sub(label.width() + 2));
             header_line(vec![Span::styled(name, theme.directory_name())], Some(Span::styled(label, theme.dim())), width)
         }
@@ -178,21 +179,21 @@ pub fn render_connection_details(
     let mut y = area.y + 2;
     let mut lines = details_lines(entry, context.protocols);
     if !entry.source.is_orphan_labels() {
-        lines.push((LAST_USED_KEY.to_string(), last_used_detail(context.now, context.last_used)));
+        lines.push((i18n::text("details.last_used"), last_used_detail(context.now, context.last_used)));
     }
     for (key, value) in lines {
         if y >= area.bottom() {
             return;
         }
         let key = truncate_with_ellipsis(&key, KEY_WIDTH - 1);
-        let padded_key = format!("{key}{}", " ".repeat(KEY_WIDTH - key.width()));
+        let padded_key = format!("{key}{}", " ".repeat(KEY_WIDTH.saturating_sub(key.width())));
         let value = truncate_with_ellipsis(&value, width.saturating_sub(KEY_WIDTH));
         let line = Line::from(vec![Span::styled(padded_key, theme.dim()), Span::styled(value, theme.text())]);
         frame.render_widget(Paragraph::new(line), Rect::new(area.x, y, area.width, 1));
         y += 1;
     }
 
-    let note = protocol_info(entry, context.protocols).and_then(|info| info.limits_note);
+    let note = protocol_info(entry, context.protocols).and_then(|info| info.limits_note_text());
     if let Some(note) = note
         && y + 1 < area.bottom()
     {

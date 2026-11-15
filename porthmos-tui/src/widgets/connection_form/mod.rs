@@ -1,4 +1,5 @@
 use porthmos_core::ProtocolInfo;
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -24,7 +25,6 @@ const MIN_WIDTH_WITH_DESCRIPTIONS: u16 = 80;
 const MIN_WIDTH_WITH_LIST: u16 = 60;
 const WIDE_LIST_MIN_WIDTH: u16 = 100;
 const GUTTER_AFTER_DIVIDER: u16 = 2;
-const NOT_AVAILABLE: &str = "(not available)";
 
 #[derive(Clone, Copy)]
 struct ListMode {
@@ -76,8 +76,10 @@ pub fn render_connection_form(
 fn render_protocol_list(
     frame: &mut Frame, area: Rect, dialog: &FormDialog, protocols: &[ProtocolInfo], mode: ListMode, theme: &Theme,
 ) {
-    frame
-        .render_widget(Paragraph::new(Span::styled("protocol", theme.dim())), Rect::new(area.x, area.y, area.width, 1));
+    frame.render_widget(
+        Paragraph::new(Span::styled(i18n::text("form.protocol_header"), theme.dim())),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
     let rule = Rect::new(area.x, area.y + 1, area.width, 1);
     hairline(frame, rule, theme);
     let list_focused = dialog.focused == 0;
@@ -86,6 +88,7 @@ fn render_protocol_list(
     }
 
     let (choices, selected) = protocol_choices(dialog);
+    let unavailable_marker = i18n::text_with("form.protocol_unavailable", &[("id", "")]).trim().to_string();
     let rows_per_item: u16 = if mode.descriptions { 2 } else { 1 };
     let visible = usize::from(area.height.saturating_sub(2) / rows_per_item).max(1);
     let offset = if selected >= visible { selected + 1 - visible } else { 0 };
@@ -100,8 +103,8 @@ fn render_protocol_list(
         let description = protocols
             .iter()
             .find(|info| info.id == id)
-            .filter(|_| !label.contains(NOT_AVAILABLE))
-            .map_or("", |info| info.description);
+            .filter(|_| !label.contains(unavailable_marker.as_str()))
+            .map_or_else(String::new, |info| info.description_text());
         let name_style = if is_selected { theme.focused_name() } else { theme.text() };
         let name = truncate_with_ellipsis(&printable(label), usize::from(area.width).saturating_sub(2));
         let marker = if is_selected { Span::styled("\u{203a} ", theme.accent_text()) } else { Span::raw("  ") };
@@ -112,7 +115,7 @@ fn render_protocol_list(
         }
         frame.render_widget(Paragraph::new(name_line), name_area);
         if mode.descriptions {
-            let text = truncate_with_ellipsis(description, usize::from(area.width).saturating_sub(2));
+            let text = truncate_with_ellipsis(&description, usize::from(area.width).saturating_sub(2));
             let line = Line::from(vec![Span::raw("  "), Span::styled(text, theme.dim())]);
             frame.render_widget(Paragraph::new(line), Rect::new(area.x, top + 1, area.width, 1));
         }

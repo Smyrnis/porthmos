@@ -10,20 +10,23 @@ fn indexed() -> Theme {
     Theme::new(ColorDepth::Indexed, &ThemeSettings::default())
 }
 
-fn row(key: &str, action: &'static str) -> HelpRow {
-    HelpRow { key: Some(key.to_string()), action }
+fn row(key: &str, action: &str) -> HelpRow {
+    HelpRow { key: Some(key.to_string()), action: action.to_string() }
 }
 
 fn small() -> Vec<HelpSection> {
     vec![
-        HelpSection { title: "files", rows: vec![row("F5", "copy"), HelpRow { key: None, action: "quit" }] },
-        HelpSection { title: "sync", rows: vec![row("Enter", "run")] },
+        HelpSection {
+            title: "files".to_string(),
+            rows: vec![row("F5", "copy"), HelpRow { key: None, action: "quit".to_string() }],
+        },
+        HelpSection { title: "sync".to_string(), rows: vec![row("Enter", "run")] },
     ]
 }
 
 fn long() -> Vec<HelpSection> {
     vec![HelpSection {
-        title: "files",
+        title: "files".to_string(),
         rows: (0..40).map(|_| row("F5", "copy")).chain([row("F1", "last_row")]).collect(),
     }]
 }
@@ -143,8 +146,10 @@ fn a_ten_row_terminal_can_reach_the_last_row() {
 
 #[test]
 fn hostile_key_text_is_sanitised() {
-    let sections =
-        vec![HelpSection { title: "files", rows: vec![HelpRow { key: Some("A\u{1b}[2J".to_string()), action: "x" }] }];
+    let sections = vec![HelpSection {
+        title: "files".to_string(),
+        rows: vec![HelpRow { key: Some("A\u{1b}[2J".to_string()), action: "x".to_string() }],
+    }];
 
     let (terminal, _) = draw(&sections, 0, 70, 20);
 

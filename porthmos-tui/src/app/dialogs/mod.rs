@@ -1,9 +1,9 @@
+use porthmos_core::i18n;
 use porthmos_core::{
     Answer,
     delete_prompt::{
-        THIS_COMPUTER,
         count::{Contents, contents_line},
-        delete_summary,
+        delete_summary, this_computer,
     },
     names::entry_name_problem,
     permissions::{ModeRequest, mode_text, parse_mode_request},
@@ -27,7 +27,7 @@ impl App {
             return;
         }
 
-        self.dialog = Some(Dialog::TextInput(TextInputDialog::new("New directory name", "")));
+        self.dialog = Some(Dialog::TextInput(TextInputDialog::new(i18n::text("dialogs.new_folder_name"), "")));
         self.pending_action = Some(PendingAction::Mkdir);
     }
 
@@ -44,7 +44,7 @@ impl App {
         };
         let (from, current_name) = (entry.path.clone(), entry.name.clone());
 
-        self.dialog = Some(Dialog::TextInput(TextInputDialog::new("Rename to", current_name)));
+        self.dialog = Some(Dialog::TextInput(TextInputDialog::new(i18n::text("dialogs.rename_to"), current_name)));
         self.pending_action = Some(PendingAction::Rename { location, from });
     }
 
@@ -64,11 +64,14 @@ impl App {
             return;
         }
         let current = entries.iter().find_map(|entry| entry.permissions).map(mode_text).unwrap_or_default();
-        let units =
-            if entries.iter().any(|entry| entry.is_dir) { "octal, add -R for everything inside" } else { "octal" };
+        let units = i18n::text(if entries.iter().any(|entry| entry.is_dir) {
+            "permissions.units_octal_recursive"
+        } else {
+            "permissions.units_octal"
+        });
         let title = match paths.len() {
-            1 => format!("Permissions ({units})"),
-            count => format!("Permissions of {count} items ({units})"),
+            1 => i18n::text_with("permissions.title_one", &[("units", &units)]),
+            count => i18n::text_with("permissions.title_many", &[("count", &count.to_string()), ("units", &units)]),
         };
 
         self.dialog = Some(Dialog::TextInput(TextInputDialog::new(title, current)));
@@ -92,7 +95,7 @@ impl App {
         }
 
         let place = match location {
-            Location::Local => THIS_COMPUTER.to_string(),
+            Location::Local => this_computer(),
             Location::Session(id) => self.sessions.by_id(id).map(|session| session.name.clone()).unwrap_or_default(),
         };
         let summary = delete_summary(&entries, &place, printable);

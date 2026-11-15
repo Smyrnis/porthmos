@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use porthmos_core::i18n;
 use porthmos_core::{Entry, VfsPath};
 use ratatui::{
     Frame,
@@ -250,7 +251,7 @@ pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView, theme: &T
 
     let body = Rect::new(area.x, area.y + HEADER_ROWS, area.width, area.height - HEADER_ROWS);
     if view.results.is_empty() {
-        let message = if view.pattern.is_empty() { "type to search" } else { "no matches" };
+        let message = i18n::text(if view.pattern.is_empty() { "search.type_to_search" } else { "list.no_matches" });
         frame.render_widget(
             Paragraph::new(Span::styled(message, theme.dim())),
             Rect::new(body.x, body.y, body.width, 1),

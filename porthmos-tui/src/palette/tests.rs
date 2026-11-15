@@ -49,7 +49,10 @@ fn type_all(palette: &mut Palette, text: &str) {
 
 #[test]
 fn group_titles_are_lowercase() {
-    assert_eq!((Group::Actions.title(), Group::Hosts.title(), Group::Files.title()), ("actions", "hosts", "files"));
+    assert_eq!(
+        (Group::Actions.title(), Group::Hosts.title(), Group::Files.title()),
+        ("actions".to_string(), "hosts".to_string(), "files".to_string())
+    );
 }
 
 #[test]

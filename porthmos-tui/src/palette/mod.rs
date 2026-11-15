@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::cmp::Reverse;
 
 use porthmos_core::Location;
@@ -16,16 +17,18 @@ pub enum Group {
 }
 
 impl Group {
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            Group::Actions => "actions",
-            Group::Hosts => "hosts",
-            Group::Files => "files",
+            Group::Actions => i18n::text("palette.group.actions"),
+            Group::Hosts => i18n::text("palette.group.hosts"),
+            Group::Files => i18n::text("palette.group.files"),
         }
     }
 }
 
-pub const REOPEN_LABEL: &str = "Reopen last connections";
+pub fn reopen_label() -> String {
+    i18n::text("palette.reopen")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {

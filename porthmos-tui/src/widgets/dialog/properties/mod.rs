@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -33,7 +34,6 @@ const MAX_WIDTH: u16 = 100;
 const SCREEN_MARGIN: u16 = 2;
 const LABEL_WIDTH: usize = 10;
 const DIGEST_INDENT: usize = 2;
-const EXPECTED_LABEL: &str = "Expected   ";
 const CURSOR: &str = "\u{258f}";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,46 +238,53 @@ fn one_line(message: &str) -> String {
     printable(&message.replace(":\n", ": ").replace('\n', " "))
 }
 
+fn padded_label(label: &str) -> String {
+    let padded = format!("{label:<LABEL_WIDTH$}");
+    if label.chars().count() >= LABEL_WIDTH { format!("{padded} ") } else { padded }
+}
+
 fn labelled(label: &str, value: &str, theme: &Theme) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{label:<LABEL_WIDTH$}"), theme.muted()),
-        Span::styled(value.to_string(), theme.text()),
-    ])
+    Line::from(vec![Span::styled(padded_label(label), theme.muted()), Span::styled(value.to_string(), theme.text())])
 }
 
 fn measure_lines(dialog: &PropertiesDialog, theme: &Theme) -> Vec<Line<'static>> {
     match &dialog.measure {
         MeasureState::Running(measured) => vec![
-            labelled("Size", &size_line(measured.bytes), theme),
+            labelled(&i18n::text("props.size"), &size_line(measured.bytes), theme),
             Line::styled(progress_line(measured), theme.dim()),
         ],
         MeasureState::Done(measured) => {
             let mut lines = vec![
-                labelled("Size", &size_line(measured.bytes), theme),
-                labelled("Contents", &contents_line(measured), theme),
+                labelled(&i18n::text("props.size"), &size_line(measured.bytes), theme),
+                labelled(&i18n::text("props.contents"), &contents_line(measured), theme),
             ];
             if let Some(skipped) = skipped_line(measured) {
-                lines.push(labelled("Skipped", &skipped, theme));
+                lines.push(labelled(&i18n::text("props.skipped"), &skipped, theme));
             }
             lines
         }
         MeasureState::Failed(message) => vec![Line::styled(one_line(message), theme.err_text())],
-        MeasureState::Cancelled => vec![labelled("Size", "cancelled", theme)],
+        MeasureState::Cancelled => vec![labelled(&i18n::text("props.size"), &i18n::text("props.cancelled"), theme)],
     }
 }
 
 fn file_lines(row: &FileRow, width: usize, theme: &Theme) -> Vec<Line<'static>> {
     let name = printable(&row.name);
     let (status, style) = match &row.state {
-        HashState::Idle => ("not computed".to_string(), theme.dim()),
+        HashState::Idle => (i18n::text("props.not_computed"), theme.dim()),
         HashState::Running { done, total } if *total == 0 => {
-            (format!("reading\u{2026} {}", size_text(*done)), theme.dim())
+            (i18n::text_with("props.reading", &[("done", &size_text(*done))]), theme.dim())
         }
-        HashState::Running { done, total } => (format!("{} of {}", size_text(*done), size_text(*total)), theme.dim()),
+        HashState::Running { done, total } => (
+            i18n::text_with("props.progress", &[("done", &size_text(*done)), ("total", &size_text(*total))]),
+            theme.dim(),
+        ),
         HashState::Failed(message) => (one_line(message), theme.err_text()),
-        HashState::Cancelled => ("cancelled".to_string(), theme.dim()),
+        HashState::Cancelled => (i18n::text("props.cancelled"), theme.dim()),
         HashState::Done(digest) => match row.listed_total {
-            Some(total) if total != digest.bytes => (format!("{} bytes read", digest.bytes), theme.dim()),
+            Some(total) if total != digest.bytes => {
+                (i18n::text_with("props.bytes_read", &[("count", &digest.bytes.to_string())]), theme.dim())
+            }
             _ => (String::new(), theme.dim()),
         },
     };
@@ -301,35 +308,35 @@ fn expected_lines(dialog: &PropertiesDialog, theme: &Theme) -> Vec<Line<'static>
     }
     let cursor = if dialog.editing { CURSOR } else { "" };
     let mut lines = vec![Line::from(vec![
-        Span::styled(EXPECTED_LABEL.to_string(), theme.muted()),
+        Span::styled(padded_label(&i18n::text("props.expected")), theme.muted()),
         Span::styled(format!("{}{cursor}", printable(&dialog.expected)), theme.text()),
     ])];
     match dialog.verdict() {
-        Some(true) => lines.push(Line::styled("matches", theme.ok_text())),
-        Some(false) => lines.push(Line::styled("does NOT match", theme.err_text())),
+        Some(true) => lines.push(Line::styled(i18n::text("props.matches"), theme.ok_text())),
+        Some(false) => lines.push(Line::styled(i18n::text("props.no_match"), theme.err_text())),
         None => {}
     }
     lines
 }
 
-fn hints(dialog: &PropertiesDialog) -> Vec<(&'static str, &'static str)> {
+fn hints(dialog: &PropertiesDialog) -> Vec<(&'static str, String)> {
     if dialog.editing {
-        return vec![("enter", "done"), ("esc", "done")];
+        return vec![("enter", i18n::text("footer.done")), ("esc", i18n::text("footer.done"))];
     }
     if dialog.measuring() || dialog.hashing() {
-        return vec![("esc", "cancel")];
+        return vec![("esc", i18n::text("footer.cancel"))];
     }
     let mut pairs = Vec::new();
     if !dialog.files.is_empty() {
-        pairs.push(("s", "sha-256"));
+        pairs.push(("s", i18n::text("footer.sha256")));
     }
     if dialog.has_expected_field() {
-        pairs.push(("e", "expected"));
+        pairs.push(("e", i18n::text("footer.expected")));
     }
     if dialog.max_scroll.get() > 0 {
-        pairs.push(("j/k", "scroll"));
+        pairs.push(("j/k", i18n::text("footer.scroll")));
     }
-    pairs.push(("esc", "close"));
+    pairs.push(("esc", i18n::text("footer.close")));
     pairs
 }
 

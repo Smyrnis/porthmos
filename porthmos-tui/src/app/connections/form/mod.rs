@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::collections::BTreeMap;
 
 use porthmos_core::{
@@ -29,7 +30,7 @@ fn protocol_choices(protocols: &[ProtocolInfo], unavailable: Option<&str>) -> Ve
     if let Some(id) = unavailable
         && !protocols.iter().any(|info| info.id == id)
     {
-        choices.push((id.to_string(), format!("{id} (not available)")));
+        choices.push((id.to_string(), i18n::text_with("form.protocol_unavailable", &[("id", id)])));
     }
     choices
 }
@@ -48,20 +49,23 @@ fn option_field(field: &OptionField, saved: Option<&str>, saved_secrets: &[Strin
             FormField::saved_secret(field.key, field.label)
         }
         OptionKind::Text { default } => FormField::text(field.key, field.label, saved.unwrap_or(default)),
-        OptionKind::Secret => {
-            FormField::masked(field.key, field.label, saved.filter(|value| *value != KEPT_SECRET).unwrap_or_default())
-        }
+        OptionKind::Secret => FormField::masked(
+            field.key,
+            i18n::label(field.label),
+            saved.filter(|value| *value != KEPT_SECRET).unwrap_or_default(),
+        ),
         OptionKind::Choice { choices, default } => {
             let choices: Vec<(String, String)> =
-                choices.iter().map(|choice| (choice.value.to_string(), choice.label.to_string())).collect();
+                choices.iter().map(|choice| (choice.value.to_string(), i18n::label(choice.label))).collect();
             let wanted = saved.filter(|value| choices.iter().any(|(choice, _)| choice == value)).unwrap_or(default);
-            FormField::choice(field.key, field.label, choices, wanted)
+            FormField::choice(field.key, i18n::label(field.label), choices, wanted)
         }
         OptionKind::Toggle { default } => {
-            let choices = vec![("true".to_string(), "Yes".to_string()), ("false".to_string(), "No".to_string())];
+            let choices =
+                vec![("true".to_string(), i18n::text("common.yes")), ("false".to_string(), i18n::text("common.no"))];
             let fallback = if *default { "true" } else { "false" };
             let wanted = saved.filter(|value| *value == "true" || *value == "false").unwrap_or(fallback);
-            FormField::choice(field.key, field.label, choices, wanted)
+            FormField::choice(field.key, i18n::label(field.label), choices, wanted)
         }
     }
 }
@@ -72,19 +76,19 @@ fn fields(
 ) -> Vec<FormField> {
     let form = form_for(protocols, protocol);
     let mut fields = vec![
-        FormField::choice("protocol", "Protocol", protocol_choices(protocols, unavailable), protocol),
-        FormField::text("name", "Name", common.name),
-        FormField::text("group", "Group", common.group),
-        FormField::text("tags", "Tags", common.tags),
-        FormField::text("host", form.host.label, common.host),
-        FormField::text("port", form.port.label, common.port),
-        FormField::text("username", form.username.label, common.username),
+        FormField::choice("protocol", i18n::text("form.protocol"), protocol_choices(protocols, unavailable), protocol),
+        FormField::text("name", i18n::text("form.name"), common.name),
+        FormField::text("group", i18n::text("form.group"), common.group),
+        FormField::text("tags", i18n::text("form.tags"), common.tags),
+        FormField::text("host", i18n::label(form.host.label), common.host),
+        FormField::text("port", i18n::label(form.port.label), common.port),
+        FormField::text("username", i18n::label(form.username.label), common.username),
         if common.saved_password {
-            FormField::saved_secret("password", form.password.label)
+            FormField::saved_secret("password", i18n::label(form.password.label))
         } else {
-            FormField::masked("password", form.password.label, common.password)
+            FormField::masked("password", i18n::label(form.password.label), common.password)
         },
-        FormField::text("remote_path", "Remote folder", common.remote_path),
+        FormField::text("remote_path", i18n::text("form.remote_folder"), common.remote_path),
     ];
     fields.extend(
         form.options
@@ -223,14 +227,15 @@ pub(super) fn rebuild_for_protocol(form: &mut FormDialog, protocols: &[ProtocolI
 
 pub(super) fn build_labels(entry: &ConnectionEntry) -> FormDialog {
     let mut fields = vec![
-        FormField::text("group", "Group", entry.group.clone().unwrap_or_default()),
-        FormField::text("tags", "Tags", entry.tags.join(", ")),
+        FormField::text("group", i18n::text("form.group"), entry.group.clone().unwrap_or_default()),
+        FormField::text("tags", i18n::text("form.tags"), entry.tags.join(", ")),
     ];
     if entry.saved_password {
-        let choices = vec![("keep".to_string(), "Keep".to_string()), ("forget".to_string(), "Forget".to_string())];
-        fields.push(FormField::choice("saved_password", "Saved password", choices, "keep"));
+        let choices =
+            vec![("keep".to_string(), i18n::text("form.keep")), ("forget".to_string(), i18n::text("form.forget"))];
+        fields.push(FormField::choice("saved_password", i18n::text("form.saved_password"), choices, "keep"));
     }
-    FormDialog::new(format!("Labels for {}", entry.name), fields)
+    FormDialog::new(i18n::text_with("form.labels_title", &[("name", &entry.name)]), fields)
 }
 
 pub(super) fn secret_keys(protocols: &[ProtocolInfo], protocol: &str) -> Vec<&'static str> {

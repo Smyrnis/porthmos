@@ -1,5 +1,6 @@
 use super::super::*;
 use crate::widgets::dialog::message::MessageDialog;
+use porthmos_core::i18n;
 
 fn unannounced(entries: &[ConnectionEntry], source: ConnectionSource, announced: &HashSet<String>) -> Vec<String> {
     let mut names: Vec<String> = entries
@@ -24,17 +25,14 @@ impl App {
         }
         let mut sentences = Vec::new();
         if !missing.is_empty() {
-            sentences.push(format!("These labelled hosts are no longer in ~/.ssh/config: {}.", missing.join(", ")));
+            sentences.push(i18n::text_with("missing.gone", &[("hosts", &missing.join(", "))]));
         }
         if !shadowed.is_empty() {
-            sentences.push(format!(
-                "These labelled hosts are hidden by a saved connection of the same name: {}.",
-                shadowed.join(", ")
-            ));
+            sentences.push(i18n::text_with("missing.hidden", &[("hosts", &shadowed.join(", "))]));
         }
-        sentences.push("They are marked \u{26A0} in the connection list.".to_string());
+        sentences.push(i18n::text("missing.marked"));
         self.announced_missing.extend(missing.into_iter().chain(shadowed));
-        self.dialog = Some(Dialog::Message(MessageDialog::new("Labelled ssh hosts", sentences.join(" "))));
+        self.dialog = Some(Dialog::Message(MessageDialog::new(i18n::text("missing.title"), sentences.join(" "))));
     }
 
     pub(in crate::app) fn open_missing_host_dialog(&mut self) {
@@ -43,11 +41,11 @@ impl App {
         };
         let name = entry.name.clone();
         let title = if entry.source == ConnectionSource::ShadowedSshHost {
-            format!("{name} is hidden by a saved connection")
+            i18n::text_with("missing.item_hidden", &[("name", &name)])
         } else {
-            format!("{name} is no longer in ~/.ssh/config")
+            i18n::text_with("connection.no_longer_in_ssh_config", &[("name", &name)])
         };
-        let items = vec!["Move labels to\u{2026}".to_string(), "Forget labels".to_string(), "Cancel".to_string()];
+        let items = vec![i18n::text("missing.move"), i18n::text("missing.forget"), i18n::text("common.cancel")];
         self.dialog = Some(Dialog::List(ListDialog::new(title, items)));
         self.pending_action = Some(PendingAction::FixMissingHost { name });
     }
@@ -65,11 +63,13 @@ impl App {
                     .map(|entry| entry.name.clone())
                     .collect();
                 if candidates.is_empty() {
-                    self.notifications.push(Severity::Warning, "No unlabelled ssh hosts to move the labels to");
+                    self.notifications.push(Severity::Warning, i18n::text("missing.no_target"));
                     return;
                 }
-                self.dialog =
-                    Some(Dialog::List(ListDialog::new(format!("Move the labels of {name} to"), candidates.clone())));
+                self.dialog = Some(Dialog::List(ListDialog::new(
+                    i18n::text_with("missing.move_title", &[("name", &name)]),
+                    candidates.clone(),
+                )));
                 self.pending_action = Some(PendingAction::MoveLabels { from: name, candidates });
             }
             1 => self.core.send(Command::ForgetSshLabels { name }),

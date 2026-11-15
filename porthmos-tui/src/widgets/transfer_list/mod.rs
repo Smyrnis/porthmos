@@ -1,6 +1,7 @@
 pub mod advice;
 
 use porthmos_core::Message;
+use porthmos_core::i18n;
 use porthmos_core::transfer::{
     Direction,
     rows::{QueueRow, RowKind, RowState, percent_of},
@@ -63,15 +64,17 @@ struct Columns {
 
 fn status_of(state: RowState, theme: &Theme) -> (String, Style) {
     match state {
-        RowState::Running => ("active".to_string(), theme.bright()),
-        RowState::Queued => ("queued".to_string(), theme.dim()),
-        RowState::Paused => ("paused".to_string(), theme.muted()),
-        RowState::Done => ("done".to_string(), theme.ok_text()),
-        RowState::Failed => ("failed".to_string(), theme.err_text()),
-        RowState::PartlyFailed(failed) => (format!("done, {failed} failed"), theme.err_text()),
-        RowState::Cancelled => ("cancelled".to_string(), theme.dim()),
-        RowState::Scanning => ("scanning\u{2026}".to_string(), theme.muted()),
-        RowState::AwaitingAnswer => ("waiting for you".to_string(), theme.bright()),
+        RowState::Running => (i18n::text("queue.active"), theme.bright()),
+        RowState::Queued => (i18n::text("queue.queued"), theme.dim()),
+        RowState::Paused => (i18n::text("queue.paused"), theme.muted()),
+        RowState::Done => (i18n::text("result.done"), theme.ok_text()),
+        RowState::Failed => (i18n::text("result.failed"), theme.err_text()),
+        RowState::PartlyFailed(failed) => {
+            (i18n::text_with("result.partly", &[("failed", &failed.to_string())]), theme.err_text())
+        }
+        RowState::Cancelled => (i18n::text("result.cancelled"), theme.dim()),
+        RowState::Scanning => (i18n::text("queue.scanning"), theme.muted()),
+        RowState::AwaitingAnswer => (i18n::text("queue.waiting_for_you"), theme.bright()),
     }
 }
 
@@ -227,9 +230,8 @@ fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: 
     let error = error_part(&failure.message);
     let time = failed_time.map(|time| format!(" \u{b7} {time}")).unwrap_or_default();
     let outcome = match failure.attempts {
-        0 => "did not start".to_string(),
-        1 => "failed after 1 attempt".to_string(),
-        attempts => format!("failed after {attempts} attempts"),
+        0 => i18n::text("queue.did_not_start"),
+        attempts => i18n::plural("queue.failed_after", attempts as usize),
     };
     let suffix = format!("  {outcome}{time}");
     let file = truncate_with_ellipsis(&printable(&failure.file), width.saturating_sub(2 + suffix.width()).max(1));
@@ -240,7 +242,7 @@ fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: 
     ])];
     lines.push(Line::from(Span::styled(truncate_with_ellipsis(&printable(&error), width), theme.muted())));
     if let Some(advice) = advice_for(&error) {
-        lines.push(Line::from(Span::styled(truncate_with_ellipsis(advice, width), theme.dim())));
+        lines.push(Line::from(Span::styled(truncate_with_ellipsis(&advice, width), theme.dim())));
     }
     lines
 }
@@ -251,8 +253,8 @@ pub fn render_transfer_list(frame: &mut Frame, area: Rect, view: &TransferView<'
     }
     if view.rows.is_empty() {
         let message = match view.copy_key {
-            Some(key) => format!("No transfers \u{2014} {key} copies the selected file or folder"),
-            None => "No transfers yet".to_string(),
+            Some(key) => i18n::text_with("queue.empty_with_key", &[("key", &key)]),
+            None => i18n::text("queue.empty"),
         };
         let text = truncate_with_ellipsis(&message, usize::from(area.width));
         frame.render_widget(Paragraph::new(Span::styled(text, theme.dim())), Rect::new(area.x, area.y, area.width, 1));
@@ -305,15 +307,20 @@ pub fn transfer_summary(rows: &[QueueRow], speed: Option<u64>, limit: Option<u64
     let failed = rows.iter().filter(|row| matches!(row.state, RowState::Failed | RowState::PartlyFailed(_))).count();
 
     let mut parts = Vec::new();
-    for (count, label) in [(active, "active"), (queued, "queued"), (paused, "paused"), (failed, "failed")] {
+    for (count, label) in [
+        (active, "queue.stat_active"),
+        (queued, "queue.stat_queued"),
+        (paused, "queue.stat_paused"),
+        (failed, "queue.stat_failed"),
+    ] {
         if count > 0 {
-            parts.push(format!("{count} {label}"));
+            parts.push(i18n::text_with("queue.stat", &[("count", &count.to_string()), ("label", &i18n::text(label))]));
         }
     }
     if !parts.is_empty() || speed.is_some() {
         parts.extend(speed.map(format_speed));
     }
-    parts.extend(limit.map(|limit| format!("limit {}", format_speed(limit))));
+    parts.extend(limit.map(|limit| i18n::text_with("queue.limit", &[("speed", &format_speed(limit))])));
     parts.join(" \u{b7} ")
 }
 

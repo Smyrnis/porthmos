@@ -1,7 +1,8 @@
+use porthmos_core::i18n;
 use std::sync::Arc;
 
 use porthmos_core::{
-    delete_prompt::THIS_COMPUTER,
+    delete_prompt::this_computer,
     sync::{SyncAction, SyncBy, SyncDirection, SyncOptions, SyncPlan, mirror_delete_prompt},
 };
 
@@ -18,7 +19,7 @@ const SUBFOLDERS: &str = "subfolders";
 const MIRROR: &str = "mirror";
 
 fn choices(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-    pairs.iter().map(|(value, label)| (value.to_string(), label.to_string())).collect()
+    pairs.iter().map(|(value, key)| (value.to_string(), i18n::text(key))).collect()
 }
 
 impl App {
@@ -31,32 +32,42 @@ impl App {
             return;
         }
         let Some(session) = self.sessions.active() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
         if !session.listed {
-            self.notifications.push(Severity::Warning, "Wait for the remote folder to finish loading");
+            self.notifications.push(Severity::Warning, i18n::text("sync.wait_loading"));
             return;
         }
         let mut directions =
-            vec![("local_to_remote", "Local \u{2192} Remote"), ("remote_to_local", "Remote \u{2192} Local")];
+            vec![("local_to_remote", "sync.dir.local_to_remote"), ("remote_to_local", "sync.dir.remote_to_local")];
         if session.preserves_times {
-            directions.push(("both", "Both (the newer file wins)"));
+            directions.push(("both", "sync.dir.both"));
         }
         let fields = vec![
-            FormField::choice(DIRECTION, "Direction", choices(&directions), "local_to_remote"),
-            FormField::choice(BY, "Compare by", choices(&[("time", "Modification time"), ("size", "Size")]), "time"),
-            FormField::choice(SUBFOLDERS, "Subfolders", choices(&[("yes", "Included"), ("no", "Not included")]), "yes"),
+            FormField::choice(DIRECTION, i18n::text("sync.form.direction"), choices(&directions), "local_to_remote"),
+            FormField::choice(
+                BY,
+                i18n::text("sync.form.compare_by"),
+                choices(&[("time", "sync.by.time"), ("size", "sync.by.size")]),
+                "time",
+            ),
+            FormField::choice(
+                SUBFOLDERS,
+                i18n::text("sync.form.subfolders"),
+                choices(&[("yes", "sync.sub.yes"), ("no", "sync.sub.no")]),
+                "yes",
+            ),
             FormField::choice(
                 MIRROR,
-                "Mirror",
-                choices(&[("no", "Off"), ("yes", "Delete files missing from the source")]),
+                i18n::text("sync.form.mirror"),
+                choices(&[("no", "sync.mirror_off"), ("yes", "sync.mirror_on")]),
                 "no",
             ),
         ];
-        let mut form = FormDialog::new(format!("Synchronize with {}", session.name), fields);
+        let mut form = FormDialog::new(i18n::text_with("sync.form_title", &[("name", &session.name)]), fields);
         if !session.preserves_times {
-            form.hint = Some("Both isn't offered: this connection can't keep modification times".to_string());
+            form.hint = Some(i18n::text("sync.no_both_hint"));
         }
         let id = session.id;
         self.dialog = Some(Dialog::Form(form));
@@ -75,7 +86,7 @@ impl App {
         self.dialog = None;
         self.pending_action = None;
         let Some(remote_dir) = remote_dir else {
-            self.notifications.push(Severity::Warning, "That connection is no longer available");
+            self.notifications.push(Severity::Warning, i18n::text("sync.connection_gone"));
             return;
         };
         self.core.send(Command::StartSync { session, local_dir: self.local.path().clone(), remote_dir, options });
@@ -85,7 +96,7 @@ impl App {
         if let Some(open_id) = self.sync_view.sync_id() {
             if open_id != plan.sync_id {
                 self.core.send(Command::CancelSync { sync_id: plan.sync_id });
-                self.notifications.push(Severity::Warning, "A sync preview is already open; the new one was dropped");
+                self.notifications.push(Severity::Warning, i18n::text("sync.preview_open"));
             }
             return;
         }
@@ -95,8 +106,7 @@ impl App {
         if free_to_open {
             self.screen = Screen::Sync;
         } else {
-            self.notifications
-                .push(Severity::Info, "Sync preview ready \u{2014} open it with the sync key (Ctrl+U by default)");
+            self.notifications.push(Severity::Info, i18n::text("sync.preview_ready"));
         }
     }
 
@@ -106,7 +116,7 @@ impl App {
             if self.screen == Screen::Sync {
                 self.screen = Screen::Files;
             }
-            self.notifications.push(Severity::Info, "The sync plan was cancelled");
+            self.notifications.push(Severity::Info, i18n::text("sync.plan_cancelled"));
         }
     }
 
@@ -140,9 +150,9 @@ impl App {
         let choices = self.sync_view.visible_choices();
         if choices.is_empty() {
             let message = if self.sync_view.filter().is_some() {
-                "Nothing is ticked in the rows shown"
+                i18n::text("sync.nothing_ticked_shown")
             } else {
-                "Nothing is ticked"
+                i18n::text("sync.nothing_ticked")
             };
             self.notifications.push(Severity::Warning, message);
             return;
@@ -169,7 +179,7 @@ impl App {
             return String::new();
         };
         match plan.options.direction {
-            SyncDirection::RemoteToLocal => THIS_COMPUTER.to_string(),
+            SyncDirection::RemoteToLocal => this_computer(),
             _ => self.sessions.by_id(plan.session).map(|session| session.name.clone()).unwrap_or_default(),
         }
     }
@@ -212,7 +222,7 @@ fn parse_options(values: &[(&'static str, String)]) -> Result<SyncOptions, Strin
         other => return Err(unknown_choice("mirror option", other)),
     };
     let options = SyncOptions { direction, by, subfolders, mirror };
-    options.validate().map_err(str::to_string)?;
+    options.validate()?;
     Ok(options)
 }
 

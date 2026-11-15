@@ -1,7 +1,6 @@
 use chrono::{DateTime, Duration, Local, Utc};
+use porthmos_core::i18n;
 
-const NEVER: &str = "never";
-const JUST_NOW: &str = "just now";
 const SHORT_DAYS: i64 = 31;
 
 fn is_ahead_of_the_clock(age: Duration) -> bool {
@@ -10,22 +9,22 @@ fn is_ahead_of_the_clock(age: Duration) -> bool {
 
 fn age_text(age: Duration) -> String {
     if is_ahead_of_the_clock(age) {
-        "in the future".to_string()
+        i18n::text("lastused.future")
     } else if age < Duration::minutes(1) {
-        JUST_NOW.to_string()
+        i18n::text("lastused.just_now")
     } else if age < Duration::hours(1) {
-        format!("{} min ago", age.num_minutes())
+        i18n::text_with("lastused.min", &[("count", &age.num_minutes().to_string())])
     } else if age < Duration::days(1) {
-        format!("{} h ago", age.num_hours())
+        i18n::text_with("lastused.hour", &[("count", &age.num_hours().to_string())])
     } else if age < Duration::days(2) {
-        "yesterday".to_string()
+        i18n::text("lastused.yesterday")
     } else {
-        format!("{} d ago", age.num_days())
+        i18n::text_with("lastused.day", &[("count", &age.num_days().to_string())])
     }
 }
 
 pub fn last_used_text(now: DateTime<Utc>, at: Option<DateTime<Utc>>) -> String {
-    let Some(at) = at else { return NEVER.to_string() };
+    let Some(at) = at else { return i18n::text("lastused.never") };
     let age = now - at;
     if age >= Duration::days(SHORT_DAYS) || is_ahead_of_the_clock(age) {
         return at.with_timezone(&Local).format("%Y-%m-%d").to_string();
@@ -34,7 +33,7 @@ pub fn last_used_text(now: DateTime<Utc>, at: Option<DateTime<Utc>>) -> String {
 }
 
 pub fn last_used_detail(now: DateTime<Utc>, at: Option<DateTime<Utc>>) -> String {
-    let Some(at) = at else { return NEVER.to_string() };
+    let Some(at) = at else { return i18n::text("lastused.never") };
     format!("{} \u{b7} {}", at.with_timezone(&Local).format("%Y-%m-%d %H:%M"), age_text(now - at))
 }
 

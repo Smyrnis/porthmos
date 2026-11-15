@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::sync::Arc;
 
 use chrono::{Local, TimeZone};
@@ -48,20 +49,8 @@ pub struct Summary {
     pub skipped: usize,
 }
 
-pub fn reason_text(reason: SyncReason) -> &'static str {
-    match reason {
-        SyncReason::OnlyLocal => "new locally",
-        SyncReason::OnlyRemote => "new on remote",
-        SyncReason::LocalNewer => "local is newer",
-        SyncReason::RemoteNewer => "remote is newer",
-        SyncReason::TargetNewer => "target is newer",
-        SyncReason::SameTimeDifferentSize => "same time, other size",
-        SyncReason::SizeDiffers => "size differs",
-        SyncReason::SizeDiffersTimeUnknown => "size differs, no time",
-        SyncReason::KindMismatch => "file vs folder",
-        SyncReason::EmptyFolder => "new empty folder",
-        SyncReason::OnlyOnTarget => "only on the target",
-    }
+pub fn reason_text(reason: SyncReason) -> String {
+    reason.text()
 }
 
 fn matches(item: &SyncItem, filter: &str) -> bool {
@@ -72,7 +61,7 @@ fn matches(item: &SyncItem, filter: &str) -> bool {
     let path = item.path.to_string_lossy();
     let reason = reason_text(item.reason);
     if filter.contains(['*', '?']) {
-        glob_match(filter, &path) || glob_match(filter, reason)
+        glob_match(filter, &path) || glob_match(filter, &reason)
     } else {
         let needle = filter.to_lowercase();
         path.to_lowercase().contains(&needle) || reason.starts_with(&needle) || reason.contains(&format!(" {needle}"))
@@ -353,13 +342,17 @@ fn fitted_path(path: &str, width: usize) -> String {
 fn header_line(layout: RowLayout, theme: &Theme) -> Line<'static> {
     let gap = " ".repeat(GAP);
     let mut text = " ".repeat(MARKER_WIDTH + CHECK_WIDTH + ARROW_WIDTH);
-    text.push_str(&format!("{} {}", pad_right("reason", REASON_WIDTH), pad_right("path", layout.path_width)));
-    text.push_str(&format!("{gap}{}", pad_left("size", SIZE_WIDTH)));
+    text.push_str(&format!(
+        "{} {}",
+        pad_right(&i18n::text("sync.header.reason"), REASON_WIDTH),
+        pad_right(&i18n::text("sync.header.path"), layout.path_width)
+    ));
+    text.push_str(&format!("{gap}{}", pad_left(&i18n::text("header.size"), SIZE_WIDTH)));
     if layout.with_times {
         text.push_str(&format!(
             "{gap}{}{gap}{}",
-            pad_right("local", TIME_CELL_WIDTH),
-            pad_right("remote", TIME_CELL_WIDTH)
+            pad_right(&i18n::text("sync.header.local"), TIME_CELL_WIDTH),
+            pad_right(&i18n::text("sync.header.remote"), TIME_CELL_WIDTH)
         ));
     }
     Line::from(Span::styled(text, theme.dim()))
@@ -391,7 +384,7 @@ fn row_line(
         marker,
         check,
         Span::styled(arrow, theme.muted()),
-        Span::styled(pad_right(reason_text(item.reason), REASON_WIDTH), text_style),
+        Span::styled(pad_right(&reason_text(item.reason), REASON_WIDTH), text_style),
         Span::raw(" "),
         Span::styled(fitted_path(&item.path.to_string_lossy(), layout.path_width), text_style),
         Span::raw(gap.clone()),
@@ -421,14 +414,17 @@ fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
 
 fn summary_text(summary: &Summary) -> String {
     let deletes = if summary.deletes > 0 { format!(" \u{b7} \u{2715} {}", summary.deletes) } else { String::new() };
-    format!(
-        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}){deletes} \u{b7} {} skipped",
-        summary.ticked,
-        summary.uploads,
-        format_size(summary.upload_bytes, false),
-        summary.downloads,
-        format_size(summary.download_bytes, false),
-        summary.skipped,
+    i18n::text_with(
+        "sync.summary",
+        &[
+            ("ticked", &summary.ticked.to_string()),
+            ("uploads", &summary.uploads.to_string()),
+            ("upload_size", &format_size(summary.upload_bytes, false)),
+            ("downloads", &summary.downloads.to_string()),
+            ("download_size", &format_size(summary.download_bytes, false)),
+            ("deletes", &deletes),
+            ("skipped", &summary.skipped.to_string()),
+        ],
     )
 }
 
@@ -436,7 +432,10 @@ impl SyncView {
     pub fn top_bar_summary(&self) -> String {
         let summary = summary_text(&self.summary());
         if self.filter.is_some() || self.editing_filter {
-            format!("{summary} \u{b7} {} will run", self.visible_choices().len())
+            i18n::text_with(
+                "sync.will_run",
+                &[("summary", &summary), ("count", &self.visible_choices().len().to_string())],
+            )
         } else {
             summary
         }
@@ -475,7 +474,7 @@ pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, theme: &Theme
     let body = Rect::new(area.x, area.y + HEADER_ROWS, area.width, area.height - HEADER_ROWS);
     if view.matched() == 0 {
         frame.render_widget(
-            Paragraph::new(Span::styled("no matches", theme.dim())),
+            Paragraph::new(Span::styled(i18n::text("list.no_matches"), theme.dim())),
             Rect::new(body.x, body.y, body.width, 1),
         );
         return;

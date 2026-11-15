@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -13,8 +14,6 @@ use crate::{
         popup::{content_width, option_spans, render_popup, wrap_line},
     },
 };
-
-const OPTIONS_TEXT: &str = "  y yes     n no";
 
 pub struct ConfirmDialog {
     pub message: String,
@@ -63,7 +62,9 @@ impl ConfirmDialog {
 pub fn render_confirm(frame: &mut Frame, area: Rect, dialog: &ConfirmDialog, theme: &Theme) {
     let lines: Vec<String> = dialog.message.lines().map(printable).collect();
     let mut measured: Vec<&str> = lines.iter().map(String::as_str).collect();
-    measured.push(OPTIONS_TEXT);
+    let (yes, no) = (i18n::text("footer.yes"), i18n::text("footer.no"));
+    let options_text = format!("  y {yes}     n {no}");
+    measured.push(&options_text);
     let width = content_width(&measured).min(area.width);
     let rows: Vec<String> =
         lines.iter().flat_map(|line| wrap_line(line, usize::from(width.saturating_sub(4)))).collect();
@@ -77,9 +78,9 @@ pub fn render_confirm(frame: &mut Frame, area: Rect, dialog: &ConfirmDialog, the
     let text_area = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(2));
     frame.render_widget(Paragraph::new(text), text_area);
 
-    let mut spans = option_spans("y", "yes", dialog.focus == ConfirmFocus::Yes, theme);
+    let mut spans = option_spans("y", &yes, dialog.focus == ConfirmFocus::Yes, theme);
     spans.push(Span::raw("   "));
-    spans.extend(option_spans("n", "no", dialog.focus == ConfirmFocus::No, theme));
+    spans.extend(option_spans("n", &no, dialog.focus == ConfirmFocus::No, theme));
     frame.render_widget(Paragraph::new(Line::from(spans)), Rect::new(inner.x, inner.bottom() - 1, inner.width, 1));
 }
 

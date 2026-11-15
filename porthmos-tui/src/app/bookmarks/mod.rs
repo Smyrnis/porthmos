@@ -1,4 +1,5 @@
 use super::*;
+use porthmos_core::i18n;
 
 impl App {
     pub(super) fn open_bookmark_add_dialog(&mut self) {
@@ -6,10 +7,13 @@ impl App {
             return;
         }
 
-        let default_label =
-            self.active_panel_path().file_name().and_then(|name| name.to_str()).unwrap_or("bookmark").to_string();
+        let default_label = self
+            .active_panel_path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map_or_else(|| i18n::text("bookmarks.default_name"), str::to_string);
 
-        self.dialog = Some(Dialog::TextInput(TextInputDialog::new("Bookmark name", default_label)));
+        self.dialog = Some(Dialog::TextInput(TextInputDialog::new(i18n::text("bookmarks.name_prompt"), default_label)));
         self.pending_action = Some(PendingAction::AddBookmark);
     }
 
@@ -22,7 +26,7 @@ impl App {
 
     pub(super) fn add_bookmark(&mut self, label: String) {
         let Some(location) = self.active_location() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
 
@@ -44,7 +48,7 @@ impl App {
             })
             .collect();
 
-        self.dialog = Some(Dialog::List(ListDialog::new("Bookmarks", items).removable(true)));
+        self.dialog = Some(Dialog::List(ListDialog::new(i18n::text("bookmarks.list_title"), items).removable(true)));
     }
 
     pub(super) fn navigate_to_bookmark(&mut self, index: usize) {
@@ -59,7 +63,8 @@ impl App {
             }
             Some(host) => {
                 let Some(session_id) = self.sessions.by_name(&host).map(|session| session.id) else {
-                    self.notifications.push(Severity::Warning, format!("Connect to {host} first"));
+                    self.notifications
+                        .push(Severity::Warning, i18n::text_with("bookmarks.connect_host_first", &[("host", &host)]));
                     return;
                 };
                 self.sessions.activate(session_id);

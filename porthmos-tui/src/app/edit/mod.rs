@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::{
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -21,11 +22,9 @@ pub(super) struct EditPrompt {
     pub(super) kind: EditQuestionKind,
 }
 
-const CONFLICT_CHOICES: [&str; 4] = ["Show differences", "Overwrite", "Keep mine as a copy", "Cancel"];
+const CONFLICT_CHOICES: [&str; 4] =
+    ["edit.conflict.show", "edit.conflict.overwrite", "edit.conflict.keep", "edit.conflict.cancel"];
 const KEEP_COPY_INDEX: usize = 2;
-const EDIT_QUIT_QUESTION: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left \
-                                  incomplete; your copy stays in the state folder.";
-const TRANSFER_QUIT_QUESTION: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
 
 pub(super) fn editor_process(editor: &EditorCommand, file: &Path) -> std::process::Command {
     let mut command = std::process::Command::new(&editor.program);
@@ -47,19 +46,19 @@ impl App {
             return;
         }
         let Some(location) = self.active_location() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
         let Some(panel) = self.panel(location) else {
             return;
         };
         match panel.current_entry() {
-            Some(entry) if entry.is_dir => self.notifications.push(Severity::Warning, "Can't edit a folder"),
+            Some(entry) if entry.is_dir => self.notifications.push(Severity::Warning, i18n::text("edit.is_folder")),
             Some(entry) => {
                 let path = entry.path.clone();
                 self.core.send(Command::EditFile { location, path });
             }
-            None if panel.on_parent_row() => self.notifications.push(Severity::Warning, "Can't edit a folder"),
+            None if panel.on_parent_row() => self.notifications.push(Severity::Warning, i18n::text("edit.is_folder")),
             None => {}
         }
     }
@@ -79,13 +78,13 @@ impl App {
         let EditPrompt { edit_id, name, kind } = prompt.clone();
         match kind {
             EditQuestionKind::Upload => {
-                let message = format!("Upload your changes to {name}?");
+                let message = i18n::text_with("edit.upload_question", &[("name", &name)]);
                 self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
                 self.pending_action = Some(PendingAction::EditUpload { edit_id });
             }
             EditQuestionKind::Conflict => {
-                let title = format!("{name} changed on the server while you were editing");
-                let items = CONFLICT_CHOICES.map(str::to_string).to_vec();
+                let title = i18n::text_with("edit.conflict_title", &[("name", &name)]);
+                let items = CONFLICT_CHOICES.iter().map(|key| i18n::text(key)).collect();
                 let mut dialog = ListDialog::new(title, items);
                 dialog.cursor = KEEP_COPY_INDEX;
                 self.dialog = Some(Dialog::List(dialog));
@@ -135,9 +134,13 @@ impl App {
                 self.should_quit = true;
                 return;
             }
-            (true, false) => EDIT_QUIT_QUESTION.to_string(),
-            (false, true) => TRANSFER_QUIT_QUESTION.to_string(),
-            (true, true) => format!("{EDIT_QUIT_QUESTION}\n\n{TRANSFER_QUIT_QUESTION}"),
+            (true, false) => i18n::text("edit.quit_question"),
+            (false, true) => porthmos_core::transfer::quit_with_transfers_text(),
+            (true, true) => format!(
+                "{}\n\n{}",
+                i18n::text("edit.quit_question"),
+                porthmos_core::transfer::quit_with_transfers_text()
+            ),
         };
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
         self.pending_action = Some(PendingAction::ConfirmQuit);
@@ -156,8 +159,8 @@ impl App {
     fn request_edit_diff(&mut self, edit_id: u64) {
         let name = self.open_edit_question.as_ref().map(|prompt| prompt.name.clone()).unwrap_or_default();
         self.core.send(Command::ShowEditDiff { edit_id });
-        let message = format!("Comparing {name} with the server's file.\n\nEsc goes back to the question.");
-        self.dialog = Some(Dialog::Message(MessageDialog::new("Comparing\u{2026}", message)));
+        let message = i18n::text_with("edit.comparing_body", &[("name", &name)]);
+        self.dialog = Some(Dialog::Message(MessageDialog::new(i18n::text("edit.comparing_title"), message)));
         self.pending_action = Some(PendingAction::EditComparing { edit_id });
     }
 

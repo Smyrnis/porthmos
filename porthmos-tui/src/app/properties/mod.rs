@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use porthmos_core::{
     Command, RequestId, VfsPath,
     properties::{Digest, Measured},
@@ -27,8 +28,8 @@ impl App {
         let paths: Vec<VfsPath> = entries.iter().map(|entry| entry.path.clone()).collect();
         let files = entries.iter().filter(|entry| !entry.is_dir).map(|entry| (entry.path.clone(), entry.name.clone()));
         let title = match entries.as_slice() {
-            [only] => format!("Properties: {}", only.name),
-            many => format!("Properties: {} items", many.len()),
+            [only] => i18n::text_with("properties.title_one", &[("name", &only.name)]),
+            many => i18n::text_with("properties.title_many", &[("count", &many.len().to_string())]),
         };
         let dialog = PropertiesDialog::new(title, files.collect());
         self.next_properties_id += 1;

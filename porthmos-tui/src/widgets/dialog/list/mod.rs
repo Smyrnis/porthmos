@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -63,9 +64,9 @@ impl ListDialog {
 pub fn render_list(frame: &mut Frame, area: Rect, dialog: &ListDialog, theme: &Theme) {
     let title = printable(&dialog.title);
     let items: Vec<String> = dialog.items.iter().map(|item| printable(item)).collect();
-    let mut pairs = vec![("enter", "select"), ("esc", "cancel")];
+    let mut pairs = vec![("enter", i18n::text("footer.select")), ("esc", i18n::text("footer.cancel"))];
     if dialog.removable {
-        pairs.push(("f8", "remove"));
+        pairs.push(("f8", i18n::text("footer.remove")));
     }
     let footer_line = footer_text(&pairs);
     let mut measured: Vec<String> = items.iter().map(|item| format!("  {item}")).collect();
@@ -81,7 +82,7 @@ pub fn render_list(frame: &mut Frame, area: Rect, dialog: &ListDialog, theme: &T
     }
 
     let list_items: Vec<ListItem> = if items.is_empty() {
-        vec![ListItem::new(Line::styled("(empty)", theme.dim()))]
+        vec![ListItem::new(Line::styled(i18n::text("dialog.empty"), theme.dim()))]
     } else {
         items
             .iter()

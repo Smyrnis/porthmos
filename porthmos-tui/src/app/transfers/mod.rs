@@ -1,4 +1,5 @@
 use porthmos_core::Entry;
+use porthmos_core::i18n;
 
 use super::*;
 
@@ -32,7 +33,7 @@ impl App {
 
     fn send_to_remote(&mut self, moving: bool) {
         let Some(session) = self.sessions.active() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
         let entries = self.local.target_entries();

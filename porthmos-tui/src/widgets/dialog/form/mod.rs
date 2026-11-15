@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::collections::BTreeMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -413,13 +414,13 @@ pub fn render_form(frame: &mut Frame, area: Rect, dialog: &FormDialog, theme: &T
     footer(frame, Rect::new(inner.x, inner.bottom() - 1, inner.width, 1), &footer_pairs(dialog), theme);
 }
 
-fn footer_pairs(dialog: &FormDialog) -> Vec<(&'static str, &'static str)> {
+fn footer_pairs(dialog: &FormDialog) -> Vec<(&'static str, String)> {
     let mut pairs = Vec::new();
     if dialog.fields.len() > 1 {
-        pairs.push(("tab", "next"));
+        pairs.push(("tab", i18n::text("footer.next")));
     }
-    pairs.push(("enter", "ok"));
-    pairs.push(("esc", "cancel"));
+    pairs.push(("enter", i18n::text("footer.ok")));
+    pairs.push(("esc", i18n::text("footer.cancel")));
     pairs
 }
 

@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -27,8 +28,21 @@ const COUNT_GAP: usize = 3;
 const MOVE_GAP: usize = 2;
 const PREFIX_GAP: usize = 1;
 const FOOTER_SEPARATION: usize = 2;
-const MOVE_PAIRS: [(&str, &str); 3] = [("\u{2191}\u{2193}", "move"), ("enter", "run"), ("esc", "close")];
-const PREFIX_PAIRS: [(&str, &str); 3] = [(">", "actions"), ("@", "hosts"), ("#", "files")];
+fn move_pairs() -> [(&'static str, String); 3] {
+    [
+        ("\u{2191}\u{2193}", i18n::text("palette.move")),
+        ("enter", i18n::text("palette.run")),
+        ("esc", i18n::text("footer.close")),
+    ]
+}
+
+fn prefix_pairs() -> [(&'static str, String); 3] {
+    [
+        (">", i18n::text("palette.prefix.actions")),
+        ("@", i18n::text("palette.prefix.hosts")),
+        ("#", i18n::text("palette.prefix.files")),
+    ]
+}
 
 enum Row {
     Title(Group),
@@ -138,7 +152,7 @@ fn render_results(frame: &mut Frame, area: Rect, palette: &Palette, theme: &Them
     }
     if palette.hits().is_empty() {
         frame.render_widget(
-            Paragraph::new(Span::styled("no matches", theme.dim())),
+            Paragraph::new(Span::styled(i18n::text("list.no_matches"), theme.dim())),
             Rect::new(area.x, area.y, area.width, 1),
         );
         return;
@@ -163,10 +177,13 @@ fn render_results(frame: &mut Frame, area: Rect, palette: &Palette, theme: &Them
     }
 }
 
-fn pairs_line(pairs: &[(&str, &str)], gap: usize, width: usize, theme: &Theme) -> Option<(Line<'static>, usize)> {
+fn pairs_line<L: AsRef<str>>(
+    pairs: &[(&str, L)], gap: usize, width: usize, theme: &Theme,
+) -> Option<(Line<'static>, usize)> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut used = 0;
     for (key, label) in pairs {
+        let label = label.as_ref();
         let pair_width = key.width() + 1 + label.width();
         let separation = if spans.is_empty() { 0 } else { gap };
         if used + separation + pair_width > width {
@@ -185,13 +202,13 @@ fn pairs_line(pairs: &[(&str, &str)], gap: usize, width: usize, theme: &Theme) -
 
 fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme) {
     let width = usize::from(area.width);
-    let left_full = pairs_line(&MOVE_PAIRS, MOVE_GAP, usize::MAX, theme).map_or(0, |(_, used)| used);
-    let right_full = pairs_line(&PREFIX_PAIRS, PREFIX_GAP, usize::MAX, theme).map_or(0, |(_, used)| used);
-    if let Some((line, _)) = pairs_line(&MOVE_PAIRS, MOVE_GAP, width, theme) {
+    let left_full = pairs_line(&move_pairs(), MOVE_GAP, usize::MAX, theme).map_or(0, |(_, used)| used);
+    let right_full = pairs_line(&prefix_pairs(), PREFIX_GAP, usize::MAX, theme).map_or(0, |(_, used)| used);
+    if let Some((line, _)) = pairs_line(&move_pairs(), MOVE_GAP, width, theme) {
         frame.render_widget(Paragraph::new(line), area);
     }
     if left_full + FOOTER_SEPARATION + right_full <= width
-        && let Some((line, used)) = pairs_line(&PREFIX_PAIRS, PREFIX_GAP, width, theme)
+        && let Some((line, used)) = pairs_line(&prefix_pairs(), PREFIX_GAP, width, theme)
     {
         let x = area.x + area.width - used as u16;
         frame.render_widget(Paragraph::new(line), Rect::new(x, area.y, used as u16, 1));

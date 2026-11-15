@@ -6,52 +6,53 @@ use crate::{
         help::{HelpRow, HelpSection},
     },
 };
+use porthmos_core::i18n;
 
 const FILES: &[(Action, &str)] = &[
-    (Action::Copy, "copy"),
-    (Action::Move, "move"),
-    (Action::Mkdir, "mkdir"),
-    (Action::Delete, "delete"),
-    (Action::OpenConnections, "connections"),
-    (Action::Quit, "quit"),
-    (Action::Edit, "edit"),
-    (Action::Preview, "preview"),
-    (Action::Rename, "rename"),
-    (Action::Filter, "filter"),
-    (Action::ToggleSelect, "select"),
-    (Action::SwitchPanel, "panel"),
+    (Action::Copy, "hint.copy"),
+    (Action::Move, "hint.move_selection"),
+    (Action::Mkdir, "hint.mkdir"),
+    (Action::Delete, "hint.delete"),
+    (Action::OpenConnections, "hint.connections"),
+    (Action::Quit, "hint.quit"),
+    (Action::Edit, "hint.edit"),
+    (Action::Preview, "hint.preview"),
+    (Action::Rename, "hint.rename"),
+    (Action::Filter, "hint.filter"),
+    (Action::ToggleSelect, "hint.select"),
+    (Action::SwitchPanel, "hint.panel"),
 ];
 const FILES_HELP_ONLY: &[(Action, &str)] = &[
-    (Action::GoToPath, "go to path"),
-    (Action::Parent, "parent folder"),
-    (Action::Permissions, "permissions"),
-    (Action::Properties, "properties"),
+    (Action::GoToPath, "hint.go_to_path"),
+    (Action::Parent, "hint.parent_folder"),
+    (Action::Permissions, "hint.permissions"),
+    (Action::Properties, "hint.properties"),
 ];
 const LIST_HELP: &[(Action, &str)] = &[
-    (Action::PageUp, "page up"),
-    (Action::PageDown, "page down"),
-    (Action::First, "first row"),
-    (Action::Last, "last row"),
+    (Action::PageUp, "hint.page_up"),
+    (Action::PageDown, "hint.page_down"),
+    (Action::First, "hint.first_row"),
+    (Action::Last, "hint.last_row"),
 ];
 const CONNECTIONS: &[(Action, &str)] = &[
-    (Action::Open, "connect"),
-    (Action::AddConnection, "new"),
-    (Action::Rename, "edit"),
-    (Action::DeleteConnection, "delete"),
-    (Action::Disconnect, "disconnect"),
-    (Action::ReopenConnections, "reopen"),
+    (Action::Open, "hint.connect"),
+    (Action::AddConnection, "hint.new"),
+    (Action::Rename, "hint.edit"),
+    (Action::DeleteConnection, "hint.delete"),
+    (Action::Disconnect, "hint.disconnect"),
+    (Action::ReopenConnections, "hint.reopen"),
 ];
-const HISTORY: &[(Action, &str)] = &[(Action::Open, "details"), (Action::Delete, "clear")];
+const HISTORY: &[(Action, &str)] = &[(Action::Open, "hint.details"), (Action::Delete, "hint.clear")];
 const TRANSFERS: &[(Action, &str)] = &[
-    (Action::Pause, "pause"),
-    (Action::RowUp, "move earlier"),
-    (Action::RowDown, "move later"),
-    (Action::Open, "retry"),
-    (Action::Delete, "cancel"),
-    (Action::Refresh, "clear done"),
-    (Action::SpeedLimit, "limit"),
+    (Action::Pause, "hint.pause"),
+    (Action::RowUp, "hint.move_earlier"),
+    (Action::RowDown, "hint.move_later"),
+    (Action::Open, "hint.retry"),
+    (Action::Delete, "hint.cancel"),
+    (Action::Refresh, "hint.clear_done"),
+    (Action::SpeedLimit, "hint.limit"),
 ];
-const SYNC: &[(Action, &str)] = &[(Action::Open, "run"), (Action::ToggleSelect, "tick")];
+const SYNC: &[(Action, &str)] = &[(Action::Open, "hint.run"), (Action::ToggleSelect, "hint.tick")];
 
 pub(super) fn screen_actions(screen: Screen) -> &'static [(Action, &'static str)] {
     match screen {
@@ -65,55 +66,55 @@ pub(super) fn screen_actions(screen: Screen) -> &'static [(Action, &'static str)
 }
 
 fn pair(bindings: &KeyBindings, scope: Scope, action: Action, label: &'static str) -> Option<Hint> {
-    bindings.key_for(scope, action).map(|spec| Hint { key: format_key_spec(spec), label })
+    bindings.key_for(scope, action).map(|spec| Hint { key: format_key_spec(spec), label: i18n::text(label) })
 }
 
 pub(super) fn form_hints() -> Hints {
     Hints {
         entries: vec![
-            Hint { key: "tab".to_string(), label: "next field" },
-            Hint { key: "\u{2191}\u{2193}".to_string(), label: "field" },
-            Hint { key: "ctrl+t".to_string(), label: "test" },
-            Hint { key: "ctrl+s".to_string(), label: "save" },
+            Hint { key: "tab".to_string(), label: i18n::text("hint.next_field") },
+            Hint { key: "\u{2191}\u{2193}".to_string(), label: i18n::text("hint.field") },
+            Hint { key: "ctrl+t".to_string(), label: i18n::text("hint.test") },
+            Hint { key: "ctrl+s".to_string(), label: i18n::text("hint.save") },
         ],
         pinned: None,
-        right: Some(Hint { key: "esc".to_string(), label: "cancel" }),
+        right: Some(Hint { key: "esc".to_string(), label: i18n::text("hint.cancel") }),
     }
 }
 
 pub(super) fn path_edit_hints() -> Hints {
     Hints {
         entries: vec![
-            Hint { key: "enter".to_string(), label: "go" },
-            Hint { key: "tab".to_string(), label: "complete" },
+            Hint { key: "enter".to_string(), label: i18n::text("hint.go") },
+            Hint { key: "tab".to_string(), label: i18n::text("hint.complete") },
         ],
         pinned: None,
-        right: Some(Hint { key: "esc".to_string(), label: "cancel" }),
+        right: Some(Hint { key: "esc".to_string(), label: i18n::text("hint.cancel") }),
     }
 }
 
 pub(super) fn search_hints(with_preview: bool) -> Hints {
     let mut entries = vec![
-        Hint { key: "\u{2191}\u{2193}".to_string(), label: "move" },
-        Hint { key: "enter".to_string(), label: "open" },
+        Hint { key: "\u{2191}\u{2193}".to_string(), label: i18n::text("hint.move_selection") },
+        Hint { key: "enter".to_string(), label: i18n::text("hint.open") },
     ];
     if with_preview {
-        entries.push(Hint { key: "PgUp/PgDn".to_string(), label: "scroll preview" });
+        entries.push(Hint { key: "PgUp/PgDn".to_string(), label: i18n::text("hint.scroll_preview") });
     }
-    Hints { entries, pinned: None, right: Some(Hint { key: "esc".to_string(), label: "close" }) }
+    Hints { entries, pinned: None, right: Some(Hint { key: "esc".to_string(), label: i18n::text("hint.close") }) }
 }
 
-const REORDER_LABELS: [&str; 2] = ["move earlier", "move later"];
+const REORDER_LABELS: [&str; 2] = ["hint.move_earlier", "hint.move_later"];
 
 fn merge_reorder(entries: Vec<Hint>) -> Vec<Hint> {
     let (reorder, mut rest): (Vec<Hint>, Vec<Hint>) =
-        entries.into_iter().partition(|hint| REORDER_LABELS.contains(&hint.label));
+        entries.into_iter().partition(|hint| REORDER_LABELS.iter().any(|key| i18n::text(key) == hint.label));
     if reorder.is_empty() {
         return rest;
     }
     let key = reorder.iter().map(|hint| hint.key.as_str()).collect::<Vec<_>>().join(" ");
-    let at = rest.iter().position(|hint| hint.label == "pause").map_or(0, |index| index + 1);
-    rest.insert(at, Hint { key, label: "reorder" });
+    let at = rest.iter().position(|hint| hint.label == i18n::text("hint.pause")).map_or(0, |index| index + 1);
+    rest.insert(at, Hint { key, label: i18n::text("hint.reorder") });
     rest
 }
 
@@ -123,20 +124,24 @@ pub(super) fn hints_for(screen: Screen, bindings: &KeyBindings) -> Hints {
         entries: merge_reorder(
             screen_actions(screen).iter().filter_map(|(action, label)| pair(bindings, scope, *action, label)).collect(),
         ),
-        pinned: pair(bindings, scope, Action::Help, "help"),
-        right: if screen == Screen::Files { None } else { pair(bindings, scope, Action::Back, "back") },
+        pinned: pair(bindings, scope, Action::Help, "hint.help"),
+        right: if screen == Screen::Files { None } else { pair(bindings, scope, Action::Back, "hint.back") },
     }
 }
 
 const HELP_SCREENS: &[(&str, Screen)] = &[
-    ("files", Screen::Files),
-    ("connections", Screen::Connections),
-    ("transfers", Screen::Transfers),
-    ("history", Screen::History),
-    ("sync", Screen::Sync),
+    ("help.section.files", Screen::Files),
+    ("help.section.connections", Screen::Connections),
+    ("help.section.transfers", Screen::Transfers),
+    ("help.section.history", Screen::History),
+    ("help.section.sync", Screen::Sync),
 ];
 
 const HELP_KEYS_SHOWN: usize = 2;
+
+fn action_text(action: &Action) -> String {
+    i18n::text(&format!("action.{}", action.name()))
+}
 
 fn key_text(bindings: &KeyBindings, scope: Scope, action: Action) -> Option<String> {
     let keys: Vec<String> =
@@ -154,10 +159,10 @@ fn session_rows(bindings: &KeyBindings) -> Vec<HelpRow> {
         .zip(1..=9u8)
         .all(|((_, key), digit)| key.as_deref() == Some(char::from(b'0' + digit).to_string().as_str()));
     if consecutive_digits {
-        return vec![HelpRow { key: Some("1-9".to_string()), action: "session" }];
+        return vec![HelpRow { key: Some("1-9".to_string()), action: i18n::text("hint.session") }];
     }
     keys.into_iter()
-        .filter_map(|(action, key)| key.map(|key| HelpRow { key: Some(key), action: action.name() }))
+        .filter_map(|(action, key)| key.map(|key| HelpRow { key: Some(key), action: action_text(&action) }))
         .collect()
 }
 
@@ -165,20 +170,22 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
     let mut sections: Vec<HelpSection> = HELP_SCREENS
         .iter()
         .map(|(title, screen)| HelpSection {
-            title,
+            title: i18n::text(title),
             rows: screen_actions(*screen)
                 .iter()
-                .map(|(action, label)| HelpRow { key: key_text(bindings, screen.scope(), *action), action: label })
+                .map(|(action, label)| HelpRow {
+                    key: key_text(bindings, screen.scope(), *action),
+                    action: i18n::text(label),
+                })
                 .collect(),
         })
         .collect();
     if let Some(files) = sections.first_mut() {
         files.rows.extend(session_rows(bindings));
-        files.rows.extend(
-            FILES_HELP_ONLY
-                .iter()
-                .map(|(action, label)| HelpRow { key: key_text(bindings, Scope::Files, *action), action: label }),
-        );
+        files.rows.extend(FILES_HELP_ONLY.iter().map(|(action, label)| HelpRow {
+            key: key_text(bindings, Scope::Files, *action),
+            action: i18n::text(label),
+        }));
     }
 
     let listed = |action: &Action| {
@@ -191,19 +198,20 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
         (Some(up), Some(down)) => Some(format!("{up}/{down}")),
         _ => None,
     };
-    let mut global = vec![HelpRow { key: movement_key, action: "move cursor" }];
+    let mut global = vec![HelpRow { key: movement_key, action: i18n::text("hint.move_cursor") }];
     global.extend(
-        LIST_HELP
-            .iter()
-            .map(|(action, label)| HelpRow { key: key_text(bindings, Scope::Global, *action), action: label }),
+        LIST_HELP.iter().map(|(action, label)| HelpRow {
+            key: key_text(bindings, Scope::Global, *action),
+            action: i18n::text(label),
+        }),
     );
     global.extend(
         ALL_ACTIONS
             .iter()
             .filter(|action| !matches!(action, Action::Up | Action::Down) && !listed(action))
-            .map(|action| HelpRow { key: key_text(bindings, Scope::Global, *action), action: action.name() }),
+            .map(|action| HelpRow { key: key_text(bindings, Scope::Global, *action), action: action_text(action) }),
     );
-    sections.push(HelpSection { title: "global", rows: global });
+    sections.push(HelpSection { title: i18n::text("help.section.global"), rows: global });
     sections
 }
 

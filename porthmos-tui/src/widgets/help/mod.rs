@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -18,17 +19,16 @@ const KEY_COLUMN: usize = 12;
 const MAX_WIDTH: u16 = 64;
 const FOOTER_ROWS: u16 = 2;
 const BORDER_ROWS: u16 = 2;
-const UNBOUND: &str = "unbound";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HelpRow {
     pub key: Option<String>,
-    pub action: &'static str,
+    pub action: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HelpSection {
-    pub title: &'static str,
+    pub title: String,
     pub rows: Vec<HelpRow>,
 }
 
@@ -38,16 +38,16 @@ fn lines_of(sections: &[HelpSection], width: usize, theme: &Theme) -> Vec<Line<'
         if index > 0 {
             lines.push(Line::default());
         }
-        lines.push(Line::from(Span::styled(section.title, theme.dim())));
+        lines.push(Line::from(Span::styled(section.title.clone(), theme.dim())));
         for row in &section.rows {
             let key = match &row.key {
                 Some(key) => Span::styled(
                     pad_right(&truncate_with_ellipsis(&printable(key), KEY_COLUMN - 1), KEY_COLUMN),
                     theme.bright(),
                 ),
-                None => Span::styled(pad_right(UNBOUND, KEY_COLUMN), theme.dim()),
+                None => Span::styled(pad_right(&porthmos_core::i18n::text("help.unbound"), KEY_COLUMN), theme.dim()),
             };
-            let action = truncate_with_ellipsis(row.action, width.saturating_sub(KEY_COLUMN));
+            let action = truncate_with_ellipsis(&row.action, width.saturating_sub(KEY_COLUMN));
             lines.push(Line::from(vec![key, Span::styled(action, theme.text())]));
         }
     }
@@ -59,7 +59,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, sections: &[HelpSection], scro
     let lines = lines_of(sections, usize::from(width.saturating_sub(4)), theme);
     let height =
         u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(FOOTER_ROWS + BORDER_ROWS).min(area.height);
-    let inner = render_popup(frame, area, (width, height), Some("help"), theme);
+    let inner = render_popup(frame, area, (width, height), Some(&i18n::text("hint.help")), theme);
     if inner.width == 0 || inner.height == 0 {
         return 0;
     }
@@ -71,7 +71,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, sections: &[HelpSection], scro
     footer(
         frame,
         Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
-        &[("\u{2191}\u{2193}", "scroll"), ("any key", "close")],
+        &[
+            ("\u{2191}\u{2193}".to_string(), i18n::text("footer.scroll")),
+            (i18n::text("footer.any_key"), i18n::text("footer.close")),
+        ],
         theme,
     );
     max_scroll

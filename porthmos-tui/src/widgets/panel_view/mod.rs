@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::collections::HashSet;
 
 use chrono::{DateTime, Local};
@@ -287,7 +288,7 @@ pub fn render_panel(frame: &mut Frame, area: Rect, panel: &PanelView, context: &
         return;
     }
     let sort = match context.marks {
-        Some(_) => format!("compare \u{b7} {}", sort_indicator(panel.sort_spec())),
+        Some(_) => i18n::text_with("list.compare", &[("sort", &sort_indicator(panel.sort_spec()))]),
         None => sort_indicator(panel.sort_spec()),
     };
     render_header(frame, area, Some(sort), context, theme);
@@ -314,7 +315,7 @@ pub fn render_candidates(frame: &mut Frame, area: Rect, listing: &Completion, th
     let (shown, more) = listing.shown();
     let mut lines: Vec<String> = shown.iter().map(|name| printable(name)).collect();
     if more > 0 {
-        lines.push(format!("and {more} more"));
+        lines.push(i18n::text_with("list.more", &[("count", &more.to_string())]));
     }
     let inner_width = lines.iter().map(|line| line.width()).max().unwrap_or(0);
     let width = (inner_width as u16).saturating_add(CANDIDATE_FRAME).min(area.width);
@@ -424,7 +425,7 @@ fn footer_left(panel: &PanelView, width: usize) -> String {
     let selected = panel.visible_selected();
     if !selected.is_empty() {
         let files: Vec<&Entry> = selected.iter().copied().filter(|entry| !entry.is_dir).collect();
-        let mut summary = format!("{} selected", selected.len());
+        let mut summary = i18n::text_with("list.selected", &[("count", &selected.len().to_string())]);
         if !files.is_empty() {
             let total = files.iter().fold(0u64, |sum, entry| sum.saturating_add(entry.size));
             summary.push_str(&format!(" \u{b7} {}", porthmos_core::size_text(total)));
@@ -435,16 +436,16 @@ fn footer_left(panel: &PanelView, width: usize) -> String {
 }
 
 fn items_label(panel: &PanelView) -> String {
-    match panel.rows().iter().filter(|row| matches!(row, Row::Entry(_))).count() {
-        1 => "1 item".to_string(),
-        count => format!("{count} items"),
-    }
+    i18n::plural("list.items", panel.rows().iter().filter(|row| matches!(row, Row::Entry(_))).count())
 }
 
 fn right_labels(panel: &PanelView) -> Vec<String> {
     let items = items_label(panel);
     match panel.free_bytes {
-        Some(bytes) => vec![format!("{items} \u{b7} {} free", porthmos_core::size_text(bytes)), items],
+        Some(bytes) => vec![
+            i18n::text_with("list.items_free", &[("items", &items), ("free", &porthmos_core::size_text(bytes))]),
+            items,
+        ],
         None => vec![items],
     }
 }
@@ -462,7 +463,7 @@ fn render_footer(frame: &mut Frame, area: Rect, panel: &PanelView, theme: &Theme
 }
 
 fn sort_indicator(spec: SortSpec) -> String {
-    let key = spec.key.label();
+    let key = spec.key.text();
     let arrow = match spec.order {
         SortOrder::Ascending => '\u{2191}',
         SortOrder::Descending => '\u{2193}',

@@ -39,6 +39,7 @@ fn start_app(
     let home = env.home.as_deref().map(from_os_path);
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
+    porthmos_core::i18n::use_language(settings.language.as_deref());
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
     let (theme_settings, mut theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
     let (scheme, scheme_warnings) = porthmos_core::theme::file::load(&paths, theme_settings.accent);

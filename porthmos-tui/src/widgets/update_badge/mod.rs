@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,8 +25,8 @@ const ARROW: &str = "\u{2191}";
 impl UpdateBadge {
     pub fn tiers(&self) -> [String; 3] {
         let suffix = match self.kind {
-            BadgeKind::Ready => "installs on quit",
-            BadgeKind::Available => "available",
+            BadgeKind::Ready => i18n::text("badge.installs_on_quit"),
+            BadgeKind::Available => i18n::text("badge.available"),
         };
         [format!("{ARROW} {} {suffix}", self.version), format!("{ARROW} {}", self.version), ARROW.to_string()]
     }

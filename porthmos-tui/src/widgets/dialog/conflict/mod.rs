@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use porthmos_core::i18n;
 use porthmos_core::transfer::{conflicts::Resolution, plan::ExistingFile};
 use ratatui::{
     Frame,
@@ -77,78 +78,87 @@ impl ConflictDialog {
         }
     }
 
-    fn file_rows(&self) -> Vec<(&'static str, String, String)> {
+    fn file_rows(&self) -> Vec<(String, String, String)> {
         let mut rows = Vec::new();
         if let Some(existing) = self.existing {
             rows.push(if existing.is_dir {
-                ("existing", "folder".to_string(), String::new())
+                (i18n::text("conflict.existing"), i18n::text("conflict.folder"), String::new())
             } else {
                 (
-                    "existing",
+                    i18n::text("conflict.existing"),
                     format_size(existing.size, false),
-                    format!("modified {}", age_text(existing.modified, self.now)),
+                    modified_text(existing.modified, self.now),
                 )
             });
         }
         if let Some(partial) = self.partial {
             rows.push((
-                "partial",
-                format!("{} of {}", format_size(partial.size, false), format_size(self.new_size, false)),
-                format!("modified {}", age_text(partial.modified, self.now)),
+                i18n::text("conflict.partial"),
+                i18n::text_with(
+                    "conflict.partial_size",
+                    &[("done", &format_size(partial.size, false)), ("total", &format_size(self.new_size, false))],
+                ),
+                modified_text(partial.modified, self.now),
             ));
         }
         rows.push((
-            "new",
+            i18n::text("conflict.new"),
             format_size(self.new_size, false),
-            format!("modified {}", age_text(self.new_modified, self.now)),
+            modified_text(self.new_modified, self.now),
         ));
         rows
     }
 
-    fn option_pairs(&self) -> Vec<(&'static str, &'static str)> {
+    fn option_pairs(&self) -> Vec<(&'static str, String)> {
         let mut options = Vec::new();
         if self.offers_resume() {
-            options.push(("u", "resume"));
+            options.push(("u", i18n::text("footer.resume")));
         }
         if !self.existing_is_dir() {
-            options.push(("o", if self.existing.is_some() { "overwrite" } else { "start over" }));
+            options.push((
+                "o",
+                i18n::text(if self.existing.is_some() { "footer.overwrite" } else { "footer.start_over" }),
+            ));
         }
-        options.push(("s", "skip"));
+        options.push(("s", i18n::text("footer.skip")));
         if self.existing.is_some() {
-            options.push(("r", "rename"));
+            options.push(("r", i18n::text("footer.rename")));
         }
-        options.push(("c", "cancel copy"));
+        options.push(("c", i18n::text("footer.cancel_copy")));
         options
     }
 
     fn same_answer_text(&self) -> Option<String> {
         let remaining = self.remaining_after_this();
-        (remaining > 0).then(|| format!("same answer for the other {remaining}"))
+        (remaining > 0).then(|| i18n::text_with("conflict.same_answer", &[("count", &remaining.to_string())]))
     }
 }
 
 pub fn format_age(seconds_ago: i64) -> String {
-    let (count, unit) = if seconds_ago < MINUTE {
-        return "just now".to_string();
+    let (count, key) = if seconds_ago < MINUTE {
+        return i18n::text("age.just_now");
     } else if seconds_ago < HOUR {
-        (seconds_ago / MINUTE, "minute")
+        (seconds_ago / MINUTE, "age.minute")
     } else if seconds_ago < DAY {
-        (seconds_ago / HOUR, "hour")
+        (seconds_ago / HOUR, "age.hour")
     } else {
-        (seconds_ago / DAY, "day")
+        (seconds_ago / DAY, "age.day")
     };
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} {unit}{plural} ago")
+    i18n::plural(key, count as usize)
 }
 
 fn age_text(modified: Option<u64>, now: u64) -> String {
     match modified {
         Some(modified) => format_age(now as i64 - modified as i64),
-        None => "unknown".to_string(),
+        None => i18n::text("age.unknown"),
     }
 }
 
-fn row_text((label, size, modified): &(&'static str, String, String)) -> String {
+fn modified_text(modified: Option<u64>, now: u64) -> String {
+    i18n::text_with("conflict.modified", &[("age", &age_text(modified, now))])
+}
+
+fn row_text((label, size, modified): &(String, String, String)) -> String {
     let gap = if modified.is_empty() { "" } else { "   " };
     format!("{label:<LABEL_WIDTH$}{size:>SIZE_WIDTH$}{gap}{modified}")
 }
@@ -160,8 +170,13 @@ pub fn render_conflict(frame: &mut Frame, area: Rect, dialog: &ConflictDialog, t
     let option_line = footer_text(&pairs);
     let same_answer = dialog.same_answer_text();
 
-    let state = if dialog.existing.is_some() { "already exists" } else { "was partly copied before" };
-    let suffix = format!("\" {state} ({} of {})", dialog.index + 1, dialog.total);
+    let state =
+        i18n::text(if dialog.existing.is_some() { "conflict.already_exists" } else { "conflict.partly_copied" });
+    let position = i18n::text_with(
+        "conflict.position",
+        &[("index", &(dialog.index + 1).to_string()), ("total", &dialog.total.to_string())],
+    );
+    let suffix = format!("\" {state} {position}");
     let mut measured: Vec<&str> = row_lines.iter().map(String::as_str).collect();
     measured.push(&option_line);
     let same_answer_line = same_answer.as_ref().map(|text| format!("a [ ] {text}"));

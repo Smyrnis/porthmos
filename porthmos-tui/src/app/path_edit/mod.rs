@@ -1,5 +1,6 @@
 use super::*;
 use crate::widgets::path_field::{PathField, PathOutcome};
+use porthmos_core::i18n;
 use porthmos_core::{Completion, CompletionStep};
 
 pub(super) struct PathEdit {
@@ -16,7 +17,7 @@ impl App {
             return;
         }
         let Some(location) = self.active_location() else {
-            self.notifications.push(Severity::Warning, "Connect to a remote server first");
+            self.notifications.push(Severity::Warning, i18n::text("bookmarks.connect_first"));
             return;
         };
         let Some(panel) = self.panel(location) else {

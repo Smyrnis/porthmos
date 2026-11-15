@@ -46,18 +46,19 @@ pub fn render_popup_at(frame: &mut Frame, screen: Rect, popup: Rect, title: Opti
     Rect::new(inner.x + SIDE_PADDING, inner.y, inner.width - 2 * SIDE_PADDING, inner.height)
 }
 
-pub fn footer_text(pairs: &[(&str, &str)]) -> String {
-    let parts: Vec<String> = pairs.iter().map(|(key, label)| format!("{key} {label}")).collect();
+pub fn footer_text<K: AsRef<str>, L: AsRef<str>>(pairs: &[(K, L)]) -> String {
+    let parts: Vec<String> = pairs.iter().map(|(key, label)| format!("{} {}", key.as_ref(), label.as_ref())).collect();
     parts.join(&" ".repeat(PAIR_GAP))
 }
 
-pub fn footer(frame: &mut Frame, area: Rect, pairs: &[(&str, &str)], theme: &Theme) {
+pub fn footer<K: AsRef<str>, L: AsRef<str>>(frame: &mut Frame, area: Rect, pairs: &[(K, L)], theme: &Theme) {
     if area.width == 0 || area.height == 0 {
         return;
     }
     let mut spans: Vec<Span> = Vec::new();
     let mut used = 0;
     for (key, label) in pairs {
+        let (key, label) = (key.as_ref(), label.as_ref());
         let width = key.width() + 1 + label.width();
         let gap = if spans.is_empty() { 0 } else { PAIR_GAP };
         if used + gap + width > usize::from(area.width) {
