@@ -280,8 +280,8 @@ fn a_blank_pattern_cancels_the_running_search() {
 fn late_search_events_after_closing_are_ignored() {
     let mut harness = Harness::new();
     open_search(&mut harness);
-    let request_id = current_search(&harness);
     search(&mut harness, "a");
+    let request_id = current_search(&harness);
     named(&mut harness, Named::Escape);
 
     harness.feed(Event::SearchFound { request_id, entry: hit("/home/tester/a") });
@@ -324,8 +324,8 @@ fn searching_a_remote_panel_lists_in_that_session() {
     search(&mut harness, "a");
     assert_eq!(
         harness.sent(),
-            request_id: current_search(&harness),
         vec![Command::Search {
+            request_id: current_search(&harness),
             location: Location::Session(1),
             root: VfsPath::new("/srv"),
             pattern: "*a*".to_string()
@@ -1029,6 +1029,7 @@ fn searching_a_connection_names_that_connection_as_the_place() {
 
     assert_eq!(search_state(&harness).location(), Location::Session(4));
     assert_eq!(harness.app.search_place(), "prod");
+}
 
 #[test]
 fn results_of_an_earlier_pattern_are_ignored_after_a_newer_search_started() {
@@ -1056,5 +1057,4 @@ fn results_of_a_cancelled_search_do_not_land_in_the_cleared_list() {
     harness.feed(Event::SearchFound { request_id: stale, entry: hit("/home/tester/old") });
 
     assert!(search_state(&harness).results().is_empty());
-}
 }

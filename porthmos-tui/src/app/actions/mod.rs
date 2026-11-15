@@ -56,8 +56,8 @@ impl App {
             Action::CompareFolders => self.toggle_compare_folders(),
             Action::CheckForUpdates => self.check_for_updates(),
             Action::ImportConnections => self.open_import_dialog(),
-            Action::CycleSession => {
             Action::ReopenConnections => self.reopen_connections(),
+            Action::CycleSession => {
                 if self.screen == Screen::Files {
                     self.sessions.cycle();
                 }

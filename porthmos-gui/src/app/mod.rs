@@ -320,16 +320,16 @@ pub struct App {
     search_scroll: f32,
     search_preview_scroll: f32,
     sync_view: SyncView,
-    tool_version: u64,
     compare_folders: bool,
+    tool_version: u64,
     next_preview_id: u64,
+    next_search_id: u64,
+    reported_connection: Option<SessionId>,
     next_count_id: u64,
     next_import_id: u64,
     next_properties_id: u64,
     launcher: Launcher,
     processes: ProcessSource,
-    next_search_id: u64,
-    reported_connection: Option<SessionId>,
     jobs: std::collections::HashMap<u64, editing::JobRole>,
     next_process_token: u64,
     edits_busy: bool,
@@ -405,17 +405,17 @@ impl App {
             search_scroll: 0.0,
             search_preview_scroll: 0.0,
             sync_view: SyncView::default(),
-            tool_version: 0,
             compare_folders: false,
+            tool_version: 0,
             next_preview_id: 1,
+            next_search_id: 1,
+            reported_connection: None,
             next_count_id: 0,
             next_import_id: 0,
             next_properties_id: 0,
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
             processes,
             jobs: std::collections::HashMap::new(),
-            next_search_id: 1,
-            reported_connection: None,
             next_process_token: 1,
             edits_busy: false,
             quit_confirmed: false,
@@ -801,8 +801,8 @@ impl App {
                 self.connection_states.insert(name, state);
             }
             Event::ReopenOffer { names } => self.reopen_offer = names,
-            Event::Connecting { name } => self.connecting = Some(name),
             Event::FocusConnection { name } => self.focus_connection(&name),
+            Event::Connecting { name } => self.connecting = Some(name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
                 self.manager_connection_finished(&name, true);
@@ -928,11 +928,11 @@ impl App {
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
             Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
+            Event::ImportReadFailed { import_id, message } => self.import_read_failed(import_id, &message),
             Event::ImportDone { added, skipped, .. } => self.import_done(added, skipped),
         }
     }
 
-            Event::ImportReadFailed { import_id, message } => self.import_read_failed(import_id, &message),
     fn menus_allowed(&self) -> bool {
         self.modals.is_empty()
             && self.tool.is_none()
@@ -1074,10 +1074,10 @@ impl App {
         let prompt_before = self.prompt_version;
         let tool_before = self.tool_version;
         let task = self.handle(message);
+        self.report_active_connection();
         let task =
             if std::mem::take(&mut self.quit_confirmed) { Task::batch([task, self.begin_close()]) } else { task };
         let task = if self.tool_version == tool_before {
-        self.report_active_connection();
             task
         } else {
             match self.tool_input_id() {
@@ -1119,17 +1119,17 @@ impl App {
                     Event::Disconnected { session, .. } => self.close_search_on(Location::Session(*session)),
                     _ => Task::none(),
                 };
-                let typed_before = self.path_edit.as_ref().map(|edit| edit.text.clone());
-                self.apply(event);
-                let cursor = match &self.path_edit {
-                    Some(edit) if typed_before.is_some_and(|text| text != edit.text) => {
-                        operation::move_cursor_to_end(edit.side.path_input_id())
                 let failure_raised = match &event {
                     Event::ConnectFailed { name, .. } if self.manager_connecting.as_deref() != Some(name) => {
                         window::gain_focus(self.windows.main())
                     }
                     _ => Task::none(),
                 };
+                let typed_before = self.path_edit.as_ref().map(|edit| edit.text.clone());
+                self.apply(event);
+                let cursor = match &self.path_edit {
+                    Some(edit) if typed_before.is_some_and(|text| text != edit.text) => {
+                        operation::move_cursor_to_end(edit.side.path_input_id())
                     }
                     _ => Task::none(),
                 };
@@ -1253,29 +1253,29 @@ impl App {
             Message::MoreItemChosen(item) => {
                 self.more_open = false;
                 if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
+                    if item == MoreItem::Reopen {
+                        self.reopen_pressed();
+                        return Task::none();
+                    }
                     let action = match item {
                         MoreItem::Palette => Action::Palette,
                         MoreItem::SelectAll => Action::SelectAll,
                         MoreItem::ToggleHidden => Action::ToggleHidden,
                         MoreItem::Preview => Action::Preview,
                         MoreItem::Edit => Action::Edit,
-                    if item == MoreItem::Reopen {
-                        self.reopen_pressed();
-                        return Task::none();
-                    }
                         MoreItem::Search => Action::Search,
                         MoreItem::Bookmarks => Action::Bookmarks,
                         MoreItem::History => Action::History,
                         MoreItem::Sync => Action::Sync,
                         MoreItem::BookmarkHere => Action::BookmarkHere,
                         MoreItem::CheckForUpdates => Action::CheckForUpdates,
+                        MoreItem::Reopen => unreachable!("handled above"),
                     };
                     return self.perform(action);
                 }
             }
             message @ (Message::SettingsChangePressed(_)
             | Message::SettingsResetPressed(_)
-                        MoreItem::Reopen => unreachable!("handled above"),
             | Message::SettingsEditorTyped(_)
             | Message::SettingsEditorApplied
             | Message::SettingsTerminalTyped(_)
@@ -1347,12 +1347,12 @@ impl App {
                     }
                 }
             }
-            Message::PasswordSaveToggled(on) => {
             Message::PermissionsRecursiveToggled(on) => {
                 if let Some(Modal::Permissions { recursive, .. }) = self.modals.front_mut() {
                     *recursive = on;
                 }
             }
+            Message::PasswordSaveToggled(on) => {
                 if let Some(Modal::Question(Dialog::Password { save: Some(save), .. })) = self.modals.front_mut() {
                     *save = on;
                 }
@@ -2189,6 +2189,7 @@ impl App {
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),
             Action::Sync => self.request_sync(),
+            Action::CompareFolders => self.toggle_compare_folders(),
             Action::Palette => self.open_palette(),
             Action::Settings => return self.open_settings(),
             Action::CheckForUpdates => self.check_for_updates(),
@@ -2196,7 +2197,6 @@ impl App {
             Action::NextTab => self.sessions.next(),
             Action::PreviousTab => self.sessions.previous(),
             Action::Quit => return self.handle(Message::CloseRequested),
-            Action::CompareFolders => self.toggle_compare_folders(),
         }
         Task::none()
     }
@@ -2260,13 +2260,13 @@ impl App {
             window::resize_events().map(|(id, size)| Message::WindowSized(id, size)),
             event::listen_with(|event, _, window| match event {
                 iced::Event::Window(window::Event::Moved(position)) => Some(Message::WindowMoved(window, position)),
+                iced::Event::Window(window::Event::Closed) => Some(Message::WindowClosed(window)),
                 _ => None,
             }),
             self.pointer_subscription(),
             self.native_subscription(),
             self.staging_subscription(),
             self.notice_subscription(),
-                iced::Event::Window(window::Event::Closed) => Some(Message::WindowClosed(window)),
             self.desktop.subscription().map(Message::Desktop),
             self.processes.subscription().map(Message::ProcessFinished),
             event::listen_with(|event, _, window| {
@@ -2289,6 +2289,7 @@ impl App {
     }
 }
 
+mod compare;
 mod connections;
 mod editing;
 mod import;
@@ -2296,7 +2297,6 @@ mod palette;
 mod preview;
 mod properties;
 mod quick_connect;
-mod compare;
 mod quit;
 mod reopen;
 mod search_window;

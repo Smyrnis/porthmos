@@ -378,9 +378,9 @@ impl Engine {
         match command {
             Command::Connect { profile } => self.connect(&profile),
             Command::ReopenConnections => self.reopen_connections(),
+            Command::ActiveConnection { session } => self.remember_active_connection(session),
             Command::SetReopenMode { mode } => self.set_reopen_mode(mode),
             Command::SetReconnect { enabled } => self.set_reconnect(enabled),
-            Command::ActiveConnection { session } => self.remember_active_connection(session),
             Command::Disconnect { session } => {
                 self.stop_reconnecting_session(session);
                 self.disconnect(session);
@@ -623,9 +623,9 @@ impl Engine {
             self.work.published = snapshot.clone();
             self.emit(Event::TransfersChanged(snapshot));
         }
+        self.save_unfinished_when_changed();
     }
 
-        self.save_unfinished_when_changed();
     fn request_publish(&mut self) {
         let due = self.work.publish_interval.is_zero()
             || self

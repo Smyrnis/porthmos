@@ -151,8 +151,8 @@ enum ConnectionStatus {
 struct SearchSession {
     view: SearchView,
     location: Location,
-}
     request_id: RequestId,
+}
 
 struct ConflictPrompt {
     batch_id: u64,
@@ -173,9 +173,9 @@ pub struct App {
     help_visible: bool,
     preview: Option<crate::widgets::preview_view::PreviewView>,
     next_preview_id: RequestId,
-    next_count_id: RequestId,
     next_search_id: RequestId,
     reported_connection: Option<SessionId>,
+    next_count_id: RequestId,
     next_properties_id: RequestId,
     import: import::ImportState,
     compare_folders: bool,
@@ -241,10 +241,10 @@ impl App {
             help_visible: false,
             preview: None,
             next_preview_id: 0,
-            next_count_id: 0,
-            next_properties_id: 0,
             next_search_id: 1,
             reported_connection: None,
+            next_count_id: 0,
+            next_properties_id: 0,
             import: import::ImportState::default(),
             compare_folders: false,
             help_scroll: 0,
@@ -401,14 +401,14 @@ impl App {
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
-        if self.drop_stale_path_edit() {
-            return;
-        }
         self.route_key(key);
         self.report_active_connection();
     }
 
     fn route_key(&mut self, key: KeyEvent) {
+        if self.drop_stale_path_edit() {
+            return;
+        }
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
@@ -458,10 +458,10 @@ impl App {
     fn apply_core_event(&mut self, event: Event) {
         self.route_core_event(event);
         self.drop_stale_path_edit();
+        self.report_active_connection();
     }
 
     fn route_core_event(&mut self, event: Event) {
-        self.report_active_connection();
         match event {
             Event::Notice { severity, message } => self.notifications.push(severity, message.to_string()),
             Event::ConnectionState { name, state } => {
@@ -470,10 +470,10 @@ impl App {
             Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
+            Event::FocusConnection { name } => self.focus_connection(&name),
             Event::ConnectFailed { name, message } => {
                 self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
-            Event::FocusConnection { name } => self.focus_connection(&name),
                 self.notifications.push(Severity::Error, message.to_string());
             }
             Event::Question { request_id, question } => self.ask(request_id, question),
@@ -572,6 +572,7 @@ impl App {
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
             Event::ImportPlanReady(plan) => self.apply_import_plan(plan),
+            Event::ImportReadFailed { import_id, message } => self.apply_import_read_failed(import_id, &message),
             Event::ImportDone { added, skipped, .. } => self.apply_import_done(added, skipped),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
             Event::Update(state) => self.apply_update_event(state),
@@ -579,7 +580,6 @@ impl App {
     }
 
     fn ask(&mut self, request_id: RequestId, question: Question) {
-            Event::ImportReadFailed { import_id, message } => self.apply_import_read_failed(import_id, &message),
         self.make_room_for_question();
         match question {
             Question::Password { username, name, secret } => {
