@@ -105,6 +105,7 @@ fn connections_history_and_sync_list_their_own_actions() {
             pair("e", "edit"),
             pair("Delete", "delete"),
             pair("x", "disconnect"),
+            pair("o", "reopen"),
         ]
     );
     assert_eq!(
@@ -183,6 +184,7 @@ fn screen_sections_use_the_hint_labels_and_the_live_keys() {
             (Some("e / F2"), "edit"),
             (Some("Delete"), "delete"),
             (Some("x / F8"), "disconnect"),
+            (Some("o"), "reopen"),
         ]
     );
 }

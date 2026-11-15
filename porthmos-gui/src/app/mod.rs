@@ -801,6 +801,7 @@ impl App {
             }
             Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connecting = Some(name),
+            Event::FocusConnection { name } => self.focus_connection(&name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
                 self.manager_connection_finished(&name, true);
@@ -1073,6 +1074,7 @@ impl App {
         let task =
             if std::mem::take(&mut self.quit_confirmed) { Task::batch([task, self.begin_close()]) } else { task };
         let task = if self.tool_version == tool_before {
+        self.report_active_connection();
             task
         } else {
             match self.tool_input_id() {
@@ -1251,6 +1253,10 @@ impl App {
                         MoreItem::ToggleHidden => Action::ToggleHidden,
                         MoreItem::Preview => Action::Preview,
                         MoreItem::Edit => Action::Edit,
+                    if item == MoreItem::Reopen {
+                        self.reopen_pressed();
+                        return Task::none();
+                    }
                         MoreItem::Search => Action::Search,
                         MoreItem::Bookmarks => Action::Bookmarks,
                         MoreItem::History => Action::History,
@@ -1263,6 +1269,7 @@ impl App {
             }
             message @ (Message::SettingsChangePressed(_)
             | Message::SettingsResetPressed(_)
+                        MoreItem::Reopen => unreachable!("handled above"),
             | Message::SettingsEditorTyped(_)
             | Message::SettingsEditorApplied
             | Message::SettingsTerminalTyped(_)

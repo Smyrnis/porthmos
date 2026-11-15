@@ -26,6 +26,7 @@ pub enum Location {
 pub enum Command {
     Connect { profile: String },
     ReopenConnections,
+    ActiveConnection { session: Option<SessionId> },
     SetReopenMode { mode: ReopenMode },
     SetReconnect { enabled: bool },
     Disconnect { session: SessionId },

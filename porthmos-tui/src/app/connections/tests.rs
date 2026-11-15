@@ -2097,3 +2097,94 @@ fn the_app_starts_with_the_groups_core_remembered() {
 
     assert_eq!(app.connections.rows().len(), 2);
 }
+
+fn active_reports(sent: &[Command]) -> Vec<Option<u64>> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::ActiveConnection { session } => Some(*session),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_new_connection_becoming_the_active_tab_is_reported_to_core() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.sent_raw();
+
+    test.app.apply_core_event(Event::Connected { session: 7, name: "alpha".to_string(), shell_available: false });
+
+    assert_eq!(active_reports(&test.sent_raw()), vec![Some(7)]);
+}
+
+#[test]
+fn an_event_that_changes_no_tab_reports_nothing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::Connected { session: 7, name: "alpha".to_string(), shell_available: false });
+    test.sent_raw();
+
+    test.app.apply_core_event(Event::SaveChoice { save: true });
+    test.app.apply_key(key(KeyCode::Down));
+
+    assert!(active_reports(&test.sent_raw()).is_empty());
+}
+
+#[test]
+fn closing_the_last_connection_reports_that_none_is_active() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::Connected { session: 7, name: "alpha".to_string(), shell_available: false });
+    test.sent_raw();
+
+    test.app.apply_core_event(Event::Disconnected { session: 7, name: "alpha".to_string() });
+
+    assert_eq!(active_reports(&test.sent_raw()), vec![None]);
+}
+
+#[test]
+fn core_asking_to_focus_a_connection_selects_its_tab_and_reports_it() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::Connected { session: 7, name: "alpha".to_string(), shell_available: false });
+    test.app.apply_core_event(Event::Connected { session: 8, name: "beta".to_string(), shell_available: false });
+    test.sent_raw();
+
+    test.app.apply_core_event(Event::FocusConnection { name: "alpha".to_string() });
+
+    assert_eq!(test.app.sessions.active_id(), Some(7));
+    assert_eq!(active_reports(&test.sent_raw()), vec![Some(7)]);
+}
+
+#[test]
+fn focusing_a_connection_that_is_not_open_changes_nothing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::Connected { session: 8, name: "beta".to_string(), shell_available: false });
+    test.sent_raw();
+
+    test.app.apply_core_event(Event::FocusConnection { name: "gone".to_string() });
+
+    assert_eq!(test.app.sessions.active_id(), Some(8));
+    assert!(test.sent_raw().is_empty());
+}
+
+#[test]
+fn o_on_the_connections_screen_reopens_the_offered_connections() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_core_event(Event::ReopenOffer { names: vec!["alpha".to_string()] });
+    test.app.apply_action(Action::OpenConnections);
+    test.sent();
+
+    test.app.apply_key(key(KeyCode::Char('o')));
+
+    assert_eq!(test.sent(), vec![Command::ReopenConnections]);
+    assert!(test.app.reopen_offer.is_empty());
+}
+
+#[test]
+fn reopening_does_nothing_without_an_offer() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenConnections);
+    test.sent();
+
+    test.app.apply_key(key(KeyCode::Char('o')));
+
+    assert!(test.sent().is_empty());
+}

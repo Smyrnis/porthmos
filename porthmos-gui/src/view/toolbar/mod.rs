@@ -151,9 +151,12 @@ pub fn bar(app: &App) -> Element<'_, Message> {
 pub fn more_menu(app: &App) -> Element<'_, Message> {
     let palette = *app.palette();
     let mut items = column![];
-    for (item, title, enabled) in
-        more_items(MoreState { hidden_shown: app.hidden_shown(), file: app.single_file(), sync: app.sync_possible() })
-    {
+    for (item, title, enabled) in more_items(MoreState {
+        hidden_shown: app.hidden_shown(),
+        file: app.single_file(),
+        sync: app.sync_possible(),
+        reopen: !app.reopen_offer().is_empty(),
+    }) {
         let color = if enabled { palette.fg_bright } else { palette.fg_dim };
         let row_button = button(label(title, color))
             .padding([6.0, 12.0])

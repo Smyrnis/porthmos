@@ -99,6 +99,7 @@ pub enum Action {
     CheckForUpdates,
     ImportConnections,
     OpenPalette,
+    ReopenConnections,
     CycleSession,
     Help,
     Back,
@@ -154,6 +155,7 @@ impl Action {
             Action::ImportConnections => "import_connections",
             Action::OpenPalette => "open_palette",
             Action::CycleSession => "cycle_session",
+            Action::ReopenConnections => "reopen_connections",
             Action::Help => "help",
             Action::Back => "back",
             Action::Noop => "noop",
@@ -208,6 +210,7 @@ impl Action {
             "open_palette" => Action::OpenPalette,
             "cycle_session" => Action::CycleSession,
             "help" => Action::Help,
+            "reopen_connections" => Action::ReopenConnections,
             "back" => Action::Back,
             other => return session_number(other).map(Action::JumpToSession),
         })
@@ -406,6 +409,7 @@ fn defaults_table() -> Vec<(Scope, Action, Vec<KeySpec>)> {
         (Scope::Transfers, Action::Delete, vec![letter('x'), function(8)]),
         (Scope::Transfers, Action::Refresh, vec![letter('c')]),
         (Scope::Transfers, Action::Pause, vec![letter('p')]),
+        (Scope::Connections, Action::ReopenConnections, vec![letter('o')]),
         (Scope::Transfers, Action::RowUp, vec![letter('K')]),
         (Scope::Transfers, Action::RowDown, vec![letter('J')]),
         (Scope::Transfers, Action::SpeedLimit, vec![ctrl('l')]),
@@ -518,6 +522,7 @@ pub const ALL_ACTIONS: &[Action] = &[
     Action::Help,
     Action::Back,
 ];
+    Action::ReopenConnections,
 
 pub const SESSION_ACTIONS: &[Action] = &[
     Action::JumpToSession(1),

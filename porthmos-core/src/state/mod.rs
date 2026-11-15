@@ -21,6 +21,8 @@ pub struct UiState {
     pub remote_panel: Option<PanelMemory>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub reopen: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reopen_active: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub open_groups: Vec<String>,
 }

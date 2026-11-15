@@ -378,6 +378,7 @@ impl Engine {
             Command::ReopenConnections => self.reopen_connections(),
             Command::SetReopenMode { mode } => self.set_reopen_mode(mode),
             Command::SetReconnect { enabled } => self.set_reconnect(enabled),
+            Command::ActiveConnection { session } => self.remember_active_connection(session),
             Command::Disconnect { session } => {
                 self.stop_reconnecting_session(session);
                 self.disconnect(session);

@@ -39,6 +39,7 @@ const CONNECTIONS: &[(Action, &str)] = &[
     (Action::Rename, "edit"),
     (Action::DeleteConnection, "delete"),
     (Action::Disconnect, "disconnect"),
+    (Action::ReopenConnections, "reopen"),
 ];
 const HISTORY: &[(Action, &str)] = &[(Action::Open, "details"), (Action::Delete, "clear")];
 const TRANSFERS: &[(Action, &str)] = &[

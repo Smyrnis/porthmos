@@ -94,3 +94,103 @@ fn the_label_names_the_connections_that_would_be_reopened() {
 fn a_long_list_is_shortened_in_the_label() {
     assert_eq!(offer_label(&names(&["a", "b", "c", "d", "e"])), "Reopen a, b, c and 2 more");
 }
+
+fn connect(harness: &mut Harness, session: u64, name: &str) {
+    harness.feed(Event::Connected { session, name: name.to_string(), shell_available: false });
+}
+
+fn active_reports(sent: &[Command]) -> Vec<Option<u64>> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::ActiveConnection { session } => Some(*session),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_new_connection_becoming_the_active_tab_is_reported_to_core() {
+    let mut harness = Harness::new();
+    harness.sent_raw();
+
+    connect(&mut harness, 7, "alpha");
+
+    assert_eq!(active_reports(&harness.sent_raw()), vec![Some(7)]);
+}
+
+#[test]
+fn switching_tabs_reports_the_new_active_connection_once() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 7, "alpha");
+    connect(&mut harness, 8, "beta");
+    harness.sent_raw();
+
+    harness.press(Message::TabClicked(0));
+    harness.press(Message::TabClicked(0));
+
+    assert_eq!(active_reports(&harness.sent_raw()), vec![Some(7)]);
+}
+
+#[test]
+fn closing_the_last_connection_reports_that_none_is_active() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 7, "alpha");
+    harness.sent_raw();
+
+    harness.feed(Event::Disconnected { session: 7, name: "alpha".to_string() });
+
+    assert_eq!(active_reports(&harness.sent_raw()), vec![None]);
+}
+
+#[test]
+fn a_message_that_changes_no_tab_reports_nothing() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 7, "alpha");
+    harness.sent_raw();
+
+    harness.press(Message::ModifiersChanged(iced::keyboard::Modifiers::empty()));
+
+    assert!(active_reports(&harness.sent_raw()).is_empty());
+}
+
+#[test]
+fn core_asking_to_focus_a_connection_selects_its_tab() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 7, "alpha");
+    connect(&mut harness, 8, "beta");
+
+    harness.feed(Event::FocusConnection { name: "alpha".to_string() });
+
+    assert_eq!(harness.app.sessions().active().map(|session| session.id), Some(7));
+    assert_eq!(active_reports(&harness.sent_raw()).last(), Some(&Some(7)));
+}
+
+#[test]
+fn focusing_a_connection_that_is_not_open_changes_nothing() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 8, "beta");
+
+    harness.feed(Event::FocusConnection { name: "gone".to_string() });
+
+    assert_eq!(harness.app.sessions().active().map(|session| session.id), Some(8));
+}
+
+#[test]
+fn the_more_menu_item_reopens_the_offered_connections() {
+    let mut harness = Harness::new();
+    offered(&mut harness, &["alpha"]);
+
+    harness.press(Message::MoreItemChosen(crate::menus::MoreItem::Reopen));
+
+    assert_eq!(reopen_commands(&harness.sent()), 1);
+    assert!(harness.app.reopen_offer().is_empty());
+}
+
+#[test]
+fn the_more_menu_item_does_nothing_without_an_offer() {
+    let mut harness = Harness::new();
+
+    harness.press(Message::MoreItemChosen(crate::menus::MoreItem::Reopen));
+
+    assert_eq!(reopen_commands(&harness.sent()), 0);
+}

@@ -179,6 +179,12 @@ impl Harness {
     }
 
     pub fn sent(&mut self) -> Vec<Command> {
+        let mut sent = self.sent_raw();
+        sent.retain(|command| !matches!(command, Command::ActiveConnection { .. }));
+        sent
+    }
+
+    pub fn sent_raw(&mut self) -> Vec<Command> {
         let mut sent = Vec::new();
         while let Ok(command) = self.commands.try_recv() {
             sent.push(command);

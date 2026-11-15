@@ -18,6 +18,20 @@ impl App {
         self.reopen_offer.clear();
         self.core.send(Command::ReopenConnections);
     }
+
+    pub(in crate::app) fn report_active_connection(&mut self) {
+        let active = self.sessions.active().map(|session| session.id);
+        if active != self.reported_connection {
+            self.reported_connection = active;
+            self.core.send(Command::ActiveConnection { session: active });
+        }
+    }
+
+    pub(in crate::app) fn focus_connection(&mut self, name: &str) {
+        if let Some(id) = self.sessions.by_name(name).map(|session| session.id) {
+            self.sessions.activate(id);
+        }
+    }
 }
 
 #[cfg(test)]

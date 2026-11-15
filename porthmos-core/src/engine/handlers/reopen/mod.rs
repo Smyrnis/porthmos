@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use super::super::{Engine, Event};
+use super::super::{Engine, Event, SessionId};
 use crate::config::ReopenMode;
 
 #[derive(Default)]
@@ -9,6 +9,7 @@ pub(crate) struct ReopenState {
     offer: Vec<String>,
     queue: VecDeque<String>,
     current: Option<String>,
+    focus: Option<String>,
 }
 
 impl ReopenState {
@@ -20,6 +21,11 @@ impl ReopenState {
         self.offer.clear();
         self.queue.clear();
         self.current = None;
+        self.focus = None;
+    }
+
+    fn in_progress(&self) -> bool {
+        self.current.is_some() || !self.queue.is_empty()
     }
 }
 
@@ -41,6 +47,23 @@ impl Engine {
         }
         self.ui_state.reopen = names;
         self.save_quietly("open connections");
+    }
+
+    pub(crate) fn remember_active_connection(&mut self, session: Option<SessionId>) {
+        if self.reopen.mode == ReopenMode::Off || self.reopen.in_progress() {
+            return;
+        }
+        let name = session.map(|session| self.book.sessions.get(&session).map(|live| live.name.clone()));
+        let name = match name {
+            None => None,
+            Some(Some(name)) => Some(name),
+            Some(None) => return,
+        };
+        if self.ui_state.reopen_active == name {
+            return;
+        }
+        self.ui_state.reopen_active = name;
+        self.save_quietly("active connection");
     }
 
     pub(crate) fn offer_reopen(&mut self) {
@@ -75,6 +98,7 @@ impl Engine {
         self.reopen.mode = mode;
         if mode == ReopenMode::Off {
             self.reopen.forget_pending();
+            self.ui_state.reopen_active = None;
         }
         self.remember_open_connections();
     }
@@ -92,6 +116,7 @@ impl Engine {
             return;
         }
         self.reopen.queue = names.into();
+        self.reopen.focus = self.ui_state.reopen_active.clone();
         self.reopen_next();
     }
 
@@ -102,6 +127,16 @@ impl Engine {
                 self.reopen.current = Some(name);
                 return;
             }
+        }
+        self.focus_reopened_connection();
+    }
+
+    fn focus_reopened_connection(&mut self) {
+        let Some(name) = self.reopen.focus.take() else {
+            return;
+        };
+        if self.book.sessions.values().any(|live| live.name == name) {
+            self.emit(Event::FocusConnection { name });
         }
     }
 }

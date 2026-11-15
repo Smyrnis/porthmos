@@ -56,6 +56,7 @@ impl App {
             Action::CheckForUpdates => self.check_for_updates(),
             Action::ImportConnections => self.open_import_dialog(),
             Action::CycleSession => {
+            Action::ReopenConnections => self.reopen_connections(),
                 if self.screen == Screen::Files {
                     self.sessions.cycle();
                 }

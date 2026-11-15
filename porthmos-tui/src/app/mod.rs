@@ -401,6 +401,11 @@ impl App {
         if self.drop_stale_path_edit() {
             return;
         }
+        self.route_key(key);
+        self.report_active_connection();
+    }
+
+    fn route_key(&mut self, key: KeyEvent) {
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
@@ -453,6 +458,7 @@ impl App {
     }
 
     fn route_core_event(&mut self, event: Event) {
+        self.report_active_connection();
         match event {
             Event::Notice { severity, message } => self.notifications.push(severity, message.to_string()),
             Event::ConnectionState { name, state } => {
@@ -464,6 +470,7 @@ impl App {
             Event::ConnectFailed { name, message } => {
                 self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
+            Event::FocusConnection { name } => self.focus_connection(&name),
                 self.notifications.push(Severity::Error, message.to_string());
             }
             Event::Question { request_id, question } => self.ask(request_id, question),

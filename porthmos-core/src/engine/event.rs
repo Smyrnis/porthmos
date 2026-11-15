@@ -27,6 +27,7 @@ pub enum Event {
     Notice { severity: Severity, message: Message },
     Connecting { name: String },
     ReopenOffer { names: Vec<String> },
+    FocusConnection { name: String },
     Connected { session: SessionId, name: String, shell_available: bool },
     SessionCapabilities { session: SessionId, preserves_times: bool },
     ConnectFailed { name: String, message: Message },

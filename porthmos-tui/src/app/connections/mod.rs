@@ -461,6 +461,20 @@ impl App {
         self.core.send(Command::Disconnect { session });
     }
 
+    pub(super) fn report_active_connection(&mut self) {
+        let active = self.sessions.active_id();
+        if active != self.reported_connection {
+            self.reported_connection = active;
+            self.core.send(Command::ActiveConnection { session: active });
+        }
+    }
+
+    pub(super) fn focus_connection(&mut self, name: &str) {
+        if let Some(id) = self.sessions.by_name(name).map(|session| session.id) {
+            self.sessions.activate(id);
+        }
+    }
+
     pub(super) fn apply_connected(&mut self, session: u64, name: String, shell_available: bool) {
         self.connection_status = ConnectionStatus::Disconnected;
         self.session_names.insert(session, name.clone());

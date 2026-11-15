@@ -51,6 +51,12 @@ pub(crate) fn cursor_name(panel: &crate::widgets::panel_view::PanelView) -> Opti
 
 impl TestApp {
     pub(crate) fn sent(&mut self) -> Vec<Command> {
+        let mut sent = self.sent_raw();
+        sent.retain(|command| !matches!(command, Command::ActiveConnection { .. }));
+        sent
+    }
+
+    pub(crate) fn sent_raw(&mut self) -> Vec<Command> {
         std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
     }
 
