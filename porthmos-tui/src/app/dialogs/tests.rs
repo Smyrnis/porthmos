@@ -663,6 +663,7 @@ fn a_selection_gets_one_mode_for_all_of_it() {
     assert_eq!(location, Location::Local);
     assert_eq!(paths, vec![VfsPath::from("/d/a.txt"), VfsPath::from("/d/b.txt")]);
     assert_eq!(mode, 0o640);
+    assert!(!recursive);
 }
 
 #[test]
@@ -756,6 +757,23 @@ fn there_is_no_permissions_dialog_on_an_empty_folder() {
     assert!(test.app.dialog.is_none());
 }
 
+fn app_with_a_folder() -> TestApp {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let folder = Entry { permissions: Some(0o040755), ..entry(&VfsPath::new("/d"), "proj", true) };
+    test.list_local(vec![folder]);
+    test.app.local.cursor = 1;
+    test
+}
+
+#[test]
+fn the_permissions_dialog_for_a_folder_mentions_the_recursive_flag() {
+    let mut test = app_with_a_folder();
+
+    test.app.apply_action(Action::Permissions);
+
+    assert_eq!(dialog_title(&test), Some("Permissions (octal, add -R for everything inside)"));
+}
+
 #[test]
 fn a_mode_with_the_recursive_flag_is_sent_as_recursive() {
     let mut test = app_with_a_folder();
@@ -771,4 +789,14 @@ fn a_mode_with_the_recursive_flag_is_sent_as_recursive() {
             recursive: true
         }]
     );
+}
+
+#[test]
+fn an_unknown_option_keeps_the_permissions_dialog_open_with_the_reason() {
+    let mut test = app_with_a_folder();
+
+    submit_name(&mut test, Action::Permissions, "755 -x");
+
+    assert_eq!(dialog_error(&test), Some("The only option is -R (everything inside folders)"));
+    assert!(test.sent().is_empty());
 }

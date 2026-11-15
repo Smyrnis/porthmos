@@ -64,9 +64,11 @@ impl App {
             return;
         }
         let current = entries.iter().find_map(|entry| entry.permissions).map(mode_text).unwrap_or_default();
+        let units =
+            if entries.iter().any(|entry| entry.is_dir) { "octal, add -R for everything inside" } else { "octal" };
         let title = match paths.len() {
-            1 => "Permissions (octal)".to_string(),
-            count => format!("Permissions of {count} items (octal)"),
+            1 => format!("Permissions ({units})"),
+            count => format!("Permissions of {count} items ({units})"),
         };
 
         self.dialog = Some(Dialog::TextInput(TextInputDialog::new(title, current)));
@@ -166,6 +168,10 @@ impl App {
     }
 
     pub(super) fn apply_dialog_key(&mut self, key: KeyEvent) {
+        if self.is_import_completion_key(key) {
+            self.complete_import_path();
+            return;
+        }
         let Some(dialog) = self.dialog.as_mut() else {
             return;
         };
@@ -192,6 +198,7 @@ impl App {
                     }
                     Some(PendingAction::Delete { count, .. }) => self.stop_counting(count),
                     Some(PendingAction::EditComparing { .. }) => self.ask_open_edit_question_again(),
+                    Some(PendingAction::ImportSource) => self.cancel_import_read(),
                     _ => {}
                 }
             }

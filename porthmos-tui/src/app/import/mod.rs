@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{
-    Command, Environment, Severity,
-    import::{ImportPlan, ImportSource, default_location_here, path_from_text},
+    Command, Completion, CompletionStep, Environment, Location, Message, Severity,
+    edit::printable,
+    import::{ImportPlan, ImportSource, default_location_here, done_message, nothing_found_message, path_from_text},
 };
 
 use super::{App, PendingAction};
@@ -19,6 +21,7 @@ pub(super) struct ImportState {
     last_id: u64,
     waiting: Option<u64>,
     prefilled_path: String,
+    completing: Option<String>,
 }
 
 fn source_value(source: ImportSource) -> &'static str {
@@ -35,6 +38,10 @@ fn source_from_value(value: &str) -> Option<ImportSource> {
 
 fn default_path_text(source: ImportSource) -> String {
     default_location_here(source).map(|path| path.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn hint_text(source: ImportSource) -> String {
+    format!("{} Ctrl+T completes the path.", source.hint())
 }
 
 fn selected_source(form: &FormDialog) -> Option<ImportSource> {
@@ -54,8 +61,10 @@ impl App {
             FormField::text(PATH, "Path", prefilled.clone()),
         ];
         let mut form = FormDialog::new("Import connections", fields);
-        form.hint = Some(first.hint().to_string());
+        form.hint = Some(hint_text(first));
         self.import.prefilled_path = prefilled;
+        self.import.waiting = None;
+        self.import.completing = None;
         self.dialog = Some(Dialog::Form(form));
         self.pending_action = Some(PendingAction::ImportSource);
     }
@@ -67,7 +76,7 @@ impl App {
         let Some(source) = selected_source(form) else {
             return;
         };
-        form.hint = Some(source.hint().to_string());
+        form.hint = Some(hint_text(source));
         let untouched = form.value(PATH).is_some_and(|path| path.is_empty() || path == self.import.prefilled_path);
         if untouched {
             let replacement = default_path_text(source);
@@ -80,6 +89,9 @@ impl App {
     }
 
     pub(super) fn submit_import_source(&mut self, values: Vec<(&'static str, String)>) {
+        if self.import.waiting.is_some() {
+            return;
+        }
         let value = |key: &str| values.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str());
         let Some(source) = value(SOURCE).and_then(source_from_value) else {
             return;
@@ -93,8 +105,10 @@ impl App {
         self.import.last_id += 1;
         let import_id = self.import.last_id;
         self.import.waiting = Some(import_id);
-        self.dialog = None;
-        self.pending_action = None;
+        if let Some(Dialog::Form(form)) = self.dialog.as_mut() {
+            form.error = None;
+            form.error_field = None;
+        }
         self.core.send(Command::ReadImport { import_id, source, path });
     }
 
@@ -105,19 +119,86 @@ impl App {
             return;
         }
         self.import.waiting = None;
-        if plan.rows.is_empty() {
-            self.core.send(Command::CancelImport { import_id });
-            self.notifications
-                .push(Severity::Warning, format!("No connections found in that {} source", plan.source.label()));
-            return;
-        }
-        if self.dialog.is_some() {
+        if !matches!(self.pending_action, Some(PendingAction::ImportSource)) {
             self.core.send(Command::CancelImport { import_id });
             self.notifications.push(Severity::Warning, "The import was cancelled because another dialog was open");
             return;
         }
+        if plan.rows.is_empty() {
+            self.core.send(Command::CancelImport { import_id });
+            self.set_form_error(Some(PATH), nothing_found_message(plan.source));
+            return;
+        }
         self.dialog = Some(Dialog::Import(ImportDialog::new(&plan)));
         self.pending_action = Some(PendingAction::Import { import_id });
+    }
+
+    pub(super) fn apply_import_read_failed(&mut self, import_id: u64, message: &Message) {
+        if self.import.waiting != Some(import_id) {
+            return;
+        }
+        self.import.waiting = None;
+        self.set_form_error(Some(PATH), printable(&message.one_line()));
+    }
+
+    pub(super) fn is_import_completion_key(&self, key: KeyEvent) -> bool {
+        key.code == KeyCode::Char('t')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(self.pending_action, Some(PendingAction::ImportSource))
+    }
+
+    pub(super) fn complete_import_path(&mut self) {
+        if self.import.waiting.is_some() || self.import.completing.is_some() {
+            return;
+        }
+        let Some(Dialog::Form(form)) = self.dialog.as_ref() else {
+            return;
+        };
+        if form.fields.get(form.focused).is_none_or(|field| field.key != PATH) {
+            return;
+        }
+        let Some(text) = form.value(PATH) else {
+            return;
+        };
+        let Some(from) = self.panel(Location::Local).map(|panel| panel.path().clone()) else {
+            return;
+        };
+        self.import.completing = Some(text.clone());
+        self.core.send(Command::CompletePath { location: Location::Local, from, text });
+    }
+
+    pub(super) fn take_import_completion(&mut self, text: &str) -> bool {
+        if self.import.completing.as_deref() != Some(text) {
+            return false;
+        }
+        self.import.completing = None;
+        true
+    }
+
+    pub(super) fn apply_import_completion(&mut self, text: &str, completion: &Completion) {
+        let Some(Dialog::Form(form)) = self.dialog.as_mut() else {
+            return;
+        };
+        if form.value(PATH).as_deref() != Some(text) {
+            return;
+        }
+        match completion.step(text) {
+            CompletionStep::Replace(completed) => {
+                if let Some(field) = form.fields.iter_mut().find(|field| field.key == PATH) {
+                    field.cursor = completed.chars().count();
+                    field.value = completed;
+                }
+            }
+            CompletionStep::Show(candidates) => form.hint = Some(candidates.join("  ")),
+            CompletionStep::Nothing => {}
+        }
+    }
+
+    pub(super) fn cancel_import_read(&mut self) {
+        self.import.completing = None;
+        if let Some(import_id) = self.import.waiting.take() {
+            self.core.send(Command::CancelImport { import_id });
+        }
     }
 
     pub(super) fn apply_import_choice(&mut self, choice: ImportChoice) {
@@ -140,12 +221,7 @@ impl App {
     }
 
     pub(super) fn apply_import_done(&mut self, added: usize, skipped: usize) {
-        let plural = if added == 1 { "" } else { "s" };
-        let mut message = format!("Imported {added} connection{plural}");
-        if skipped > 0 {
-            message.push_str(&format!(" ({skipped} skipped)"));
-        }
-        self.notifications.push(Severity::Info, message);
+        self.notifications.push(Severity::Info, done_message(added, skipped));
     }
 }
 

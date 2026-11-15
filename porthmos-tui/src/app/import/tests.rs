@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{
-    Command, Event, VfsPath,
+    Command, Completion, Event, Location, VfsPath,
     import::{Candidate, ImportPlan, ImportRow, ImportSource, Verdict},
 };
 
@@ -101,14 +101,68 @@ fn an_empty_path_is_refused_on_the_path_field_and_nothing_is_read() {
 }
 
 #[test]
-fn submitting_asks_the_core_to_read_the_file_without_queuing_a_notice_ahead_of_the_result() {
+fn submitting_asks_the_core_to_read_the_file_and_keeps_the_form_open_without_a_notice() {
     let mut test = app();
 
     let import_id = read_requested(&mut test, "/tmp/sitemanager.xml");
 
     assert_eq!(import_id, 1);
-    assert!(test.app.dialog.is_none());
+    assert!(matches!(test.app.dialog, Some(Dialog::Form(_))));
     assert_eq!(test.notification(), None);
+}
+
+#[test]
+fn submitting_again_while_the_read_is_running_sends_nothing() {
+    let mut test = app();
+    read_requested(&mut test, "/tmp/sitemanager.xml");
+
+    submit(&mut test);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn escape_on_the_waiting_form_cancels_the_read() {
+    let mut test = app();
+    let import_id = read_requested(&mut test, "/tmp/sitemanager.xml");
+
+    test.app.apply_key(key(KeyCode::Esc));
+
+    assert!(test.app.dialog.is_none());
+    assert_eq!(test.sent(), vec![Command::CancelImport { import_id }]);
+    test.app.apply_core_event(Event::ImportPlanReady(plan(import_id, vec![new_row("a")])));
+    assert!(!review_is_open(&test));
+}
+
+#[test]
+fn a_failed_read_shows_its_reason_on_the_form_and_allows_another_try() {
+    let mut test = app();
+    let import_id = read_requested(&mut test, "/tmp/missing.xml");
+
+    test.app.apply_core_event(Event::ImportReadFailed {
+        import_id,
+        message: porthmos_core::Message::from("Couldn't read the connections to import:\nno such file"),
+    });
+
+    let Some(Dialog::Form(form)) = test.app.dialog.as_ref() else { panic!("form closed") };
+    assert!(form.error.as_deref().is_some_and(|text| text.contains("no such file")));
+    assert_eq!(test.notification(), None);
+    submit(&mut test);
+    assert_eq!(test.sent().len(), 1);
+}
+
+#[test]
+fn a_failure_for_an_older_read_is_ignored() {
+    let mut test = app();
+    let import_id = read_requested(&mut test, "/tmp/a.xml");
+
+    test.app.apply_core_event(Event::ImportReadFailed {
+        import_id: import_id + 4,
+        message: porthmos_core::Message::from("stale"),
+    });
+
+    let Some(Dialog::Form(form)) = test.app.dialog.as_ref() else { panic!("form closed") };
+    assert_eq!(form.error, None);
 }
 
 #[test]
@@ -219,7 +273,9 @@ fn a_plan_with_nothing_to_import_is_cancelled_and_explained() {
 
     assert!(!review_is_open(&test));
     assert_eq!(test.sent(), vec![Command::CancelImport { import_id }]);
-    assert!(test.notification().is_some_and(|text| text.contains("No connections")), "{:?}", test.notification());
+    let Some(Dialog::Form(form)) = test.app.dialog.as_ref() else { panic!("form closed") };
+    assert!(form.error.as_deref().is_some_and(|text| text.contains("No connections")), "{:?}", form.error);
+    assert_eq!(test.notification(), None);
 }
 
 #[test]
@@ -268,4 +324,139 @@ fn the_palette_offers_the_import() {
 
     let screen = render_app(&test.app, 100, 30);
     assert!(find_text(&screen, "Import connections").is_some());
+}
+
+fn complete(test: &mut TestApp) {
+    test.app.apply_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+}
+
+fn completion_reply(test: &mut TestApp, text: &str, candidates: &[&str], completed: &str) {
+    let completion = Completion {
+        prefix: String::new(),
+        candidates: candidates.iter().map(|name| name.to_string()).collect(),
+        completed: completed.to_string(),
+    };
+    test.app.apply_core_event(Event::PathCompleted { location: Location::Local, text: text.to_string(), completion });
+}
+
+fn focus_field(test: &mut TestApp, key: &str) {
+    let Some(Dialog::Form(form)) = test.app.dialog.as_mut() else { panic!("no form") };
+    form.focused = form.fields.iter().position(|field| field.key == key).unwrap();
+}
+
+fn form_hint(test: &TestApp) -> Option<String> {
+    match test.app.dialog.as_ref() {
+        Some(Dialog::Form(form)) => form.hint.clone(),
+        _ => None,
+    }
+}
+
+#[test]
+fn ctrl_t_on_the_path_field_asks_core_to_complete_what_was_typed() {
+    let mut test = app();
+    open_form(&mut test);
+    type_path(&mut test, "/home/me/.config/File");
+    focus_field(&mut test, "path");
+    test.sent();
+
+    complete(&mut test);
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::CompletePath {
+            location: Location::Local,
+            from: VfsPath::new("/d"),
+            text: "/home/me/.config/File".to_string()
+        }]
+    );
+}
+
+#[test]
+fn ctrl_t_on_the_source_field_does_nothing() {
+    let mut test = app();
+    open_form(&mut test);
+    focus_field(&mut test, "source");
+    test.sent();
+
+    complete(&mut test);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_completion_replaces_the_path_and_moves_the_cursor_to_its_end() {
+    let mut test = app();
+    open_form(&mut test);
+    type_path(&mut test, "/home/me/.config/File");
+    focus_field(&mut test, "path");
+    complete(&mut test);
+
+    completion_reply(&mut test, "/home/me/.config/File", &["filezilla/"], "/home/me/.config/filezilla/");
+
+    assert_eq!(form_value(&test, "path").as_deref(), Some("/home/me/.config/filezilla/"));
+    let Some(Dialog::Form(form)) = test.app.dialog.as_ref() else { panic!("no form") };
+    let field = form.fields.iter().find(|field| field.key == "path").unwrap();
+    assert_eq!(field.cursor, "/home/me/.config/filezilla/".chars().count());
+}
+
+#[test]
+fn several_candidates_are_listed_in_the_hint_and_the_path_is_kept() {
+    let mut test = app();
+    open_form(&mut test);
+    type_path(&mut test, "/home/me/.s");
+    focus_field(&mut test, "path");
+    complete(&mut test);
+
+    completion_reply(&mut test, "/home/me/.s", &["ssh/", "sessions/"], "/home/me/.s");
+
+    assert_eq!(form_value(&test, "path").as_deref(), Some("/home/me/.s"));
+    assert_eq!(form_hint(&test).as_deref(), Some("ssh/  sessions/"));
+}
+
+#[test]
+fn an_answer_for_text_that_has_since_changed_is_ignored() {
+    let mut test = app();
+    open_form(&mut test);
+    type_path(&mut test, "/home/me/.config/File");
+    focus_field(&mut test, "path");
+    complete(&mut test);
+    type_path(&mut test, "/elsewhere");
+
+    completion_reply(&mut test, "/home/me/.config/File", &["filezilla/"], "/home/me/.config/filezilla/");
+
+    assert_eq!(form_value(&test, "path").as_deref(), Some("/elsewhere"));
+}
+
+#[test]
+fn an_answer_nobody_asked_for_does_not_touch_the_form() {
+    let mut test = app();
+    open_form(&mut test);
+    type_path(&mut test, "/home/me/.s");
+
+    completion_reply(&mut test, "/home/me/.s", &["ssh/"], "/home/me/.ssh/");
+
+    assert_eq!(form_value(&test, "path").as_deref(), Some("/home/me/.s"));
+}
+
+#[test]
+fn a_second_request_waits_for_the_first_answer() {
+    let mut test = app();
+    open_form(&mut test);
+    type_path(&mut test, "/ho");
+    focus_field(&mut test, "path");
+    test.sent();
+
+    complete(&mut test);
+    complete(&mut test);
+
+    assert_eq!(test.sent().len(), 1);
+}
+
+#[test]
+fn the_hint_tells_where_the_completion_key_is() {
+    let mut test = app();
+
+    open_form(&mut test);
+
+    assert!(form_hint(&test).is_some_and(|hint| hint.contains("Ctrl+T completes the path")));
 }
