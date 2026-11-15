@@ -125,3 +125,20 @@ fn only_putty_asks_for_a_folder_when_the_path_is_missing() {
     assert_eq!(ImportSource::WinScp.missing_path_message(), "Enter the path of the file");
     assert_eq!(ImportSource::Putty.missing_path_message(), "Enter the path of the sessions folder or .reg file");
 }
+
+#[test]
+fn the_done_message_counts_connections_in_the_singular_and_plural() {
+    assert_eq!(done_message(1, 0), "Imported 1 connection");
+    assert_eq!(done_message(0, 0), "Imported 0 connections");
+    assert_eq!(done_message(2, 0), "Imported 2 connections");
+}
+
+#[test]
+fn the_done_message_mentions_what_was_skipped() {
+    assert_eq!(done_message(1, 3), "Imported 1 connection (3 skipped)");
+}
+
+#[test]
+fn the_message_for_an_empty_source_names_the_program() {
+    assert_eq!(nothing_found_message(ImportSource::WinScp), "No connections found in that WinSCP source");
+}

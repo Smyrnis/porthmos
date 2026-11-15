@@ -793,12 +793,7 @@ impl App {
 
     pub fn apply(&mut self, event: Event) {
         match event {
-            Event::Notice { severity, message } => {
-                if severity == Severity::Error {
-                    self.import_read_failed(&message);
-                }
-                self.push_notice(severity, message)
-            }
+            Event::Notice { severity, message } => self.push_notice(severity, message),
             Event::ConnectionState { name, state } => {
                 self.connection_states.insert(name, state);
             }
@@ -933,6 +928,7 @@ impl App {
         }
     }
 
+            Event::ImportReadFailed { import_id, message } => self.import_read_failed(import_id, &message),
     fn menus_allowed(&self) -> bool {
         self.modals.is_empty()
             && self.tool.is_none()

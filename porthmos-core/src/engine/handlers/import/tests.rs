@@ -76,10 +76,10 @@ async fn read_import_emits_a_plan_with_new_rows() {
 }
 
 #[tokio::test]
-async fn read_import_of_a_missing_file_reports_an_error_and_no_plan() {
+async fn read_import_of_a_missing_file_fails_the_read_with_its_id_and_no_plan() {
     let mut t = engine();
     let missing = t.dir.path().join("nope.xml");
-    t.engine.handle_command(Command::ReadImport { import_id: 1, source: ImportSource::FileZilla, path: missing });
+    t.engine.handle_command(Command::ReadImport { import_id: 7, source: ImportSource::FileZilla, path: missing });
     t.run_internal().await;
     let events = t.drain();
     assert!(plan_of(events.clone()).is_none());
@@ -87,7 +87,19 @@ async fn read_import_of_a_missing_file_reports_an_error_and_no_plan() {
         Event::ImportReadFailed { import_id, message } => Some((*import_id, message.to_string())),
         _ => None,
     });
-    assert!(notice.expect("an error notice").contains("no such file or folder"));
+    let (import_id, text) = failure.expect("a read failure");
+    assert_eq!(import_id, 7);
+    assert!(text.contains("no such file or folder"));
+}
+
+#[tokio::test]
+async fn a_failed_read_does_not_also_raise_an_error_notice() {
+    let mut t = engine();
+    let missing = t.dir.path().join("nope.xml");
+    t.engine.handle_command(Command::ReadImport { import_id: 1, source: ImportSource::FileZilla, path: missing });
+    t.run_internal().await;
+    let events = t.drain();
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Error, .. })));
 }
 
 #[tokio::test]

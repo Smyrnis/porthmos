@@ -163,3 +163,22 @@ fn a_typed_path_in_a_missing_folder_falls_back_without_panicking() {
 
     assert!(request.start_dir.as_deref().is_none_or(|dir| dir.is_dir()));
 }
+
+#[test]
+fn only_a_row_the_core_judged_invalid_is_marked_invalid() {
+    let view = mixed();
+
+    let flags: Vec<bool> = view.rows().iter().map(|row| row.invalid).collect();
+
+    assert_eq!(flags, [false, false, false, false, true]);
+}
+
+#[test]
+fn a_status_text_that_starts_like_the_invalid_one_does_not_make_a_row_invalid() {
+    let view = ImportView::new(&plan(vec![other_row(
+        "zeta",
+        Verdict::Unsupported("can't import: it only looks invalid".to_string()),
+    )]));
+
+    assert!(!view.rows()[0].invalid);
+}

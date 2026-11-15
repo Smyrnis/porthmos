@@ -1,4 +1,4 @@
-use iced::widget::{checkbox, column, container, row, scrollable, space};
+use iced::widget::{checkbox, column, container, row, scrollable, space, tooltip};
 use iced::{Alignment, Color, Element, Length};
 
 use crate::app::Message;
@@ -6,7 +6,7 @@ use crate::geometry::ROW_HEIGHT;
 use crate::import_view::{ImportView, ImportViewRow};
 use crate::preview_view::visible_window;
 use crate::theme::Palette;
-use crate::view::button::{Look, text_button};
+use crate::view::button::{Look, hinted, text_button};
 use crate::view::text_fit::fit;
 use crate::view::{hairline_across, label};
 
@@ -60,6 +60,18 @@ pub fn row_texts(row: &ImportViewRow) -> RowTexts {
     }
 }
 
+pub fn name_hint(row: &ImportViewRow) -> Option<String> {
+    (fit(&row.name, NAME_CELLS) != row.name).then(|| row.name.clone())
+}
+
+fn name_cell<'a>(row: &ImportViewRow, color: Color, palette: &Palette) -> Element<'a, Message> {
+    let shown = cell(row_texts(row).name, Length::Fixed(NAME_WIDTH), color);
+    match name_hint(row) {
+        Some(full) => hinted(shown, full, tooltip::Position::Bottom, palette),
+        None => shown,
+    }
+}
+
 fn cell<'a>(content: String, width: Length, color: Color) -> Element<'a, Message> {
     container(label(content, color)).width(width).clip(true).into()
 }
@@ -79,11 +91,11 @@ fn tick<'a>(index: usize, row: &ImportViewRow, palette: &Palette) -> Element<'a,
 fn table_row<'a>(index: usize, row: &ImportViewRow, palette: &Palette) -> Element<'a, Message> {
     let texts = row_texts(row);
     let name_color = if row.tickable { palette.fg } else { palette.fg_dim };
-    let detail_color = if row.verdict_text.starts_with("can't import") { palette.err } else { palette.fg_dim };
+    let detail_color = if row.invalid { palette.err } else { palette.fg_dim };
     container(
         iced::widget::row![
             tick(index, row, palette),
-            cell(texts.name, Length::Fixed(NAME_WIDTH), name_color),
+            name_cell(row, name_color, palette),
             cell(texts.summary, Length::Fixed(SUMMARY_WIDTH), palette.fg_muted),
             cell(texts.group, Length::Fixed(GROUP_WIDTH), palette.fg_dim),
             cell(texts.detail, Length::Fill, detail_color),

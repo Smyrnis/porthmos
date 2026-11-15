@@ -74,6 +74,7 @@ pub enum Event {
     SyncPlanReady(Arc<SyncPlan>),
     SyncWithdrawn { sync_ids: Vec<u64> },
     ImportPlanReady(Arc<ImportPlan>),
+    ImportReadFailed { import_id: u64, message: Message },
     ImportDone { import_id: u64, added: usize, skipped: usize },
     Update(UpdateState),
 }

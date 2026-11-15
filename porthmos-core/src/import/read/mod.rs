@@ -14,7 +14,8 @@ use super::{
 };
 
 const MAX_SESSION_FILES: usize = 10_000;
-const MAX_SESSION_FILE_BYTES: usize = 1024 * 1024;
+const MAX_SESSION_FILE_BYTES: usize = 64 * 1024;
+const MAX_FOLDER_ENTRIES: usize = 100_000;
 const NOT_UTF8: &str = "This is not a UTF-8 text file";
 const TOO_MANY_FILES: &str = "This folder has too many files to be PuTTY sessions";
 const NO_SESSIONS: &str = "There are no PuTTY sessions in this folder";
@@ -30,14 +31,14 @@ fn unreadable(error: io::Error) -> ImportError {
 }
 
 fn read_limited(path: &Path, limit: usize) -> Result<Vec<u8>, ImportError> {
-    let file = File::open(path).map_err(unreadable)?;
-    let metadata = file.metadata().map_err(unreadable)?;
+    let metadata = fs::metadata(path).map_err(unreadable)?;
     if !metadata.is_file() {
         return Err(ImportError::Unreadable("it is not a file".to_string()));
     }
     if metadata.len() > limit as u64 {
         return Err(ImportError::TooLarge);
     }
+    let file = File::open(path).map_err(unreadable)?;
     let mut bytes = Vec::new();
     file.take(limit as u64 + 1).read_to_end(&mut bytes).map_err(unreadable)?;
     if bytes.len() > limit { Err(ImportError::TooLarge) } else { Ok(bytes) }
@@ -51,12 +52,16 @@ fn read_text(path: &Path) -> Result<String, ImportError> {
 
 fn read_putty_folder(folder: &Path) -> Result<Vec<ImportRow>, ImportError> {
     let mut files: Vec<(String, PathBuf)> = Vec::new();
-    for entry in fs::read_dir(folder).map_err(unreadable)?.flatten().take(MAX_SESSION_FILES + 1) {
-        if files.len() == MAX_SESSION_FILES {
+    let entries = fs::read_dir(folder).map_err(unreadable)?.flatten().take(MAX_FOLDER_ENTRIES + 1);
+    for (position, entry) in entries.enumerate() {
+        if position == MAX_FOLDER_ENTRIES {
             return Err(ImportError::WrongFormat(TOO_MANY_FILES));
         }
         let path = entry.path();
         if fs::metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+            if files.len() == MAX_SESSION_FILES {
+                return Err(ImportError::WrongFormat(TOO_MANY_FILES));
+            }
             files.push((entry.file_name().to_string_lossy().into_owned(), path));
         }
     }

@@ -143,3 +143,89 @@ fn a_duplicate_of_a_taken_name_gets_a_free_second_name() {
     assert_eq!((rows[0].verdict.clone(), rows[1].verdict.clone()), (Verdict::Exists, Verdict::New));
     assert_eq!(rows[1].name, "Site (2)");
 }
+
+fn with_field(edit: impl FnOnce(&mut Candidate, String), length: usize) -> ImportRow {
+    let mut row = new_row("a", "sftp");
+    edit(row.candidate.as_mut().unwrap(), "x".repeat(length));
+    let rows = finish(vec![row], &protocols(), &HashSet::new());
+    rows.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_field_at_its_limit_is_accepted_and_one_past_it_is_invalid() {
+    type FieldCase = (&'static str, usize, fn(&mut Candidate, String));
+    let cases: [FieldCase; 4] = [
+        ("host", MAX_HOST, |candidate, text| candidate.host = text),
+        ("username", MAX_USERNAME, |candidate, text| candidate.username = text),
+        ("group", MAX_GROUP, |candidate, text| candidate.group = Some(text)),
+        ("remote_path", MAX_PATH, |candidate, text| {
+            candidate.options.insert("remote_path".to_string(), text);
+        }),
+    ];
+    for (field, limit, edit) in cases {
+        assert_eq!(with_field(edit, limit).verdict, Verdict::New, "{field} at the limit");
+        let over = with_field(edit, limit + 1);
+        assert!(matches!(&over.verdict, Verdict::Invalid(reason) if reason.contains(field)), "{field}: {over:?}");
+        assert!(over.candidate.is_none());
+    }
+}
+
+#[test]
+fn a_name_past_its_limit_is_invalid() {
+    let long = "n".repeat(MAX_NAME + 1);
+    let mut row = new_row(&long, "sftp");
+    row.candidate.as_mut().unwrap().name = long.clone();
+
+    let rows = finish(vec![row], &protocols(), &HashSet::new());
+
+    assert!(matches!(&rows[0].verdict, Verdict::Invalid(reason) if reason.contains("name")), "{:?}", rows[0]);
+}
+
+#[test]
+fn the_limits_count_characters_not_bytes() {
+    let mut row = new_row("a", "sftp");
+    row.candidate.as_mut().unwrap().username = "é".repeat(MAX_USERNAME);
+
+    let rows = finish(vec![row], &protocols(), &HashSet::new());
+
+    assert_eq!(rows[0].verdict, Verdict::New);
+}
+
+fn with_security(protocol: &str, security: &str, port: Option<u16>) -> ImportRow {
+    let mut row = new_row("a", protocol);
+    let candidate = row.candidate.as_mut().unwrap();
+    candidate.options.insert("security".to_string(), security.to_string());
+    candidate.port = port;
+    row
+}
+
+#[test]
+fn natural_ports_follow_the_security_choice() {
+    assert_eq!(natural_port("ftp", Some("implicit")), Some(990));
+    assert_eq!(natural_port("ftp", Some("explicit")), None);
+    assert_eq!(natural_port("ftp", Some("plain")), None);
+    assert_eq!(natural_port("webdav", Some("http")), Some(80));
+    assert_eq!(natural_port("webdav", Some("https")), Some(443));
+    assert_eq!(natural_port("sftp", None), None);
+}
+
+#[test]
+fn an_implicit_ftps_site_without_a_port_gets_the_implicit_port() {
+    let rows = finish(vec![with_security("ftp", "implicit", None)], &protocols(), &HashSet::new());
+
+    assert_eq!(candidate_of(&rows[0]).port, Some(990));
+}
+
+#[test]
+fn a_port_the_source_gave_is_never_replaced() {
+    let rows = finish(vec![with_security("ftp", "implicit", Some(2121))], &protocols(), &HashSet::new());
+
+    assert_eq!(candidate_of(&rows[0]).port, Some(2121));
+}
+
+#[test]
+fn a_plain_site_without_a_port_keeps_the_protocols_own_default() {
+    let rows = finish(vec![with_security("ftp", "plain", None)], &protocols(), &HashSet::new());
+
+    assert_eq!(candidate_of(&rows[0]).port, None);
+}

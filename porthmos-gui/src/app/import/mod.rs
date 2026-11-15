@@ -4,7 +4,7 @@ use std::sync::Arc;
 use iced::Task;
 use iced::widget::operation;
 use porthmos_core::edit::printable;
-use porthmos_core::import::{ImportPlan, ImportSource, path_from_text};
+use porthmos_core::import::{ImportPlan, ImportSource, done_message, nothing_found_message, path_from_text};
 use porthmos_core::{Command, Environment, Severity};
 
 use super::{App, Message};
@@ -106,7 +106,7 @@ impl App {
             return;
         };
         if plan.rows.is_empty() {
-            state.error = Some(format!("No connections found in that {} source", plan.source.label()));
+            state.error = Some(nothing_found_message(plan.source));
             state.waiting = None;
             self.core.send(Command::CancelImport { import_id });
             return;
@@ -114,8 +114,8 @@ impl App {
         self.set_screen(Some(Screen::ImportReview(ImportView::new(&plan))));
     }
 
-    pub(in crate::app) fn import_read_failed(&mut self, message: &porthmos_core::Message) {
-        if let Some(state) = self.import_source_state().filter(|state| state.waiting.is_some()) {
+    pub(in crate::app) fn import_read_failed(&mut self, import_id: u64, message: &porthmos_core::Message) {
+        if let Some(state) = self.import_source_state().filter(|state| state.waiting == Some(import_id)) {
             state.waiting = None;
             state.error = Some(printable(&message.one_line()));
         }
@@ -173,12 +173,7 @@ impl App {
     }
 
     pub(in crate::app) fn import_done(&mut self, added: usize, skipped: usize) {
-        let plural = if added == 1 { "" } else { "s" };
-        let mut message = format!("Imported {added} connection{plural}");
-        if skipped > 0 {
-            message.push_str(&format!(" ({skipped} skipped)"));
-        }
-        self.push_notice(Severity::Info, message);
+        self.push_notice(Severity::Info, done_message(added, skipped));
     }
 }
 

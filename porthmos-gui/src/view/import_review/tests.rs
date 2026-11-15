@@ -4,7 +4,7 @@ use std::sync::Arc;
 use porthmos_core::Event;
 use porthmos_core::import::{Candidate, ImportPlan, ImportRow, ImportSource, Verdict};
 
-use super::{rendered_range, row_texts, run_enabled, run_label};
+use super::{name_hint, rendered_range, row_texts, run_enabled, run_label};
 use crate::app::Message;
 use crate::import_view::ImportView;
 use crate::testing::Harness;
@@ -92,4 +92,22 @@ fn scrolling_the_review_moves_the_rendered_window() {
     let Some(crate::connections::Screen::ImportReview(view)) = harness.app.screen() else { panic!() };
     assert_eq!(view.scroll(), 2200.0);
     assert!(overlay(&harness.app).is_some());
+}
+
+#[test]
+fn a_cut_name_is_offered_in_full_as_a_hint() {
+    let long = "a-very-long-connection-name-that-goes-on";
+    let mut plan_rows = vec![new_row(0)];
+    plan_rows[0].name = long.to_string();
+    let view = ImportView::new(&plan(plan_rows));
+
+    assert_ne!(row_texts(&view.rows()[0]).name, long);
+    assert_eq!(name_hint(&view.rows()[0]).as_deref(), Some(long));
+}
+
+#[test]
+fn a_name_that_fits_needs_no_hint() {
+    let view = ImportView::new(&plan(vec![new_row(0)]));
+
+    assert_eq!(name_hint(&view.rows()[0]), None);
 }

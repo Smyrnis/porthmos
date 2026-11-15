@@ -161,3 +161,42 @@ fn a_putty_reg_export_in_utf16_is_read() {
     let plan = plan(ImportSource::Putty, &path, &HashSet::new()).unwrap();
     assert_eq!(names(&plan), ["Box"]);
 }
+
+#[test]
+fn subfolders_do_not_count_toward_the_session_file_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    for number in 0..=10_000 {
+        fs::create_dir(dir.path().join(format!("d{number}"))).unwrap();
+    }
+    write(dir.path(), "Real", "HostName=h\nUserName=u\n");
+
+    let plan = plan(ImportSource::Putty, dir.path(), &HashSet::new()).unwrap();
+
+    assert_eq!(names(&plan), ["Real"]);
+}
+
+#[test]
+fn a_putty_session_file_over_sixty_four_kib_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::File::create(dir.path().join("Big")).unwrap().set_len(65 * 1024).unwrap();
+
+    let plan = plan(ImportSource::Putty, dir.path(), &HashSet::new()).unwrap();
+
+    assert_eq!(plan.rows[0].verdict, Verdict::Invalid("could not be read".to_string()));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_named_pipe_given_as_the_file_is_refused_instead_of_blocking_the_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let pipe = dir.path().join("pipe");
+    assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(plan(ImportSource::FileZilla, &pipe, &HashSet::new()));
+    });
+
+    let result = receiver.recv_timeout(std::time::Duration::from_secs(5)).expect("the read must not block");
+
+    assert!(matches!(result, Err(ImportError::Unreadable(_))), "{result:?}");
+}

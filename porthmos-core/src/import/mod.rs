@@ -14,7 +14,21 @@ pub use read::read_plan;
 
 use std::{collections::BTreeMap, fmt};
 
+use crate::i18n;
+
 pub const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
+
+pub fn done_message(added: usize, skipped: usize) -> String {
+    let mut message = i18n::plural("import.done", added);
+    if skipped > 0 {
+        message.push_str(&i18n::text_with("import.skipped", &[("skipped", &skipped.to_string())]));
+    }
+    message
+}
+
+pub fn nothing_found_message(source: ImportSource) -> String {
+    i18n::text_with("import.nothing_found", &[("source", source.label())])
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImportSource {

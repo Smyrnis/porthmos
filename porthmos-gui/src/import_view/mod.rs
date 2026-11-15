@@ -54,6 +54,7 @@ pub fn pick_request(source: ImportSource, current_path: &str) -> PickRequest {
 pub struct ImportViewRow {
     pub ticked: bool,
     pub tickable: bool,
+    pub invalid: bool,
     pub name: String,
     pub summary: String,
     pub group: String,
@@ -80,6 +81,7 @@ impl ImportView {
                 ImportViewRow {
                     ticked: tickable,
                     tickable,
+                    invalid: matches!(row.verdict, Verdict::Invalid(_)),
                     name: printable(&row.name),
                     summary: printable(&row.summary()),
                     group: row

@@ -572,6 +572,7 @@ impl App {
     }
 
     fn ask(&mut self, request_id: RequestId, question: Question) {
+            Event::ImportReadFailed { import_id, message } => self.apply_import_read_failed(import_id, &message),
         self.make_room_for_question();
         match question {
             Question::Password { username, name, secret } => {

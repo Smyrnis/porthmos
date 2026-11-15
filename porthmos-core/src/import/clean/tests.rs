@@ -61,3 +61,24 @@ fn a_host_with_a_path_or_whitespace_is_refused() {
     assert_eq!(user_and_host("", String::new()), Err("no host"));
     assert_eq!(user_and_host("bob@", String::new()), Err("no host"));
 }
+
+#[test]
+fn printable_drops_characters_that_hide_or_reorder_text() {
+    assert_eq!(printable("a\u{202e}gnp.exe"), "agnp.exe");
+    assert_eq!(printable("ad\u{200b}min"), "admin");
+    assert_eq!(printable("\u{feff}host"), "host");
+    assert_eq!(printable("x\u{2066}y\u{2069}z"), "xyz");
+    assert_eq!(printable("a\u{200d}b\u{200e}c\u{200f}d"), "abcd");
+    assert_eq!(printable("soft\u{ad}hyphen"), "softhyphen");
+    assert_eq!(printable("a\u{2060}b"), "ab");
+}
+
+#[test]
+fn a_name_made_only_of_invisible_characters_is_empty() {
+    assert_eq!(name("\u{200b}\u{202e}"), None);
+}
+
+#[test]
+fn a_host_with_a_hidden_character_is_refused() {
+    assert_eq!(user_and_host("exa\u{200b}mple.com", String::new()), Err("invalid host"));
+}

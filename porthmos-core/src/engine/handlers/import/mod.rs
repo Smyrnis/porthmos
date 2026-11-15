@@ -39,7 +39,9 @@ impl Engine {
         self.forget_import();
         let taken = match self.taken_connection_names() {
             Ok(taken) => taken,
-            Err(err) => return self.report(Severity::Error, failure_report(READ_FAILED, &err)),
+            Err(err) => {
+                return self.emit(Event::ImportReadFailed { import_id, message: failure_report(READ_FAILED, &err) });
+            }
         };
         self.import.requested = Some(import_id);
         let protocols = self.protocols.clone();
@@ -64,7 +66,7 @@ impl Engine {
             }
             Err(err) => {
                 self.import.requested = None;
-                self.report(Severity::Error, failure_report(READ_FAILED, &err));
+                self.emit(Event::ImportReadFailed { import_id, message: failure_report(READ_FAILED, &err) });
             }
         }
     }

@@ -1,7 +1,16 @@
 use crate::profiles::labels::normalize_group;
 
+const INVISIBLE: [char; 9] =
+    ['\u{ad}', '\u{34f}', '\u{61c}', '\u{180e}', '\u{feff}', '\u{2028}', '\u{2029}', '\u{e0001}', '\u{206f}'];
+
+fn hides_or_reorders_text(character: char) -> bool {
+    matches!(character,
+        '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}')
+        || INVISIBLE.contains(&character)
+}
+
 pub fn printable(text: &str) -> String {
-    text.chars().filter(|character| !character.is_control()).collect()
+    text.chars().filter(|character| !character.is_control() && !hides_or_reorders_text(*character)).collect()
 }
 
 pub fn user_and_host(raw_host: &str, username: String) -> Result<(String, String), &'static str> {

@@ -275,10 +275,10 @@ fn import_done_pushes_a_notice_with_counts() {
 #[test]
 fn a_read_error_returns_the_modal_to_editable() {
     let mut harness = fresh();
-    read(&mut harness, "/tmp/a.xml");
+    let import_id = read(&mut harness, "/tmp/a.xml");
 
-    harness.feed(Event::Notice {
-        severity: Severity::Error,
+    harness.feed(Event::ImportReadFailed {
+        import_id,
         message: porthmos_core::Message::from(
             "Couldn't read the connections to import:\nCan't read the file: no such file",
         ),
@@ -290,16 +290,27 @@ fn a_read_error_returns_the_modal_to_editable() {
 }
 
 #[test]
-fn a_warning_while_waiting_does_not_end_the_wait() {
+fn a_read_error_for_an_older_read_is_ignored() {
     let mut harness = fresh();
-    read(&mut harness, "/tmp/a.xml");
+    let import_id = read(&mut harness, "/tmp/a.xml");
+
+    harness.feed(Event::ImportReadFailed { import_id: import_id + 9, message: porthmos_core::Message::from("stale") });
+
+    let (_, _, error, waiting) = source_modal(&harness);
+    assert_eq!((error, waiting), (None, Some(import_id)));
+}
+
+#[test]
+fn an_unrelated_error_while_waiting_does_not_end_the_wait() {
+    let mut harness = fresh();
+    let import_id = read(&mut harness, "/tmp/a.xml");
 
     harness.feed(Event::Notice {
-        severity: Severity::Warning,
+        severity: Severity::Error,
         message: porthmos_core::Message::from("something unrelated"),
     });
 
-    assert_eq!(source_modal(&harness).3, Some(1));
+    assert_eq!(source_modal(&harness).3, Some(import_id));
 }
 
 #[test]
