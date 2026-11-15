@@ -36,7 +36,7 @@ async fn watch(
 
 impl Engine {
     pub(crate) fn start_health_probe(&mut self, session: SessionId) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
         let (fs, internal) = (live.fs.clone(), self.internal.clone());
@@ -49,16 +49,18 @@ impl Engine {
     }
 
     pub(crate) fn session_health_changed(&mut self, session: SessionId, healthy: bool) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
         let name = live.name.clone();
         if healthy {
-            self.lost_sessions.remove(&session);
+            self.book.lost_sessions.remove(&session);
+            self.stop_reconnecting(&name);
             self.info(format!("{name}: connection restored"));
         } else {
-            self.lost_sessions.insert(session);
+            self.book.lost_sessions.insert(session);
             self.report(Severity::Warning, format!("{name}: connection lost"));
+            self.begin_reconnect(name.clone());
         }
         let state = if healthy { ConnectionState::Connected } else { ConnectionState::Lost };
         self.publish_connection_state(&name, state);

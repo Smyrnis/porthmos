@@ -1,7 +1,9 @@
 use porthmos_core::Entry;
 use porthmos_core::listing::Row;
 
-use super::{RowState, columns, edge_color, icon_of, line_cells, row_background};
+use porthmos_core::folder_compare::Mark;
+
+use super::{RowState, columns, edge_color, icon_of, line_cells, link_note, mark_color, mark_note, row_background};
 use crate::icons::Icon;
 use crate::theme::{Palette, ThemeSettings};
 
@@ -76,4 +78,58 @@ fn the_accent_edge_marks_selection_cursor_and_drop_in_the_active_panel() {
         row_background(state(false, true, false, false), &palette)
     );
     assert_eq!(edge_color(state(false, false, true, false), &palette), palette.bg);
+}
+
+fn link(name: &str, target: &str) -> Row {
+    Row::Entry(Entry { name: name.to_string(), link_target: Some(target.to_string()), ..Entry::default() })
+}
+
+#[test]
+fn a_symlink_has_the_link_icon_whatever_its_name_says() {
+    assert_eq!(icon_of(&link("config.json", "../etc/c.json")), Icon::Link);
+    assert_eq!(icon_of(&link("alias", "real")), Icon::Link);
+}
+
+#[test]
+fn a_file_without_a_link_target_keeps_its_own_icon() {
+    assert_eq!(icon_of(&entry("config.json", false)), Icon::Json);
+}
+
+#[test]
+fn a_link_note_shows_the_target_as_written() {
+    let Row::Entry(entry) = link("alias", "../real/file.txt") else { unreachable!() };
+    assert_eq!(link_note(&entry).as_deref(), Some("\u{2192} ../real/file.txt"));
+}
+
+#[test]
+fn a_link_with_an_unreadable_target_says_so() {
+    let Row::Entry(entry) = link("alias", "") else { unreachable!() };
+    assert_eq!(link_note(&entry).as_deref(), Some("\u{2192} unreadable target"));
+}
+
+#[test]
+fn an_ordinary_entry_has_no_link_note() {
+    let Row::Entry(entry) = entry("a.txt", false) else { unreachable!() };
+    assert_eq!(link_note(&entry), None);
+}
+
+#[test]
+fn each_mark_has_its_own_short_note() {
+    let notes: Vec<&str> = [Mark::OnlyHere, Mark::Newer, Mark::Older, Mark::SizeDiffers, Mark::KindDiffers]
+        .into_iter()
+        .map(mark_note)
+        .collect();
+
+    assert_eq!(notes, ["only here", "newer", "older", "size differs", "file vs folder"]);
+}
+
+#[test]
+fn marks_are_coloured_by_what_they_mean() {
+    let palette = palette();
+
+    assert_eq!(mark_color(Mark::OnlyHere, &palette), palette.accent);
+    assert_eq!(mark_color(Mark::Newer, &palette), palette.ok);
+    assert_eq!(mark_color(Mark::Older, &palette), palette.paused);
+    assert_eq!(mark_color(Mark::SizeDiffers, &palette), palette.paused);
+    assert_eq!(mark_color(Mark::KindDiffers, &palette), palette.err);
 }

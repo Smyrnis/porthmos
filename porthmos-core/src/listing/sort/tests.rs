@@ -56,18 +56,144 @@ fn equal_sizes_tiebreak_ascending_by_name() {
 }
 
 #[test]
-fn cycled_advances_name_asc_desc_size_asc_desc_then_wraps() {
+fn cycled_walks_every_key_ascending_then_descending_and_wraps() {
     let start = SortSpec::default();
-    assert_eq!(start, SortSpec { key: SortKey::Name, order: SortOrder::Ascending });
+    let mut seen = vec![start];
+    let mut spec = start.cycled();
+    while spec != start {
+        seen.push(spec);
+        spec = spec.cycled();
+    }
 
-    let s1 = start.cycled();
-    assert_eq!(s1, SortSpec { key: SortKey::Name, order: SortOrder::Descending });
+    let expected: Vec<SortSpec> = [SortKey::Name, SortKey::Size, SortKey::Modified, SortKey::Type]
+        .into_iter()
+        .flat_map(|key| {
+            [SortOrder::Ascending, SortOrder::Descending].into_iter().map(move |order| SortSpec { key, order })
+        })
+        .collect();
+    assert_eq!(seen, expected);
+}
 
-    let s2 = s1.cycled();
-    assert_eq!(s2, SortSpec { key: SortKey::Size, order: SortOrder::Ascending });
+fn dated(name: &str, modified: Option<u64>) -> Entry {
+    Entry { modified, ..entry(name, false, 0) }
+}
 
-    let s3 = s2.cycled();
-    assert_eq!(s3, SortSpec { key: SortKey::Size, order: SortOrder::Descending });
+#[test]
+fn modified_ascending_puts_the_oldest_first_and_unknown_times_before_them() {
+    let mut entries = vec![dated("new", Some(300)), dated("unknown", None), dated("old", Some(100))];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Modified, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["unknown", "old", "new"]);
+}
 
-    assert_eq!(s3.cycled(), start);
+#[test]
+fn modified_descending_puts_the_newest_first() {
+    let mut entries = vec![dated("old", Some(100)), dated("new", Some(300)), dated("mid", Some(200))];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Modified, order: SortOrder::Descending });
+    assert_eq!(names(&entries), vec!["new", "mid", "old"]);
+}
+
+#[test]
+fn files_modified_at_the_same_time_fall_back_to_name_order() {
+    let mut entries = vec![dated("b", Some(5)), dated("a", Some(5))];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Modified, order: SortOrder::Descending });
+    assert_eq!(names(&entries), vec!["a", "b"]);
+}
+
+#[test]
+fn type_groups_files_by_extension_ignoring_case() {
+    let mut entries =
+        vec![entry("z.TXT", false, 0), entry("a.rs", false, 0), entry("m.txt", false, 0), entry("b.md", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["b.md", "a.rs", "m.txt", "z.TXT"]);
+}
+
+#[test]
+fn files_without_an_extension_come_first_under_type_ascending() {
+    let mut entries = vec![entry("a.txt", false, 0), entry("Makefile", false, 0), entry(".gitignore", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec![".gitignore", "Makefile", "a.txt"]);
+}
+
+#[test]
+fn only_the_last_extension_counts_for_type() {
+    let mut entries = vec![entry("a.tar.gz", false, 0), entry("b.zip", false, 0), entry("c.gz", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["a.tar.gz", "c.gz", "b.zip"]);
+}
+
+#[test]
+fn type_descending_reverses_the_extension_order_but_keeps_folders_first() {
+    let mut entries = vec![entry("a.rs", false, 0), entry("dir", true, 0), entry("b.txt", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Descending });
+    assert_eq!(names(&entries), vec!["dir", "b.txt", "a.rs"]);
+}
+
+fn sorted_names(input: &[&str], spec: SortSpec) -> Vec<String> {
+    let mut entries: Vec<Entry> = input.iter().map(|name| entry(name, false, 0)).collect();
+    sort_entries(&mut entries, spec);
+    entries.into_iter().map(|entry| entry.name).collect()
+}
+
+const BY_NAME: SortSpec = SortSpec { key: SortKey::Name, order: SortOrder::Ascending };
+
+#[test]
+fn numbers_in_names_sort_by_value_not_digit_by_digit() {
+    assert_eq!(
+        sorted_names(&["f1000", "f10", "f1", "f100", "f102", "f2"], BY_NAME),
+        ["f1", "f2", "f10", "f100", "f102", "f1000"]
+    );
+}
+
+#[test]
+fn numbers_in_the_middle_of_a_name_sort_by_value() {
+    assert_eq!(
+        sorted_names(&["img10.png", "img9.png", "img9b.png", "img100.png"], BY_NAME),
+        ["img9.png", "img9b.png", "img10.png", "img100.png"]
+    );
+}
+
+#[test]
+fn natural_order_still_ignores_case() {
+    assert_eq!(sorted_names(&["File10", "file2", "FILE1"], BY_NAME), ["FILE1", "file2", "File10"]);
+}
+
+#[test]
+fn descending_name_order_is_the_exact_reverse_of_natural_order() {
+    let descending = SortSpec { key: SortKey::Name, order: SortOrder::Descending };
+    assert_eq!(sorted_names(&["f1", "f10", "f2"], descending), ["f10", "f2", "f1"]);
+}
+
+#[test]
+fn numbers_longer_than_any_integer_type_still_compare_by_value() {
+    let big = "n99999999999999999999999999999999";
+    let bigger = "n100000000000000000000000000000000";
+    assert_eq!(sorted_names(&[bigger, big, "n5"], BY_NAME), ["n5", big, bigger]);
+}
+
+#[test]
+fn leading_zeros_do_not_change_the_order_by_value_and_ties_are_stable() {
+    assert_eq!(sorted_names(&["a10", "a02", "a1", "a002", "a01"], BY_NAME), ["a1", "a01", "a02", "a002", "a10"]);
+    assert_eq!(sorted_names(&["a01", "a1"], BY_NAME), sorted_names(&["a1", "a01"], BY_NAME));
+}
+
+#[test]
+fn a_name_that_is_a_prefix_of_another_comes_first() {
+    assert_eq!(sorted_names(&["a10", "a", "a1"], BY_NAME), ["a", "a1", "a10"]);
+}
+
+#[test]
+fn digits_sort_before_letters_and_plain_text_is_unchanged() {
+    assert_eq!(sorted_names(&["b", "1", "a", "10", "2"], BY_NAME), ["1", "2", "10", "a", "b"]);
+}
+
+#[test]
+fn equal_sizes_break_ties_in_natural_order() {
+    let mut entries = vec![entry("f10", false, 5), entry("f2", false, 5)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Size, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["f2", "f10"]);
+}
+
+#[test]
+fn non_ascii_names_with_numbers_do_not_panic_and_order_by_value() {
+    assert_eq!(sorted_names(&["é10", "é9", "ü2"], BY_NAME), ["é9", "é10", "ü2"]);
 }

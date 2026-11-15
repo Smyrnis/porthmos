@@ -357,22 +357,25 @@ fn rank(action: Action) -> usize {
         Action::PreviousTab => 17,
         Action::NewFolder => 18,
         Action::Rename => 19,
-        Action::Delete => 20,
-        Action::Copy => 21,
-        Action::Move => 22,
-        Action::ToggleQueue => 23,
-        Action::Preview => 24,
-        Action::Edit => 25,
-        Action::Terminal => 26,
-        Action::Search => 27,
-        Action::Bookmarks => 28,
-        Action::BookmarkHere => 29,
-        Action::History => 30,
-        Action::Sync => 31,
-        Action::Palette => 32,
-        Action::Settings => 33,
-        Action::CheckForUpdates => 34,
-        Action::Quit => 35,
+        Action::Permissions => 20,
+        Action::Properties => 21,
+        Action::Delete => 22,
+        Action::Copy => 23,
+        Action::Move => 24,
+        Action::ToggleQueue => 25,
+        Action::Preview => 26,
+        Action::Edit => 27,
+        Action::Terminal => 28,
+        Action::Search => 29,
+        Action::Bookmarks => 30,
+        Action::BookmarkHere => 31,
+        Action::History => 32,
+        Action::Sync => 33,
+        Action::CompareFolders => 34,
+        Action::Palette => 35,
+        Action::Settings => 36,
+        Action::CheckForUpdates => 37,
+        Action::Quit => 38,
     }
 }
 
@@ -629,4 +632,25 @@ fn labels_spell_the_page_keys_in_camel_case() {
     assert_eq!(chord(named(Named::PageDown), Modifiers::ALT).label(), "Alt+PageDown");
     assert_eq!(chord(named(Named::Escape), Modifiers::empty()).label(), "Escape");
     assert_eq!(chord(named(Named::F5), Modifiers::empty()).label(), "F5");
+}
+
+#[test]
+fn shift_p_opens_the_permissions_prompt() {
+    let shortcuts = Shortcuts::default();
+
+    assert_eq!(lookup(&shortcuts, character("p"), Modifiers::SHIFT), Some(Action::Permissions));
+    assert_eq!(lookup(&shortcuts, character("p"), Modifiers::empty()), Some(Action::Preview));
+    assert_eq!(Action::Permissions.name(), "permissions");
+    assert_eq!(Action::from_name("permissions"), Some(Action::Permissions));
+}
+
+#[test]
+fn alt_enter_opens_the_properties_dialog() {
+    let shortcuts = Shortcuts::default();
+
+    assert_eq!(lookup(&shortcuts, named(Named::Enter), Modifiers::ALT), Some(Action::Properties));
+    assert_eq!(lookup(&shortcuts, named(Named::Enter), Modifiers::empty()), Some(Action::Open));
+    assert_eq!(Action::Properties.name(), "properties");
+    assert_eq!(Action::from_name("properties"), Some(Action::Properties));
+    assert_eq!(Action::Properties.title(), "Properties\u{2026}");
 }

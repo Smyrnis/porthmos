@@ -154,7 +154,7 @@ fn the_shell_uses_the_explicit_address_when_the_connection_no_longer_matches_its
     let mut target = Sftp.discover(&env).unwrap().remove(0);
     target.host = "10.0.0.9".into();
 
-    assert_eq!(shell_args(&target, &env), ["-p", "2200", "alice@10.0.0.9"]);
+    assert_eq!(shell_args(&target, &env), ["-p", "2200", "-J", "bastion", "alice@10.0.0.9"]);
 }
 
 #[test]
@@ -223,6 +223,16 @@ fn the_sftp_form_offers_an_optional_identity_file() {
             kind: porthmos_vfs::OptionKind::Text { default: "" },
         })
     );
+}
+
+#[test]
+fn the_sftp_form_offers_an_optional_jump_host_after_the_identity_file() {
+    let form = Sftp.connection_form();
+
+    let keys: Vec<&str> = form.options.iter().map(|field| field.key).collect();
+    assert_eq!(keys, ["identity_file", "proxy_jump"]);
+    let jump = form.option("proxy_jump").expect("a jump host field");
+    assert_eq!((jump.label, jump.required), ("Jump host", false));
 }
 
 #[test]

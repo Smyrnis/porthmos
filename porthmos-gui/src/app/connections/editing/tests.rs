@@ -121,7 +121,10 @@ fn profile_rejected_keeps_the_form_open_with_the_message() {
     fill_new(&mut harness);
     harness.press(Message::FormSavePressed);
 
-    harness.feed(Event::ProfileRejected { message: "A connection named \"prod\" already exists".to_string() });
+    harness.feed(Event::ProfileRejected {
+        field: None,
+        message: "A connection named \"prod\" already exists".to_string(),
+    });
 
     assert_eq!(form(&harness).error.as_deref(), Some("A connection named \"prod\" already exists"));
 }

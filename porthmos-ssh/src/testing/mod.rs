@@ -31,6 +31,7 @@ pub struct Options {
     pub hide_scp: bool,
     pub refuse_exec: bool,
     pub max_sessions: Option<usize>,
+    pub forwarding: bool,
     pub replace: &'static [(&'static str, &'static str)],
 }
 
@@ -44,6 +45,7 @@ struct Handler {
     running: Arc<AtomicUsize>,
     peak: Arc<AtomicUsize>,
     started: Arc<AtomicUsize>,
+    forwarded: Arc<AtomicUsize>,
 }
 
 impl server::Server for Handler {
@@ -126,6 +128,27 @@ impl server::Handler for Handler {
         Ok(())
     }
 
+    async fn channel_open_direct_tcpip(
+        &mut self, channel: Channel<Msg>, host_to_connect: &str, port_to_connect: u32, _: &str, _: u32,
+        reply: server::ChannelOpenHandle, _: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        if !self.options.forwarding {
+            reply.reject(ChannelOpenFailure::AdministrativelyProhibited).await;
+            return Ok(());
+        }
+        let Ok(mut upstream) = tokio::net::TcpStream::connect((host_to_connect, port_to_connect as u16)).await else {
+            reply.reject(ChannelOpenFailure::ConnectFailed).await;
+            return Ok(());
+        };
+        reply.accept().await;
+        self.forwarded.fetch_add(1, Ordering::SeqCst);
+        tokio::spawn(async move {
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await;
+        });
+        Ok(())
+    }
+
     async fn channel_close(&mut self, id: ChannelId, _: &mut ServerSession) -> Result<(), Self::Error> {
         self.channels.lock().unwrap().remove(&id);
         self.open.lock().unwrap().remove(&id);
@@ -204,6 +227,7 @@ pub struct SshServer {
     known_hosts: tempfile::TempDir,
     peak: Arc<AtomicUsize>,
     started: Arc<AtomicUsize>,
+    forwarded: Arc<AtomicUsize>,
 }
 
 impl SshServer {
@@ -219,6 +243,7 @@ impl SshServer {
         let port = listener.local_addr().expect("a bound address").port();
         let peak = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(AtomicUsize::new(0));
+        let forwarded = Arc::new(AtomicUsize::new(0));
         let mut handler = Handler {
             root: root.path().to_path_buf(),
             path: search_path(options.hide_scp),
@@ -228,11 +253,12 @@ impl SshServer {
             running: Arc::default(),
             peak: peak.clone(),
             started: started.clone(),
+            forwarded: forwarded.clone(),
         };
         tokio::spawn(async move {
             let _ = handler.run_on_socket(config, &listener).await;
         });
-        Self { port, root, known_hosts: tempfile::tempdir().expect("a temporary directory"), peak, started }
+        Self { port, root, known_hosts: tempfile::tempdir().expect("a temporary directory"), peak, started, forwarded }
     }
 
     pub fn known_hosts(&self) -> PathBuf {
@@ -262,6 +288,10 @@ impl SshServer {
 
     pub fn peak_commands(&self) -> usize {
         self.peak.load(Ordering::SeqCst)
+    }
+
+    pub fn forwarded_connections(&self) -> usize {
+        self.forwarded.load(Ordering::SeqCst)
     }
 
     pub fn started_commands(&self) -> usize {

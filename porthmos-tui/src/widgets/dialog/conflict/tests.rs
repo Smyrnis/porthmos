@@ -182,8 +182,8 @@ fn rows_show_existing_and_new_with_sizes_and_ages_in_that_order() {
     let (_, existing_row) = find_text(&terminal, "existing").unwrap();
     let (_, new_row) = find_text(&terminal, "new").unwrap();
     assert!(new_row > existing_row);
-    assert!(find_text(&terminal, "2.1M").is_some());
-    assert!(find_text(&terminal, "2.4M").is_some());
+    assert!(find_text(&terminal, "2.1 MB").is_some());
+    assert!(find_text(&terminal, "2.4 MB").is_some());
     assert!(find_text(&terminal, "modified 3 days ago").is_some());
 }
 

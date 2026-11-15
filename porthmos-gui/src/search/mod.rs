@@ -5,11 +5,13 @@ use porthmos_core::{Entry, Location, VfsPath};
 
 use crate::preview_view::PreviewState;
 
+const TOP_FOLDER: &str = "(top folder)";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchStatus {
     Idle,
     Searching,
-    Done { truncated: bool },
+    Done { truncated: bool, incomplete: bool },
     Failed(String),
 }
 
@@ -44,6 +46,7 @@ pub struct SearchState {
     preview_enabled: bool,
     preview: Option<SearchPreview>,
     previewed: Option<VfsPath>,
+    request_id: u64,
 }
 
 pub fn result_parent(entry: &Entry) -> VfsPath {
@@ -62,7 +65,16 @@ impl SearchState {
             preview_enabled: false,
             preview: None,
             previewed: None,
+            request_id: 0,
         }
+    }
+
+    pub fn request_id(&self) -> u64 {
+        self.request_id
+    }
+
+    pub fn expect_request(&mut self, request_id: u64) {
+        self.request_id = request_id;
     }
 
     pub fn with_preview(mut self, enabled: bool) -> Self {
@@ -164,9 +176,9 @@ impl SearchState {
         };
     }
 
-    pub fn finished(&mut self, truncated: bool) {
+    pub fn finished(&mut self, truncated: bool, incomplete: bool) {
         if self.status == SearchStatus::Searching {
-            self.status = SearchStatus::Done { truncated };
+            self.status = SearchStatus::Done { truncated, incomplete };
         }
     }
 
@@ -208,7 +220,11 @@ impl SearchState {
             return parent.to_string();
         }
         let rest: Vec<_> = below[root.len()..].iter().map(|segment| segment.to_string_lossy()).collect();
-        if rest.is_empty() { ".".to_string() } else { rest.join("/") }
+        if rest.is_empty() { TOP_FOLDER.to_string() } else { rest.join("/") }
+    }
+
+    pub fn scope_text(&self, place: &str) -> String {
+        format!("{place} \u{b7} {}", self.root)
     }
 
     pub fn status_text(&self) -> String {
@@ -217,11 +233,14 @@ impl SearchState {
             SearchStatus::Idle => format!("Type a name to search under {}", self.root),
             SearchStatus::Searching if count == 0 => "Searching…".to_string(),
             SearchStatus::Searching => format!("Searching… {count} found"),
-            SearchStatus::Done { truncated: true } if count > 0 => {
-                format!("Showing the first {count} matches; narrow the search")
+            SearchStatus::Done { truncated, incomplete } => {
+                let summary = match (*truncated, count) {
+                    (true, 1..) => format!("Showing the first {count} matches; narrow the search"),
+                    (_, 0) => "Nothing found".to_string(),
+                    _ => format!("{count} found"),
+                };
+                if *incomplete { format!("{summary}. {}", porthmos_core::SEARCH_INCOMPLETE_NOTE) } else { summary }
             }
-            SearchStatus::Done { .. } if count == 0 => "Nothing found".to_string(),
-            SearchStatus::Done { .. } => format!("{count} found"),
             SearchStatus::Failed(message) => format!("Search failed: {message}"),
         }
     }

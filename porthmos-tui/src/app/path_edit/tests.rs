@@ -320,3 +320,184 @@ fn choosing_the_palette_entry_opens_the_field() {
 
     assert!(test.app.path_edit.is_some());
 }
+
+fn complete_paths(commands: Vec<Command>) -> Vec<(Location, VfsPath, String)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::CompletePath { location, from, text } => Some((location, from, text)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+fn reply(test: &mut TestApp, location: Location, text: &str, prefix: &str, candidates: &[&str], completed: &str) {
+    let completion = porthmos_core::Completion {
+        prefix: prefix.to_string(),
+        candidates: names(candidates),
+        completed: completed.to_string(),
+    };
+    test.app.apply_core_event(Event::PathCompleted { location, text: text.to_string(), completion });
+}
+
+#[test]
+fn tab_sends_complete_path_with_the_current_text_and_panel_folder() {
+    let (mut test, session) = with_remote();
+    test.app.apply_key(ctrl_apostrophe());
+    type_text(&mut test, "/x");
+
+    press(&mut test, KeyCode::Tab);
+
+    assert_eq!(
+        complete_paths(test.sent()),
+        vec![(Location::Session(session), VfsPath::new("/srv/data"), "/srv/data/x".to_string())]
+    );
+}
+
+#[test]
+fn a_second_tab_while_the_first_is_pending_sends_nothing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    press(&mut test, KeyCode::Tab);
+    test.sent();
+
+    press(&mut test, KeyCode::Tab);
+
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_reply_for_the_current_text_replaces_the_field_and_moves_the_cursor_to_the_end() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    type_text(&mut test, "/su");
+    press(&mut test, KeyCode::Tab);
+
+    reply(&mut test, Location::Local, "/d/su", "/d/", &["sub"], "/d/sub/");
+
+    let edit = test.app.path_edit.as_ref().unwrap();
+    assert_eq!(edit.field.text, "/d/sub/");
+    assert_eq!(edit.field.cursor, 7);
+    assert!(edit.listing.is_none());
+}
+
+#[test]
+fn a_stuck_reply_with_several_candidates_stores_them_for_display() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    type_text(&mut test, "/s");
+    press(&mut test, KeyCode::Tab);
+
+    reply(&mut test, Location::Local, "/d/s", "/d/", &["sub", "subway"], "/d/sub");
+    assert_eq!(field_text(&test).as_deref(), Some("/d/sub"));
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d/sub", "/d/", &["sub", "subway"], "/d/sub");
+
+    let listing = test.app.path_edit.as_ref().unwrap().listing.as_ref().unwrap();
+    assert_eq!(listing.candidates, ["sub", "subway"]);
+}
+
+#[test]
+fn a_reply_for_text_the_user_has_since_changed_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    type_text(&mut test, "/su");
+    press(&mut test, KeyCode::Tab);
+    type_text(&mut test, "b");
+
+    reply(&mut test, Location::Local, "/d/su", "/d/", &["sub"], "/d/sub/");
+
+    assert_eq!(field_text(&test).as_deref(), Some("/d/sub"));
+    assert!(test.app.path_edit.as_ref().unwrap().listing.is_none());
+}
+
+#[test]
+fn a_reply_after_the_edit_was_cancelled_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    press(&mut test, KeyCode::Tab);
+    press(&mut test, KeyCode::Esc);
+
+    reply(&mut test, Location::Local, "/d", "/", &["x"], "/x/");
+
+    assert!(test.app.path_edit.is_none());
+}
+
+#[test]
+fn typing_enter_or_esc_clears_the_candidates() {
+    for dismissing in [KeyCode::Char('x'), KeyCode::Backspace] {
+        let mut test = test_app(&VfsPath::new("/d"));
+        test.app.apply_key(ctrl_apostrophe());
+        press(&mut test, KeyCode::Tab);
+        reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+        press(&mut test, KeyCode::Tab);
+        reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+        assert!(test.app.path_edit.as_ref().unwrap().listing.is_some());
+
+        press(&mut test, dismissing);
+
+        assert!(test.app.path_edit.as_ref().unwrap().listing.is_none());
+    }
+
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+
+    press(&mut test, KeyCode::Esc);
+    assert!(test.app.path_edit.as_ref().unwrap().listing.is_none());
+    press(&mut test, KeyCode::Esc);
+    assert!(test.app.path_edit.is_none());
+}
+
+#[test]
+fn enter_with_a_list_shown_still_submits_the_typed_text() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+    test.sent();
+
+    press(&mut test, KeyCode::Enter);
+
+    assert_eq!(go_to_paths(test.sent()), vec![(Location::Local, VfsPath::new("/d"), "/d".to_string())]);
+}
+
+#[test]
+fn pending_is_cleared_when_the_reply_arrives_even_when_it_is_stale() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    press(&mut test, KeyCode::Tab);
+    type_text(&mut test, "z");
+    test.sent();
+
+    reply(&mut test, Location::Local, "/d", "/", &[], "/d");
+    press(&mut test, KeyCode::Tab);
+
+    assert_eq!(complete_paths(test.sent()).len(), 1);
+}
+
+#[test]
+fn enter_clears_the_candidates_and_a_rejected_path_does_not_bring_them_back() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_key(ctrl_apostrophe());
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+    press(&mut test, KeyCode::Tab);
+    reply(&mut test, Location::Local, "/d", "/", &["a", "b"], "/d");
+    assert!(test.app.path_edit.as_ref().unwrap().listing.is_some());
+
+    press(&mut test, KeyCode::Enter);
+    assert!(test.app.path_edit.as_ref().unwrap().listing.is_none());
+
+    test.app.apply_core_event(Event::PathRejected { location: Location::Local });
+    assert!(test.app.path_edit.as_ref().unwrap().listing.is_none());
+}

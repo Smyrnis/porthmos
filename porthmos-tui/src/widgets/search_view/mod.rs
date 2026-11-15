@@ -21,10 +21,11 @@ use crate::{
 
 const MARKER_WIDTH: usize = 2;
 const COUNT_GAP: usize = 3;
-const HEADER_ROWS: u16 = 2;
+const HEADER_ROWS: u16 = 3;
 pub const PREVIEW_PANE_MIN_BODY: u16 = 12;
 
 pub struct SearchView {
+    pub scope: String,
     pub pattern: String,
     pub cursor: usize,
     pub results: Vec<Entry>,
@@ -52,6 +53,7 @@ pub enum SearchOutcome {
 impl SearchView {
     pub fn new() -> Self {
         Self {
+            scope: String::new(),
             pattern: String::new(),
             cursor: 0,
             results: Vec::new(),
@@ -232,7 +234,14 @@ pub fn render_search(frame: &mut Frame, area: Rect, view: &SearchView, theme: &T
         return;
     }
 
-    let rule = Rect::new(area.x, area.y + 1, area.width, 1);
+    if !view.scope.is_empty() {
+        let scope = truncate_start_with_ellipsis(&printable(&view.scope), width);
+        frame.render_widget(
+            Paragraph::new(Span::styled(scope, theme.dim())),
+            Rect::new(area.x, area.y + 1, area.width, 1),
+        );
+    }
+    let rule = Rect::new(area.x, area.y + 2, area.width, 1);
     hairline(frame, rule, theme);
     accent_underline(frame, rule, 0..area.width, theme);
     if area.height == HEADER_ROWS {

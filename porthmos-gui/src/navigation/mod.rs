@@ -48,6 +48,8 @@ impl History {
 pub struct PathEdit {
     pub side: PanelSide,
     pub text: String,
+    pub pending: bool,
+    pub listing: Option<porthmos_core::Completion>,
 }
 
 #[cfg(test)]

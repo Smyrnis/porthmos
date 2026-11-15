@@ -40,7 +40,7 @@ pub fn button<'a>(palette: &Palette) -> Element<'a, Message> {
     let plus = iced::widget::button(label("＋", palette.fg_bright))
         .padding([6.0, 12.0])
         .on_press(Message::ManagerToggled)
-        .style(flat(palette.fg_bright, true));
+        .style(flat(palette, palette.fg_bright, true));
     hinted(plus.into(), "Connections".to_string(), tooltip::Position::Left, palette)
 }
 
@@ -53,7 +53,7 @@ fn group_row<'a>(
     let line = row![
         space().width(Length::Fixed(depth as f32 * INDENT)),
         label(chevron, palette.fg_muted).width(Length::Fixed(16.0)),
-        svg(icons::handle(Icon::Folder)).width(ICON_SIZE).height(ICON_SIZE),
+        svg(icons::handle(Icon::Folder, palette.light)).width(ICON_SIZE).height(ICON_SIZE),
         space().width(Length::Fixed(6.0)),
         bold_label(group_text(name, count), palette.fg_bright),
     ]
@@ -133,7 +133,7 @@ fn list<'a>(app: &'a App) -> Element<'a, Message> {
             TreeRow::Connection { index: entry, depth } => connection_row(app, index, *entry, *depth),
         });
     }
-    scrollable(lines).width(Length::Fill).height(Length::Fill).into()
+    scrollable(lines).style(crate::view::scroll::style(palette)).width(Length::Fill).height(Length::Fill).into()
 }
 
 fn details<'a>(app: &'a App) -> Element<'a, Message> {
@@ -166,9 +166,10 @@ fn footer<'a>(app: &App) -> Element<'a, Message> {
         text_button("Add", Some(Message::ManagerAddPressed), Look::Normal, palette),
         text_button("Edit", buttons.edit.then_some(Message::ManagerEditPressed), Look::Normal, palette),
         text_button("Delete", buttons.delete.then_some(Message::ManagerDeletePressed), Look::Normal, palette),
+        text_button("Import\u{2026}", Some(Message::ImportPressed), Look::Normal, palette),
         space().width(Length::Fill),
         text_button("Close", Some(Message::ManagerClosed), Look::Normal, palette),
-        text_button("Connect", buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),
+        text_button(app.connect_label(), buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),
     ]
     .spacing(8)
     .into()
@@ -181,6 +182,7 @@ pub fn window(app: &App) -> Option<Element<'_, Message>> {
     let palette = app.palette();
     let size = app.connections_window_size();
     let filter = text_input("Filter connections", app.manager().filter())
+        .style(crate::view::input::style(palette))
         .id(App::filter_input_id())
         .on_input(Message::ManagerFilterTyped)
         .size(13.0)
@@ -193,15 +195,16 @@ pub fn window(app: &App) -> Option<Element<'_, Message>> {
     }
     let content = column![
         bold_label("Connections", palette.fg_bright),
+        hairline_across(palette),
         filter,
         container(body).height(Length::Fill).style(bordered(palette)),
         hairline_across(palette),
         footer(app),
     ]
-    .spacing(10);
-    let surface = palette.surface;
+    .spacing(12);
+    let ground = palette.bg;
     let page = container(content).padding(MARGIN).width(Length::Fill).height(Length::Fill).style(move |_| {
-        container::Style { background: Some(iced::Background::Color(surface)), ..container::Style::default() }
+        container::Style { background: Some(iced::Background::Color(ground)), ..container::Style::default() }
     });
     match super::connection_form::overlay(app) {
         Some(dialog) => Some(stack![page, dialog].into()),

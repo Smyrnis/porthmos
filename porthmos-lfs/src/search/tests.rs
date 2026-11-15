@@ -11,15 +11,19 @@ use crate::{LocalFs, from_os_path};
 struct Outcome {
     found: Vec<Entry>,
     truncated: Option<bool>,
+    incomplete: Option<bool>,
     failure: Option<String>,
 }
 
 fn collect(mut rx: mpsc::UnboundedReceiver<SearchEvent>) -> Outcome {
-    let mut outcome = Outcome { found: Vec::new(), truncated: None, failure: None };
+    let mut outcome = Outcome { found: Vec::new(), truncated: None, incomplete: None, failure: None };
     while let Ok(event) = rx.try_recv() {
         match event {
             SearchEvent::Found(entry) => outcome.found.push(entry),
-            SearchEvent::Done { truncated } => outcome.truncated = Some(truncated),
+            SearchEvent::Done { truncated, incomplete } => {
+                outcome.truncated = Some(truncated);
+                outcome.incomplete = Some(incomplete);
+            }
             SearchEvent::Failed(message) => outcome.failure = Some(message),
         }
     }
@@ -226,5 +230,15 @@ async fn search_skips_a_folder_it_cannot_read() {
     assert!(outcome.found.iter().any(|entry| entry.name == "a.txt"));
     if !readable_anyway {
         assert!(!outcome.found.iter().any(|entry| entry.name == "hidden.txt"));
+        assert_eq!(outcome.incomplete, Some(true));
     }
+}
+
+#[tokio::test]
+async fn a_search_that_reads_every_folder_is_not_marked_incomplete() {
+    let dir = sample_tree();
+
+    let outcome = run(query(dir.path(), "*.txt")).await;
+
+    assert_eq!(outcome.incomplete, Some(false));
 }

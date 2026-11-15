@@ -48,6 +48,10 @@ impl Panel {
         self.cursor
     }
 
+    pub fn entries(&self) -> &[Entry] {
+        self.listing.entries()
+    }
+
     pub fn sort_spec(&self) -> SortSpec {
         self.listing.sort_spec()
     }

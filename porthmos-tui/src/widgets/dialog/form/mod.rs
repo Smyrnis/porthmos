@@ -133,6 +133,7 @@ pub struct FormDialog {
     pub fields: Vec<FormField>,
     pub focused: usize,
     pub error: Option<String>,
+    pub error_field: Option<&'static str>,
     pub hint: Option<String>,
     pub saved_secrets: Option<(String, Vec<String>)>,
     pub remembered: BTreeMap<String, String>,
@@ -175,6 +176,7 @@ impl FormDialog {
             fields,
             focused: 0,
             error: None,
+            error_field: None,
             hint: None,
             saved_secrets: None,
             remembered: BTreeMap::new(),
@@ -182,6 +184,18 @@ impl FormDialog {
             layout: FormLayout::Popup,
             test: None,
         }
+    }
+
+    pub fn reject(&mut self, field: Option<&'static str>, message: impl Into<String>) {
+        self.error = Some(message.into());
+        self.error_field = field.filter(|key| self.fields.iter().any(|candidate| candidate.key == *key));
+        if let Some(index) = self.fields.iter().position(|candidate| Some(candidate.key) == self.error_field) {
+            self.focused = index;
+        }
+    }
+
+    pub fn rejected_field(&self) -> Option<&'static str> {
+        self.error.as_ref().and(self.error_field)
     }
 
     pub fn value(&self, key: &str) -> Option<String> {
@@ -195,13 +209,15 @@ impl FormDialog {
         if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return self.request_test();
         }
-        let before = self.test.as_ref().map(|_| self.fingerprint());
+        let tracks_values = self.test.is_some() || self.error.is_some();
+        let before = tracks_values.then(|| self.fingerprint());
         let outcome = match self.layout {
             FormLayout::Popup => self.handle_editing_key(key),
             FormLayout::Screen => self.handle_screen_key(key),
         };
         if before.is_some_and(|before| before != self.fingerprint()) {
             self.test = None;
+            self.error = None;
         }
         outcome
     }

@@ -851,3 +851,78 @@ fn go_to_path_defaults_to_ctrl_apostrophe_in_the_files_scope() {
     assert_eq!(bindings.key_for(Scope::Files, Action::GoToPath).map(format_key_spec).as_deref(), Some("Ctrl+'"));
     assert_eq!(Action::from_name("go_to_path"), Some(Action::GoToPath));
 }
+
+#[test]
+fn page_and_jump_keys_map_in_every_list_scope() {
+    let bindings = KeyBindings::defaults();
+    let keys = [
+        (KeyCode::PageUp, Action::PageUp),
+        (KeyCode::PageDown, Action::PageDown),
+        (KeyCode::Home, Action::First),
+        (KeyCode::End, Action::Last),
+    ];
+    for (code, action) in keys {
+        for scope in [Scope::Files, Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+            assert_eq!(bindings.map_key(scope, key(code)), action, "{scope:?} {code:?}");
+        }
+    }
+}
+
+#[test]
+fn backspace_goes_to_the_parent_folder_in_the_files_scope_only() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Backspace)), Action::Parent);
+    for scope in [Scope::Connections, Scope::Transfers, Scope::History, Scope::Sync] {
+        assert_eq!(bindings.map_key(scope, key(KeyCode::Backspace)), Action::Noop, "{scope:?}");
+    }
+}
+
+#[test]
+fn a_files_scope_binding_for_a_page_key_replaces_the_default_there_but_not_elsewhere() {
+    let mut bindings = KeyBindings::defaults();
+    bindings
+        .0
+        .entry(Scope::Files)
+        .or_default()
+        .insert(Action::PageDown, vec![KeySpec { code: KeyCode::Char('g'), modifiers: KeyModifiers::CONTROL }]);
+
+    let ctrl_g = key_with_modifiers(KeyCode::Char('g'), KeyModifiers::CONTROL);
+    assert_eq!(bindings.map_key(Scope::Files, ctrl_g), Action::PageDown);
+    assert_eq!(bindings.map_key(Scope::History, ctrl_g), Action::Noop);
+    assert_eq!(bindings.map_key(Scope::History, key(KeyCode::PageDown)), Action::PageDown);
+}
+
+#[test]
+fn list_jump_actions_round_trip_by_name_and_are_listed() {
+    for action in [Action::PageUp, Action::PageDown, Action::First, Action::Last, Action::Parent] {
+        assert_eq!(Action::from_name(action.name()), Some(action), "{action:?}");
+        assert!(ALL_ACTIONS.contains(&action), "{action:?}");
+    }
+}
+
+#[test]
+fn page_keys_can_be_written_in_the_config() {
+    assert_eq!(parse_key_spec("pageup").unwrap().code, KeyCode::PageUp);
+    assert_eq!(parse_key_spec("PageDown").unwrap().code, KeyCode::PageDown);
+}
+
+#[test]
+fn permissions_is_bound_to_capital_p_on_the_files_screen_and_round_trips_by_name() {
+    assert_eq!(
+        map_key_via_defaults_with_modifiers(Scope::Files, KeyCode::Char('P'), KeyModifiers::SHIFT),
+        Action::Permissions
+    );
+    assert_eq!(Action::Permissions.name(), "permissions");
+    assert_eq!(Action::from_name("permissions"), Some(Action::Permissions));
+    assert!(ALL_ACTIONS.contains(&Action::Permissions));
+}
+
+#[test]
+fn i_opens_properties_in_the_files_scope_only() {
+    assert_eq!(map_key_via_defaults(Scope::Files, KeyCode::Char('i')), Action::Properties);
+    assert_ne!(map_key_via_defaults(Scope::Connections, KeyCode::Char('i')), Action::Properties);
+    assert_eq!(Action::Properties.name(), "properties");
+    assert_eq!(Action::from_name("properties"), Some(Action::Properties));
+    assert!(ALL_ACTIONS.contains(&Action::Properties));
+}

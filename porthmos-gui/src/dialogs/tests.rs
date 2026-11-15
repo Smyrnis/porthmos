@@ -14,8 +14,11 @@ fn trust_host() -> Question {
 
 #[test]
 fn a_password_question_becomes_a_password_dialog_for_that_request() {
-    let dialog =
-        Dialog::from_question(7, Question::Password { username: "me".to_string(), name: "alpha".to_string() }, None);
+    let dialog = Dialog::from_question(
+        7,
+        Question::Password { username: "me".to_string(), name: "alpha".to_string(), secret: "Password" },
+        None,
+    );
 
     assert_eq!(dialog.request_id(), 7);
     match dialog {
@@ -72,8 +75,33 @@ fn typed_secrets_never_appear_in_debug_output() {
     assert!(!format!("{dialog:?}").contains("hunter2"));
 }
 
+#[test]
+fn a_secret_that_is_not_a_password_is_named_in_the_dialog() {
+    let question =
+        Question::Password { username: "AK".to_string(), name: "s3".to_string(), secret: "Secret access key" };
+
+    match Dialog::from_question(3, question, None) {
+        Dialog::Password { title, prompt, .. } => {
+            assert_eq!(title, "Secret access key");
+            assert_eq!(prompt, "Secret access key for AK on s3");
+        }
+        other => panic!("expected a password dialog, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_ordinary_password_keeps_the_password_wording() {
+    match Dialog::from_question(3, password_question(), None) {
+        Dialog::Password { title, prompt, .. } => {
+            assert_eq!(title, "Password");
+            assert_eq!(prompt, "Password for me on alpha");
+        }
+        other => panic!("expected a password dialog, got {other:?}"),
+    }
+}
+
 fn password_question() -> Question {
-    Question::Password { username: "me".to_string(), name: "alpha".to_string() }
+    Question::Password { username: "me".to_string(), name: "alpha".to_string(), secret: "Password" }
 }
 
 #[test]

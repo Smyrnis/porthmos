@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/Smyrnis/porthmos/security/advisories/new
+    about: Report vulnerabilities privately, not as a public issue.
+  - name: Documentation
+    url: https://github.com/Smyrnis/porthmos/tree/main/documentation
+    about: Install, keybindings, configuration and release channels.

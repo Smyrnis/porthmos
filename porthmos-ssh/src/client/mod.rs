@@ -262,9 +262,20 @@ pub async fn connect(host_key: HostKeyCheck) -> Result<(Handle<PorthmosHandler>,
     {
         tracing::warn!("set_nodelay() failed: {err:?}");
     }
+    connect_over(stream, host_key).await
+}
+
+pub async fn connect_over<S>(stream: S, host_key: HostKeyCheck) -> Result<(Handle<PorthmosHandler>, ServerId)>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let seen = ServerId::default();
-    let handle =
-        client::connect_stream(config, Sniffing::new(stream, seen.clone()), PorthmosHandler { host_key }).await?;
+    let handle = client::connect_stream(
+        Arc::new(client_config()),
+        Sniffing::new(stream, seen.clone()),
+        PorthmosHandler { host_key },
+    )
+    .await?;
     Ok((handle, seen))
 }
 

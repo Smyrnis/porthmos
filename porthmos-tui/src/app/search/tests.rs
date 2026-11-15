@@ -47,13 +47,14 @@ fn typing_a_pattern_streams_matching_results_back_into_the_search_view() {
     for c in "target".chars() {
         test.app.apply_search_key(key(KeyCode::Char(c)));
     }
-    test.app.apply_core_event(Event::SearchFound(entry(&VfsPath::new("/d"), "target.log", false)));
-    test.app.apply_core_event(Event::SearchDone { truncated: false });
+    search_found(&mut test, entry(&VfsPath::new("/d"), "target.log", false));
+    search_done(&mut test, false, false);
 
     assert!(test.app.search.as_ref().unwrap().view.results.iter().any(|entry| entry.name == "target.log"));
     assert_eq!(
         test.sent().last(),
         Some(&Command::Search {
+            request_id: current_search(&test),
             location: Location::Local,
             root: VfsPath::from("/d"),
             pattern: "*target*".to_string()
@@ -111,7 +112,7 @@ fn opening_a_result_asks_core_to_reveal_it_in_the_right_panel() {
     test.list_remote(session, "/srv", Vec::new());
     test.app.active_panel = ActivePanel::Remote;
     test.app.apply_action(Action::OpenSearch);
-    test.app.apply_core_event(Event::SearchFound(entry(&VfsPath::new("/srv/logs"), "x.log", false)));
+    search_found(&mut test, entry(&VfsPath::new("/srv/logs"), "x.log", false));
     test.sent();
 
     test.app.apply_search_key(key(KeyCode::Enter));
@@ -155,7 +156,7 @@ fn opening_a_result_in_another_folder_puts_the_cursor_on_that_file_once_it_is_li
     test.app.sessions.by_id_mut(session).unwrap().panel.cursor = 4;
     test.app.apply_action(Action::OpenSearch);
     let many = VfsPath::from("/home/x/many");
-    test.app.apply_core_event(Event::SearchFound(entry(&many, "f198.txt", false)));
+    search_found(&mut test, entry(&many, "f198.txt", false));
     test.app.apply_search_key(key(KeyCode::Enter));
 
     test.list_remote(session, "/home/x/many", many_files(&many, 101, 199));
@@ -176,7 +177,7 @@ fn opening_a_result_in_the_current_folder_puts_the_cursor_on_that_file_once_it_i
     test.list_local(many_files(&dir, 1, 20));
     test.app.local.cursor = 2;
     test.app.apply_action(Action::OpenSearch);
-    test.app.apply_core_event(Event::SearchFound(entry(&dir, "f17.txt", false)));
+    search_found(&mut test, entry(&dir, "f17.txt", false));
     test.app.apply_search_key(key(KeyCode::Enter));
 
     test.list_local(many_files(&dir, 1, 20));
@@ -197,7 +198,7 @@ fn the_cursor_is_left_alone_when_the_search_is_closed_without_opening_a_result()
     test.app.local.cursor = 2;
     let before = cursor_name(&test.app.local).map(str::to_string);
     test.app.apply_action(Action::OpenSearch);
-    test.app.apply_core_event(Event::SearchFound(entry(&dir, "f17.txt", false)));
+    search_found(&mut test, entry(&dir, "f17.txt", false));
     test.app.apply_search_key(key(KeyCode::Esc));
 
     test.list_local(many_files(&dir, 1, 20));
@@ -211,7 +212,7 @@ fn the_cursor_moves_to_the_result_without_pulling_the_user_back_to_the_files_scr
     let dir = VfsPath::new("/d");
     test.list_local(many_files(&dir, 1, 20));
     test.app.apply_action(Action::OpenSearch);
-    test.app.apply_core_event(Event::SearchFound(entry(&dir, "f17.txt", false)));
+    search_found(&mut test, entry(&dir, "f17.txt", false));
     test.app.apply_search_key(key(KeyCode::Enter));
     test.app.screen = Screen::Transfers;
 
@@ -249,7 +250,7 @@ fn open_search_with_preview(test: &mut crate::app::testing::TestApp) {
 }
 
 fn found(test: &mut crate::app::testing::TestApp, name: &str, is_dir: bool) {
-    test.app.apply_core_event(Event::SearchFound(entry(&VfsPath::new("/d"), name, is_dir)));
+    search_found(test, entry(&VfsPath::new("/d"), name, is_dir));
 }
 
 fn hints(commands: Vec<Command>) -> Vec<(u64, VfsPath)> {
@@ -327,7 +328,7 @@ fn moving_onto_a_folder_cancels_the_preview_and_requests_nothing() {
 
     test.app.apply_search_key(key(KeyCode::Down));
 
-    assert_eq!(test.sent(), vec![Command::CancelPreview]);
+    assert_eq!(test.sent(), vec![Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Pane }]);
 }
 
 #[test]
@@ -340,7 +341,7 @@ fn a_new_pattern_clears_the_pane_and_cancels_the_preview() {
     test.app.apply_search_key(key(KeyCode::Char('a')));
 
     assert!(test.app.search.as_ref().unwrap().view.pane.is_none());
-    assert!(test.sent().contains(&Command::CancelPreview));
+    assert!(test.sent().contains(&Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Pane }));
 }
 
 #[test]
@@ -355,7 +356,7 @@ fn closing_the_search_cancels_a_running_preview() {
     let sent = test.sent();
     assert_eq!(sent.len(), 2);
     assert!(sent.contains(&Command::CancelSearch));
-    assert!(sent.contains(&Command::CancelPreview));
+    assert!(sent.contains(&Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Pane }));
 }
 
 #[test]
@@ -367,7 +368,7 @@ fn opening_a_result_cancels_a_running_preview() {
 
     test.app.apply_search_key(key(KeyCode::Enter));
 
-    assert!(test.sent().contains(&Command::CancelPreview));
+    assert!(test.sent().contains(&Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Pane }));
 }
 
 #[test]
@@ -404,7 +405,7 @@ fn an_answer_for_a_file_the_cursor_already_left_is_ignored() {
     test.app.apply_core_event(Event::PreviewReady {
         request_id: old_id,
         name: "a.txt".to_string(),
-        result: Err("stale".to_string()),
+        result: Err("stale".into()),
     });
 
     let pane = test.app.search.as_ref().unwrap().view.pane.as_ref().unwrap();
@@ -488,4 +489,98 @@ fn the_hint_bar_mentions_scrolling_the_preview_only_while_the_setting_is_on() {
 
     assert!(crate::app::testing::find_text(&off, "scroll preview").is_none());
     assert!(crate::app::testing::find_text(&on, "scroll preview").is_some());
+}
+
+#[test]
+fn searching_this_computer_says_so_with_the_folder() {
+    let mut test = test_app(&VfsPath::new("/d/projects"));
+
+    test.app.apply_action(Action::OpenSearch);
+
+    assert_eq!(test.app.search.as_ref().unwrap().view.scope, "this computer \u{b7} /d/projects");
+}
+
+#[test]
+fn searching_a_connection_names_it_with_its_folder() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    let session = test.connect(2, "prod");
+    test.list_remote(session, "/srv/data", vec![entry(&VfsPath::new("/srv/data"), "a", false)]);
+    test.app.active_panel = ActivePanel::Remote;
+
+    test.app.apply_action(Action::OpenSearch);
+
+    assert_eq!(test.app.search.as_ref().unwrap().view.scope, "prod \u{b7} /srv/data");
+}
+
+#[test]
+fn a_search_that_skipped_folders_warns_that_results_may_be_missing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+
+    search_done(&mut test, false, true);
+
+    let notice = test.app.notifications.current().unwrap();
+    assert_eq!(notice.severity, Severity::Warning);
+    assert_eq!(notice.message, porthmos_core::SEARCH_INCOMPLETE_NOTE);
+}
+
+#[test]
+fn a_complete_search_says_nothing() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+
+    search_done(&mut test, false, false);
+
+    assert!(test.app.notifications.current().is_none());
+}
+
+fn current_search(test: &crate::app::testing::TestApp) -> u64 {
+    test.app.search.as_ref().map_or(0, |session| session.request_id)
+}
+
+fn search_found(test: &mut crate::app::testing::TestApp, entry: porthmos_core::Entry) {
+    let request_id = current_search(test);
+    test.app.apply_core_event(Event::SearchFound { request_id, entry });
+}
+
+fn search_done(test: &mut crate::app::testing::TestApp, truncated: bool, incomplete: bool) {
+    let request_id = current_search(test);
+    test.app.apply_core_event(Event::SearchDone { request_id, truncated, incomplete });
+}
+
+#[test]
+fn a_late_result_of_an_earlier_search_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    test.app.apply_search_key(key(KeyCode::Char('a')));
+    let stale = current_search(&test);
+    test.app.apply_search_key(key(KeyCode::Char('b')));
+
+    test.app.apply_core_event(Event::SearchFound {
+        request_id: stale,
+        entry: entry(&VfsPath::new("/d"), "old.log", false),
+    });
+    test.app.apply_core_event(Event::SearchDone { request_id: stale, truncated: true, incomplete: true });
+
+    let view = &test.app.search.as_ref().unwrap().view;
+    assert!(view.results.is_empty());
+    assert!(!view.truncated);
+}
+
+#[test]
+fn a_late_result_after_the_search_view_was_reopened_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    test.app.apply_action(Action::OpenSearch);
+    test.app.apply_search_key(key(KeyCode::Char('a')));
+    let stale = current_search(&test);
+    test.app.apply_search_key(key(KeyCode::Esc));
+    test.app.apply_action(Action::OpenSearch);
+    test.app.apply_search_key(key(KeyCode::Char('z')));
+
+    test.app.apply_core_event(Event::SearchFound {
+        request_id: stale,
+        entry: entry(&VfsPath::new("/d"), "old.log", false),
+    });
+
+    assert!(test.app.search.as_ref().unwrap().view.results.is_empty());
 }

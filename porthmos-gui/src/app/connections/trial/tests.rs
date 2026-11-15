@@ -35,7 +35,7 @@ fn connected_report() -> TestOutcome {
 }
 
 fn password_question() -> Question {
-    Question::Password { username: "me".to_string(), name: "prod".to_string() }
+    Question::Password { username: "me".to_string(), name: "prod".to_string(), secret: "Password" }
 }
 
 fn start(harness: &mut Harness) -> u64 {
@@ -197,6 +197,28 @@ fn a_password_question_opens_a_prompt() {
 
     let prompt = form(&harness).prompt.as_ref().unwrap();
     assert_eq!((prompt.request_id, prompt.username.as_str(), prompt.name.as_str()), (9, "me", "prod"));
+}
+
+#[test]
+fn a_secret_that_is_not_a_password_is_named_in_the_prompt() {
+    let mut harness = new_form();
+    let id = start(&mut harness);
+    let question =
+        Question::Password { username: "AK".to_string(), name: "s3".to_string(), secret: "Secret access key" };
+
+    harness.feed(Event::TestQuestion { test_id: id, request_id: 9, question });
+
+    assert_eq!(form(&harness).prompt.as_ref().unwrap().heading(), "Secret access key for AK@s3");
+}
+
+#[test]
+fn an_ordinary_password_prompt_keeps_the_password_wording() {
+    let mut harness = new_form();
+    let id = start(&mut harness);
+
+    harness.feed(Event::TestQuestion { test_id: id, request_id: 9, question: password_question() });
+
+    assert_eq!(form(&harness).prompt.as_ref().unwrap().heading(), "Password for me@prod");
 }
 
 #[test]

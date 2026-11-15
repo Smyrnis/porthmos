@@ -1,0 +1,29 @@
+_version: 1
+folders:
+  compare:
+    identical: "Comparing folders: they are identical"
+    differences:
+      one: "Comparing folders: %{count} difference"
+      other: "Comparing folders: %{count} differences"
+    needs_server: "Connect to a server to compare folders"
+import:
+  done:
+    one: "Imported %{count} connection"
+    other: "Imported %{count} connections"
+  skipped: " (%{skipped} skipped)"
+  nothing_found: "No connections found in that %{source} source"
+permissions:
+  mode:
+    empty: "Type a mode such as 644 or 755"
+    not_octal: "A mode is made of the digits 0 to 7"
+    wrong_length: "A mode has three or four digits"
+  request:
+    flag_twice: "Use -R only once"
+    unknown_option: "The only option is -R (everything inside folders)"
+    two_modes: "Type one mode, and -R to include what is inside folders"
+delete:
+  folder: "Delete the folder \"%{name}\" and everything inside it from %{place}?"
+  file: "Delete \"%{name}\" from %{place}?"
+  many: "Delete %{count} items from %{place}?"
+  more: "and %{count} more"
+  folder_note: "Folders are deleted with everything inside them."

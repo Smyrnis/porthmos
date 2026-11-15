@@ -21,6 +21,8 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::Mkdir, "New folder", Availability::On(Screen::Files)),
     (Action::Delete, "Delete", Availability::On(Screen::Files)),
     (Action::Rename, "Rename", Availability::On(Screen::Files)),
+    (Action::Permissions, "Change permissions", Availability::On(Screen::Files)),
+    (Action::Properties, "Size and SHA-256 checksum", Availability::On(Screen::Files)),
     (Action::Edit, "Edit in $EDITOR", Availability::On(Screen::Files)),
     (Action::SwitchPanel, "Switch panel", Availability::On(Screen::Files)),
     (Action::ToggleHidden, "Show or hide hidden files", Availability::On(Screen::Files)),
@@ -30,6 +32,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::OpenSearch, "Search files", Availability::On(Screen::Files)),
     (Action::GoToPath, "Go to folder path", Availability::On(Screen::Files)),
     (Action::OpenSync, "Synchronize folders", Availability::On(Screen::Files)),
+    (Action::CompareFolders, "Compare folders", Availability::On(Screen::Files)),
     (Action::CycleSession, "Next session", Availability::On(Screen::Files)),
     (Action::OpenTerminal, "Open a terminal in the active folder", Availability::On(Screen::Files)),
     (Action::Filter, "Filter files", Availability::On(Screen::Files)),
@@ -58,6 +61,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::CancelTransfer, "Cancel all transfers", Availability::Everywhere),
     (Action::SpeedLimit, "Set the speed limit", Availability::Everywhere),
     (Action::CheckForUpdates, "Check for updates", Availability::Everywhere),
+    (Action::ImportConnections, "Import connections from FileZilla, WinSCP or PuTTY", Availability::Everywhere),
 ];
 
 const PAGE: isize = 5;

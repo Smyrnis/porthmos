@@ -2,13 +2,14 @@ use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::{Id, operation};
 use iced::{Size, Task, window};
+use porthmos_core::delete_prompt::THIS_COMPUTER;
+use porthmos_core::preview::PreviewSlot;
 use porthmos_core::{Command, Entry, Location};
 
 use super::{App, Message};
 use crate::geometry::{ROW_HEIGHT, scroll_to_show};
 use crate::search::{PreviewSync, SearchState, result_parent};
 use crate::shortcuts::KeyPress;
-use crate::tools::Tool;
 use crate::view::search::search_list_height;
 use crate::windows::{SEARCH_WINDOW_SIZE, WindowKind};
 
@@ -42,6 +43,15 @@ impl App {
         self.windows.id_of(WindowKind::Search).and_then(|id| self.windows.size_of(id)).unwrap_or(SEARCH_WINDOW_SIZE)
     }
 
+    pub fn search_place(&self) -> String {
+        match self.search.as_ref().map(SearchState::location) {
+            Some(Location::Session(id)) => {
+                self.sessions.by_id(id).map_or_else(|| id.to_string(), |session| session.name.clone())
+            }
+            _ => THIS_COMPUTER.to_string(),
+        }
+    }
+
     fn new_search(&self) -> Option<SearchState> {
         let side = self.active;
         let location = self.location_of(side)?;
@@ -73,31 +83,15 @@ impl App {
             return;
         };
         let had_preview = state.preview().is_some();
+        self.next_search_request();
         self.core.send(Command::CancelSearch);
         if had_preview {
             self.cancel_search_preview();
         }
     }
 
-    fn preview_tool_open(&self) -> bool {
-        matches!(self.tool, Some(Tool::Preview(_)))
-    }
-
     fn cancel_search_preview(&mut self) {
-        if !self.preview_tool_open() {
-            self.core.send(Command::CancelPreview);
-        }
-    }
-
-    pub(in crate::app) fn search_preview_interrupted(&mut self) {
-        if let Some(state) = self.search.as_mut() {
-            state.reset_preview();
-        }
-    }
-
-    pub(in crate::app) fn search_preview_resumed(&mut self) {
-        self.search_preview_interrupted();
-        self.sync_search_preview();
+        self.core.send(Command::CancelPreview { slot: PreviewSlot::Pane });
     }
 
     pub(in crate::app) fn apply_search_preview_setting(&mut self, enabled: bool) {
@@ -133,29 +127,40 @@ impl App {
         Task::none()
     }
 
-    pub(in crate::app) fn search_found(&mut self, entry: Entry) {
+    fn current_search(&mut self, request_id: u64) -> Option<&mut SearchState> {
+        self.search.as_mut().filter(|state| state.request_id() == request_id)
+    }
+
+    fn next_search_request(&mut self) -> u64 {
+        let request_id = self.next_search_id;
+        self.next_search_id += 1;
         if let Some(state) = self.search.as_mut() {
-            state.found(entry);
+            state.expect_request(request_id);
         }
+        request_id
+    }
+
+    pub(in crate::app) fn search_found(&mut self, request_id: u64, entry: Entry) {
+        let Some(state) = self.current_search(request_id) else {
+            return;
+        };
+        state.found(entry);
         self.sync_search_preview();
     }
 
-    pub(in crate::app) fn search_done(&mut self, truncated: bool) {
-        if let Some(state) = self.search.as_mut() {
-            state.finished(truncated);
+    pub(in crate::app) fn search_done(&mut self, request_id: u64, truncated: bool, incomplete: bool) {
+        if let Some(state) = self.current_search(request_id) {
+            state.finished(truncated, incomplete);
         }
     }
 
-    pub(in crate::app) fn search_failed(&mut self, message: String) {
-        if let Some(state) = self.search.as_mut() {
+    pub(in crate::app) fn search_failed(&mut self, request_id: u64, message: String) {
+        if let Some(state) = self.current_search(request_id) {
             state.failed(message);
         }
     }
 
     fn sync_search_preview(&mut self) {
-        if self.preview_tool_open() {
-            return;
-        }
         let request_id = self.next_preview_id;
         let Some(state) = self.search.as_mut() else {
             return;
@@ -251,10 +256,15 @@ impl App {
                     return Task::none();
                 };
                 let had_preview = state.preview().is_some();
-                let command = match state.set_pattern(text) {
-                    Some(request) => {
-                        Command::Search { location: request.location, root: request.root, pattern: request.pattern }
-                    }
+                let request = state.set_pattern(text);
+                let request_id = self.next_search_request();
+                let command = match request {
+                    Some(request) => Command::Search {
+                        request_id,
+                        location: request.location,
+                        root: request.root,
+                        pattern: request.pattern,
+                    },
                     None => Command::CancelSearch,
                 };
                 self.core.send(command);

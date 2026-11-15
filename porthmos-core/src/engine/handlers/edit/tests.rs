@@ -970,3 +970,305 @@ async fn the_conflict_copy_is_stamped_with_the_local_time() {
 
     assert_eq!(fs.contents("/home/user/a.conflict-20261031-172219.txt").unwrap(), b"mine");
 }
+
+fn diff_replies(events: &[Event]) -> Vec<(u64, Result<std::sync::Arc<crate::diff::DiffOutcome>, String>)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::EditDiff { edit_id, result } => {
+                Some((*edit_id, result.clone().map_err(|message| message.to_string())))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+async fn diff_reply(t: &mut TestEngine, edit_id: u64) -> Result<std::sync::Arc<crate::diff::DiffOutcome>, String> {
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+    t.run_internal().await;
+    let mut replies = diff_replies(&t.drain());
+    assert_eq!(replies.len(), 1, "exactly one reply expected");
+    let (id, result) = replies.remove(0);
+    assert_eq!(id, edit_id);
+    result
+}
+
+#[tokio::test]
+async fn showing_the_differences_of_a_conflict_returns_the_changed_lines() {
+    use crate::diff::{DiffKind, DiffOutcome};
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here\n", 10).await;
+    let file = t.engine.edit.sessions[&edit_id].temp.as_ref().unwrap().file.clone();
+    std::fs::write(&file, b"mine\n").unwrap();
+
+    let outcome = diff_reply(&mut t, edit_id).await.unwrap();
+
+    let DiffOutcome::Changes(lines) = outcome.as_ref() else {
+        panic!("expected changes, got {outcome:?}");
+    };
+    let rows: Vec<(DiffKind, &str)> = lines.iter().map(|line| (line.kind, line.text.as_str())).collect();
+    assert_eq!(rows, vec![(DiffKind::Removed, "someone else was here"), (DiffKind::Added, "mine")]);
+}
+
+#[tokio::test]
+async fn a_remote_file_deleted_after_the_conflict_is_remote_gone() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    fs.delete(&VfsPath::new(REMOTE)).await.unwrap();
+
+    let outcome = diff_reply(&mut t, edit_id).await.unwrap();
+
+    assert_eq!(*outcome, crate::diff::DiffOutcome::RemoteGone);
+}
+
+#[tokio::test]
+async fn a_remote_file_over_the_limit_is_too_large() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, &vec![b'x'; 1024 * 1024 + 1], 10).await;
+
+    let outcome = diff_reply(&mut t, edit_id).await.unwrap();
+
+    assert_eq!(*outcome, crate::diff::DiffOutcome::TooLarge { limit: 1024 * 1024 });
+}
+
+#[tokio::test]
+async fn a_remote_file_exactly_at_the_limit_is_compared() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, &vec![b'x'; 1024 * 1024], 10).await;
+
+    let outcome = diff_reply(&mut t, edit_id).await.unwrap();
+
+    assert!(matches!(*outcome, crate::diff::DiffOutcome::Changes(_)), "{outcome:?}");
+}
+
+#[tokio::test]
+async fn a_larger_configured_limit_allows_a_bigger_file() {
+    let mut t = test_engine();
+    t.engine.edit.settings.compare_limit_mib = 2;
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, &vec![b'x'; 1024 * 1024 + 512 * 1024], 10).await;
+
+    let outcome = diff_reply(&mut t, edit_id).await.unwrap();
+
+    assert!(matches!(*outcome, crate::diff::DiffOutcome::Changes(_)), "{outcome:?}");
+}
+
+#[tokio::test]
+async fn a_local_copy_over_the_limit_is_too_large() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let (edit_id, _) = edit_to(&mut t, session, &vec![b'y'; 1024 * 1024 + 1]).await;
+    fs.file(REMOTE, b"small", Some(10));
+    finish(&mut t, edit_id).await;
+    t.run_internal().await;
+    assert!(question_of(&t.drain()).is_some());
+
+    let outcome = diff_reply(&mut t, edit_id).await.unwrap();
+
+    assert_eq!(*outcome, crate::diff::DiffOutcome::TooLarge { limit: 1024 * 1024 });
+}
+
+#[tokio::test]
+async fn a_remote_file_that_cannot_be_read_gives_an_error_and_the_question_stays_answerable() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    fs.fail_reads(REMOTE);
+
+    let result = diff_reply(&mut t, edit_id).await;
+
+    assert!(result.is_err(), "{result:?}");
+    t.engine.handle_command(Command::ResolveEdit { edit_id, choice: EditChoice::KeepCopy });
+    t.run_internal().await;
+    let names: Vec<String> =
+        fs.list(&VfsPath::new("/home/user")).await.unwrap().into_iter().map(|entry| entry.name).collect();
+    assert!(names.iter().any(|name| name.starts_with("a.conflict-")), "{names:?}");
+}
+
+#[tokio::test]
+async fn a_diff_request_with_no_conflict_pending_is_ignored() {
+    let mut t = test_engine();
+    let (session, _fs) = remote_session(&mut t);
+    let (edit_id, _) = edit_to(&mut t, session, b"mine").await;
+
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+
+    assert!(diff_replies(&t.drain()).is_empty());
+    assert!(t.engine.tasks.live_names().is_empty());
+}
+
+#[tokio::test]
+async fn a_diff_request_while_the_upload_question_is_pending_is_ignored() {
+    let mut t = test_engine();
+    t.engine.edit.settings.auto_upload = false;
+    let (session, _fs) = remote_session(&mut t);
+    let (edit_id, _) = edit_to(&mut t, session, b"mine").await;
+    finish(&mut t, edit_id).await;
+    assert_eq!(question_of(&t.drain()).map(|question| question.2), Some(EditQuestionKind::Upload));
+
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+
+    assert!(diff_replies(&t.drain()).is_empty());
+    assert!(t.engine.tasks.live_names().is_empty());
+}
+
+#[tokio::test]
+async fn asking_twice_while_comparing_answers_once() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+    t.run_internal().await;
+
+    assert_eq!(diff_replies(&t.drain()).len(), 1);
+}
+
+#[tokio::test]
+async fn the_diff_can_be_asked_for_again_after_it_answered() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+
+    diff_reply(&mut t, edit_id).await.unwrap();
+    diff_reply(&mut t, edit_id).await.unwrap();
+}
+
+#[tokio::test]
+async fn resolving_while_comparing_drops_the_reply() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+    t.engine.handle_command(Command::ResolveEdit { edit_id, choice: EditChoice::KeepCopy });
+    t.run_internal().await;
+    t.run_internal().await;
+
+    assert!(diff_replies(&t.drain()).is_empty());
+    assert!(t.engine.edit.sessions.is_empty());
+}
+
+#[tokio::test]
+async fn a_diff_leaves_the_temporary_copy_and_the_pending_question_untouched() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    let file = t.engine.edit.sessions[&edit_id].temp.as_ref().unwrap().file.clone();
+
+    diff_reply(&mut t, edit_id).await.unwrap();
+
+    assert_eq!(std::fs::read(&file).unwrap(), b"mine");
+    assert_eq!(fs.contents(REMOTE).unwrap(), b"someone else was here");
+    t.engine.handle_command(Command::ResolveEdit { edit_id, choice: EditChoice::Upload });
+    t.run_internal().await;
+    assert_eq!(fs.contents(REMOTE).unwrap(), b"mine");
+}
+
+#[tokio::test]
+async fn a_session_lost_before_the_diff_is_requested_gives_an_error_and_keeps_the_copy() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    let file = t.engine.edit.sessions[&edit_id].temp.as_ref().unwrap().file.clone();
+    t.engine.handle_command(Command::Disconnect { session });
+    t.drain();
+
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+
+    let replies = diff_replies(&t.drain());
+    assert_eq!(replies.len(), 1);
+    assert!(replies[0].1.as_ref().unwrap_err().contains("session disconnected"), "{replies:?}");
+    assert_eq!(std::fs::read(&file).unwrap(), b"mine");
+    assert!(t.engine.edit.sessions.contains_key(&edit_id));
+}
+
+#[tokio::test]
+async fn a_diff_for_an_unknown_edit_is_ignored() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::ShowEditDiff { edit_id: 99 });
+
+    assert!(t.drain().is_empty());
+    assert!(t.engine.tasks.live_names().is_empty());
+}
+
+#[tokio::test]
+async fn cancelling_a_comparison_in_flight_answers_with_an_error_so_the_question_is_not_lost() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    fs.hanging_reads(REMOTE, 4);
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+
+    t.engine.tasks.cancel(Scope::Edit(edit_id));
+    t.run_internal().await;
+
+    let replies = diff_replies(&t.drain());
+    assert_eq!(replies.len(), 1);
+    assert!(replies[0].1.as_ref().unwrap_err().contains("cancelled"), "{replies:?}");
+    assert!(!t.engine.edit.sessions[&edit_id].diffing);
+}
+
+#[tokio::test]
+async fn resolving_while_comparing_stops_the_comparison_task() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    fs.hanging_reads(REMOTE, 4);
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+
+    t.engine.handle_command(Command::ResolveEdit { edit_id, choice: EditChoice::Cancel });
+    t.run_internal().await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    assert!(diff_replies(&t.drain()).is_empty());
+    assert!(!t.engine.tasks.live_names().contains(&"edit-diff"));
+}
+
+#[tokio::test]
+async fn closing_the_session_while_comparing_stops_the_comparison_task() {
+    let mut t = test_engine();
+    let (session, fs) = remote_session(&mut t);
+    let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
+    fs.hanging_reads(REMOTE, 4);
+    t.engine.handle_command(Command::ShowEditDiff { edit_id });
+
+    t.engine.handle_command(Command::ResolveEdit { edit_id, choice: EditChoice::KeepCopy });
+    t.run_internal().await;
+    t.run_internal().await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    assert!(!t.engine.tasks.live_names().contains(&"edit-diff"));
+}
+
+fn cursor_of(size: usize) -> porthmos_vfs::Reader {
+    Box::new(std::io::Cursor::new(vec![b'x'; size]))
+}
+
+#[tokio::test]
+async fn a_stream_longer_than_its_reported_size_is_cut_off_at_the_limit() {
+    use super::diff::{Loaded, read_capped};
+    let cancel = AtomicBool::new(false);
+
+    let over = read_capped(&mut cursor_of(1001), 1000, &cancel).await.unwrap();
+    let exact = read_capped(&mut cursor_of(1000), 1000, &cancel).await.unwrap();
+
+    assert!(matches!(over, Loaded::TooLarge));
+    assert!(matches!(exact, Loaded::Whole(bytes) if bytes.len() == 1000));
+}
+
+#[tokio::test]
+async fn reading_stops_as_soon_as_the_cancel_flag_is_set() {
+    use super::diff::{Loaded, read_capped};
+    let cancel = AtomicBool::new(true);
+
+    let loaded = read_capped(&mut cursor_of(10), 1000, &cancel).await.unwrap();
+
+    assert!(matches!(loaded, Loaded::Cancelled));
+}

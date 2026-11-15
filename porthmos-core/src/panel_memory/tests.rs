@@ -36,7 +36,7 @@ fn a_value_that_is_not_understood_falls_back_to_the_configured_one() {
 #[test]
 fn every_choice_survives_being_written_and_read_back() {
     for show_hidden in [false, true] {
-        for key in [SortKey::Name, SortKey::Size] {
+        for key in SortKey::ALL {
             for order in [SortOrder::Ascending, SortOrder::Descending] {
                 let original = settings(show_hidden, key, order);
                 let text = toml::to_string(&PanelMemory::of(&original)).unwrap();

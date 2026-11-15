@@ -51,6 +51,12 @@ pub(crate) fn cursor_name(panel: &crate::widgets::panel_view::PanelView) -> Opti
 
 impl TestApp {
     pub(crate) fn sent(&mut self) -> Vec<Command> {
+        let mut sent = self.sent_raw();
+        sent.retain(|command| !matches!(command, Command::ActiveConnection { .. }));
+        sent
+    }
+
+    pub(crate) fn sent_raw(&mut self) -> Vec<Command> {
         std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
     }
 
@@ -60,8 +66,15 @@ impl TestApp {
     }
 
     pub(crate) fn connect(&mut self, session: u64, name: &str) -> u64 {
-        self.app.apply_core_event(Event::Connected { session, name: name.to_string(), shell_available: true });
+        let (screen, active_panel) = (self.app.screen, self.app.active_panel);
+        self.connect_and_follow(session, name);
+        self.app.screen = screen;
+        self.app.active_panel = active_panel;
         session
+    }
+
+    pub(crate) fn connect_and_follow(&mut self, session: u64, name: &str) {
+        self.app.apply_core_event(Event::Connected { session, name: name.to_string(), shell_available: true });
     }
 
     pub(crate) fn list_remote(&mut self, session: u64, path: &str, entries: Vec<Entry>) {

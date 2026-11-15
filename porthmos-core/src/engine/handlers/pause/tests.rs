@@ -69,7 +69,7 @@ fn engine_with_slow_queue(names: &[&str]) -> (TestEngine, FakeFs, u64, Vec<u64>)
     let (session, remote) = t.add_session("srv");
     remote.dir("/up");
     let (batch, ids) = batch_of(&mut t, session, names, 40_000);
-    t.engine.speed_limit.set(Some(4_000));
+    t.engine.work.speed_limit.set(Some(4_000));
     (t, remote, batch, ids)
 }
 
@@ -446,12 +446,12 @@ fn pausing_a_move_while_its_original_is_being_removed_lets_the_removal_finish() 
     let (mut t, _remote, batch, ids) = engine_with_idle_queue(&["a.bin"]);
     mark_running(&mut t, ids[0], 4000);
     t.engine.transfers.get_mut(ids[0]).unwrap().remove_source = true;
-    t.engine.source_removals.insert(ids[0]);
+    t.engine.work.source_removals.insert(ids[0]);
 
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
 
     assert!(job(&t, ids[0]).paused);
-    assert!(!t.engine.pause_stops.contains(&ids[0]));
+    assert!(!t.engine.work.pause_stops.contains(&ids[0]));
     assert_eq!(job(&t, ids[0]).status, JobStatus::InProgress);
 
     t.engine.handle_transfer_event(TransferEvent::SourceRemoved { id: ids[0] });
@@ -459,7 +459,7 @@ fn pausing_a_move_while_its_original_is_being_removed_lets_the_removal_finish() 
     let done = job(&t, ids[0]);
     assert_eq!(done.status, JobStatus::Completed);
     assert!(!done.paused);
-    assert!(t.engine.source_removals.is_empty());
+    assert!(t.engine.work.source_removals.is_empty());
 }
 
 #[test]
@@ -467,7 +467,7 @@ fn a_failed_removal_after_a_pause_clears_the_pause_and_the_stop_marker() {
     let (mut t, _remote, batch, ids) = engine_with_idle_queue(&["a.bin"]);
     mark_running(&mut t, ids[0], 4000);
     t.engine.transfers.get_mut(ids[0]).unwrap().remove_source = true;
-    t.engine.source_removals.insert(ids[0]);
+    t.engine.work.source_removals.insert(ids[0]);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
 
     t.engine.handle_transfer_event(TransferEvent::SourceRemovalFailed { id: ids[0], message: "denied".to_string() });
@@ -475,7 +475,7 @@ fn a_failed_removal_after_a_pause_clears_the_pause_and_the_stop_marker() {
     let failed = job(&t, ids[0]);
     assert!(matches!(failed.status, JobStatus::Failed(_)));
     assert!(!failed.paused);
-    assert!(t.engine.pause_stops.is_empty() && t.engine.source_removals.is_empty());
+    assert!(t.engine.work.pause_stops.is_empty() && t.engine.work.source_removals.is_empty());
 }
 
 #[test]
@@ -493,10 +493,10 @@ fn disconnecting_while_a_row_is_paused_fails_its_jobs_and_forgets_the_stops() {
     let (mut t, _remote, batch, ids) = engine_with_idle_queue(&["a.bin", "b.bin"]);
     mark_running(&mut t, ids[0], 100);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
-    let session = t.engine.sessions.keys().next().copied().unwrap();
+    let session = t.engine.book.sessions.keys().next().copied().unwrap();
 
     t.engine.disconnect(session);
 
-    assert!(t.engine.pause_stops.is_empty());
+    assert!(t.engine.work.pause_stops.is_empty());
     assert!(matches!(job(&t, ids[1]).status, JobStatus::Failed(_)));
 }

@@ -43,6 +43,7 @@ fn entry_row<'a>(palette: &Palette, index: usize, entry: &Entry, selected: bool)
 pub fn body<'a>(app: &'a App, state: &'a PaletteState) -> Element<'a, Message> {
     let palette = app.palette();
     let input = text_input(PLACEHOLDER, state.query())
+        .style(crate::view::input::style(palette))
         .id(App::palette_input_id())
         .on_input(Message::PaletteTyped)
         .size(13.0)
@@ -58,6 +59,7 @@ pub fn body<'a>(app: &'a App, state: &'a PaletteState) -> Element<'a, Message> {
         rows = rows.push(container(label(hint, palette.fg_dim)).padding(12));
     }
     let list = scrollable(rows)
+        .style(crate::view::scroll::style(palette))
         .id(App::tool_list_id())
         .width(Length::Fill)
         .height(Length::Fixed(palette_list_height(app.window_size())));

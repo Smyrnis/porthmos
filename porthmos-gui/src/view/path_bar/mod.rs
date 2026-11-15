@@ -1,11 +1,11 @@
 use iced::widget::{button, container, mouse_area, row, space, text_input};
-use iced::{Background, Border, Color, Element, Length, alignment};
+use iced::{Background, Border, Element, Length, alignment};
 
 use super::button::{Look, flat, tool_button};
 use super::{bold_label, filled, label};
 use crate::app::{App, Message, PanelSide};
 use crate::breadcrumbs::{Crumb, crumbs};
-use crate::geometry::PATH_BAR_HEIGHT;
+use crate::geometry::{HAIRLINE, PATH_BAR_HEIGHT, ROW_HEIGHT, TAB_HEIGHT, TOOLBAR_HEIGHT, TRANSFER_COLUMN_WIDTH};
 use crate::icons::Icon;
 use crate::panel::Panel;
 
@@ -47,7 +47,7 @@ fn crumb_strip<'a>(app: &'a App, side: PanelSide, panel: &Panel, width: f32) -> 
         let item = button(title)
             .padding([2.0, 4.0])
             .on_press(Message::CrumbPressed(side, target))
-            .style(flat(palette.fg, true));
+            .style(flat(&palette, palette.fg, true));
         strip = strip.push(item);
         if !current {
             strip = strip.push(label("›", palette.fg_dim));
@@ -55,12 +55,22 @@ fn crumb_strip<'a>(app: &'a App, side: PanelSide, panel: &Panel, width: f32) -> 
     }
     let rest = mouse_area(space().width(Length::Fill).height(Length::Fill)).on_press(Message::PathEditStarted(side));
     let line = row![strip, rest].align_y(alignment::Vertical::Center).height(Length::Fill);
-    field_frame(line.into(), &palette)
+    field_frame(line.into(), &palette, false)
 }
 
-fn field_frame<'a>(content: Element<'a, Message>, palette: &crate::theme::Palette) -> Element<'a, Message> {
-    let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let fill = Color::from_rgb8(0x05, 0x05, 0x05);
+fn frame_border(editing: bool, palette: &crate::theme::Palette) -> Border {
+    if editing {
+        Border { color: palette.accent, width: 1.5, radius: 6.0.into() }
+    } else {
+        Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() }
+    }
+}
+
+fn field_frame<'a>(
+    content: Element<'a, Message>, palette: &crate::theme::Palette, editing: bool,
+) -> Element<'a, Message> {
+    let border = frame_border(editing, palette);
+    let fill = palette.surface;
     container(content)
         .padding([0.0, 6.0])
         .width(Length::Fill)
@@ -85,8 +95,9 @@ pub fn bar<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, width: f32) -> E
                 .id(side.path_input_id())
                 .on_input(Message::PathTyped)
                 .on_submit(Message::PathSubmitted)
-                .size(13.0);
-            field_frame(input.into(), palette)
+                .size(13.0)
+                .style(super::input::bare_style(palette));
+            field_frame(input.into(), palette, true)
         }
         None => crumb_strip(app, side, panel, width),
     };
@@ -106,6 +117,63 @@ pub fn bar<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, width: f32) -> E
     .align_y(alignment::Vertical::Center)
     .style(filled(palette.bg))
     .into()
+}
+
+pub fn more_text(more: usize) -> Option<String> {
+    (more > 0).then(|| format!("and {more} more"))
+}
+
+const CANDIDATE_INSET: f32 = 118.0;
+const CANDIDATE_MIN_WIDTH: f32 = 180.0;
+const CANDIDATE_CHAR_WIDTH: f32 = 8.0;
+const CANDIDATE_PADDING: f32 = 16.0;
+
+fn panel_left(app: &App, side: PanelSide) -> f32 {
+    match side {
+        PanelSide::Local => 0.0,
+        PanelSide::Remote => {
+            let panel_width = (app.window_size().width - TRANSFER_COLUMN_WIDTH - 2.0 * HAIRLINE) / 2.0;
+            panel_width + TRANSFER_COLUMN_WIDTH + 2.0 * HAIRLINE
+        }
+    }
+}
+
+pub fn candidates(app: &App) -> Option<Element<'_, Message>> {
+    let edit = app.path_edit()?;
+    let listing = edit.listing.as_ref()?;
+    let palette = app.palette();
+    let (shown, more) = listing.shown();
+    let widest = shown.iter().map(|name| name.chars().count()).max().unwrap_or(0);
+    let width = (widest as f32 * CANDIDATE_CHAR_WIDTH + CANDIDATE_PADDING).max(CANDIDATE_MIN_WIDTH);
+    let mut rows = iced::widget::column![];
+    for name in shown {
+        let entry = button(label(name.clone(), palette.fg))
+            .on_press(Message::PathCandidateChosen(name.clone()))
+            .padding([0.0, 8.0])
+            .height(Length::Fixed(ROW_HEIGHT))
+            .width(Length::Fill)
+            .style(flat(palette, palette.fg, true));
+        rows = rows.push(entry);
+    }
+    if let Some(text) = more_text(more) {
+        rows = rows.push(container(label(text, palette.fg_dim)).padding([0.0, 8.0]).height(Length::Fixed(ROW_HEIGHT)));
+    }
+    let border = Border { color: palette.line_strong, width: 1.0, radius: 4.0.into() };
+    let surface = palette.surface;
+    let boxed = container(rows).width(Length::Fixed(width)).padding(2).style(move |_| container::Style {
+        background: Some(Background::Color(surface)),
+        border,
+        ..container::Style::default()
+    });
+    let top = TAB_HEIGHT + HAIRLINE + TOOLBAR_HEIGHT + HAIRLINE + PATH_BAR_HEIGHT + HAIRLINE;
+    let left = panel_left(app, edit.side) + CANDIDATE_INSET;
+    Some(
+        container(boxed)
+            .padding(iced::Padding { top, left, ..iced::Padding::ZERO })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into(),
+    )
 }
 
 #[cfg(test)]

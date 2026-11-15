@@ -40,6 +40,7 @@ const ADDRESSING_CHOICES: &[Choice] = &[
     Choice { value: "path", label: "Path-style (host/bucket)" },
     Choice { value: "virtual", label: "Virtual-hosted (bucket.host)" },
 ];
+const SECRET_LABEL: &str = "Secret access key";
 const REJECTED_CREDENTIALS: [&str; 2] = ["InvalidAccessKeyId", "SignatureDoesNotMatch"];
 
 pub struct S3 {
@@ -84,7 +85,7 @@ impl Protocol for S3 {
         let mut form = ConnectionForm::standard(DEFAULT_PORT);
         form.host.label = "Endpoint";
         form.username.label = "Access key ID";
-        form.password.label = "Secret access key";
+        form.password.label = SECRET_LABEL;
         form.options = vec![
             OptionField {
                 key: "security",
@@ -172,7 +173,8 @@ fn cancelled() -> ProtocolError {
 async fn ask_secret(
     client: &S3Client, target: &Target, settings: &S3Settings, prompter: &mut dyn Prompter,
 ) -> Result<(), ProtocolError> {
-    let question = Question::Password { username: settings.access_key.clone(), name: target.name.clone() };
+    let question =
+        Question::Password { username: settings.access_key.clone(), name: target.name.clone(), secret: SECRET_LABEL };
     let Some(Answer::Password(secret)) = prompter.ask(question).await else {
         return Err(cancelled());
     };

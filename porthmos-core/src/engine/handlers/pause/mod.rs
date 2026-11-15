@@ -23,8 +23,8 @@ impl Engine {
             if let Some(mut job) = self.transfers.get_mut(id) {
                 job.paused = true;
             }
-            if running && !self.source_removals.contains(&id) {
-                self.pause_stops.insert(id);
+            if running && !self.work.source_removals.contains(&id) {
+                self.work.pause_stops.insert(id);
                 self.tasks.cancel(Scope::Transfer(id));
             }
         }
@@ -51,7 +51,7 @@ impl Engine {
     }
 
     pub(crate) fn requeue_stopped(&mut self, id: u64) -> bool {
-        if !self.pause_stops.remove(&id) {
+        if !self.work.pause_stops.remove(&id) {
             return false;
         }
         if let Some(mut job) = self.transfers.get_mut(id) {

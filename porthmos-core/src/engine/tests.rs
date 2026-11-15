@@ -44,14 +44,14 @@ fn with_no_interval_every_request_publishes_at_once() {
     t.engine.request_publish();
 
     assert_eq!(snapshots(t.drain()).len(), 2);
-    assert!(!t.engine.transfers_dirty);
+    assert!(!t.engine.work.transfers_dirty);
     assert!(t.engine.flush_deadline().is_none());
 }
 
 #[test]
 fn a_burst_inside_the_interval_is_published_once_and_the_rest_waits_for_the_flush() {
     let mut t = test_engine();
-    t.engine.publish_interval = Duration::from_millis(80);
+    t.engine.work.publish_interval = Duration::from_millis(80);
     let (session, _fs) = t.add_session("prod");
     queue_job(&mut t, session, "a");
     t.engine.request_publish();
@@ -63,7 +63,7 @@ fn a_burst_inside_the_interval_is_published_once_and_the_rest_waits_for_the_flus
     let first = snapshots(t.drain());
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].rows.len(), 1);
-    assert!(t.engine.transfers_dirty);
+    assert!(t.engine.work.transfers_dirty);
     assert!(t.engine.flush_deadline().is_some());
 
     std::thread::sleep(Duration::from_millis(100));
@@ -72,14 +72,14 @@ fn a_burst_inside_the_interval_is_published_once_and_the_rest_waits_for_the_flus
     let flushed = snapshots(t.drain());
     assert_eq!(flushed.len(), 1);
     assert_eq!(flushed[0].rows.len(), 3);
-    assert!(!t.engine.transfers_dirty);
+    assert!(!t.engine.work.transfers_dirty);
     assert!(t.engine.flush_deadline().is_none());
 }
 
 #[test]
 fn a_request_after_a_quiet_period_publishes_at_once() {
     let mut t = test_engine();
-    t.engine.publish_interval = Duration::from_millis(40);
+    t.engine.work.publish_interval = Duration::from_millis(40);
     let (session, _fs) = t.add_session("prod");
     queue_job(&mut t, session, "a");
     t.engine.request_publish();
@@ -108,7 +108,7 @@ fn nothing_is_published_when_nothing_changed() {
 #[tokio::test]
 async fn the_run_loop_publishes_the_trailing_snapshot_of_a_burst() {
     let mut t = test_engine();
-    t.engine.publish_interval = Duration::from_millis(60);
+    t.engine.work.publish_interval = Duration::from_millis(60);
     let (session, _fs) = t.add_session("prod");
     let first = queue_job(&mut t, session, "a");
     let second = queue_job(&mut t, session, "b");
@@ -158,7 +158,7 @@ fn a_job_status_helper_still_reaches_the_published_snapshot() {
 #[tokio::test]
 async fn shutting_down_while_a_snapshot_is_pending_publishes_it_first() {
     let mut t = test_engine();
-    t.engine.publish_interval = Duration::from_secs(30);
+    t.engine.work.publish_interval = Duration::from_secs(30);
     let (session, _fs) = t.add_session("prod");
     let first = queue_job(&mut t, session, "a");
     let second = queue_job(&mut t, session, "b");
@@ -217,7 +217,7 @@ async fn cancelling_everything_marks_every_running_transfer_and_planning_scan() 
     let (session, _fs) = t.add_session("prod");
     let running = queue_job(&mut t, session, "a");
     t.engine.transfers.get_mut(running).unwrap().status = JobStatus::InProgress;
-    t.engine.planning.push(PlanningScan {
+    t.engine.work.planning.push(PlanningScan {
         batch_id: 5,
         session_id: session,
         direction: Direction::Upload,
@@ -400,7 +400,7 @@ async fn a_planning_task_that_panics_clears_its_scan() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
     let batch_id = t.engine.transfers.start_batch("scan".to_string());
-    t.engine.planning.push(PlanningScan {
+    t.engine.work.planning.push(PlanningScan {
         batch_id,
         session_id: session,
         direction: Direction::Upload,
@@ -412,7 +412,7 @@ async fn a_planning_task_that_panics_clears_its_scan() {
 
     t.run_internal().await;
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
 }
 
 #[tokio::test]
@@ -501,7 +501,11 @@ fn a_failed_connect_is_in_the_log_as_well_as_shown() {
     let mut t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_internal(Internal::ConnectFailed { name: "prod".to_string(), message: "refused".into() });
+        t.engine.handle_internal(Internal::ConnectFailed {
+            name: "prod".to_string(),
+            message: "refused".into(),
+            retryable: true,
+        });
     });
 
     assert!(logs.contains("ERROR") && logs.contains("refused"), "{logs}");
@@ -548,7 +552,7 @@ fn a_failed_scan_is_in_the_log_once() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
     let batch_id = t.engine.transfers.start_batch("scan".to_string());
-    t.engine.planning.push(PlanningScan {
+    t.engine.work.planning.push(PlanningScan {
         batch_id,
         session_id: session,
         direction: Direction::Upload,
@@ -603,6 +607,7 @@ fn a_cancelled_connection_is_not_logged_as_an_error() {
         t.engine.handle_internal(Internal::ConnectFailed {
             name: "prod".to_string(),
             message: crate::CONNECTION_CANCELLED.into(),
+            retryable: false,
         });
     });
 
@@ -616,7 +621,7 @@ fn a_rejected_profile_is_logged_as_a_warning_not_an_error() {
     let t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.profile_rejected("Name can't be empty");
+        t.engine.profile_rejected(Some("name"), "Name can't be empty");
     });
 
     assert_eq!(error_lines(&logs), 0, "{logs}");

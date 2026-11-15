@@ -1,7 +1,12 @@
-use std::collections::VecDeque;
+pub mod properties;
 
+use std::collections::VecDeque;
+use std::sync::Arc;
+
+use porthmos_core::delete_prompt::count::{Contents, contents_line};
+use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditQuestionKind, printable};
-use porthmos_core::sync::{SyncBy, SyncDirection};
+use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection};
 use porthmos_core::{Entry, Location, SessionId, VfsPath};
 
 use crate::app::PanelSide;
@@ -9,8 +14,22 @@ use crate::conflicts::ConflictView;
 use crate::dialogs::Dialog;
 use crate::view::text_fit::fit;
 
-pub const MAX_LISTED_NAMES: usize = 5;
 const NAME_CELLS: usize = 60;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteCount {
+    pub request_id: u64,
+    pub contents: Contents,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum DiffPane {
+    #[default]
+    Idle,
+    Comparing,
+    Ready(Arc<DiffOutcome>),
+    Failed(String),
+}
 
 #[derive(Debug, Clone)]
 pub enum Modal {
@@ -26,6 +45,12 @@ pub enum Modal {
         text: String,
         error: Option<String>,
     },
+    Permissions {
+        side: PanelSide,
+        entries: Vec<Entry>,
+        mode: u32,
+        recursive: bool,
+    },
     BookmarkName {
         location: Location,
         path: VfsPath,
@@ -36,10 +61,17 @@ pub enum Modal {
         title: String,
         body: String,
     },
+    Properties {
+        location: Location,
+        request_id: u64,
+        pane: properties::PropertiesPane,
+    },
     ConfirmClearHistory,
     ConfirmDelete {
         side: PanelSide,
+        place: String,
         entries: Vec<Entry>,
+        count: Option<DeleteCount>,
     },
     Conflict {
         view: ConflictView,
@@ -49,6 +81,7 @@ pub enum Modal {
         edit_id: u64,
         name: String,
         kind: EditQuestionKind,
+        diff: DiffPane,
     },
     EditWaiting {
         edit_id: u64,
@@ -65,7 +98,13 @@ pub enum Modal {
         direction: SyncDirection,
         by: SyncBy,
         subfolders: bool,
+        mirror: bool,
         error: Option<String>,
+    },
+    ConfirmSyncDelete {
+        sync_id: u64,
+        choices: Vec<(u32, SyncAction)>,
+        message: String,
     },
 }
 
@@ -75,6 +114,7 @@ impl Modal {
             self,
             Modal::Question(Dialog::Confirm { risky: true, .. })
                 | Modal::ConfirmDelete { .. }
+                | Modal::ConfirmSyncDelete { .. }
                 | Modal::ConfirmClearHistory
                 | Modal::ConfirmQuit { .. }
         )
@@ -108,6 +148,10 @@ impl ModalQueue {
         self.items.pop_front()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Modal> {
+        self.items.iter_mut()
+    }
+
     pub fn any(&self, matches: impl Fn(&Modal) -> bool) -> bool {
         self.items.iter().any(matches)
     }
@@ -133,8 +177,7 @@ impl ModalQueue {
 }
 
 const EDIT_QUIT_TEXT: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left incomplete; your copy stays in the state folder.";
-const TRANSFER_QUIT_TEXT: &str =
-    "Some transfers are still running or queued. Quit anyway? Unfinished transfers can be resumed next time.";
+const TRANSFER_QUIT_TEXT: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
 
 pub fn quit_text(transfers: bool, edits: bool) -> String {
     match (transfers, edits) {
@@ -152,21 +195,20 @@ pub fn edit_question_title(name: &str, kind: EditQuestionKind) -> String {
     }
 }
 
-pub fn delete_summary(entries: &[Entry]) -> Vec<String> {
-    let mut lines = Vec::new();
+pub fn properties_title(entries: &[Entry]) -> String {
     match entries {
-        [only] => lines.push(format!("Delete {}?", fit(&only.name, NAME_CELLS))),
-        _ => {
-            lines.push(format!("Delete {} items?", entries.len()));
-            for entry in entries.iter().take(MAX_LISTED_NAMES) {
-                let name = if entry.is_dir { format!("{}/", entry.name) } else { entry.name.clone() };
-                lines.push(fit(&name, NAME_CELLS));
-            }
-            if entries.len() > MAX_LISTED_NAMES {
-                lines.push(format!("and {} more", entries.len() - MAX_LISTED_NAMES));
-            }
-        }
+        [only] => format!("Properties: {}", fit(&printable(&only.name), NAME_CELLS)),
+        many => format!("Properties: {} items", many.len()),
     }
+}
+
+pub fn delete_summary(entries: &[Entry], place: &str) -> Vec<String> {
+    porthmos_core::delete_prompt::delete_summary(entries, place, |name| fit(name, NAME_CELLS))
+}
+
+pub fn delete_lines(entries: &[Entry], place: &str, count: Option<&DeleteCount>) -> Vec<String> {
+    let mut lines = delete_summary(entries, place);
+    lines.extend(count.map(|count| contents_line(&count.contents)));
     lines
 }
 

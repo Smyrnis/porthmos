@@ -23,6 +23,8 @@ struct Placement {
     x: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     y: Option<f32>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    maximized: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -61,6 +63,7 @@ impl Placement {
             height: size.map(|(_, height)| height),
             x: position.map(|(x, _)| x),
             y: position.map(|(_, y)| y),
+            maximized: self.maximized,
         }
     }
 }
@@ -115,6 +118,10 @@ impl WindowMemory {
         }
     }
 
+    pub fn maximized(&mut self, kind: WindowKind, maximized: bool) {
+        self.placement_mut(kind).maximized = maximized;
+    }
+
     pub fn moved(&mut self, kind: WindowKind, position: Point) {
         if plausible_coordinate(position.x) && plausible_coordinate(position.y) {
             let placement = self.placement_mut(kind);
@@ -132,6 +139,7 @@ impl WindowMemory {
         if let Some((x, y)) = placement.x.zip(placement.y) {
             settings.position = window::Position::Specific(Point::new(x, y));
         }
+        settings.maximized = placement.maximized;
         settings
     }
 }

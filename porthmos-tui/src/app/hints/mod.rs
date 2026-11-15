@@ -21,12 +21,25 @@ const FILES: &[(Action, &str)] = &[
     (Action::ToggleSelect, "select"),
     (Action::SwitchPanel, "panel"),
 ];
+const FILES_HELP_ONLY: &[(Action, &str)] = &[
+    (Action::GoToPath, "go to path"),
+    (Action::Parent, "parent folder"),
+    (Action::Permissions, "permissions"),
+    (Action::Properties, "properties"),
+];
+const LIST_HELP: &[(Action, &str)] = &[
+    (Action::PageUp, "page up"),
+    (Action::PageDown, "page down"),
+    (Action::First, "first row"),
+    (Action::Last, "last row"),
+];
 const CONNECTIONS: &[(Action, &str)] = &[
     (Action::Open, "connect"),
     (Action::AddConnection, "new"),
     (Action::Rename, "edit"),
     (Action::DeleteConnection, "delete"),
     (Action::Disconnect, "disconnect"),
+    (Action::ReopenConnections, "reopen"),
 ];
 const HISTORY: &[(Action, &str)] = &[(Action::Open, "details"), (Action::Delete, "clear")];
 const TRANSFERS: &[(Action, &str)] = &[
@@ -70,7 +83,10 @@ pub(super) fn form_hints() -> Hints {
 
 pub(super) fn path_edit_hints() -> Hints {
     Hints {
-        entries: vec![Hint { key: "enter".to_string(), label: "go" }],
+        entries: vec![
+            Hint { key: "enter".to_string(), label: "go" },
+            Hint { key: "tab".to_string(), label: "complete" },
+        ],
         pinned: None,
         right: Some(Hint { key: "esc".to_string(), label: "cancel" }),
     }
@@ -158,11 +174,17 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
         .collect();
     if let Some(files) = sections.first_mut() {
         files.rows.extend(session_rows(bindings));
-        files.rows.push(HelpRow { key: key_text(bindings, Scope::Files, Action::GoToPath), action: "go to path" });
+        files.rows.extend(
+            FILES_HELP_ONLY
+                .iter()
+                .map(|(action, label)| HelpRow { key: key_text(bindings, Scope::Files, *action), action: label }),
+        );
     }
 
     let listed = |action: &Action| {
         HELP_SCREENS.iter().any(|(_, screen)| screen_actions(*screen).iter().any(|(listed, _)| listed == action))
+            || FILES_HELP_ONLY.iter().any(|(listed, _)| listed == action)
+            || LIST_HELP.iter().any(|(listed, _)| listed == action)
     };
     let first = |action: Action| bindings.key_for(Scope::Global, action).map(format_key_spec);
     let movement_key = match (first(Action::Up), first(Action::Down)) {
@@ -170,6 +192,11 @@ pub(super) fn help_sections(bindings: &KeyBindings) -> Vec<HelpSection> {
         _ => None,
     };
     let mut global = vec![HelpRow { key: movement_key, action: "move cursor" }];
+    global.extend(
+        LIST_HELP
+            .iter()
+            .map(|(action, label)| HelpRow { key: key_text(bindings, Scope::Global, *action), action: label }),
+    );
     global.extend(
         ALL_ACTIONS
             .iter()

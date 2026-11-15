@@ -161,7 +161,7 @@ impl Engine {
         let form = protocol.connection_form();
         let profile = match draft.validate(&form, preserve_from.as_ref()) {
             Ok(profile) => profile,
-            Err(message) => return reject(message),
+            Err(problem) => return reject(problem.message),
         };
 
         let saved = |marker: &str| preserve_from.as_ref().filter(|entry| entry.in_keyring.iter().any(|m| m == marker));

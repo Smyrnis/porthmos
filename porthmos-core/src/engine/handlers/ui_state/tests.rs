@@ -228,3 +228,52 @@ fn the_same_panel_choice_again_writes_nothing() {
 
     assert!(!t.engine.paths.state_file().exists());
 }
+
+fn saved_open_groups(t: &crate::engine::testing::TestEngine) -> Vec<String> {
+    crate::state::load(&t.engine.paths).state.open_groups
+}
+
+fn groups(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+#[test]
+fn the_open_groups_are_remembered_sorted_and_without_repeats() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work/Staging", "Home", "Work", "Home"]) });
+
+    assert_eq!(saved_open_groups(&t), groups(&["Home", "Work", "Work/Staging"]));
+}
+
+#[test]
+fn closing_every_group_forgets_them() {
+    let mut t = test_engine();
+    t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work"]) });
+
+    t.engine.handle_command(Command::RememberOpenGroups { groups: Vec::new() });
+
+    assert!(saved_open_groups(&t).is_empty());
+}
+
+#[test]
+fn open_groups_sit_beside_the_other_remembered_state() {
+    let mut t = test_engine();
+    t.engine.handle_command(Command::RememberSaveChoice { save: true });
+
+    t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work"]) });
+
+    let state = crate::state::load(&t.engine.paths).state;
+    assert!(state.save_passwords_in_keyring);
+    assert_eq!(state.open_groups, groups(&["Work"]));
+}
+
+#[test]
+fn a_protected_state_file_is_never_overwritten_by_remembering_open_groups() {
+    let mut t = test_engine();
+    t.engine.state_protected = true;
+
+    t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work"]) });
+
+    assert!(!t.engine.paths.state_file().exists());
+}

@@ -108,7 +108,7 @@ fn a_cancelled_test_has_no_line() {
 
 #[test]
 fn the_prompt_debug_never_prints_the_typed_password() {
-    let mut prompt = TestPrompt::new(7, "me".to_string(), "prod".to_string());
+    let mut prompt = TestPrompt::new(7, "me".to_string(), "prod".to_string(), "Password");
     prompt.text = Typed::new("hunter2-marker".to_string());
 
     assert!(!format!("{prompt:?}").contains("hunter2-marker"));

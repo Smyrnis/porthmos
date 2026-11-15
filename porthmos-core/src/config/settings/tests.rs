@@ -26,6 +26,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         update: UpdateSettingsFile::default(),
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
+        connection: ConnectionSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -47,6 +48,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         update: UpdateSettingsFile::default(),
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
+        connection: ConnectionSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -195,7 +197,7 @@ fn edit_settings_default_to_auto_upload_and_no_editor() {
     let (settings, warnings) = settings_from_file(SettingsFile::default());
 
     assert!(warnings.is_empty());
-    assert_eq!(settings.edit, EditSettings { auto_upload: true, editor: None });
+    assert_eq!(settings.edit, EditSettings { auto_upload: true, editor: None, compare_limit_mib: 1 });
 }
 
 #[test]
@@ -205,7 +207,10 @@ fn edit_settings_are_read_from_the_file() {
     let (settings, warnings) = settings_from_file(file);
 
     assert!(warnings.is_empty());
-    assert_eq!(settings.edit, EditSettings { auto_upload: false, editor: Some("code --wait".to_string()) });
+    assert_eq!(
+        settings.edit,
+        EditSettings { auto_upload: false, editor: Some("code --wait".to_string()), compare_limit_mib: 1 }
+    );
 }
 
 #[test]
@@ -222,6 +227,47 @@ fn a_blank_editor_setting_means_unset() {
 fn an_edit_setting_of_the_wrong_type_does_not_parse() {
     assert!(toml::from_str::<SettingsFile>("[edit]\nauto_upload = \"yes\"\n").is_err());
     assert!(toml::from_str::<SettingsFile>("[edit]\neditor = 3\n").is_err());
+}
+
+#[test]
+fn compare_limit_defaults_to_one_mib() {
+    let (settings, warnings) = parsed("");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(settings.edit.compare_limit_mib, 1);
+}
+
+#[test]
+fn compare_limit_accepts_one_and_sixty_four() {
+    for mib in [1, 8, 64] {
+        let (settings, warnings) = parsed(&format!("[edit]\ncompare_limit_mib = {mib}\n"));
+
+        assert!(warnings.is_empty(), "{mib}: {warnings:?}");
+        assert_eq!(settings.edit.compare_limit_mib, mib as u64);
+    }
+}
+
+#[test]
+fn compare_limit_below_one_or_above_sixty_four_warns_and_uses_the_default() {
+    for mib in [0, -3, 65] {
+        let (settings, warnings) = parsed(&format!("[edit]\ncompare_limit_mib = {mib}\n"));
+
+        assert_eq!(settings.edit.compare_limit_mib, 1, "{mib}");
+        assert_eq!(warnings, vec!["edit.compare_limit_mib must be between 1 and 64, using 1".to_string()], "{mib}");
+    }
+}
+
+#[test]
+fn a_compare_limit_of_the_wrong_type_does_not_parse() {
+    assert!(toml::from_str::<SettingsFile>("[edit]\ncompare_limit_mib = \"big\"\n").is_err());
+    assert!(toml::from_str::<SettingsFile>("[edit]\ncompare_limit_mib = 1.5\n").is_err());
+}
+
+#[test]
+fn compare_limit_bytes_is_mebibytes() {
+    let settings = EditSettings { compare_limit_mib: 3, ..EditSettings::default() };
+
+    assert_eq!(settings.compare_limit_bytes(), 3 * 1024 * 1024);
 }
 
 #[test]
@@ -400,5 +446,57 @@ fn the_startup_table_does_not_leak_into_the_frontend_settings() {
 fn reopen_modes_name_themselves_the_way_the_config_file_does() {
     for (mode, name) in [(ReopenMode::Off, "off"), (ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto")] {
         assert_eq!(mode.id(), name);
+    }
+}
+
+#[test]
+fn reconnecting_defaults_to_off() {
+    let (settings, warnings) = settings_from_file(SettingsFile::default());
+
+    assert!(warnings.is_empty());
+    assert!(!settings.connection.reconnect);
+    assert!(!Settings::default().connection.reconnect);
+}
+
+#[test]
+fn reconnecting_reads_true_from_the_connection_table() {
+    let file: SettingsFile = toml::from_str("[connection]\nreconnect = true\n").unwrap();
+
+    let (settings, warnings) = settings_from_file(file);
+
+    assert!(warnings.is_empty());
+    assert!(settings.connection.reconnect);
+}
+
+#[test]
+fn reconnecting_false_is_kept() {
+    let file: SettingsFile = toml::from_str("[connection]\nreconnect = false\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(!settings.connection.reconnect);
+}
+
+#[test]
+fn the_connection_table_is_not_passed_on_to_the_front_ends() {
+    let file: SettingsFile = toml::from_str("[connection]\nreconnect = true\n").unwrap();
+
+    let (settings, _) = settings_from_file(file);
+
+    assert!(!settings.frontend.contains_key("connection"));
+}
+
+#[test]
+fn settings_from_file_accepts_every_sort_key_by_its_label() {
+    for key in SortKey::ALL {
+        let file = SettingsFile {
+            panel: PanelSettingsFile { show_hidden: None, sort_key: Some(key.label().to_string()), sort_order: None },
+            ..SettingsFile::default()
+        };
+
+        let (settings, warnings) = settings_from_file(file);
+
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(settings.panel.sort.key, key);
     }
 }

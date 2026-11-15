@@ -120,6 +120,18 @@ impl FileSystem for LocalFs {
         true
     }
 
+    #[cfg(unix)]
+    async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<(), ProtocolError> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = mapped(path)?;
+        blocking(move || fs::set_permissions(&path, fs::Permissions::from_mode(mode))).await
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        cfg!(unix)
+    }
+
     async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         #[cfg(windows)]
         if roots::lists_drives(dir) {

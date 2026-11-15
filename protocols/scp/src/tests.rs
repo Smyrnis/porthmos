@@ -18,6 +18,15 @@ fn the_form_matches_sftp_with_an_identity_file() {
 }
 
 #[test]
+fn the_form_offers_the_same_optional_jump_host() {
+    let form = Scp::default().connection_form();
+
+    let jump = form.option("proxy_jump").expect("a jump host field");
+    assert_eq!((jump.label, jump.required), ("Jump host", false));
+    assert_eq!(jump, &porthmos_ssh::PROXY_JUMP_FIELD);
+}
+
+#[test]
 fn scp_does_not_discover_hosts() {
     assert!(Scp::default().discover(&Environment::default()).unwrap().is_empty());
 }

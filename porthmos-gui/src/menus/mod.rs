@@ -15,6 +15,7 @@ pub enum MoreItem {
     BookmarkHere,
     History,
     Sync,
+    Reopen,
     CheckForUpdates,
 }
 
@@ -23,6 +24,7 @@ pub struct MoreState {
     pub hidden_shown: bool,
     pub file: bool,
     pub sync: bool,
+    pub reopen: bool,
 }
 
 pub fn more_items(state: MoreState) -> Vec<(MoreItem, String, bool)> {
@@ -38,6 +40,7 @@ pub fn more_items(state: MoreState) -> Vec<(MoreItem, String, bool)> {
         (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
         (MoreItem::History, "Transfer history…".to_string(), true),
         (MoreItem::Sync, "Synchronize…".to_string(), state.sync),
+        (MoreItem::Reopen, "Reopen last connections".to_string(), state.reopen),
         (MoreItem::CheckForUpdates, "Check for updates".to_string(), true),
     ]
 }
@@ -50,6 +53,8 @@ pub enum MenuItem {
     CopyToOther,
     MoveToOther,
     Rename,
+    Permissions,
+    Properties,
     Delete,
     NewFolder,
     Refresh,
@@ -64,6 +69,8 @@ impl MenuItem {
             MenuItem::CopyToOther => "Copy to other panel",
             MenuItem::MoveToOther => "Move to other panel",
             MenuItem::Rename => "Rename…",
+            MenuItem::Permissions => "Permissions…",
+            MenuItem::Properties => "Properties…",
             MenuItem::Delete => "Delete",
             MenuItem::NewFolder => "New folder",
             MenuItem::Refresh => "Refresh",
@@ -78,6 +85,8 @@ impl MenuItem {
             MenuItem::CopyToOther => Action::Copy,
             MenuItem::MoveToOther => Action::Move,
             MenuItem::Rename => Action::Rename,
+            MenuItem::Permissions => Action::Permissions,
+            MenuItem::Properties => Action::Properties,
             MenuItem::Delete => Action::Delete,
             MenuItem::NewFolder => Action::NewFolder,
             MenuItem::Refresh => Action::Refresh,
@@ -110,6 +119,8 @@ pub fn context_items(target: &MenuTarget, other_panel: bool) -> Vec<(MenuItem, b
                 (MenuItem::CopyToOther, other_panel && real),
                 (MenuItem::MoveToOther, other_panel && real),
                 (MenuItem::Rename, *count == 1 && real),
+                (MenuItem::Permissions, real),
+                (MenuItem::Properties, real),
                 (MenuItem::Delete, real),
                 (MenuItem::NewFolder, true),
                 (MenuItem::Refresh, true),

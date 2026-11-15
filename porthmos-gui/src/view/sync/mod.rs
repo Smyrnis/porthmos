@@ -5,6 +5,7 @@ use porthmos_core::sync::{SyncAction, SyncReason};
 
 use super::button::{Look, text_button};
 use super::format::size;
+use super::spacing::{DIALOG_GAP, SM, XS};
 use super::tools::{frame_size, sync_list_height};
 use super::{bold_label, filled, hairline_across, label};
 use crate::app::{App, Message};
@@ -39,6 +40,7 @@ pub fn glyph(action: SyncAction) -> &'static str {
     match action {
         SyncAction::Upload => "\u{2191}",
         SyncAction::Download => "\u{2193}",
+        SyncAction::Delete => "\u{2715}",
         SyncAction::Skip => "\u{b7}",
     }
 }
@@ -90,7 +92,7 @@ fn tick_box<'a>(ticked: bool, palette: &Palette) -> Element<'a, Message> {
 }
 
 fn text_color(row: &SyncRow, palette: &Palette) -> Color {
-    if row.reason == reason_text(SyncReason::KindMismatch) {
+    if row.reason == reason_text(SyncReason::KindMismatch) || row.reason == reason_text(SyncReason::OnlyOnTarget) {
         palette.err
     } else if row.ticked {
         palette.fg
@@ -172,6 +174,7 @@ fn rows_view<'a>(app: &'a App, view: &'a SyncView, times: bool, palette: &Palett
     let below = total.saturating_sub(first + count);
     lines = lines.push(space().height(Length::Fixed(below as f32 * ROW_HEIGHT)));
     scrollable(lines)
+        .style(crate::view::scroll::style(palette))
         .id(App::tool_list_id())
         .on_scroll(|viewport| Message::SyncScrolled(viewport.absolute_offset().y))
         .width(Length::Fill)
@@ -191,6 +194,7 @@ pub fn body<'a>(app: &'a App, view: &'a SyncView) -> Element<'a, Message> {
     let palette = app.palette();
     let times = show_times(frame_size(&Tool::Sync, app.window_size()).width);
     let input = text_input("Filter rows", view.filter().unwrap_or_default())
+        .style(crate::view::input::style(palette))
         .id(App::sync_filter_id())
         .on_input(Message::SyncFilterTyped)
         .size(13.0)
@@ -205,36 +209,34 @@ pub fn body<'a>(app: &'a App, view: &'a SyncView) -> Element<'a, Message> {
         (0, _) => hint("No rows match.", viewport, palette),
         _ => rows_view(app, view, times, palette),
     };
-    let content: Element<'a, Message> = column![header(times, palette), rows].spacing(4).into();
-    let border = Border { color: palette.line, width: 1.0, radius: 4.0.into() };
-    let boxed = container(content)
-        .width(Length::Fill)
-        .style(move |_| container::Style { border, ..container::Style::default() });
+    let table: Element<'a, Message> =
+        column![header(times, palette), hairline_across(palette), rows].spacing(XS).width(Length::Fill).into();
     let selection = row![
         text_button("Tick all", Some(Message::SyncTickAllPressed), Look::Normal, palette),
         text_button("Untick all", Some(Message::SyncUntickAllPressed), Look::Normal, palette),
         text_button("Switch direction", view.can_flip().then_some(Message::SyncFlipPressed), Look::Normal, palette),
     ]
-    .spacing(8);
+    .spacing(SM);
     let actions = row![
         text_button("Cancel", Some(Message::ToolClosed), Look::Normal, palette),
         text_button("Run", run_enabled(view).then_some(Message::SyncRunPressed), Look::Primary, palette),
     ]
-    .spacing(8);
+    .spacing(SM);
     let buttons: Element<'a, Message> = if stacked_buttons(frame_size(&Tool::Sync, app.window_size()).width) {
-        column![selection, row![space().width(Length::Fill), actions]].spacing(8).into()
+        column![selection, row![space().width(Length::Fill), actions]].spacing(SM).into()
     } else {
-        row![selection, space().width(Length::Fill), actions].spacing(8).into()
+        row![selection, space().width(Length::Fill), actions].spacing(SM).into()
     };
     column![
         bold_label(app.sync_title(), palette.fg_bright),
-        row![input, label(counts, palette.fg_dim)].spacing(10).align_y(Alignment::Center),
-        boxed,
+        hairline_across(palette),
+        row![input, label(counts, palette.fg_dim)].spacing(GAP).align_y(Alignment::Center),
+        table,
         label(view.top_text(), palette.fg_dim),
         hairline_across(palette),
         buttons,
     ]
-    .spacing(10)
+    .spacing(DIALOG_GAP)
     .into()
 }
 

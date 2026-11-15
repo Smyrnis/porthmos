@@ -364,7 +364,7 @@ fn moving_nothing_does_nothing() {
 
     t.engine.move_entries(Location::Local, vec![], Location::Session(session), VfsPath::from("/up"));
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.drain().is_empty());
 }
 
@@ -387,11 +387,11 @@ async fn clearing_finished_rows_forgets_the_move() {
     remote.dir("/up");
     std::fs::write(local(&t, "a.txt"), b"a").unwrap();
     upload(&mut t, session, &["a.txt"], "/up").await;
-    assert_eq!(t.engine.moves.len(), 1);
+    assert_eq!(t.engine.work.moves.len(), 1);
 
     t.engine.handle_command(crate::Command::ClearFinished);
 
-    assert!(t.engine.moves.is_empty());
+    assert!(t.engine.work.moves.is_empty());
 }
 
 #[tokio::test]
@@ -471,7 +471,10 @@ fn a_cancelled_move_scan_says_the_move_was_cancelled() {
     let mut t = test_engine();
     let (session, _remote) = t.add_session("srv");
     let batch_id = t.engine.transfers.start_batch("a.txt (move)".to_string());
-    t.engine.moves.insert(batch_id, MoveBatch { session_id: session, direction: Direction::Upload, roots: Vec::new() });
+    t.engine
+        .work
+        .moves
+        .insert(batch_id, MoveBatch { session_id: session, direction: Direction::Upload, roots: Vec::new() });
 
     t.engine.handle_transfer_event(TransferEvent::PlanCancelled {
         batch_id,
@@ -545,7 +548,7 @@ fn plan_of(files: Vec<crate::transfer::plan::PlannedFile>) -> crate::transfer::p
 
 fn move_batch(t: &mut TestEngine, session: u64, roots: Vec<VfsPath>) -> u64 {
     let batch_id = t.engine.transfers.start_batch("batch (move)".to_string());
-    t.engine.moves.insert(batch_id, MoveBatch { session_id: session, direction: Direction::Upload, roots });
+    t.engine.work.moves.insert(batch_id, MoveBatch { session_id: session, direction: Direction::Upload, roots });
     batch_id
 }
 
@@ -610,7 +613,7 @@ async fn a_file_is_never_moved_onto_itself_through_a_loopback_session() {
     t.engine.on_conflict = ConflictPolicy::Overwrite;
     let same_place = Arc::new(porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()));
     let session = t.add_session_with("self", same_place);
-    t.engine.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
+    t.engine.book.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
     std::fs::write(local(&t, "a.txt"), b"precious").unwrap();
 
     let dest = from_os_path(t.dir.path()).to_string_lossy().into_owned();
@@ -631,7 +634,7 @@ async fn a_loopback_session_still_moves_files_to_a_different_place() {
     let elsewhere = tempfile::tempdir().unwrap();
     let place = Arc::new(porthmos_lfs::LocalFs::new(elsewhere.path().to_path_buf()));
     let session = t.add_session_with("self", place);
-    t.engine.sessions.get_mut(&session).unwrap().entry.host = "127.0.0.1".to_string();
+    t.engine.book.sessions.get_mut(&session).unwrap().entry.host = "127.0.0.1".to_string();
     std::fs::write(local(&t, "a.txt"), b"hello").unwrap();
 
     upload(&mut t, session, &["a.txt"], &from_os_path(elsewhere.path()).to_string_lossy()).await;
@@ -752,7 +755,7 @@ async fn an_upload_batch_is_cleaned_up_even_after_its_session_is_gone() {
     std::fs::create_dir_all(local(&t, "tree/hollow")).unwrap();
     let root = local(&t, "tree");
     let batch_id = move_batch(&mut t, session, vec![from_os_path(&root)]);
-    t.engine.sessions.clear();
+    t.engine.book.sessions.clear();
 
     t.engine.finish_move_batch(batch_id);
     t.settle().await;
@@ -826,7 +829,7 @@ async fn a_session_lost_before_the_original_is_removed_fails_the_job_and_keeps_b
         Some(batch_id),
     );
     t.engine.transfers.get_mut(id).unwrap().status = JobStatus::InProgress;
-    t.engine.sessions.clear();
+    t.engine.book.sessions.clear();
 
     t.engine.remove_moved_source(id);
 
@@ -877,7 +880,7 @@ fn a_cancelled_scan_forgets_its_move() {
         direction: Direction::Upload,
     });
 
-    assert!(t.engine.moves.is_empty());
+    assert!(t.engine.work.moves.is_empty());
 }
 
 #[test]
@@ -888,5 +891,5 @@ fn a_failed_scan_forgets_its_move() {
 
     t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: "no".to_string() });
 
-    assert!(t.engine.moves.is_empty());
+    assert!(t.engine.work.moves.is_empty());
 }

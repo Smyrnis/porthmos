@@ -132,7 +132,7 @@ fn typing_in_the_filter_narrows_the_list() {
 }
 
 #[test]
-fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open() {
+fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open_until_it_is_connected() {
     let mut harness = Harness::new();
     feed_profiles(&mut harness, &["alpha", "beta"]);
     open_manager(&mut harness);
@@ -142,6 +142,82 @@ fn connect_sends_connect_for_the_selected_profile_and_keeps_the_manager_open() {
 
     assert_eq!(harness.sent(), vec![Command::Connect { profile: "beta".to_string() }]);
     assert!(harness.app.manager_open());
+
+    connected(&mut harness, 7, "beta");
+
+    assert!(!harness.app.manager_open());
+}
+
+#[test]
+fn a_connection_the_manager_did_not_ask_for_leaves_the_window_open() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha", "beta"]);
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(1));
+    harness.press(Message::ManagerConnect);
+
+    connected(&mut harness, 3, "alpha");
+
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn a_failed_connection_leaves_the_window_open_and_a_later_connection_does_not_close_it() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha"]);
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(0));
+    harness.press(Message::ManagerConnect);
+
+    harness.feed(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() });
+    assert!(harness.app.manager_open());
+
+    connected(&mut harness, 4, "alpha");
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn connect_is_disabled_for_a_connection_that_is_being_connected() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha", "beta"]);
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(0));
+    harness.press(Message::ManagerConnect);
+    harness.feed(Event::Connecting { name: "alpha".to_string() });
+    harness.sent();
+
+    assert!(!harness.app.manager_buttons().connect);
+    harness.press(Message::ManagerConnect);
+    assert!(harness.sent().is_empty());
+
+    harness.press(Message::ManagerRowPressed(1));
+    assert!(harness.app.manager_buttons().connect);
+}
+
+#[test]
+fn the_connect_button_offers_to_switch_to_a_connection_that_is_already_open() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha", "beta"]);
+    connected(&mut harness, 1, "alpha");
+    open_manager(&mut harness);
+
+    harness.press(Message::ManagerRowPressed(0));
+    assert_eq!(harness.app.connect_label(), "Switch to");
+
+    harness.press(Message::ManagerRowPressed(1));
+    assert_eq!(harness.app.connect_label(), "Connect");
+}
+
+#[test]
+fn a_lost_connection_is_offered_as_connect_again() {
+    let mut harness = Harness::new();
+    feed_profiles(&mut harness, &["alpha"]);
+    connected(&mut harness, 1, "alpha");
+    harness.feed(Event::SessionHealth { session: 1, healthy: false });
+    open_manager(&mut harness);
+    harness.press(Message::ManagerRowPressed(0));
+
+    assert_eq!(harness.app.connect_label(), "Connect");
 }
 
 #[test]
@@ -195,7 +271,7 @@ fn connecting_to_a_healthy_open_session_only_activates_its_tab() {
 
     assert!(harness.sent().is_empty());
     assert_eq!(harness.app.sessions().active().unwrap().id, 1);
-    assert!(harness.app.manager_open());
+    assert!(!harness.app.manager_open());
 }
 
 #[test]
@@ -517,7 +593,7 @@ fn escape_inside_the_form_closes_the_form_first_then_the_window() {
 }
 
 #[test]
-fn connect_leaves_the_connections_window_open() {
+fn the_connections_window_closes_once_the_connection_is_made() {
     let mut harness = Harness::new();
     open_manager(&mut harness);
     feed_profiles(&mut harness, &["alpha"]);
@@ -529,7 +605,7 @@ fn connect_leaves_the_connections_window_open() {
     assert!(harness.sent().contains(&Command::Connect { profile: "alpha".to_string() }));
     assert!(harness.app.manager_open());
     connected(&mut harness, 1, "alpha");
-    assert!(harness.app.manager_open());
+    assert!(!harness.app.manager_open());
 }
 
 #[test]
@@ -616,4 +692,92 @@ fn the_filter_is_cleared_when_the_window_closes() {
     harness.press(Message::ManagerToggled);
 
     assert_eq!(harness.app.manager.filter(), "");
+}
+
+fn remembered_groups(commands: Vec<Command>) -> Vec<Vec<String>> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberOpenGroups { groups } => Some(groups),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn toggling_a_group_tells_core_which_groups_are_open() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+    open_manager(&mut harness);
+    harness.sent();
+
+    harness.press(Message::ManagerGroupToggled("Work".to_string()));
+    harness.press(Message::ManagerGroupToggled("Work".to_string()));
+
+    assert_eq!(remembered_groups(harness.sent()), vec![vec!["Work".to_string()], Vec::<String>::new()]);
+}
+
+#[test]
+fn a_saved_connection_that_reveals_its_group_opens_it_for_core_too() {
+    let mut harness = Harness::new();
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+    harness.sent();
+    harness.app.reveal = Some("alpha".to_string());
+
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+
+    assert_eq!(remembered_groups(harness.sent()), vec![vec!["Work".to_string()]]);
+}
+
+#[test]
+fn the_window_app_starts_with_the_groups_core_remembered() {
+    let mut harness = Harness::with_remembered_open_groups(vec!["Work".to_string()]);
+
+    harness.feed(Event::Profiles(vec![grouped("alpha", "Work")]));
+
+    assert_eq!(harness.app.manager().rows().len(), 2);
+}
+
+#[test]
+fn keys_in_the_connections_window_do_nothing_while_the_main_window_asks_a_question() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    harness.app.modals.push(crate::modal::Modal::Info { title: "Notice".to_string(), body: "x".to_string() });
+    let window = harness.connections_id().unwrap();
+    let escape = KeyPress {
+        key: Key::Named(Named::Escape),
+        modified_key: Key::Named(Named::Escape),
+        modifiers: Modifiers::empty(),
+        text: None,
+    };
+
+    harness.press(Message::WindowKey(window, escape));
+
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn a_connection_that_fails_after_a_click_in_the_main_window_raises_the_main_window() {
+    let mut harness = Harness::new();
+
+    let units = harness
+        .app
+        .update(Message::Core(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() }))
+        .units();
+
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn a_connection_started_from_the_connections_window_does_not_pull_the_main_window_forward() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    harness.app.manager_connecting = Some("alpha".to_string());
+
+    let units = harness
+        .app
+        .update(Message::Core(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() }))
+        .units();
+
+    assert_eq!(units, 0);
 }

@@ -352,6 +352,54 @@ fn the_sort_header_click_cycles_direction_on_the_second_click() {
 }
 
 #[test]
+fn the_modified_header_click_sorts_by_modification_time() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+
+    harness.press(Message::HeaderClicked(PanelSide::Local, SortKey::Modified));
+
+    let spec = harness.app.local().panel.sort_spec();
+    assert_eq!((spec.key, spec.order), (SortKey::Modified, SortOrder::Ascending));
+}
+
+#[test]
+fn the_sort_shortcut_reaches_the_type_sort() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+
+    let mut reached = Vec::new();
+    for _ in 0..8 {
+        let _ = harness.app.perform(Action::CycleSort);
+        reached.push(harness.app.local().panel.sort_spec().key);
+    }
+
+    assert!(reached.contains(&SortKey::Type), "{reached:?}");
+    assert!(reached.contains(&SortKey::Modified), "{reached:?}");
+}
+
+#[test]
+fn a_new_connection_makes_the_remote_panel_the_active_one() {
+    let mut harness = Harness::new();
+    assert_eq!(harness.app.active_side(), PanelSide::Local);
+
+    connect(&mut harness, 1, "alpha");
+
+    assert_eq!(harness.app.active_side(), PanelSide::Remote);
+}
+
+#[test]
+fn switching_back_to_an_open_connection_keeps_the_panel_the_user_was_in() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    connect(&mut harness, 2, "beta");
+    harness.press(Message::PanelClicked(PanelSide::Local, 0));
+
+    connect(&mut harness, 1, "alpha");
+
+    assert_eq!(harness.app.active_side(), PanelSide::Local);
+}
+
+#[test]
 fn clicking_a_tab_activates_that_connection() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha");
@@ -610,11 +658,13 @@ fn tab_switches_the_active_panel() {
     assert_eq!(harness.app.active_side(), PanelSide::Local);
 
     connect(&mut harness, 1, "alpha");
-    plain(&mut harness, Named::Tab);
     assert_eq!(harness.app.active_side(), PanelSide::Remote);
 
     plain(&mut harness, Named::Tab);
     assert_eq!(harness.app.active_side(), PanelSide::Local);
+
+    plain(&mut harness, Named::Tab);
+    assert_eq!(harness.app.active_side(), PanelSide::Remote);
 }
 
 #[test]
@@ -623,7 +673,6 @@ fn keys_act_on_the_active_panel() {
     fill_local(&mut harness, &["a", "b"]);
     connect(&mut harness, 1, "alpha");
     list_session(&mut harness, 1, "/srv", &["x", "y", "z"]);
-    plain(&mut harness, Named::Tab);
 
     plain(&mut harness, Named::End);
 
@@ -638,6 +687,7 @@ fn ctrl_h_toggles_hidden_in_the_active_panel_only() {
     connect(&mut harness, 1, "alpha");
     list_session(&mut harness, 1, "/srv", &[".dot", "x"]);
     assert_eq!(harness.app.local().panel.rows().len(), 2);
+    plain(&mut harness, Named::Tab);
 
     key(&mut harness, Key::Character("h".into()), Modifiers::CTRL);
 
@@ -788,11 +838,11 @@ fn refresh_relists_the_active_location() {
     harness.sent();
 
     key(&mut harness, Key::Character("r".into()), Modifiers::CTRL);
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester")]);
+    assert_eq!(harness.sent(), vec![list_of(Location::Session(1), "/srv")]);
 
     plain(&mut harness, Named::Tab);
     key(&mut harness, Key::Character("r".into()), Modifiers::CTRL);
-    assert_eq!(harness.sent(), vec![list_of(Location::Session(1), "/srv")]);
+    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester")]);
 }
 
 #[test]
@@ -829,7 +879,6 @@ fn keys_are_ignored_once_the_app_is_closing() {
 fn disconnecting_the_last_session_returns_focus_to_the_local_panel() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha");
-    plain(&mut harness, Named::Tab);
     assert_eq!(harness.app.active_side(), PanelSide::Remote);
 
     harness.feed(Event::Disconnected { session: 1, name: "alpha".to_string() });
@@ -842,7 +891,7 @@ fn question(request_id: u64, question: porthmos_core::Question) -> Event {
 }
 
 fn password_question() -> porthmos_core::Question {
-    porthmos_core::Question::Password { username: "me".to_string(), name: "alpha".to_string() }
+    porthmos_core::Question::Password { username: "me".to_string(), name: "alpha".to_string(), secret: "Password" }
 }
 
 fn host_question() -> porthmos_core::Question {
@@ -981,12 +1030,12 @@ fn the_new_folder_key_opens_a_prompt_for_the_active_panel() {
     connect(&mut harness, 1, "alpha");
 
     plain(&mut harness, Named::F7);
-    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Local, .. }));
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Remote, .. }));
     plain(&mut harness, Named::Escape);
 
     plain(&mut harness, Named::Tab);
     plain(&mut harness, Named::F7);
-    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Remote, .. }));
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Local, .. }));
 }
 
 #[test]
@@ -1007,8 +1056,8 @@ fn accepting_a_new_folder_name_sends_create_dir_in_the_panel_folder() {
     assert_eq!(
         harness.sent(),
         vec![
-            Command::CreateDir { location: Location::Local, path: VfsPath::new("/home/tester/docs") },
-            Command::CreateDir { location: Location::Session(1), path: VfsPath::new("/srv/new") },
+            Command::CreateDir { location: Location::Session(1), path: VfsPath::new("/srv/docs") },
+            Command::CreateDir { location: Location::Local, path: VfsPath::new("/home/tester/new") },
         ]
     );
     assert!(harness.app.modal().is_none());
@@ -1130,10 +1179,11 @@ fn delete_asks_for_confirmation_listing_a_count_and_at_most_five_names() {
     plain(&mut harness, Named::Delete);
 
     match open_modal(&harness) {
-        crate::modal::Modal::ConfirmDelete { entries, .. } => {
+        crate::modal::Modal::ConfirmDelete { entries, place, .. } => {
             assert_eq!(entries.len(), 8);
-            let lines = crate::modal::delete_summary(entries);
+            let lines = crate::modal::delete_summary(entries, place);
             assert_eq!(lines.len(), 1 + 5 + 1);
+            assert_eq!(lines[0], "Delete 8 items from this computer?");
         }
         other => panic!("{other:?}"),
     }
@@ -1270,6 +1320,8 @@ fn the_action_bar_buttons_run_the_same_actions_as_the_keys() {
 fn upload_target(harness: &mut Harness) {
     connect(harness, 1, "alpha");
     list_session(harness, 1, "/srv/in", &["old"]);
+    plain(harness, Named::Tab);
+    assert_eq!(harness.app.active_side(), PanelSide::Local);
 }
 
 #[test]
@@ -1529,6 +1581,18 @@ fn an_open_queue_pane_shortens_the_list_viewport() {
     ctrl_t(&mut harness);
 
     assert_eq!(harness.app.list_height(), closed - crate::transfers::QUEUE_HEIGHT - 1.0);
+}
+
+#[test]
+fn an_open_queue_in_a_short_window_leaves_the_list_most_of_the_height() {
+    let mut harness = Harness::new();
+    harness.app.set_window_size(iced::Size::new(900.0, 400.0));
+    let closed = harness.app.list_height();
+
+    ctrl_t(&mut harness);
+
+    assert_eq!(harness.app.list_height(), closed - crate::transfers::queue_height(400.0) - 1.0);
+    assert!(harness.app.list_height() > 0.0);
 }
 
 #[test]
@@ -3190,6 +3254,176 @@ fn submitting_a_path_hands_the_text_to_core_and_closes_the_editor() {
     assert!(harness.app.path_edit().is_none());
 }
 
+fn complete_paths(sent: &[Command]) -> Vec<(Location, VfsPath, String)> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::CompletePath { location, from, text } => Some((*location, from.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn path_completed(text: &str, prefix: &str, candidates: &[&str], completed: &str) -> Event {
+    Event::PathCompleted {
+        location: Location::Local,
+        text: text.to_string(),
+        completion: porthmos_core::Completion {
+            prefix: prefix.to_string(),
+            candidates: candidates.iter().map(|name| name.to_string()).collect(),
+            completed: completed.to_string(),
+        },
+    }
+}
+
+fn editing_path(harness: &mut Harness, text: &str) {
+    harness.press(Message::PathEditStarted(PanelSide::Local));
+    harness.press(Message::PathTyped(text.to_string()));
+    harness.sent();
+}
+
+fn with_candidates_shown(harness: &mut Harness) {
+    editing_path(harness, "/d/s");
+    plain(harness, Named::Tab);
+    harness.feed(path_completed("/d/s", "/d/", &["sub", "subway"], "/d/s"));
+    plain(harness, Named::Tab);
+    harness.feed(path_completed("/d/s", "/d/", &["sub", "subway"], "/d/s"));
+}
+
+#[test]
+fn tab_in_the_path_edit_sends_complete_path_with_the_typed_text() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+
+    plain(&mut harness, Named::Tab);
+
+    let sent = harness.sent();
+    assert_eq!(complete_paths(&sent), vec![(Location::Local, harness.start_folder(), "/tm".to_string())]);
+    assert_eq!(harness.app.path_edit().unwrap().text, "/tm");
+}
+
+#[test]
+fn tab_while_a_completion_is_pending_sends_nothing() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    harness.sent();
+
+    plain(&mut harness, Named::Tab);
+
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn a_reply_for_the_typed_text_replaces_it() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+
+    harness.feed(path_completed("/tm", "/", &["tmp"], "/tmp/"));
+
+    assert_eq!(harness.app.path_edit().unwrap().text, "/tmp/");
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+}
+
+#[test]
+fn a_stuck_reply_with_several_candidates_shows_them() {
+    let mut harness = Harness::new();
+
+    with_candidates_shown(&mut harness);
+
+    let listing = harness.app.path_edit().unwrap().listing.as_ref().unwrap();
+    assert_eq!(listing.candidates, ["sub", "subway"]);
+    assert_eq!(harness.app.path_edit().unwrap().text, "/d/s");
+}
+
+#[test]
+fn a_reply_for_text_that_has_since_changed_is_ignored() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    harness.press(Message::PathTyped("/tmx".to_string()));
+
+    harness.feed(path_completed("/tm", "/", &["tmp"], "/tmp/"));
+
+    assert_eq!(harness.app.path_edit().unwrap().text, "/tmx");
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+}
+
+#[test]
+fn a_reply_for_another_location_still_releases_the_pending_flag() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    harness.sent();
+
+    harness.feed(Event::PathCompleted {
+        location: Location::Session(99),
+        text: "/tm".to_string(),
+        completion: porthmos_core::Completion::default(),
+    });
+    plain(&mut harness, Named::Tab);
+
+    assert_eq!(complete_paths(&harness.sent()).len(), 1);
+}
+
+#[test]
+fn a_reply_after_the_edit_was_cancelled_is_ignored() {
+    let mut harness = Harness::new();
+    editing_path(&mut harness, "/tm");
+    plain(&mut harness, Named::Tab);
+    plain(&mut harness, Named::Escape);
+
+    harness.feed(path_completed("/tm", "/", &["tmp"], "/tmp/"));
+
+    assert!(harness.app.path_edit().is_none());
+}
+
+#[test]
+fn typing_clears_the_candidate_list() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+
+    harness.press(Message::PathTyped("/d/su".to_string()));
+
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+}
+
+#[test]
+fn escape_clears_the_list_first_and_cancels_the_edit_second() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+
+    plain(&mut harness, Named::Escape);
+    assert!(harness.app.path_edit().unwrap().listing.is_none());
+
+    plain(&mut harness, Named::Escape);
+    assert!(harness.app.path_edit().is_none());
+}
+
+#[test]
+fn submitting_with_a_list_shown_still_goes_to_the_typed_text() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+    harness.sent();
+
+    harness.press(Message::PathSubmitted);
+
+    let sent = harness.sent();
+    assert_eq!(go_to_paths(&sent), vec![(Location::Local, harness.start_folder(), "/d/s".to_string())]);
+}
+
+#[test]
+fn choosing_a_candidate_inserts_its_path_with_a_trailing_slash_and_closes_the_list() {
+    let mut harness = Harness::new();
+    with_candidates_shown(&mut harness);
+
+    harness.press(Message::PathCandidateChosen("subway".to_string()));
+
+    let edit = harness.app.path_edit().unwrap();
+    assert_eq!(edit.text, "/d/subway/");
+    assert!(edit.listing.is_none());
+}
+
 #[test]
 fn a_typed_tilde_is_left_for_core_to_resolve() {
     let mut harness = Harness::new();
@@ -3811,4 +4045,449 @@ fn cycling_the_sort_from_the_keyboard_is_remembered() {
 
     let expected = PanelSettings { show_hidden: false, sort: SortSpec::default().cycled() };
     assert_eq!(remembered_panels(harness.sent()), vec![(PanelKind::Local, expected)]);
+}
+
+#[test]
+fn the_delete_prompt_names_this_computer_for_the_local_panel() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+
+    plain(&mut harness, Named::Delete);
+
+    match open_modal(&harness) {
+        crate::modal::Modal::ConfirmDelete { place, .. } => assert_eq!(place, "this computer"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_delete_prompt_names_the_connection_for_the_remote_panel_even_when_the_name_exists_locally() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["old"]);
+    upload_target(&mut harness);
+    harness.press(Message::PanelClicked(PanelSide::Remote, 1));
+
+    plain(&mut harness, Named::Delete);
+
+    match open_modal(&harness) {
+        crate::modal::Modal::ConfirmDelete { side, place, entries, .. } => {
+            assert_eq!(*side, PanelSide::Remote);
+            assert_eq!(place, "alpha");
+            assert_eq!(crate::modal::delete_summary(entries, place), ["Delete \"old\" from alpha?"]);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+fn fill_local_folders(harness: &mut Harness, folders: &[&str], files: &[&str]) {
+    let folder = harness.start_folder();
+    let mut entries: Vec<porthmos_core::Entry> = folders.iter().map(|name| folder_entry(&folder, name)).collect();
+    entries.extend(files.iter().map(|name| entry(&folder, name)));
+    harness.feed(Event::Listed { location: Location::Local, path: folder, entries });
+}
+
+fn count_requests(commands: Vec<Command>) -> Vec<(u64, Location, Vec<VfsPath>)> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::CountContents { request_id, location, folders } => Some((request_id, location, folders)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn delete_text(harness: &Harness) -> String {
+    match open_modal(harness) {
+        crate::modal::Modal::ConfirmDelete { entries, place, count, .. } => {
+            crate::modal::delete_lines(entries, place, count.as_ref()).join("\n")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+fn counted(files: u64, folders: u64) -> porthmos_core::delete_prompt::count::Contents {
+    porthmos_core::delete_prompt::count::Contents::Counted(porthmos_core::delete_prompt::count::ContentCount {
+        files,
+        folders,
+        unreadable: 0,
+        capped: false,
+    })
+}
+
+fn open_folder_delete(harness: &mut Harness) -> u64 {
+    fill_local_folders(harness, &["photos"], &[]);
+    plain(harness, Named::ArrowDown);
+    harness.sent();
+    plain(harness, Named::Delete);
+    let requests = count_requests(harness.sent());
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    requests[0].0
+}
+
+#[test]
+fn deleting_a_folder_asks_the_core_to_count_it_and_says_it_is_counting() {
+    let mut harness = Harness::new();
+    fill_local_folders(&mut harness, &["photos"], &["notes.txt"]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+
+    let requests = count_requests(harness.sent());
+    assert_eq!(requests.len(), 1);
+    assert_eq!((requests[0].1, requests[0].2.clone()), (Location::Local, vec![VfsPath::new("/home/tester/photos")]));
+    assert_eq!(
+        delete_text(&harness),
+        "Delete the folder \"photos\" and everything inside it from this computer?\nCounting what is inside\u{2026}"
+    );
+}
+
+#[test]
+fn deleting_only_files_asks_for_no_count() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a.txt"]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+
+    assert!(harness.sent().is_empty());
+    assert_eq!(delete_text(&harness), "Delete \"a.txt\" from this computer?");
+}
+
+#[test]
+fn the_answer_replaces_the_counting_line() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+
+    harness.feed(Event::ContentsCounted { request_id, contents: counted(1204, 37) });
+
+    assert_eq!(
+        delete_text(&harness),
+        "Delete the folder \"photos\" and everything inside it from this computer?\nInside: 1,204 files and 37 folders."
+    );
+}
+
+#[test]
+fn an_unavailable_count_is_said_plainly() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+
+    harness.feed(Event::ContentsCounted {
+        request_id,
+        contents: porthmos_core::delete_prompt::count::Contents::Unavailable,
+    });
+
+    assert!(delete_text(&harness).ends_with("\nCouldn't count what is inside."));
+}
+
+#[test]
+fn an_answer_for_another_request_changes_nothing() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+
+    harness.feed(Event::ContentsCounted { request_id: request_id + 1, contents: counted(5, 0) });
+
+    assert!(delete_text(&harness).ends_with("Counting what is inside\u{2026}"));
+}
+
+#[test]
+fn an_answer_after_the_modal_closed_is_ignored() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+    plain(&mut harness, Named::Escape);
+    harness.sent();
+
+    harness.feed(Event::ContentsCounted { request_id, contents: counted(5, 0) });
+
+    assert!(harness.app.modal().is_none());
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn declining_while_counting_stops_the_count() {
+    let mut harness = Harness::new();
+    open_folder_delete(&mut harness);
+
+    plain(&mut harness, Named::Escape);
+
+    assert_eq!(harness.sent(), vec![Command::CancelCount]);
+}
+
+#[test]
+fn confirming_while_counting_stops_the_count_and_deletes() {
+    let mut harness = Harness::new();
+    open_folder_delete(&mut harness);
+
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![
+            Command::CancelCount,
+            Command::Delete { location: Location::Local, paths: vec![VfsPath::new("/home/tester/photos")] }
+        ]
+    );
+}
+
+#[test]
+fn closing_after_the_answer_arrived_does_not_cancel_anything() {
+    let mut harness = Harness::new();
+    let request_id = open_folder_delete(&mut harness);
+    harness.feed(Event::ContentsCounted { request_id, contents: counted(2, 0) });
+
+    plain(&mut harness, Named::Escape);
+
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn counting_on_the_remote_panel_goes_to_that_session() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    let path = VfsPath::new("/srv");
+    harness.feed(Event::Listed {
+        location: Location::Session(1),
+        path: path.clone(),
+        entries: vec![folder_entry(&path, "logs")],
+    });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 1));
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+
+    let requests = count_requests(harness.sent());
+    assert_eq!(requests.len(), 1);
+    assert_eq!((requests[0].1, requests[0].2.clone()), (Location::Session(1), vec![VfsPath::new("/srv/logs")]));
+}
+
+#[test]
+fn two_prompts_in_a_row_use_different_request_ids() {
+    let mut harness = Harness::new();
+    let first = open_folder_delete(&mut harness);
+    plain(&mut harness, Named::Escape);
+    harness.sent();
+
+    plain(&mut harness, Named::Delete);
+    let second = count_requests(harness.sent())[0].0;
+
+    assert_ne!(first, second);
+}
+
+fn entry_with_mode(folder: &VfsPath, name: &str, mode: u32) -> porthmos_core::Entry {
+    porthmos_core::Entry { permissions: Some(mode), ..entry(folder, name) }
+}
+
+fn shift_p(harness: &mut Harness) {
+    key(harness, Key::Character("p".into()), Modifiers::SHIFT);
+}
+
+fn toggle_permission(harness: &mut Harness, bit: u32, on: bool) {
+    harness.press(Message::PermissionToggled(bit, on));
+}
+
+fn permission_mode(harness: &Harness) -> u32 {
+    match open_modal(harness) {
+        crate::modal::Modal::Permissions { mode, .. } => *mode,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn permissions_start_with_the_cursor_mode_and_send_the_chosen_one() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o100644)]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    shift_p(&mut harness);
+    assert_eq!(permission_mode(&harness), 0o644);
+    toggle_permission(&mut harness, 0o100, true);
+    toggle_permission(&mut harness, 0o010, true);
+    toggle_permission(&mut harness, 0o001, true);
+    harness.press(Message::ModalAccepted);
+
+    assert!(harness.app.modal().is_none());
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::new("/home/tester/a")],
+            mode: 0o755,
+            recursive: false
+        }]
+    );
+}
+
+#[test]
+fn unticking_a_box_clears_only_that_bit() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o100777)]);
+    plain(&mut harness, Named::ArrowDown);
+    shift_p(&mut harness);
+
+    toggle_permission(&mut harness, 0o020, false);
+    toggle_permission(&mut harness, 0o002, false);
+
+    assert_eq!(permission_mode(&harness), 0o755);
+}
+
+#[test]
+fn the_special_bits_of_the_entry_are_not_part_of_the_boxes() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o104755)]);
+    plain(&mut harness, Named::ArrowDown);
+
+    shift_p(&mut harness);
+
+    assert_eq!(permission_mode(&harness), 0o755);
+}
+
+#[test]
+fn permissions_start_at_644_when_the_mode_is_unknown() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+
+    shift_p(&mut harness);
+
+    assert_eq!(permission_mode(&harness), 0o644);
+}
+
+#[test]
+fn a_selection_gets_one_mode_for_every_entry() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(
+        &mut harness,
+        vec![entry_with_mode(&folder, "a", 0o100644), entry_with_mode(&folder, "b", 0o100600)],
+    );
+    select_rows(&mut harness, &[1, 2]);
+    harness.sent();
+
+    shift_p(&mut harness);
+    toggle_permission(&mut harness, 0o040, false);
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::new("/home/tester/a"), VfsPath::new("/home/tester/b")],
+            mode: 0o604,
+            recursive: false
+        }]
+    );
+}
+
+#[test]
+fn permissions_on_a_connection_go_to_that_session() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    let folder = VfsPath::new("/srv");
+    harness.feed(Event::Listed {
+        location: Location::Session(1),
+        path: folder.clone(),
+        entries: vec![entry_with_mode(&folder, "page.html", 0o100644)],
+    });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 1));
+    harness.sent();
+
+    shift_p(&mut harness);
+    toggle_permission(&mut harness, 0o020, true);
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Session(1),
+            paths: vec![VfsPath::new("/srv/page.html")],
+            mode: 0o664,
+            recursive: false
+        }]
+    );
+}
+
+#[test]
+fn cancelling_the_permissions_prompt_sends_nothing() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+    shift_p(&mut harness);
+
+    harness.press(Message::ModalDeclined);
+
+    assert!(harness.app.modal().is_none());
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn permissions_on_the_parent_row_do_nothing() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+
+    shift_p(&mut harness);
+
+    assert!(harness.app.modal().is_none());
+}
+
+#[test]
+fn the_permissions_action_is_reachable_from_the_action_bar() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a"]);
+    plain(&mut harness, Named::ArrowDown);
+
+    harness.press(Message::ActionRequested(crate::shortcuts::Action::Permissions));
+
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { .. }));
+}
+
+#[test]
+fn the_apply_inside_folders_box_is_off_until_ticked_and_then_sent() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(
+        &mut harness,
+        vec![porthmos_core::Entry { is_dir: true, ..entry_with_mode(&folder, "proj", 0o040755) }],
+    );
+    plain(&mut harness, Named::ArrowDown);
+    shift_p(&mut harness);
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { recursive: false, .. }));
+
+    harness.press(Message::PermissionsRecursiveToggled(true));
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { recursive: true, .. }));
+    harness.sent();
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::new("/home/tester/proj")],
+            mode: 0o755,
+            recursive: true
+        }]
+    );
+}
+
+#[test]
+fn ticking_apply_inside_folders_again_turns_it_off() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(
+        &mut harness,
+        vec![porthmos_core::Entry { is_dir: true, ..entry_with_mode(&folder, "proj", 0o040755) }],
+    );
+    plain(&mut harness, Named::ArrowDown);
+    shift_p(&mut harness);
+    harness.press(Message::PermissionsRecursiveToggled(true));
+
+    harness.press(Message::PermissionsRecursiveToggled(false));
+
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { recursive: false, .. }));
 }

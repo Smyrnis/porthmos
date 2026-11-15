@@ -49,3 +49,12 @@ fn a_small_window_keeps_the_whole_list_and_has_no_pane() {
     assert_eq!(search_preview_pane_height(window, true), None);
     assert_eq!(search_list_height(window, true), results_height(window));
 }
+
+#[test]
+fn the_list_the_gap_and_the_pane_together_fill_the_results_area_exactly() {
+    let window = SEARCH_WINDOW_SIZE;
+
+    let pane = search_preview_pane_height(window, true).unwrap();
+
+    assert_eq!(search_list_height(window, true) + PREVIEW_PANE_GAP + pane, results_height(window));
+}

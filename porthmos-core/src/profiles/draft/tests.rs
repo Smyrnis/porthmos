@@ -364,3 +364,64 @@ fn debug_never_prints_a_replaced_secret() {
     assert!(!printed.contains("hunter2") && !printed.contains("s3cr3t"), "{printed}");
     assert!(printed.contains("Replace"), "{printed}");
 }
+
+fn problem_field(draft: &ProfileDraft, form: &ConnectionForm) -> &'static str {
+    draft.validate(form, None).unwrap_err().field
+}
+
+#[test]
+fn a_bad_port_points_at_the_port_field() {
+    assert_eq!(problem_field(&draft("abc"), &form()), "port");
+}
+
+#[test]
+fn an_empty_common_field_points_at_that_field() {
+    let mut empty = draft("21");
+    empty.name = " ".to_string();
+    assert_eq!(problem_field(&empty, &form()), "name");
+    empty.name = "n".to_string();
+    empty.host = String::new();
+    assert_eq!(problem_field(&empty, &form()), "host");
+    empty.host = "h".to_string();
+    empty.username = String::new();
+    assert_eq!(problem_field(&empty, &form()), "username");
+}
+
+#[test]
+fn a_missing_password_points_at_the_password_field() {
+    let mut form = form();
+    form.password.required = true;
+
+    assert_eq!(problem_field(&draft("21"), &form), "password");
+}
+
+#[test]
+fn a_bad_protocol_option_points_at_its_own_key() {
+    let mut missing = draft("21");
+    missing.options.insert("bucket".to_string(), String::new());
+    assert_eq!(problem_field(&missing, &form()), "bucket");
+
+    let mut odd = draft("21");
+    odd.options.insert("security".to_string(), "implicit".to_string());
+    assert_eq!(problem_field(&odd, &form()), "security");
+
+    let mut toggle = draft("21");
+    toggle.options.insert("path_style".to_string(), "yes".to_string());
+    assert_eq!(problem_field(&toggle, &form()), "path_style");
+}
+
+#[test]
+fn a_missing_secret_option_points_at_its_key() {
+    let mut form = form();
+    form.options[2].required = true;
+
+    assert_eq!(problem_field(&draft("21"), &form), "token");
+}
+
+#[test]
+fn the_first_problem_in_form_order_is_the_one_reported() {
+    let mut both = draft("abc");
+    both.host = String::new();
+
+    assert_eq!(problem_field(&both, &form()), "host");
+}

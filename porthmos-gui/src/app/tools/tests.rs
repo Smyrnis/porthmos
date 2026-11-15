@@ -39,7 +39,6 @@ fn remote_harness() -> Harness {
         path: VfsPath::new("/srv"),
         entries: vec![hit("/srv/a.txt")],
     });
-    named(&mut harness, Named::Tab);
     harness.sent();
     harness
 }
@@ -353,8 +352,8 @@ fn search_events_do_not_disturb_the_bookmark_list() {
     let mut harness = Harness::new();
     ctrl(&mut harness, "b");
 
-    harness.feed(Event::SearchFound(hit("/x/a")));
-    harness.feed(Event::SearchDone { truncated: false });
+    harness.feed(Event::SearchFound { request_id: 0, entry: hit("/x/a") });
+    harness.feed(Event::SearchDone { request_id: 0, truncated: false, incomplete: false });
 
     assert!(matches!(harness.app.tool(), Some(Tool::Bookmarks(_))));
 }

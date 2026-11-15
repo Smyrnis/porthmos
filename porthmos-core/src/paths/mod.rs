@@ -72,6 +72,10 @@ impl Paths {
         self.config_dir.join("config.toml")
     }
 
+    pub fn theme_file(&self) -> PathBuf {
+        self.config_dir.join("theme.toml")
+    }
+
     pub fn connections_file(&self) -> PathBuf {
         self.config_dir.join("connections.toml")
     }
@@ -90,6 +94,10 @@ impl Paths {
 
     pub fn history_file(&self) -> PathBuf {
         self.state_dir.join("history.toml")
+    }
+
+    pub fn unfinished_transfers_file(&self) -> PathBuf {
+        self.state_dir.join("unfinished-transfers.toml")
     }
 
     pub fn last_used_file(&self) -> PathBuf {

@@ -1,4 +1,5 @@
 mod fs;
+mod identities;
 mod search;
 mod subsystem;
 
@@ -45,6 +46,7 @@ impl Protocol for Sftp {
             required: false,
             kind: OptionKind::Text { default: "" },
         });
+        form.options.push(porthmos_ssh::PROXY_JUMP_FIELD);
         form
     }
 

@@ -305,6 +305,27 @@ fn connecting_status_is_shown_on_the_right_in_the_muted_colour() {
 }
 
 #[test]
+fn an_active_speed_limit_is_shown_on_the_files_screen() {
+    let (mut app, theme) = themed_app();
+    app.transfers.speed_limit = Some(512 * 1024);
+
+    let terminal = render_app(&app, 80, 12);
+
+    let (x, y) = find_text(&terminal, "speed limit 512k").expect("limit is drawn");
+    assert_eq!(y, 0);
+    assert_eq!(cell_fg(&terminal, x, y), theme.fg_muted);
+}
+
+#[test]
+fn no_speed_limit_leaves_the_files_screen_status_empty() {
+    let (app, _) = themed_app();
+
+    let terminal = render_app(&app, 80, 12);
+
+    assert!(find_text(&terminal, "speed limit").is_none());
+}
+
+#[test]
 fn failed_status_is_shown_only_without_a_session() {
     let (mut app, theme) = themed_app();
     app.connection_status = ConnectionStatus::Failed("boom".into());
@@ -711,6 +732,19 @@ fn a_connected_session_shows_the_saved_connections_protocol_and_user_at_host() {
 }
 
 #[test]
+fn a_connected_session_names_the_bucket_after_the_host() {
+    let (mut app, _) = themed_app();
+    let mut saved = saved_connection("prod", "s3");
+    saved.options.insert("bucket".to_string(), "data".to_string());
+    app.connections.replace(vec![saved]);
+    add_session(&mut app, 1, "prod");
+
+    let terminal = render_app(&app, 120, 24);
+
+    assert!(row_symbols(&terminal, 2).contains("deploy@prod.example.com/data:/"), "{:?}", row_symbols(&terminal, 2));
+}
+
+#[test]
 fn a_session_without_a_saved_connection_shows_its_name_and_path() {
     let (mut app, _) = themed_app();
     add_session(&mut app, 1, "prod");
@@ -729,8 +763,8 @@ fn the_unconnected_remote_panel_says_not_connected_and_names_the_connect_key() {
     app.key_bindings = input::KeyBindings::from_overrides(&overrides).0;
     let remapped = render_app(&app, 120, 24);
 
-    assert!(find_text(&default_keys, "press F9 to connect").is_some());
-    assert!(find_text(&remapped, "press Ctrl+G to connect").is_some());
+    assert!(find_text(&default_keys, "press F9 to add a connection").is_some());
+    assert!(find_text(&remapped, "press Ctrl+G to add a connection").is_some());
 }
 
 #[test]
@@ -1441,7 +1475,7 @@ fn a_validation_error_from_the_core_is_shown_under_the_fields() {
     let (mut app, _) = form_app();
     app.apply_action(Action::AddConnection);
 
-    app.apply_core_event(Event::ProfileRejected { message: "Name is required".to_string() });
+    app.apply_core_event(Event::ProfileRejected { field: None, message: "Name is required".to_string() });
     let terminal = render_app(&app, 120, 24);
 
     let hint_and_error = (18..22).map(|y| row_symbols(&terminal, y)).collect::<Vec<_>>().join("\n");
@@ -1479,7 +1513,7 @@ fn the_form_screen_never_panics_at_any_size() {
     let (mut app, _) = form_app();
     app.apply_core_event(Event::KeyringStatus { available: false });
     app.apply_action(Action::AddConnection);
-    app.apply_core_event(Event::ProfileRejected { message: "boom\nsecond".to_string() });
+    app.apply_core_event(Event::ProfileRejected { field: None, message: "boom\nsecond".to_string() });
 
     for width in 0..=130 {
         for height in 0..=14 {
@@ -1953,4 +1987,20 @@ fn a_connected_session_hides_the_reopen_hint() {
     let terminal = render_app(&app, 120, 24);
 
     assert!(find_text(&terminal, "last time").is_none());
+}
+
+#[test]
+fn the_candidate_list_is_drawn_under_the_path_bar_with_an_and_n_more_line() {
+    let TestApp { mut app, .. } = test_app(&VfsPath::new("/d"));
+    app.apply_action(crate::input::Action::GoToPath);
+    let candidates: Vec<String> = (0..25).map(|index| format!("folder{index:02}")).collect();
+    app.path_edit.as_mut().unwrap().listing =
+        Some(porthmos_core::Completion { prefix: "/d/".to_string(), candidates, completed: "/d".to_string() });
+
+    let terminal = render_app(&app, 100, 40);
+
+    assert!(find_text(&terminal, "folder00").is_some());
+    assert!(find_text(&terminal, "folder19").is_some());
+    assert!(find_text(&terminal, "folder20").is_none());
+    assert!(find_text(&terminal, "and 5 more").is_some());
 }

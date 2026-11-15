@@ -32,7 +32,7 @@ fn press(test: &mut TestApp, code: KeyCode) {
     test.app.apply_key(key(code));
 }
 
-fn text_result(content: &str) -> Result<Arc<Preview>, String> {
+fn text_result(content: &str) -> Result<Arc<Preview>, porthmos_core::Message> {
     Ok(Arc::new(Preview {
         size: Some(content.len() as u64),
         shown: content.len(),
@@ -155,7 +155,7 @@ fn a_failure_is_shown_in_the_viewer() {
     test.app.apply_core_event(Event::PreviewReady {
         request_id: id,
         name: "notes.txt".to_string(),
-        result: Err("Couldn't preview notes.txt:\nPermission denied".to_string()),
+        result: Err("Couldn't preview notes.txt:\nPermission denied".into()),
     });
 
     assert!(draw(&test).iter().any(|row| row.contains("Permission denied")));
@@ -212,7 +212,7 @@ fn closing_while_it_is_still_loading_cancels_the_read() {
 
     press(&mut test, KeyCode::Esc);
 
-    assert_eq!(test.sent(), vec![Command::CancelPreview]);
+    assert_eq!(test.sent(), vec![Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Tool }]);
     assert!(test.app.preview.is_none());
 }
 
@@ -371,7 +371,11 @@ fn a_password_question_that_arrives_while_the_viewer_is_open_can_be_answered() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 9,
-        question: porthmos_core::Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: porthmos_core::Question::Password {
+            username: "u".to_string(),
+            name: "srv".to_string(),
+            secret: "Password",
+        },
     });
     for character in "pw".chars() {
         press(&mut test, KeyCode::Char(character));

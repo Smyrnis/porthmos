@@ -1,7 +1,7 @@
 use porthmos_core::listing::SortSpec;
 use porthmos_core::{Entry, VfsPath};
 
-use super::{connection_text, keyring_text, notice_text, panel_summary, selection_text};
+use super::{connection_text, keyring_text, limit_text, notice_text, panel_summary, selection_text};
 use crate::panel::{Modifiers, Panel};
 use crate::testing::Harness;
 use porthmos_core::Event;
@@ -38,7 +38,7 @@ fn the_summary_adds_the_free_space_when_it_is_known() {
     let mut panel = panel();
     panel.set_free_space(VfsPath::new("/data"), Some(3 * 1024 * 1024 * 1024));
 
-    assert_eq!(panel_summary(&panel), "3 items  ·  3.0G free");
+    assert_eq!(panel_summary(&panel), "3 items  ·  3.0 GB free");
 }
 
 fn sized_panel() -> Panel {
@@ -64,7 +64,7 @@ fn the_selection_text_reports_count_and_file_size() {
     panel.click(2, Modifiers::default());
     panel.click(3, Modifiers { ctrl: true, shift: false });
 
-    assert_eq!(selection_text(&panel), Some("2 selected  ·  4.0K".to_string()));
+    assert_eq!(selection_text(&panel), Some("2 selected  ·  4.0 KB".to_string()));
 }
 
 #[test]
@@ -135,4 +135,18 @@ fn the_summary_uses_the_singular_for_one_item() {
     );
 
     assert_eq!(panel_summary(&panel), "1 item");
+}
+
+#[test]
+fn the_status_bar_announces_an_active_speed_limit_only() {
+    use porthmos_core::transfer::TransferSnapshot;
+    let mut harness = Harness::new();
+    assert_eq!(limit_text(&harness.app), None);
+
+    harness.feed(Event::TransfersChanged(TransferSnapshot {
+        speed_limit: Some(512 * 1024),
+        ..TransferSnapshot::default()
+    }));
+
+    assert_eq!(limit_text(&harness.app).as_deref(), Some("speed limit 512k"));
 }

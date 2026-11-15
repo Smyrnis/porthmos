@@ -1,4 +1,5 @@
 use porthmos_core::offer_summary;
+use porthmos_core::transfer::limit::speed_limit_note;
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -11,7 +12,7 @@ use super::{
 };
 use crate::palette::REOPEN_LABEL;
 use crate::widgets::{
-    connection_details, connection_form,
+    connection_details, connection_form, file_list,
     frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
@@ -276,7 +277,10 @@ impl App {
             ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
                 (format!("Connection failed: {}", printable(message.summary())), self.theme.err_text())
             }
-            _ => return Line::default(),
+            _ => match speed_limit_note(self.transfers.speed_limit) {
+                Some(note) => (note, self.theme.muted()),
+                None => return Line::default(),
+            },
         };
         Line::styled(truncate_with_ellipsis(&text, budget), style)
     }
@@ -292,6 +296,8 @@ impl App {
         };
         let now = self.clock.now();
         let theme = &self.theme;
+        let folder_marks = self.visible_folder_marks();
+        let marks_for = |side| folder_marks.as_ref().map(|marks| file_list::RowMarks { marks, side });
         let local_active = self.active_panel == ActivePanel::Local;
         let remote_header = self.sessions.active().map(|session| self.remote_header(session));
         let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
@@ -305,8 +311,12 @@ impl App {
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
                 editing: self.editing_field(Location::Local),
                 now: &now,
+                marks: marks_for(file_list::MarkSide::Left),
             };
             panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
+            if let Some(listing) = self.path_listing(Location::Local) {
+                panel_view::render_candidates(frame, layout.local, listing, theme);
+            }
         }
 
         if !single || !local_active {
@@ -321,8 +331,12 @@ impl App {
                         switch_hint,
                         editing: self.editing_field(Location::Session(session.id)),
                         now: &now,
+                        marks: marks_for(file_list::MarkSide::Right),
                     };
                     panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
+                    if let Some(listing) = self.path_listing(Location::Session(session.id)) {
+                        panel_view::render_candidates(frame, layout.remote, listing, theme);
+                    }
                 }
                 _ => {
                     let context = PanelContext {
@@ -333,6 +347,7 @@ impl App {
                         switch_hint,
                         editing: None,
                         now: &now,
+                        marks: None,
                     };
                     let lines = self.remote_placeholder_lines();
                     panel_view::render_placeholder(frame, layout.remote, &lines, &context, theme);
@@ -363,13 +378,19 @@ impl App {
         let path = session.panel.path();
         let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
         match saved {
-            Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
-            Some(entry) => (entry.protocol.clone(), format!("{}@{}:{path}", entry.username, entry.host)),
+            Some(entry) => {
+                let host = match entry.bucket() {
+                    Some(bucket) => format!("{}/{bucket}", entry.host),
+                    None => entry.host.clone(),
+                };
+                let address = if entry.username.is_empty() { host } else { format!("{}@{host}", entry.username) };
+                (entry.protocol.clone(), format!("{address}:{path}"))
+            }
             None => ("remote".to_string(), format!("{}:{path}", session.name)),
         }
     }
 
-    fn remote_placeholder_lines(&self) -> Vec<String> {
+    pub(super) fn remote_placeholder_lines(&self) -> Vec<String> {
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
             return vec![format!("connecting to {name}\u{2026}")];
         }
@@ -380,8 +401,24 @@ impl App {
                 lines.push(format!("press {}, then choose {REOPEN_LABEL}", input::format_key_spec(spec)));
             }
         }
+        let names = self.quick_connections();
+        let any = !names.is_empty();
+        for (index, name) in names.iter().enumerate() {
+            let number = u8::try_from(index + 1).unwrap_or(u8::MAX);
+            let bound = self.key_bindings.key_for(input::Scope::Files, Action::JumpToSession(number));
+            lines.push(match bound {
+                Some(spec) => format!("{}  {}", input::format_key_spec(spec), printable(name)),
+                None => printable(name).to_string(),
+            });
+        }
         if let Some(spec) = self.key_bindings.key_for(input::Scope::Files, Action::OpenConnections) {
-            lines.push(format!("press {} to connect", input::format_key_spec(spec)));
+            let key = input::format_key_spec(spec);
+            let hidden = self.quick_connections_hidden();
+            lines.push(match (any, hidden) {
+                (false, _) => format!("press {key} to add a connection"),
+                (true, 0) => format!("press {key} for all connections"),
+                (true, hidden) => format!("press {key} for {hidden} more"),
+            });
         }
         lines
     }
@@ -485,6 +522,7 @@ impl App {
             speeds: &speeds,
             etas: &etas,
             failed_time: failed_time.as_deref(),
+            page: &self.transfers_page_rows,
         };
         transfer_list::render_transfer_list(frame, area, &view, &self.theme);
     }

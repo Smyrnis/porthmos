@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{
     Message, Severity, failure_report,
+    path_completion::{complete, split_directory},
     path_text::{needs_home, resolve_path_text},
     tasks::Scope,
 };
@@ -26,6 +27,7 @@ fn differs_only_in_case(from: &VfsPath, to: &VfsPath) -> bool {
     from.to_string_lossy().to_lowercase() == to.to_string_lossy().to_lowercase()
 }
 
+const PERMISSION_BITS: u32 = 0o7777;
 const FREE_SPACE_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsPath, events: &UnboundedSender<Event>) {
@@ -41,6 +43,11 @@ async fn announce_free_space(fs: &dyn FileSystem, location: Location, path: VfsP
         }
     };
     let _ = events.send(Event::FreeSpace { location, path, bytes });
+}
+
+fn unchanged_completion(location: Location, text: String) -> Event {
+    let completion = complete(&text, location, &[]);
+    Event::PathCompleted { location, text, completion }
 }
 
 fn announce_folder(internal: &UnboundedSender<Internal>, location: Location, path: &VfsPath) {
@@ -157,13 +164,13 @@ fn scope_for(location: Location) -> Scope {
 
 impl Engine {
     pub(crate) fn open_start_directory(&mut self, session: SessionId) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
         let start = StartFolder {
             name: live.name.clone(),
             requested: live.entry.start_path().map(str::to_string),
-            resume: self.resume_folders.remove(&live.name),
+            resume: self.book.resume_folders.remove(&live.name),
             remembered: self.last_used.store.folder(&live.name),
         };
         let work = list_start_into(
@@ -185,19 +192,19 @@ impl Engine {
     }
 
     fn remember_session_folder(&mut self, session: SessionId, path: VfsPath) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
         let name = live.name.clone();
         self.record_last_folder(&name, &path);
-        self.session_folders.insert(session, path);
+        self.book.session_folders.insert(session, path);
     }
 
     pub(crate) fn keep_folder_for_reconnect(&mut self, session: SessionId, name: &str, was_lost: bool) {
-        let folder = self.session_folders.remove(&session);
+        let folder = self.book.session_folders.remove(&session);
         match folder.filter(|_| was_lost) {
-            Some(folder) => self.resume_folders.insert(name.to_string(), folder),
-            None => self.resume_folders.remove(name),
+            Some(folder) => self.book.resume_folders.insert(name.to_string(), folder),
+            None => self.book.resume_folders.remove(name),
         };
     }
 
@@ -245,6 +252,33 @@ impl Engine {
             let target = resolve_path_text(location, &text, &from, &home);
             let opened = list_into(fs, location, Some(target), None, events.clone(), internal, reporter).await;
             let _ = events.send(if opened { Event::PathOpened { location } } else { Event::PathRejected { location } });
+        });
+    }
+
+    pub(crate) fn complete_path(&mut self, location: Location, from: VfsPath, text: String) {
+        let fs = if text == "~" { None } else { self.filesystem_or_drop(location) };
+        let Some(fs) = fs else {
+            self.emit(unchanged_completion(location, text));
+            return;
+        };
+        let events = self.events.clone();
+        self.tasks.spawn("complete-path", scope_for(location), move |_| async move {
+            let (prefix, _) = split_directory(&text, location);
+            let home = if needs_home(prefix) {
+                match fs.home().await {
+                    Ok(home) => home,
+                    Err(_) => {
+                        let _ = events.send(unchanged_completion(location, text));
+                        return;
+                    }
+                }
+            } else {
+                from.clone()
+            };
+            let folder = resolve_path_text(location, prefix, &from, &home);
+            let entries = fs.list(&folder).await.unwrap_or_default();
+            let completion = complete(&text, location, &entries);
+            let _ = events.send(Event::PathCompleted { location, text, completion });
         });
     }
 
@@ -340,6 +374,47 @@ impl Engine {
                 }
             }
             let _ = events.send(Event::LocationChanged { location });
+        });
+    }
+
+    pub(crate) fn set_permissions(&mut self, location: Location, paths: Vec<VfsPath>, mode: u32, recursive: bool) {
+        let Some(fs) = self.filesystem_or_drop(location) else {
+            return;
+        };
+        if !fs.can_set_permissions() {
+            let subject = match location {
+                Location::Local => crate::delete_prompt::THIS_COMPUTER.to_string(),
+                Location::Session(session) => self.session_name(session),
+            };
+            self.report(Severity::Warning, format!("{subject} can't change permissions"));
+            return;
+        }
+        let events = self.events.clone();
+        let reporter = self.reporter.clone();
+        self.tasks.spawn("set-permissions", scope_for(location), move |_| async move {
+            let mut changed = false;
+            let mut refused: Option<(VfsPath, ProtocolError)> = None;
+            let paths = if recursive {
+                let tree = crate::permission_tree::expand(fs.as_ref(), paths).await;
+                refused = tree.first_unreadable;
+                tree.paths.into_iter().rev().collect()
+            } else {
+                paths
+            };
+            for path in paths {
+                match fs.set_permissions(&path, mode & PERMISSION_BITS).await {
+                    Ok(()) => changed = true,
+                    Err(err) if refused.is_none() => refused = Some((path, err)),
+                    Err(_) => {}
+                }
+            }
+            if let Some((path, err)) = refused {
+                let context = format!("Unable to change permissions of {}", quoted_name(&path));
+                send_failure(&reporter, failure_message(location, context, &err), &err);
+            }
+            if changed {
+                let _ = events.send(Event::LocationChanged { location });
+            }
         });
     }
 }

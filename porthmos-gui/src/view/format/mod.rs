@@ -1,24 +1,12 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, TimeZone};
+use porthmos_core::size_text;
 
 const LAST_SECOND_OF_YEAR_9999: i64 = 253_402_300_799;
-const UNITS: [&str; 4] = ["K", "M", "G", "T"];
 
 pub fn size(bytes: u64, is_dir: bool) -> String {
-    if is_dir {
-        return "—".to_string();
-    }
-    if bytes < 1024 {
-        return bytes.to_string();
-    }
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1}{}", UNITS[unit])
+    if is_dir { "—".to_string() } else { size_text(bytes) }
 }
 
 pub fn modified<Tz: TimeZone>(modified: Option<u64>, zone: &Tz) -> String

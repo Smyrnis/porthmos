@@ -1,6 +1,8 @@
 use chrono::Local;
 use iced::widget::{column, container, mouse_area, row, scrollable, space, svg};
 use iced::{Alignment, Color, Element, Length, Size, alignment};
+use porthmos_core::Entry;
+use porthmos_core::folder_compare::Mark;
 use porthmos_core::listing::Row;
 
 use super::{BOLD, filled, format, label};
@@ -51,6 +53,7 @@ pub struct RowState {
 
 pub fn list<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, shown: Columns, size: Size) -> Element<'a, Message> {
     let palette = app.palette();
+    let folder_marks = app.folder_marks();
     let rows = panel.rows();
     let range = visible_range(app.scroll_offset(side), size.height, ROW_HEIGHT, rows.len(), OVERSCAN);
     let focused = app.active_side() == side;
@@ -64,10 +67,18 @@ pub fn list<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, shown: Columns,
             focused,
             drop: drop_row == Some(index),
         };
-        content = content.push(row_view(side, index, &rows[index], state, shown, palette));
+        let mark = match (&rows[index], &folder_marks) {
+            (Row::Entry(entry), Some(marks)) => match side {
+                PanelSide::Local => marks.left(&entry.name),
+                PanelSide::Remote => marks.right(&entry.name),
+            },
+            _ => None,
+        };
+        content = content.push(row_view(side, index, &rows[index], state, mark, shown, palette));
     }
     content = content.push(space().height(Length::Fixed(rows.len().saturating_sub(range.end) as f32 * ROW_HEIGHT)));
     let list = scrollable(content)
+        .style(crate::view::scroll::style(palette))
         .id(side.list_id())
         .on_scroll(move |viewport| Message::ScrollChanged(side, viewport.absolute_offset().y))
         .width(Length::Fill)
@@ -78,7 +89,32 @@ pub fn list<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, shown: Columns,
 pub fn icon_of(row: &Row) -> Icon {
     match row {
         Row::Parent => Icon::Parent,
+        Row::Entry(entry) if entry.link_target.is_some() => Icon::Link,
         Row::Entry(entry) => icon_for_entry(&entry.name, entry.is_dir),
+    }
+}
+
+pub fn link_note(entry: &Entry) -> Option<String> {
+    let target = entry.link_target.as_deref()?;
+    if target.is_empty() { Some("\u{2192} unreadable target".to_string()) } else { Some(format!("\u{2192} {target}")) }
+}
+
+pub fn mark_note(mark: Mark) -> &'static str {
+    match mark {
+        Mark::OnlyHere => "only here",
+        Mark::Newer => "newer",
+        Mark::Older => "older",
+        Mark::SizeDiffers => "size differs",
+        Mark::KindDiffers => "file vs folder",
+    }
+}
+
+pub fn mark_color(mark: Mark, palette: &Palette) -> Color {
+    match mark {
+        Mark::OnlyHere => palette.accent,
+        Mark::Newer => palette.ok,
+        Mark::Older | Mark::SizeDiffers => palette.paused,
+        Mark::KindDiffers => palette.err,
     }
 }
 
@@ -99,7 +135,8 @@ pub fn edge_color(state: RowState, palette: &Palette) -> Color {
 }
 
 fn row_view<'a>(
-    side: PanelSide, index: usize, row_data: &Row, state: RowState, shown: Columns, palette: &Palette,
+    side: PanelSide, index: usize, row_data: &Row, state: RowState, mark: Option<Mark>, shown: Columns,
+    palette: &Palette,
 ) -> Element<'a, Message> {
     let (name, is_dir, entry) = match row_data {
         Row::Parent => ("..".to_string(), true, None),
@@ -115,9 +152,17 @@ fn row_view<'a>(
     };
     let background = row_background(state, palette);
     let opacity = if state.focused { 1.0 } else { INACTIVE_ICON_OPACITY };
-    let icon = svg(icons::handle(icon_of(row_data))).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity);
+    let icon = svg(icons::handle(icon_of(row_data), palette.light)).width(ICON_SIZE).height(ICON_SIZE).opacity(opacity);
     let name = label(name, color);
     let name = if is_dir || state.cursor || state.drop { name.font(BOLD) } else { name };
+    let mut name_line = row![name].spacing(8);
+    if let Some(note) = entry.and_then(link_note) {
+        name_line = name_line.push(label(note, palette.fg_dim));
+    }
+    if let Some(mark) = mark {
+        name_line = name_line.push(label(mark_note(mark), mark_color(mark, palette)));
+    }
+    let name_cell: Element<'a, Message> = name_line.into();
     let mut line = row![
         container(space())
             .width(Length::Fixed(EDGE_WIDTH))
@@ -128,7 +173,7 @@ fn row_view<'a>(
             .height(Length::Fill)
             .center_x(Length::Fixed(ICON_SLOT))
             .center_y(Length::Fill),
-        container(name).width(Length::Fill).clip(true),
+        container(name_cell).width(Length::Fill).clip(true),
     ]
     .align_y(Alignment::Center);
     if let Some(entry) = entry {

@@ -316,7 +316,7 @@ impl FormState {
     }
 
     pub fn check(&self) -> Result<(), String> {
-        self.draft().validate(&self.form(), self.original.as_ref()).map(|_| ())
+        self.draft().validate(&self.form(), self.original.as_ref()).map(|_| ()).map_err(|problem| problem.message)
     }
 
     pub fn draft(&self) -> ProfileDraft {

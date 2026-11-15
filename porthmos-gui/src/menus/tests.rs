@@ -1,7 +1,7 @@
 use super::{MoreItem, MoreState, more_items};
 
 fn state(hidden_shown: bool, file: bool) -> MoreState {
-    MoreState { hidden_shown, file, sync: true }
+    MoreState { hidden_shown, file, sync: true, reopen: false }
 }
 
 #[test]
@@ -22,6 +22,7 @@ fn more_items_toggle_the_hidden_label() {
             (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
             (MoreItem::History, "Transfer history…".to_string(), true),
             (MoreItem::Sync, "Synchronize…".to_string(), true),
+            (MoreItem::Reopen, "Reopen last connections".to_string(), false),
             (MoreItem::CheckForUpdates, "Check for updates".to_string(), true)
         ]
     );
@@ -51,12 +52,14 @@ fn entries_menu_lists_all_actions_when_a_connection_exists() {
             MenuItem::CopyToOther,
             MenuItem::MoveToOther,
             MenuItem::Rename,
+            MenuItem::Permissions,
+            MenuItem::Properties,
             MenuItem::Delete,
             MenuItem::NewFolder,
             MenuItem::Refresh
         ]
     );
-    assert_eq!(enabled(&items).len(), 9);
+    assert_eq!(enabled(&items).len(), 11);
 }
 
 #[test]
@@ -159,7 +162,7 @@ fn edit_in_the_more_menu_follows_the_file_flag() {
 #[test]
 fn the_more_item_is_disabled_without_a_listed_connection() {
     let sync_for = |sync: bool| {
-        more_items(MoreState { hidden_shown: false, file: false, sync })
+        more_items(MoreState { hidden_shown: false, file: false, sync, reopen: false })
             .into_iter()
             .find(|(item, _, _)| *item == MoreItem::Sync)
             .map(|(_, title, enabled)| (title, enabled))
@@ -168,4 +171,52 @@ fn the_more_item_is_disabled_without_a_listed_connection() {
 
     assert_eq!(sync_for(true), ("Synchronize…".to_string(), true));
     assert_eq!(sync_for(false), ("Synchronize…".to_string(), false));
+}
+
+#[test]
+fn permissions_work_on_any_number_of_real_entries() {
+    use super::{MenuItem, MenuTarget, context_items};
+
+    let several = context_items(&MenuTarget::Entries { count: 3, only_parent: false, file: false }, true);
+    let parent = context_items(&MenuTarget::Entries { count: 1, only_parent: true, file: false }, true);
+
+    assert!(enabled(&several).contains(&MenuItem::Permissions));
+    assert!(!enabled(&parent).contains(&MenuItem::Permissions));
+}
+
+#[test]
+fn the_permissions_item_maps_to_the_permissions_action() {
+    use super::MenuItem;
+    use crate::shortcuts::Action;
+
+    assert_eq!(MenuItem::Permissions.action(), Action::Permissions);
+    assert_eq!(MenuItem::Permissions.title(), "Permissions…");
+}
+
+#[test]
+fn properties_work_on_any_number_of_real_entries_and_map_to_their_action() {
+    use super::{MenuItem, MenuTarget, context_items};
+    use crate::shortcuts::Action;
+
+    let several = context_items(&MenuTarget::Entries { count: 3, only_parent: false, file: false }, true);
+    let parent = context_items(&MenuTarget::Entries { count: 1, only_parent: true, file: false }, true);
+
+    assert!(enabled(&several).contains(&MenuItem::Properties));
+    assert!(!enabled(&parent).contains(&MenuItem::Properties));
+    assert_eq!(MenuItem::Properties.action(), Action::Properties);
+    assert_eq!(MenuItem::Properties.title(), "Properties…");
+}
+
+#[test]
+fn the_reopen_item_is_enabled_only_while_core_offers_connections() {
+    let reopen_for = |reopen: bool| {
+        more_items(MoreState { hidden_shown: false, file: false, sync: false, reopen })
+            .into_iter()
+            .find(|(item, _, _)| *item == MoreItem::Reopen)
+            .map(|(_, title, enabled)| (title, enabled))
+            .unwrap()
+    };
+
+    assert_eq!(reopen_for(true), ("Reopen last connections".to_string(), true));
+    assert_eq!(reopen_for(false), ("Reopen last connections".to_string(), false));
 }

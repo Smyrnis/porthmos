@@ -58,7 +58,19 @@ impl App {
     }
 
     pub fn manager_buttons(&self) -> ManagerButtons {
-        self.manager.buttons()
+        let buttons = self.manager.buttons();
+        let busy =
+            self.manager.selected_entry().is_some_and(|entry| self.connecting.as_deref() == Some(entry.name.as_str()));
+        ManagerButtons { connect: buttons.connect && !busy, ..buttons }
+    }
+
+    pub fn connect_label(&self) -> &'static str {
+        let open = self
+            .manager
+            .selected_entry()
+            .and_then(|entry| self.sessions.by_name(&entry.name))
+            .is_some_and(|session| session.healthy);
+        if open { "Switch to" } else { "Connect" }
     }
 
     pub fn link_state(&self, name: &str) -> ConnectionState {
@@ -94,6 +106,11 @@ impl App {
     }
 
     pub(in crate::app) fn set_screen(&mut self, screen: Option<Screen>) {
+        if let Some(Screen::ImportReview(view)) = &self.connections_screen
+            && !matches!(screen, Some(Screen::ImportReview(_)))
+        {
+            self.core.send(Command::CancelImport { import_id: view.import_id() });
+        }
         if !matches!(screen, Some(Screen::Form(_))) {
             self.cancel_running_test();
         }
@@ -104,13 +121,31 @@ impl App {
     }
 
     fn connect_selected(&mut self) {
-        if !self.manager.buttons().connect {
+        if !self.manager_buttons().connect {
             return;
         }
         let Some(name) = self.manager.selected_entry().map(|entry| entry.name.clone()) else {
             return;
         };
-        self.connect_profile(&name);
+        let switching = self.sessions.by_name(&name).is_some_and(|session| session.healthy);
+        if !self.connect_profile(&name) {
+            return;
+        }
+        if switching {
+            self.set_screen(None);
+        } else {
+            self.manager_connecting = Some(name);
+        }
+    }
+
+    pub(in crate::app) fn manager_connection_finished(&mut self, name: &str, connected: bool) {
+        if self.manager_connecting.as_deref() != Some(name) {
+            return;
+        }
+        self.manager_connecting = None;
+        if connected && matches!(self.connections_screen, Some(Screen::List)) {
+            self.set_screen(None);
+        }
     }
 
     pub(in crate::app) fn manager_message(&mut self, message: Message) -> Task<Message> {
@@ -129,7 +164,10 @@ impl App {
                 self.manager.select_row(row);
                 self.connect_selected();
             }
-            Message::ManagerGroupToggled(path) => self.manager.toggle_group(&path),
+            Message::ManagerGroupToggled(path) => {
+                self.manager.toggle_group(&path);
+                self.remember_open_groups();
+            }
             Message::ManagerConnect => self.connect_selected(),
             _ => {}
         }

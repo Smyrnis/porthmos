@@ -1,5 +1,5 @@
 use iced::widget::{container, mouse_area, row, space};
-use iced::{Alignment, Element, Length, alignment};
+use iced::{Alignment, Color, Element, Length, alignment};
 use porthmos_core::listing::{SortKey, SortOrder};
 
 use super::file_list::{Columns, EDGE_WIDTH, ICON_SLOT, MODIFIED_WIDTH, OWNER_WIDTH, PADDING, SIZE_WIDTH};
@@ -8,6 +8,14 @@ use crate::app::{Message, PanelSide};
 use crate::geometry::COLUMN_HEADER_HEIGHT;
 use crate::panel::Panel;
 use crate::theme::Palette;
+
+pub fn rule_color(active: bool, palette: &Palette) -> Color {
+    if active { palette.accent } else { palette.line }
+}
+
+pub fn rule<'a>(active: bool, palette: &Palette) -> Element<'a, Message> {
+    container(space()).width(Length::Fill).height(Length::Fixed(1.0)).style(filled(rule_color(active, palette))).into()
+}
 
 fn arrow(panel: &Panel, key: SortKey) -> &'static str {
     let spec = panel.sort_spec();
@@ -43,7 +51,16 @@ pub fn columns<'a>(side: PanelSide, panel: &Panel, shown: Columns, palette: &Pal
         line = line.push(sortable(side, panel, SortKey::Size, "Size", Length::Fixed(SIZE_WIDTH), right, palette));
     }
     if shown.modified {
-        line = line.push(plain("  Modified", MODIFIED_WIDTH, palette));
+        let left = alignment::Horizontal::Left;
+        line = line.push(sortable(
+            side,
+            panel,
+            SortKey::Modified,
+            "  Modified",
+            Length::Fixed(MODIFIED_WIDTH),
+            left,
+            palette,
+        ));
     }
     if shown.owner {
         line = line.push(plain("  Owner", OWNER_WIDTH, palette));
@@ -55,3 +72,6 @@ pub fn columns<'a>(side: PanelSide, panel: &Panel, shown: Columns, palette: &Pal
         .style(filled(palette.bg))
         .into()
 }
+
+#[cfg(test)]
+mod tests;

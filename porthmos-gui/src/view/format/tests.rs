@@ -3,18 +3,18 @@ use chrono::FixedOffset;
 use super::{modified, size};
 
 #[test]
-fn sizes_under_a_kilobyte_are_raw_bytes() {
-    assert_eq!(size(0, false), "0");
-    assert_eq!(size(1023, false), "1023");
+fn sizes_under_a_kilobyte_are_bytes_with_a_unit() {
+    assert_eq!(size(0, false), "0 B");
+    assert_eq!(size(1023, false), "1023 B");
 }
 
 #[test]
 fn sizes_use_binary_units_with_one_decimal() {
-    assert_eq!(size(1024, false), "1.0K");
-    assert_eq!(size(1536, false), "1.5K");
-    assert_eq!(size(5 * 1024 * 1024, false), "5.0M");
-    assert_eq!(size(3 * 1024 * 1024 * 1024, false), "3.0G");
-    assert_eq!(size(u64::MAX, false), "16777216.0T");
+    assert_eq!(size(1024, false), "1.0 KB");
+    assert_eq!(size(1536, false), "1.5 KB");
+    assert_eq!(size(5 * 1024 * 1024, false), "5.0 MB");
+    assert_eq!(size(3 * 1024 * 1024 * 1024, false), "3.0 GB");
+    assert_eq!(size(u64::MAX, false), "16777216.0 TB");
 }
 
 #[test]

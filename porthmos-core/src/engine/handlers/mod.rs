@@ -1,16 +1,21 @@
 mod bookmarks;
 mod connect;
+mod count;
 mod edit;
 mod fs;
 mod health;
 mod history;
+mod import;
 mod last_used;
 mod moves;
 mod pause;
 mod preview;
 mod profiles;
+mod properties;
+mod reconnect;
 mod reopen;
 mod reorder;
+mod saved_transfers;
 mod search;
 mod secrets;
 mod speed_limit;
@@ -24,12 +29,16 @@ use std::fmt::Display;
 
 pub(crate) use edit::{EditEvent, EditState};
 pub(crate) use history::HistoryLog;
+pub(crate) use import::ImportState;
 pub(crate) use last_used::LastUsedLog;
 pub(crate) use moves::{MoveBatch, without_symlinks};
+pub(crate) use preview::PreviewSlots;
 #[cfg(test)]
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};
+pub(crate) use reconnect::ReconnectState;
 pub(crate) use reopen::ReopenState;
+pub(crate) use saved_transfers::UnfinishedSaves;
 pub(crate) use sync::SyncState;
 pub(crate) use update::UpdateEngine;
 

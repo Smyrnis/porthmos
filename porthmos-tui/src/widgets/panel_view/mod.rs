@@ -3,14 +3,14 @@ use std::collections::HashSet;
 use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
 use porthmos_core::{
-    Entry, VfsPath,
-    listing::{Listing, SortKey, SortOrder, SortSpec},
+    Completion, Entry, VfsPath,
+    listing::{Listing, SortOrder, SortSpec},
 };
 use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Paragraph},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -20,8 +20,9 @@ use crate::{
         file_list,
         filter_line::{self, FilterLine},
         form_fields::render_caret_value,
-        frame::{accent_underline, hairline},
+        frame::{accent_underline, clear_popup, hairline},
         history_view::printable,
+        paging::{PageRows, Paged},
         path_field::PathField,
         text_fit::{truncate_start_with_ellipsis, truncate_with_ellipsis},
     },
@@ -55,6 +56,7 @@ pub struct PanelView {
     editing_filter: bool,
     anchor: Option<(Anchor, usize)>,
     free_bytes: Option<u64>,
+    page_rows: PageRows,
 }
 
 impl PanelView {
@@ -66,6 +68,7 @@ impl PanelView {
             editing_filter: false,
             anchor: None,
             free_bytes: None,
+            page_rows: PageRows::default(),
         }
     }
 
@@ -82,6 +85,10 @@ impl PanelView {
 
     pub fn rows(&self) -> &[Row] {
         self.listing.rows()
+    }
+
+    pub fn entries(&self) -> &[Entry] {
+        self.listing.entries()
     }
 
     pub fn replace_listing(&mut self, path: VfsPath, entries: Vec<Entry>) {
@@ -182,6 +189,18 @@ impl PanelView {
         }
     }
 
+    pub fn remember_page_rows(&self, rows: usize) {
+        self.page_rows.remember(rows);
+    }
+
+    pub fn parent_path(&self) -> Option<VfsPath> {
+        self.path().parent()
+    }
+
+    pub fn has_entry_named(&self, name: &str) -> bool {
+        self.rows().iter().any(|row| matches!(row, Row::Entry(entry) if entry.name == name))
+    }
+
     pub fn toggle_selection(&mut self) {
         if let Some(Row::Entry(entry)) = self.rows().get(self.cursor) {
             let path = entry.path.clone();
@@ -255,29 +274,68 @@ pub struct PanelContext<'a> {
     pub switch_hint: Option<String>,
     pub editing: Option<&'a PathField>,
     pub now: &'a DateTime<Local>,
+    pub marks: Option<file_list::RowMarks<'a>>,
 }
 
 const HEADER_GAP: usize = 2;
 const MIN_LOCATION_WIDTH: usize = 8;
 const FOOTER_GAP: usize = 3;
+const CANDIDATE_FRAME: u16 = 2;
 
 pub fn render_panel(frame: &mut Frame, area: Rect, panel: &PanelView, context: &PanelContext<'_>, theme: &Theme) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    render_header(frame, area, Some(sort_indicator(panel.sort_spec())), context, theme);
+    let sort = match context.marks {
+        Some(_) => format!("compare \u{b7} {}", sort_indicator(panel.sort_spec())),
+        None => sort_indicator(panel.sort_spec()),
+    };
+    render_header(frame, area, Some(sort), context, theme);
     render_rule(frame, area, context.active, theme);
 
     let has_footer = area.height >= 4;
     let list_height = area.height.saturating_sub(2 + u16::from(has_footer));
     if list_height > 0 {
         let list_area = Rect::new(area.x, area.y + 2, area.width, list_height);
-        let list_context =
-            file_list::ListContext { active: context.active, show_modified: context.show_modified, now: context.now };
+        let list_context = file_list::ListContext {
+            active: context.active,
+            show_modified: context.show_modified,
+            now: context.now,
+            marks: context.marks,
+        };
         file_list::render_file_list(frame, list_area, panel, &list_context, theme);
     }
     if has_footer {
         render_footer(frame, Rect::new(area.x, area.bottom() - 1, area.width, 1), panel, theme);
+    }
+}
+
+pub fn render_candidates(frame: &mut Frame, area: Rect, listing: &Completion, theme: &Theme) {
+    let (shown, more) = listing.shown();
+    let mut lines: Vec<String> = shown.iter().map(|name| printable(name)).collect();
+    if more > 0 {
+        lines.push(format!("and {more} more"));
+    }
+    let inner_width = lines.iter().map(|line| line.width()).max().unwrap_or(0);
+    let width = (inner_width as u16).saturating_add(CANDIDATE_FRAME).min(area.width);
+    let height = (lines.len() as u16).saturating_add(CANDIDATE_FRAME).min(area.height.saturating_sub(2));
+    if width <= CANDIDATE_FRAME || height <= CANDIDATE_FRAME {
+        return;
+    }
+    let popup = Rect::new(area.x, area.y + 2, width, height);
+    clear_popup(frame, popup, theme);
+    let block = Block::bordered().border_style(theme.popup_border());
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let budget = usize::from(inner.width);
+    let last_is_summary = more > 0;
+    for (index, line) in lines.iter().take(usize::from(inner.height)).enumerate() {
+        let style = if last_is_summary && index == lines.len() - 1 { theme.dim() } else { theme.bright() };
+        let text = truncate_with_ellipsis(line, budget);
+        frame.render_widget(
+            Paragraph::new(Span::styled(text, style)),
+            Rect::new(inner.x, inner.y + index as u16, inner.width, 1),
+        );
     }
 }
 
@@ -369,7 +427,7 @@ fn footer_left(panel: &PanelView, width: usize) -> String {
         let mut summary = format!("{} selected", selected.len());
         if !files.is_empty() {
             let total = files.iter().fold(0u64, |sum, entry| sum.saturating_add(entry.size));
-            summary.push_str(&format!(" \u{b7} {}", file_list::size_label(total)));
+            summary.push_str(&format!(" \u{b7} {}", porthmos_core::size_text(total)));
         }
         parts.push(summary);
     }
@@ -386,7 +444,7 @@ fn items_label(panel: &PanelView) -> String {
 fn right_labels(panel: &PanelView) -> Vec<String> {
     let items = items_label(panel);
     match panel.free_bytes {
-        Some(bytes) => vec![format!("{items} \u{b7} {} free", file_list::size_label(bytes)), items],
+        Some(bytes) => vec![format!("{items} \u{b7} {} free", porthmos_core::size_text(bytes)), items],
         None => vec![items],
     }
 }
@@ -404,10 +462,7 @@ fn render_footer(frame: &mut Frame, area: Rect, panel: &PanelView, theme: &Theme
 }
 
 fn sort_indicator(spec: SortSpec) -> String {
-    let key = match spec.key {
-        SortKey::Name => "name",
-        SortKey::Size => "size",
-    };
+    let key = spec.key.label();
     let arrow = match spec.order {
         SortOrder::Ascending => '\u{2191}',
         SortOrder::Descending => '\u{2193}',
@@ -458,6 +513,16 @@ impl FilterLine for PanelView {
         let max = self.rows().len() as isize - 1;
         let next = (self.cursor as isize + delta).clamp(0, max);
         self.cursor = next as usize;
+    }
+}
+
+impl Paged for PanelView {
+    fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    fn row_count(&self) -> usize {
+        self.rows().len()
     }
 }
 

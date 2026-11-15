@@ -1,4 +1,8 @@
 use chrono::{DateTime, Local};
+use porthmos_core::{
+    folder_compare::{FolderMarks, Mark},
+    size_text,
+};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -28,10 +32,32 @@ const MODIFIED_WIDTH: usize = 11;
 const MIN_NAME_WIDTH: usize = 4;
 const MIN_WIDTH_WITH_SIZE: u16 = 28;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkSide {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy)]
+pub struct RowMarks<'a> {
+    pub marks: &'a FolderMarks,
+    pub side: MarkSide,
+}
+
+impl RowMarks<'_> {
+    fn of(&self, name: &str) -> Option<Mark> {
+        match self.side {
+            MarkSide::Left => self.marks.left(name),
+            MarkSide::Right => self.marks.right(name),
+        }
+    }
+}
+
 pub struct ListContext<'a> {
     pub active: bool,
     pub show_modified: bool,
     pub now: &'a DateTime<Local>,
+    pub marks: Option<RowMarks<'a>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +97,7 @@ pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, contex
     if body.height == 0 {
         return;
     }
+    panel.remember_page_rows(usize::from(body.height));
     let items: Vec<ListItem> = panel
         .rows()
         .iter()
@@ -117,10 +144,10 @@ fn row_line(
     let style = if focused && context.active { theme.focused_name() } else { style };
     let name = pad_right(&truncate_name(&name, columns.name_width), columns.name_width);
 
-    let mut spans = vec![marker, Span::raw(" "), Span::styled(name, style)];
+    let mut spans = vec![marker, difference_marker(row, context, theme), Span::styled(name, style)];
     if let Row::Entry(entry) = row {
         if columns.show_size {
-            let size = if entry.is_dir { String::new() } else { size_label(entry.size) };
+            let size = if entry.is_dir { String::new() } else { size_text(entry.size) };
             spans.push(Span::styled(format!(" {}", pad_left(&size, SIZE_WIDTH)), theme.dim()));
         }
         if columns.show_modified {
@@ -129,6 +156,21 @@ fn row_line(
         }
     }
     Line::from(spans)
+}
+
+fn difference_marker(row: &Row, context: &ListContext<'_>, theme: &Theme) -> Span<'static> {
+    let mark = match (row, context.marks) {
+        (Row::Entry(entry), Some(marks)) => marks.of(&entry.name),
+        _ => None,
+    };
+    match mark {
+        None => Span::raw(" "),
+        Some(Mark::OnlyHere) => Span::styled("\u{2022}", theme.accent_text()),
+        Some(Mark::Newer) => Span::styled("\u{2191}", theme.ok_text()),
+        Some(Mark::Older) => Span::styled("\u{2193}", theme.paused_text()),
+        Some(Mark::SizeDiffers) => Span::styled("\u{2260}", theme.paused_text()),
+        Some(Mark::KindDiffers) => Span::styled("!", theme.err_text()),
+    }
 }
 
 fn entry_style(is_dir: bool, active: bool, theme: &Theme) -> Style {
@@ -162,21 +204,7 @@ pub(crate) fn permissions_string(entry: &porthmos_core::Entry) -> Option<String>
     } else {
         '-'
     };
-    Some(format!("{kind}{}", permission_triplets(mode)))
-}
-
-pub fn size_label(bytes: u64) -> String {
-    if bytes < 1024 {
-        return format!("{bytes} B");
-    }
-    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while (value >= 1024.0 || (value * 10.0).round() / 10.0 >= 1000.0) && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1} {}", UNITS[unit])
+    Some(format!("{kind}{}", porthmos_core::permissions::symbolic(mode)))
 }
 
 pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
@@ -187,37 +215,7 @@ pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
 }
 
 pub fn format_size(size: u64, is_dir: bool) -> String {
-    if is_dir {
-        return "\u{2014}".to_string();
-    }
-    if size < 1024 {
-        return size.to_string();
-    }
-
-    const UNITS: [&str; 4] = ["K", "M", "G", "T"];
-    let mut value = size as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1}{}", UNITS[unit])
-}
-
-fn permission_triplets(mode: u32) -> String {
-    const BITS: [(u32, char); 9] = [
-        (0o400, 'r'),
-        (0o200, 'w'),
-        (0o100, 'x'),
-        (0o040, 'r'),
-        (0o020, 'w'),
-        (0o010, 'x'),
-        (0o004, 'r'),
-        (0o002, 'w'),
-        (0o001, 'x'),
-    ];
-
-    BITS.iter().map(|(bit, ch)| if mode & bit != 0 { *ch } else { '-' }).collect()
+    if is_dir { "\u{2014}".to_string() } else { size_text(size) }
 }
 
 #[cfg(test)]

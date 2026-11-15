@@ -22,10 +22,10 @@ mod entries;
 mod geometry;
 mod history_view;
 mod icons;
+mod import_view;
 mod main_window;
 mod menus;
 mod modal;
-mod names;
 mod native;
 mod navigation;
 mod palette;
@@ -55,6 +55,7 @@ fn main() -> Result<()> {
     if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
         std::process::exit(code);
     }
+    porthmos_core::i18n::use_environment_language();
     match cli::interpret(std::env::args().skip(1)) {
         cli::Invocation::Run => run_window(),
         cli::Invocation::Print(text) => {
@@ -98,7 +99,8 @@ fn run_window() -> Result<()> {
     let local_start = runtime::local_start(started.core.remembered_local_folder(), home, std::env::current_dir().ok());
     let mut app = app::App::new(started.core, started.events, local_start, palette, started.shortcuts)
         .with_update_mode(update_mode)
-        .with_settings(started.settings, started.config_file);
+        .with_settings(started.settings, started.config_file)
+        .with_theme_accent(started.config_accent);
     for warning in started.warnings {
         app.warn(warning);
     }

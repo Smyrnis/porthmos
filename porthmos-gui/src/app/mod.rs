@@ -4,12 +4,16 @@ use std::time::{Duration, Instant};
 
 use iced::widget::{Id, operation};
 use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
+use porthmos_core::delete_prompt::THIS_COMPUTER;
+use porthmos_core::delete_prompt::count::Contents;
 use porthmos_core::listing::{Row, SortKey};
+use porthmos_core::names::entry_name_problem;
 use porthmos_core::transfer::conflicts::Resolution;
 use porthmos_core::transfer::rows::RowKind;
 use porthmos_core::{
     Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath, to_os_path,
 };
+use porthmos_core::{Completion, CompletionStep};
 
 use porthmos_core::config::bookmarks::Bookmark;
 use porthmos_core::config::settings::PanelSettings;
@@ -27,8 +31,7 @@ use crate::drag::{
 use crate::entries::entries_from_paths;
 use crate::geometry::{Hit, ROW_HEIGHT, hit_test, list_viewport, scroll_to_show};
 use crate::menus::{ContextMenu, MenuItem, MenuTarget, MoreItem};
-use crate::modal::{Modal, ModalQueue};
-use crate::names::name_problem;
+use crate::modal::{DeleteCount, Modal, ModalQueue};
 use crate::native::{self, Attached, DesktopEvent, DesktopSource};
 use crate::navigation::PathEdit;
 use crate::pane::Pane;
@@ -43,11 +46,13 @@ use crate::staging::{Job, Stage, Staging};
 use crate::sync_view::SyncView;
 use crate::theme::Palette;
 use crate::tools::Tool;
-use crate::transfers::{QUEUE_HEIGHT, QueuePane, RowButton, TransferState, transfer_command};
+use crate::transfers::{QueuePane, RowButton, TransferState, queue_height, transfer_command};
 use crate::update_view::UpdateView;
 use crate::view::toolbar::ToolbarState;
 use crate::windows::Windows;
 
+const PERMISSION_BITS: u32 = 0o777;
+const UNKNOWN_MODE: u32 = 0o644;
 const NOTICE_LIMIT: usize = 50;
 const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -102,9 +107,12 @@ pub enum Message {
     Core(Event),
     CloseRequested,
     WindowCloseRequested(window::Id),
+    WindowClosed(window::Id),
     WindowKey(window::Id, KeyPress),
     WindowSized(window::Id, Size),
     WindowMoved(window::Id, Point),
+    WindowSizeSettled(window::Id, Size, bool),
+    WindowMoveSettled(window::Id, Point, bool),
     FromWindow(window::Id, Box<Message>),
     MainWindowOpened,
     WindowOpened(window::Id),
@@ -144,6 +152,8 @@ pub enum Message {
     LabelsSavePressed,
     MissingHostChosen(MissingChoice),
     PasswordSaveToggled(bool),
+    PermissionToggled(u32, bool),
+    PermissionsRecursiveToggled(bool),
     FormTestPressed,
     FormTestCancelled,
     TestPasswordTyped(Typed),
@@ -155,6 +165,11 @@ pub enum Message {
     ProcessFinished(ProcessEvent),
     EditAnswered(porthmos_core::edit::EditChoice),
     EditDoneEditing,
+    EditShowDiff,
+    EditDiffBack,
+    PropertiesCompute,
+    PropertiesExpectedTyped(String),
+    PropertiesCopyDigest(usize),
     SearchTyped(String),
     SearchRowPressed(usize),
     SearchRowActivated(usize),
@@ -180,11 +195,17 @@ pub enum Message {
     SettingsTerminalTyped(String),
     SettingsTerminalApplied,
     SettingsAutoUploadToggled(bool),
+    SettingsCompareLimitTyped(String),
+    SettingsCompareLimitApplied,
     SettingsSearchPreviewToggled(bool),
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
     SettingsReopenChosen(porthmos_core::ReopenMode),
+    SettingsReconnectToggled(bool),
+    SettingsThemeChosen(porthmos_core::theme::ThemeBase),
+    SettingsCategoryChosen(crate::settings_view::SettingsCategory),
     ReopenPressed,
+    QuickConnectPressed(String),
     SettingsClosed,
     MoreMenuToggled,
     RowRightPressed(PanelSide, usize),
@@ -198,6 +219,7 @@ pub enum Message {
     CrumbPressed(PanelSide, VfsPath),
     PathEditStarted(PanelSide),
     PathTyped(String),
+    PathCandidateChosen(String),
     PathSubmitted,
     MoreItemChosen(MoreItem),
     DialogTyped(Typed),
@@ -205,6 +227,18 @@ pub enum Message {
     ModalAccepted,
     ModalDeclined,
     SyncOptionChosen(SyncChoice),
+    ImportPressed,
+    ImportSourceChosen(porthmos_core::import::ImportSource),
+    ImportPathTyped(String),
+    ImportReadPressed,
+    ImportRowToggled(usize),
+    ImportTickNew,
+    ImportUntickAll,
+    ImportRunPressed,
+    ImportCancelled,
+    ImportScrolled(f32),
+    ImportBrowsePressed(bool),
+    ImportPathPicked(Option<std::path::PathBuf>),
     SyncFilterTyped(String),
     SyncRowPressed(usize),
     SyncTickAllPressed,
@@ -258,6 +292,7 @@ pub struct App {
     sessions: Sessions,
     connecting: Option<String>,
     connection_states: std::collections::HashMap<String, ConnectionState>,
+    manager_connecting: Option<String>,
     active: PanelSide,
     modifiers: keyboard::Modifiers,
     shortcuts: Shortcuts,
@@ -285,8 +320,14 @@ pub struct App {
     search_scroll: f32,
     search_preview_scroll: f32,
     sync_view: SyncView,
+    compare_folders: bool,
     tool_version: u64,
     next_preview_id: u64,
+    next_search_id: u64,
+    reported_connection: Option<SessionId>,
+    next_count_id: u64,
+    next_import_id: u64,
+    next_properties_id: u64,
     launcher: Launcher,
     processes: ProcessSource,
     jobs: std::collections::HashMap<u64, editing::JobRole>,
@@ -314,6 +355,8 @@ pub struct App {
     update: UpdateView,
     gui_settings: GuiSettings,
     config_file: Option<PathBuf>,
+    theme_accent: Option<porthmos_core::theme::Rgb>,
+    last_used: std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>>,
 }
 
 impl App {
@@ -321,6 +364,7 @@ impl App {
         core: CoreHandle, events: EventSource, local_start: VfsPath, palette: Palette, shortcuts: Shortcuts,
     ) -> App {
         let local_panel = core.panel_settings(PanelKind::Local);
+        let open_groups = core.remembered_open_groups().to_vec();
         let (desktop_sender, desktop) = native::channel();
         let (process_sender, processes) = crate::processes::channel();
         let mut app = App {
@@ -333,6 +377,7 @@ impl App {
             sessions: Sessions::default(),
             connecting: None,
             connection_states: std::collections::HashMap::new(),
+            manager_connecting: None,
             active: PanelSide::Local,
             modifiers: keyboard::Modifiers::empty(),
             shortcuts,
@@ -343,7 +388,7 @@ impl App {
             window_memory_file: None,
             reopen_offer: Vec::new(),
             settings_state: None,
-            manager: Manager::default(),
+            manager: Manager::with_open_groups(open_groups),
             reveal: None,
             keyring_available: true,
             keyring_waiting: false,
@@ -360,8 +405,14 @@ impl App {
             search_scroll: 0.0,
             search_preview_scroll: 0.0,
             sync_view: SyncView::default(),
+            compare_folders: false,
             tool_version: 0,
             next_preview_id: 1,
+            next_search_id: 1,
+            reported_connection: None,
+            next_count_id: 0,
+            next_import_id: 0,
+            next_properties_id: 0,
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
             processes,
             jobs: std::collections::HashMap::new(),
@@ -389,6 +440,8 @@ impl App {
             update: UpdateView::new(porthmos_core::UpdateMode::Auto),
             gui_settings: GuiSettings::default(),
             config_file: None,
+            theme_accent: None,
+            last_used: Default::default(),
         };
         app.local.panel.apply(local_panel);
         app.list(Location::Local, Some(local_start));
@@ -545,7 +598,7 @@ impl App {
     }
 
     fn queue_extra(&self) -> f32 {
-        if self.queue.is_open() { QUEUE_HEIGHT + 1.0 } else { 0.0 }
+        if self.queue.is_open() { queue_height(self.window_size.height) + 1.0 } else { 0.0 }
     }
 
     pub fn list_height(&self) -> f32 {
@@ -748,9 +801,11 @@ impl App {
                 self.connection_states.insert(name, state);
             }
             Event::ReopenOffer { names } => self.reopen_offer = names,
+            Event::FocusConnection { name } => self.focus_connection(&name),
             Event::Connecting { name } => self.connecting = Some(name),
             Event::Connected { session, name, shell_available } => {
                 self.connecting = None;
+                self.manager_connection_finished(&name, true);
                 self.notices.clear();
                 if !self.sessions.activate(session) {
                     self.sessions.insert(session, name);
@@ -758,12 +813,14 @@ impl App {
                     if let Some(session) = self.sessions.active_mut() {
                         session.pane.panel.apply(remote);
                     }
+                    self.active = PanelSide::Remote;
                 }
                 self.sessions.set_shell_available(session, shell_available);
             }
             Event::ShellReady { invocation, .. } => self.shell_ready(invocation),
-            Event::ConnectFailed { message, .. } => {
+            Event::ConnectFailed { name, message } => {
                 self.connecting = None;
+                self.manager_connection_finished(&name, false);
                 self.push_notice(Severity::Error, message);
             }
             Event::Disconnected { session, .. } => {
@@ -807,28 +864,50 @@ impl App {
                 }
             }
             Event::LocationChanged { location } => self.relist(location),
+            Event::PathCompleted { location, text, completion } => {
+                self.apply_path_completion(location, text, completion)
+            }
             Event::PathOpened { location } | Event::PathRejected { location } => {
                 if let Some(pane) = self.pane_mut(location) {
                     pane.finish_typed();
                 }
             }
             Event::Profiles(entries) => self.profiles_arrived(entries),
+            Event::LastUsed(times) => self.last_used = times,
             Event::ProfileSaved => self.profile_saved(),
             Event::KeyringStatus { available } => self.keyring_available = available,
             Event::KeyringWaiting { waiting } => self.keyring_waiting = waiting,
             Event::SaveChoice { save } => self.save_choice = save,
             Event::TestFinished { test_id, outcome } => self.test_finished(test_id, outcome),
             Event::TestQuestion { test_id, request_id, question } => self.test_question(test_id, request_id, question),
-            Event::ProfileRejected { message } => self.profile_rejected(message),
+            Event::ProfileRejected { message, .. } => self.profile_rejected(message),
             Event::History(entries) => self.history_arrived(entries),
             Event::Bookmarks(items) => self.bookmarks_arrived(items),
-            Event::SearchFound(entry) => self.search_found(entry),
-            Event::SearchDone { truncated } => self.search_done(truncated),
-            Event::SearchFailed(message) => self.search_failed(message),
-            Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
+            Event::SearchFound { request_id, entry } => self.search_found(request_id, entry),
+            Event::SearchDone { request_id, truncated, incomplete } => {
+                self.search_done(request_id, truncated, incomplete)
+            }
+            Event::SearchFailed { request_id, message } => self.search_failed(request_id, message.to_string()),
+            Event::PreviewReady { request_id, result, .. } => {
+                self.preview_arrived(request_id, result.map_err(|message| message.to_string()))
+            }
+            Event::ContentsCounted { request_id, contents } => self.contents_counted(request_id, contents),
+            Event::MeasureProgress { request_id, measured } => self.properties_progress(request_id, measured),
+            Event::Measured { request_id, result } => {
+                self.properties_measured(request_id, result.map_err(|message| message.to_string()))
+            }
+            Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
+                self.properties_checksum_progress(request_id, &path, bytes_done, bytes_total)
+            }
+            Event::Checksummed { request_id, path, result } => {
+                self.properties_checksummed(request_id, &path, result.map_err(|message| message.to_string()))
+            }
             Event::LocalShellReady { invocation } => self.shell_ready(invocation),
             Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
             Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
+            Event::EditDiff { edit_id, result } => {
+                self.edit_diff_ready(edit_id, result.map_err(|message| message.to_string()))
+            }
             Event::EditsBusy(busy) => self.edits_busy = busy,
             Event::TransfersChanged(snapshot) => {
                 self.transfers.replace(snapshot);
@@ -848,7 +927,9 @@ impl App {
             Event::Update(state) => self.update_arrived(state),
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
-            _ => {}
+            Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
+            Event::ImportReadFailed { import_id, message } => self.import_read_failed(import_id, &message),
+            Event::ImportDone { added, skipped, .. } => self.import_done(added, skipped),
         }
     }
 
@@ -939,6 +1020,47 @@ impl App {
         self.core.send(Command::GoToPath { location, from, text });
     }
 
+    fn complete_path(&mut self) {
+        let Some((side, text)) =
+            self.path_edit.as_ref().filter(|edit| !edit.pending).map(|edit| (edit.side, edit.text.clone()))
+        else {
+            return;
+        };
+        let Some(location) = self.location_of(side) else {
+            return;
+        };
+        let Some(from) = self.pane_mut(location).map(|pane| pane.panel.path().clone()) else {
+            return;
+        };
+        if let Some(edit) = self.path_edit.as_mut() {
+            edit.pending = true;
+            edit.listing = None;
+        }
+        self.core.send(Command::CompletePath { location, from, text });
+    }
+
+    fn apply_path_completion(&mut self, location: Location, text: String, completion: Completion) {
+        let Some(side) = self.path_edit.as_ref().map(|edit| edit.side) else {
+            return;
+        };
+        let same_location = self.location_of(side) == Some(location);
+        let Some(edit) = self.path_edit.as_mut() else {
+            return;
+        };
+        edit.pending = false;
+        if !same_location || edit.text != text {
+            return;
+        }
+        match completion.step(&text) {
+            CompletionStep::Replace(completed) => {
+                edit.text = completed;
+                edit.listing = None;
+            }
+            CompletionStep::Show(_) => edit.listing = Some(completion),
+            CompletionStep::Nothing => {}
+        }
+    }
+
     fn relist(&mut self, location: Location) {
         let Some(pane) = self.pane_mut(location) else {
             return;
@@ -952,6 +1074,7 @@ impl App {
         let prompt_before = self.prompt_version;
         let tool_before = self.tool_version;
         let task = self.handle(message);
+        self.report_active_connection();
         let task =
             if std::mem::take(&mut self.quit_confirmed) { Task::batch([task, self.begin_close()]) } else { task };
         let task = if self.tool_version == tool_before {
@@ -996,14 +1119,36 @@ impl App {
                     Event::Disconnected { session, .. } => self.close_search_on(Location::Session(*session)),
                     _ => Task::none(),
                 };
+                let failure_raised = match &event {
+                    Event::ConnectFailed { name, .. } if self.manager_connecting.as_deref() != Some(name) => {
+                        window::gain_focus(self.windows.main())
+                    }
+                    _ => Task::none(),
+                };
+                let typed_before = self.path_edit.as_ref().map(|edit| edit.text.clone());
                 self.apply(event);
-                return Task::batch([search_closed, self.reveal_focused(), self.resync_scroll(&before)]);
+                let cursor = match &self.path_edit {
+                    Some(edit) if typed_before.is_some_and(|text| text != edit.text) => {
+                        operation::move_cursor_to_end(edit.side.path_input_id())
+                    }
+                    _ => Task::none(),
+                };
+                return Task::batch([
+                    search_closed,
+                    failure_raised,
+                    self.reveal_focused(),
+                    self.resync_scroll(&before),
+                    cursor,
+                ]);
             }
             Message::CloseRequested => return self.request_close(),
             Message::WindowCloseRequested(id) => return self.window_close_requested(id),
+            Message::WindowClosed(id) => return self.window_closed(id),
             Message::WindowKey(id, press) => return self.window_key(id, press),
-            Message::WindowSized(id, size) => self.window_sized(id, size),
-            Message::WindowMoved(id, position) => self.windows.set_position(id, position),
+            Message::WindowSized(id, size) => return self.window_sized(id, size),
+            Message::WindowMoved(id, position) => return self.window_moved(id, position),
+            Message::WindowSizeSettled(id, size, maximized) => self.window_size_settled(id, size, maximized),
+            Message::WindowMoveSettled(id, position, maximized) => self.window_move_settled(id, position, maximized),
             Message::FromWindow(id, inner) => {
                 if self.is_main(id) {
                     return self.handle(*inner);
@@ -1079,13 +1224,23 @@ impl App {
                     PanelSide::Local => to_os_path(panel.path()).display().to_string(),
                     PanelSide::Remote => panel.path().to_string_lossy().into_owned(),
                 };
-                self.path_edit = Some(PathEdit { side, text });
+                self.path_edit = Some(PathEdit { side, text, pending: false, listing: None });
                 return operation::focus(side.path_input_id());
             }
             Message::PathTyped(text) => {
                 if let Some(edit) = self.path_edit.as_mut() {
                     edit.text = text;
+                    edit.listing = None;
                 }
+            }
+            Message::PathCandidateChosen(name) => {
+                let Some(edit) = self.path_edit.as_mut() else {
+                    return Task::none();
+                };
+                if let Some(listing) = edit.listing.take() {
+                    edit.text = listing.path_for(&name);
+                }
+                return operation::move_cursor_to_end(edit.side.path_input_id());
             }
             Message::PathSubmitted => {
                 if let Some(edit) = self.path_edit.take() {
@@ -1098,6 +1253,10 @@ impl App {
             Message::MoreItemChosen(item) => {
                 self.more_open = false;
                 if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
+                    if item == MoreItem::Reopen {
+                        self.reopen_pressed();
+                        return Task::none();
+                    }
                     let action = match item {
                         MoreItem::Palette => Action::Palette,
                         MoreItem::SelectAll => Action::SelectAll,
@@ -1110,6 +1269,7 @@ impl App {
                         MoreItem::Sync => Action::Sync,
                         MoreItem::BookmarkHere => Action::BookmarkHere,
                         MoreItem::CheckForUpdates => Action::CheckForUpdates,
+                        MoreItem::Reopen => unreachable!("handled above"),
                     };
                     return self.perform(action);
                 }
@@ -1121,11 +1281,17 @@ impl App {
             | Message::SettingsTerminalTyped(_)
             | Message::SettingsTerminalApplied
             | Message::SettingsAutoUploadToggled(_)
+            | Message::SettingsCompareLimitTyped(_)
+            | Message::SettingsCompareLimitApplied
             | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsClosed
             | Message::SettingsUpdateModeChosen(_)
-            | Message::SettingsReopenChosen(_)) => return self.settings_message(message),
+            | Message::SettingsReopenChosen(_)
+            | Message::SettingsReconnectToggled(_)
+            | Message::SettingsThemeChosen(_)
+            | Message::SettingsCategoryChosen(_)) => return self.settings_message(message),
             Message::ReopenPressed => self.reopen_pressed(),
+            Message::QuickConnectPressed(name) => self.quick_connect_pressed(&name),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
                 return self.palette_message(message);
             }
@@ -1140,7 +1306,14 @@ impl App {
             Message::UpdateBadgePressed => self.show_update_announcement(),
             Message::ProcessFinished(event) => self.process_finished(event),
             Message::EditAnswered(choice) => self.edit_answered(choice),
+            Message::EditShowDiff => self.edit_show_diff(),
+            Message::EditDiffBack => {
+                self.edit_diff_back();
+            }
             Message::EditDoneEditing => self.answer_modal(true),
+            Message::PropertiesCompute => self.properties_compute(),
+            Message::PropertiesExpectedTyped(text) => self.properties_expected_typed(text),
+            Message::PropertiesCopyDigest(index) => return self.properties_copy_digest(index),
             message @ (Message::SearchClosed
             | Message::SearchTyped(_)
             | Message::SearchRowPressed(_)
@@ -1165,6 +1338,20 @@ impl App {
             | Message::SyncFlipPressed
             | Message::SyncRunPressed
             | Message::SyncScrolled(_)) => return self.tool_message(message),
+            Message::PermissionToggled(bit, on) => {
+                if let Some(Modal::Permissions { mode, .. }) = self.modals.front_mut() {
+                    if on {
+                        *mode |= bit;
+                    } else {
+                        *mode &= !bit;
+                    }
+                }
+            }
+            Message::PermissionsRecursiveToggled(on) => {
+                if let Some(Modal::Permissions { recursive, .. }) = self.modals.front_mut() {
+                    *recursive = on;
+                }
+            }
             Message::PasswordSaveToggled(on) => {
                 if let Some(Modal::Question(Dialog::Password { save: Some(save), .. })) = self.modals.front_mut() {
                     *save = on;
@@ -1211,6 +1398,18 @@ impl App {
             Message::ModalAccepted => self.answer_modal(true),
             Message::ModalDeclined => self.answer_modal(false),
             Message::SyncOptionChosen(choice) => self.sync_option_chosen(choice),
+            Message::ImportPressed => return self.import_pressed(),
+            Message::ImportSourceChosen(source) => self.import_source_chosen(source),
+            Message::ImportPathTyped(text) => self.import_path_typed(text),
+            Message::ImportReadPressed => self.import_read_pressed(),
+            Message::ImportRowToggled(index) => self.import_row_toggled(index),
+            Message::ImportTickNew => self.import_tick_new(),
+            Message::ImportUntickAll => self.import_untick_all(),
+            Message::ImportRunPressed => self.import_run_pressed(),
+            Message::ImportCancelled => self.import_cancelled(),
+            Message::ImportScrolled(offset) => self.import_scrolled(offset),
+            Message::ImportBrowsePressed(folder) => return self.import_browse(folder),
+            Message::ImportPathPicked(picked) => self.import_path_picked(picked),
             Message::QueueRowPressed(kind, button) => self.core.send(button.command(kind)),
             Message::QueueClearFinished => self.core.send(Command::ClearFinished),
             Message::QueueCancelAll => self.core.send(Command::CancelAllTransfers),
@@ -1266,6 +1465,13 @@ impl App {
         self.resync_scroll(&before)
     }
 
+    fn place_name(&self, side: PanelSide) -> String {
+        match side {
+            PanelSide::Local => THIS_COMPUTER.to_string(),
+            PanelSide::Remote => self.sessions.active().map(|session| session.name.clone()).unwrap_or_default(),
+        }
+    }
+
     fn panel_of(&self, side: PanelSide) -> Option<&Panel> {
         match side {
             PanelSide::Local => Some(&self.local.panel),
@@ -1282,15 +1488,10 @@ impl App {
             Modal::Rename { side, original, text, .. } => (*side, text, Some(original)),
             _ => return None,
         };
-        if original.is_some_and(|original| &original.name == text) {
-            return None;
-        }
-        if let Some(problem) = name_problem(text) {
-            return Some(problem);
-        }
-        self.panel_of(side)
-            .is_some_and(|panel| panel.has_entry_named(text))
-            .then(|| format!("\"{text}\" already exists"))
+        let panel = self.panel_of(side);
+        entry_name_problem(text, original.map(|original| original.name.as_str()), |name| {
+            panel.is_some_and(|panel| panel.has_entry_named(name))
+        })
     }
 
     fn press_row(&mut self, side: PanelSide, row: usize) {
@@ -1582,11 +1783,15 @@ impl App {
         if !accepted && matches!(self.modals.front(), Some(Modal::EditWaiting { .. })) {
             return;
         }
+        if !accepted && (self.edit_diff_back() || self.properties_escape()) {
+            return;
+        }
         let Some(modal) = self.modals.pop() else {
             return;
         };
         match (accepted, modal) {
             (accepted, Modal::Question(dialog)) => self.answer_question(accepted, dialog),
+            (_, Modal::Properties { request_id, .. }) => self.core.send(Command::CancelProperties { request_id }),
             (accepted, Modal::EditQuestion { edit_id, kind, .. }) => {
                 self.resolve_edit_question(accepted, edit_id, kind)
             }
@@ -1605,20 +1810,59 @@ impl App {
                     self.core.send(Command::Rename { location, from: original.path, to: parent.join(text.as_str()) });
                 }
             }
+            (true, Modal::Permissions { side, entries, mode, recursive }) => {
+                if let Some(location) = self.location_of(side) {
+                    let paths = entries.into_iter().map(|entry| entry.path).collect();
+                    self.core.send(Command::SetPermissions { location, paths, mode, recursive });
+                }
+            }
             (true, Modal::BookmarkName { location, path, text, .. }) => {
                 self.core.send(Command::AddBookmark { label: text.trim().to_string(), location, path });
             }
             (true, Modal::ConfirmClearHistory) => self.core.send(Command::ClearHistory),
-            (true, Modal::SyncOptions { session, direction, by, subfolders, .. }) => {
-                self.start_sync(session, SyncOptions { direction, by, subfolders })
+            (true, Modal::SyncOptions { session, direction, by, subfolders, mirror, .. }) => {
+                self.start_sync(session, SyncOptions { direction, by, subfolders, mirror })
             }
-            (true, Modal::ConfirmDelete { side, entries }) => {
+            (true, Modal::ConfirmSyncDelete { sync_id, choices, .. }) => self.send_sync_run(sync_id, choices),
+            (true, Modal::ConfirmDelete { side, entries, count, .. }) => {
+                self.stop_counting(count);
                 if let Some(location) = self.location_of(side) {
                     let paths = entries.into_iter().map(|entry| entry.path).collect();
                     self.core.send(Command::Delete { location, paths });
                 }
             }
+            (false, Modal::ConfirmDelete { count, .. }) => self.stop_counting(count),
             (false, _) | (_, Modal::Conflict { .. } | Modal::Info { .. }) => {}
+        }
+    }
+
+    fn request_count(&mut self, side: PanelSide, entries: &[porthmos_core::Entry]) -> Option<DeleteCount> {
+        let folders: Vec<VfsPath> =
+            entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
+        let location = self.location_of(side).filter(|_| !folders.is_empty())?;
+        self.next_count_id += 1;
+        let request_id = self.next_count_id;
+        self.core.send(Command::CountContents { request_id, location, folders });
+        Some(DeleteCount { request_id, contents: Contents::Counting })
+    }
+
+    fn stop_counting(&self, count: Option<DeleteCount>) {
+        if count.is_some_and(|count| count.contents == Contents::Counting) {
+            self.core.send(Command::CancelCount);
+        }
+    }
+
+    fn contents_counted(&mut self, request_id: u64, contents: Contents) {
+        let pending = self.modals.iter_mut().find_map(|modal| match modal {
+            Modal::ConfirmDelete { count: Some(count), .. }
+                if count.request_id == request_id && count.contents == Contents::Counting =>
+            {
+                Some(count)
+            }
+            _ => None,
+        });
+        if let Some(count) = pending {
+            count.contents = contents;
         }
     }
 
@@ -1692,6 +1936,16 @@ impl App {
             self.conflict_key(&press);
             return Task::none();
         }
+        if press.key == keyboard::Key::Named(keyboard::key::Named::Tab)
+            && self.path_edit.is_some()
+            && self.modals.is_empty()
+            && self.tool.is_none()
+        {
+            if !press.modifiers.shift() {
+                self.complete_path();
+            }
+            return Task::none();
+        }
         if press.key == keyboard::Key::Named(keyboard::key::Named::Tab) && self.text_fields_are_shown() {
             return if press.modifiers.shift() { operation::focus_previous() } else { operation::focus_next() };
         }
@@ -1723,9 +1977,14 @@ impl App {
         }
         if self.path_edit.is_some() || self.more_open || self.context_menu.is_some() {
             if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
-                self.path_edit = None;
-                self.more_open = false;
-                self.context_menu = None;
+                match self.path_edit.as_mut().filter(|edit| edit.listing.is_some()) {
+                    Some(edit) => edit.listing = None,
+                    None => {
+                        self.path_edit = None;
+                        self.more_open = false;
+                        self.context_menu = None;
+                    }
+                }
             }
             return Task::none();
         }
@@ -1901,10 +2160,23 @@ impl App {
                     self.modals.push(Modal::Rename { side, original, text, error: None });
                 }
             }
+            Action::Permissions => {
+                let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
+                if !entries.is_empty() {
+                    let mode = entries
+                        .iter()
+                        .find_map(|entry| entry.permissions)
+                        .map_or(UNKNOWN_MODE, |mode| mode & PERMISSION_BITS);
+                    self.modals.push(Modal::Permissions { side, entries, mode, recursive: false });
+                }
+            }
+            Action::Properties => self.open_properties(side),
             Action::Delete => {
                 let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
                 if !entries.is_empty() {
-                    self.modals.push(Modal::ConfirmDelete { side, entries });
+                    let place = self.place_name(side);
+                    let count = self.request_count(side, &entries);
+                    self.modals.push(Modal::ConfirmDelete { side, place, entries, count });
                 }
             }
             Action::Copy => self.copy_active(false),
@@ -1917,6 +2189,7 @@ impl App {
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),
             Action::Sync => self.request_sync(),
+            Action::CompareFolders => self.toggle_compare_folders(),
             Action::Palette => self.open_palette(),
             Action::Settings => return self.open_settings(),
             Action::CheckForUpdates => self.check_for_updates(),
@@ -1940,15 +2213,6 @@ impl App {
                 _ => return None,
             };
             Some(Message::FromWindow(window, Box::new(message)))
-        })
-    }
-
-    fn pointer_position_subscription() -> Subscription<Message> {
-        event::listen_with(|event, _, window| match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                Some(Message::FromWindow(window, Box::new(Message::PointerMoved(position))))
-            }
-            _ => None,
         })
     }
 
@@ -1996,10 +2260,10 @@ impl App {
             window::resize_events().map(|(id, size)| Message::WindowSized(id, size)),
             event::listen_with(|event, _, window| match event {
                 iced::Event::Window(window::Event::Moved(position)) => Some(Message::WindowMoved(window, position)),
+                iced::Event::Window(window::Event::Closed) => Some(Message::WindowClosed(window)),
                 _ => None,
             }),
             self.pointer_subscription(),
-            Self::pointer_position_subscription(),
             self.native_subscription(),
             self.staging_subscription(),
             self.notice_subscription(),
@@ -2025,10 +2289,14 @@ impl App {
     }
 }
 
+mod compare;
 mod connections;
 mod editing;
+mod import;
 mod palette;
 mod preview;
+mod properties;
+mod quick_connect;
 mod quit;
 mod reopen;
 mod search_window;

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use porthmos_core::preview::Preview;
+use porthmos_core::preview::{Preview, PreviewSlot};
 
 use super::*;
 use crate::widgets::preview_view::PreviewView;
@@ -48,7 +48,7 @@ impl App {
 
     fn close_preview(&mut self) {
         if self.preview.as_ref().is_some_and(PreviewView::is_loading) {
-            self.core.send(Command::CancelPreview);
+            self.core.send(Command::CancelPreview { slot: PreviewSlot::Tool });
         }
         self.preview = None;
     }

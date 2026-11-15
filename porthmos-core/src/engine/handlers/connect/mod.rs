@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
+use porthmos_vfs::{ErrorKind, FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
 
 use super::{
     super::{
@@ -58,22 +58,22 @@ async fn secured_target(entry: &ConnectionEntry, secret_keys: &[&'static str], s
 
 impl Engine {
     fn emit_connected(&self, session: u64, name: String, shell_available: bool) {
-        let preserves_times = self.sessions.get(&session).is_some_and(|live| live.fs.can_set_modified());
+        let preserves_times = self.book.sessions.get(&session).is_some_and(|live| live.fs.can_set_modified());
         self.publish_connection_state(&name, ConnectionState::Connected);
         self.emit(Event::Connected { session, name, shell_available });
         self.emit(Event::SessionCapabilities { session, preserves_times });
     }
 
     pub(crate) fn connect(&mut self, profile: &str) {
-        if let Some((&session, live)) = self.sessions.iter().find(|(_, live)| live.name == profile) {
+        if let Some((&session, live)) = self.book.sessions.iter().find(|(_, live)| live.name == profile) {
             let name = live.name.clone();
-            let shell_available = self
-                .shell_target(session)
-                .is_some_and(|target| self.sessions[&session].protocol.shell_command(&target, &self.env).is_some());
+            let shell_available = self.shell_target(session).is_some_and(|target| {
+                self.book.sessions[&session].protocol.shell_command(&target, &self.env).is_some()
+            });
             self.emit_connected(session, name, shell_available);
             return;
         }
-        if self.connecting.contains(profile) {
+        if self.book.connecting.contains(profile) {
             return;
         }
 
@@ -104,7 +104,7 @@ impl Engine {
 
         self.publish_connection_state(&entry.name, ConnectionState::Connecting);
         self.emit(Event::Connecting { name: entry.name.clone() });
-        self.connecting.insert(entry.name.clone());
+        self.book.connecting.insert(entry.name.clone());
         let secret_keys = secret_option_keys(protocol.as_ref(), &entry);
         let internal = self.internal.clone();
         let mut prompter =
@@ -117,7 +117,9 @@ impl Engine {
                 Err(err) => {
                     tracing::debug!("{err:?}");
                     let message = connect_failure_message(&err, &entry.name, protocol.display_name());
-                    Internal::ConnectFailed { name: entry.name, message }
+                    let retryable =
+                        !matches!(err.kind(), ErrorKind::Cancelled | ErrorKind::Auth | ErrorKind::AuthRejected);
+                    Internal::ConnectFailed { name: entry.name, message, retryable }
                 }
             };
             let _ = internal.send(done);
@@ -128,17 +130,17 @@ impl Engine {
         &mut self, entry: ConnectionEntry, protocol: Arc<dyn Protocol>, fs: Arc<dyn FileSystem>,
         typed: Option<TypedPassword>,
     ) {
-        self.connecting.remove(&entry.name);
+        self.book.connecting.remove(&entry.name);
+        self.reconnect_succeeded(&entry.name);
         if let Some(typed) = typed {
             self.keep_typed_password(&entry, typed);
         }
-        let session = self.next_session_id;
-        self.next_session_id += 1;
+        let session = self.book.allocate_id();
         let name = entry.name.clone();
-        self.sessions.insert(session, LiveSession { name: name.clone(), entry, protocol, fs });
+        self.book.sessions.insert(session, LiveSession { name: name.clone(), entry, protocol, fs });
         let shell_available = self
             .shell_target(session)
-            .is_some_and(|target| self.sessions[&session].protocol.shell_command(&target, &self.env).is_some());
+            .is_some_and(|target| self.book.sessions[&session].protocol.shell_command(&target, &self.env).is_some());
         self.emit_connected(session, name.clone(), shell_available);
         if self.names_a_live_connection(&name) {
             self.record_use(&name);
@@ -146,7 +148,7 @@ impl Engine {
         self.open_start_directory(session);
         self.start_health_probe(session);
         self.remember_open_connections();
-        self.reopen_progressed(&self.sessions[&session].name.clone());
+        self.reopen_progressed(&self.book.sessions[&session].name.clone());
     }
 
     fn keep_typed_password(&mut self, entry: &ConnectionEntry, typed: TypedPassword) {
@@ -164,7 +166,7 @@ impl Engine {
     }
 
     pub(crate) fn shell_target(&self, session: SessionId) -> Option<Target> {
-        let live = self.sessions.get(&session)?;
+        let live = self.book.sessions.get(&session)?;
         let secret_keys = secret_option_keys(live.protocol.as_ref(), &live.entry);
         let mut target = bare_target(&live.entry, &secret_keys);
         target.password = self.secrets.cached(&secret_account(&live.entry)).map(|secret| secret.to_string());
@@ -177,11 +179,11 @@ impl Engine {
     }
 
     pub(crate) fn disconnect(&mut self, session: SessionId) {
-        let Some(live) = self.sessions.remove(&session) else {
+        let Some(live) = self.book.sessions.remove(&session) else {
             return;
         };
         self.stop_health_probe(session);
-        let was_lost = self.lost_sessions.remove(&session);
+        let was_lost = self.book.lost_sessions.remove(&session);
         self.keep_folder_for_reconnect(session, &live.name, was_lost);
         self.history.remember_session(session, live.name.clone());
 
@@ -189,6 +191,7 @@ impl Engine {
             + self.cancel_session_transfers(session)
             + self.drop_conflict_reviews(|review| review.session_id == session);
         self.drop_sync_plans(|plan| plan.session == session);
+        self.stop_properties_of(session);
         self.finish_move_batches_of(session);
         if affected > 0 {
             let plural = if affected == 1 { "" } else { "s" };
@@ -207,7 +210,7 @@ impl Engine {
     }
 
     pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<VfsPath>) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             self.report(Severity::Warning, "Connect to a server first");
             return;
         };

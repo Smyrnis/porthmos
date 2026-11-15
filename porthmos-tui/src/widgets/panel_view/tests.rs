@@ -2,6 +2,8 @@ use chrono::{Local, TimeZone};
 use ratatui::{Terminal, backend::TestBackend};
 use unicode_width::UnicodeWidthStr;
 
+use porthmos_core::listing::SortKey;
+
 use super::*;
 use crate::{
     app::testing::{cell_fg, cursor_name, find_text},
@@ -512,6 +514,7 @@ fn a_narrow_panel_keeps_the_end_of_the_filter_the_caret_and_the_count() {
 
 fn context(now: &DateTime<Local>, active: bool) -> PanelContext<'_> {
     PanelContext {
+        marks: None,
         protocol: "local",
         location: "/d".to_string(),
         active,
@@ -587,6 +590,36 @@ fn the_sort_indicator_follows_the_sort_spec() {
     let terminal = drawn(&panel, 40, 8, true);
 
     assert!(row_string(&terminal, 0).trim_end().ends_with("size \u{2193}"));
+}
+
+#[test]
+fn the_sort_indicator_names_the_new_sort_keys() {
+    for (key, label) in [(SortKey::Modified, "modified"), (SortKey::Type, "type")] {
+        let spec = SortSpec { key, order: SortOrder::Ascending };
+        let mut panel = PanelView::new(VfsPath::from("/d"), spec, false);
+        panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
+
+        let terminal = drawn(&panel, 40, 8, true);
+
+        let expected = format!("{label} \u{2191}");
+        assert!(row_string(&terminal, 0).trim_end().ends_with(&expected), "{label}");
+    }
+}
+
+#[test]
+fn the_header_says_when_the_folders_are_being_compared() {
+    let panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
+    let now = fixed_now();
+    let marks = porthmos_core::folder_compare::compare_folders(panel.entries(), panel.entries());
+    let mut comparing = context(&now, true);
+    comparing.marks =
+        Some(crate::widgets::file_list::RowMarks { marks: &marks, side: crate::widgets::file_list::MarkSide::Left });
+
+    let on = draw_with(&panel, 60, 8, &comparing, &indexed());
+    let off = drawn(&panel, 60, 8, true);
+
+    assert!(row_string(&on, 0).contains("compare"), "{:?}", row_string(&on, 0));
+    assert!(!row_string(&off, 0).contains("compare"));
 }
 
 #[test]
@@ -966,4 +999,83 @@ fn a_field_stays_drawn_when_the_protocol_name_fills_the_header() {
 
     assert!(row_string(&terminal, 0).contains("/abc"), "{}", row_string(&terminal, 0));
     assert!(terminal.get_cursor_position().unwrap().x < 12);
+}
+
+fn many_files(count: usize) -> PanelView {
+    let entries = (0..count).map(|index| file("/d", &format!("f{index:04}"), 1)).collect();
+    PanelView::from_listing(VfsPath::from("/d"), entries)
+}
+
+#[test]
+fn a_page_is_the_number_of_file_rows_the_last_drawing_showed() {
+    let panel = many_files(40);
+    drawn(&panel, 40, 12, true);
+    assert_eq!(panel.page_rows(), 8);
+    drawn(&panel, 40, 20, true);
+    assert_eq!(panel.page_rows(), 16);
+}
+
+#[test]
+fn a_page_has_a_default_size_before_anything_was_drawn() {
+    assert!(many_files(40).page_rows() > 1);
+}
+
+#[test]
+fn paging_down_and_up_moves_the_cursor_by_the_drawn_page() {
+    let mut panel = many_files(40);
+    drawn(&panel, 40, 12, true);
+
+    panel.page_down();
+    assert_eq!(panel.cursor, 8);
+    panel.page_down();
+    assert_eq!(panel.cursor, 16);
+    panel.page_up();
+    assert_eq!(panel.cursor, 8);
+}
+
+#[test]
+fn paging_stops_at_both_ends_of_the_list() {
+    let mut panel = many_files(5);
+    drawn(&panel, 40, 12, true);
+
+    panel.page_up();
+    assert_eq!(panel.cursor, 0);
+    panel.page_down();
+    assert_eq!(panel.cursor, panel.rows().len() - 1);
+    panel.page_down();
+    assert_eq!(panel.cursor, panel.rows().len() - 1);
+}
+
+#[test]
+fn first_and_last_jump_to_the_ends_of_the_list() {
+    let mut panel = many_files(2000);
+
+    panel.cursor_to_last();
+    assert_eq!(panel.cursor, panel.rows().len() - 1);
+    assert_eq!(cursor_name(&panel), Some("f1999"));
+    panel.cursor_to_first();
+    assert_eq!(panel.cursor, 0);
+    assert!(panel.on_parent_row());
+}
+
+#[test]
+fn paging_and_jumping_in_an_empty_list_do_nothing() {
+    let mut panel = PanelView::from_listing(VfsPath::from("/"), Vec::new());
+
+    panel.page_down();
+    panel.page_up();
+    panel.cursor_to_last();
+    panel.cursor_to_first();
+
+    assert_eq!(panel.cursor, 0);
+}
+
+#[test]
+fn the_parent_path_is_the_folder_above_whatever_the_cursor_is_on() {
+    let mut panel = many_files(3);
+    panel.cursor = 2;
+    assert_eq!(panel.parent_path(), Some(VfsPath::from("/")));
+
+    let root = PanelView::from_listing(VfsPath::from("/"), Vec::new());
+    assert_eq!(root.parent_path(), None);
 }

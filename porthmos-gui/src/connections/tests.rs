@@ -160,6 +160,23 @@ fn subtitle_text() {
 }
 
 #[test]
+fn subtitle_names_the_bucket_after_the_port() {
+    let mut item = entry("a", None, &[]);
+    item.protocol = "s3".to_string();
+    item.username = "AK".to_string();
+    item.port = 5000;
+    item.options.insert("bucket".to_string(), "data".to_string());
+    assert_eq!(subtitle(&item), "AK@a.example.com:5000/data");
+}
+
+#[test]
+fn subtitle_has_no_bucket_part_when_the_bucket_is_blank() {
+    let mut item = entry("a", None, &[]);
+    item.options.insert("bucket".to_string(), " ".to_string());
+    assert_eq!(subtitle(&item), "me@a.example.com:22");
+}
+
+#[test]
 fn orphan_label_subtitle_says_labels_only() {
     let mut item = entry("a", None, &[]);
     item.source = ConnectionSource::MissingSshHost;
@@ -267,4 +284,25 @@ fn reveal_keeps_a_filter_that_matches_the_entry() {
     manager.reveal("alpha");
 
     assert_eq!(manager.filter(), "alp");
+}
+
+#[test]
+fn groups_saved_as_open_start_open() {
+    let mut manager = Manager::with_open_groups(vec!["Work".to_string()]);
+
+    manager.replace(vec![entry("a", Some("Work"), &[]), entry("b", None, &[])]);
+
+    assert_eq!(manager.rows().len(), 3);
+}
+
+#[test]
+fn open_groups_follow_toggling_and_forget_groups_that_no_longer_exist() {
+    let mut manager = Manager::with_open_groups(vec!["Gone".to_string()]);
+    manager.replace(vec![entry("a", Some("Work"), &[]), entry("b", Some("Home"), &[])]);
+
+    manager.toggle_group("Work");
+    manager.toggle_group("Home");
+    manager.toggle_group("Home");
+
+    assert_eq!(manager.open_groups(), vec!["Work".to_string()]);
 }

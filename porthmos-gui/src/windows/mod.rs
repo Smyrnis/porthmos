@@ -100,15 +100,26 @@ impl Windows {
     }
 
     pub fn set_size(&mut self, id: window::Id, size: Size) {
-        if let Some((kind, remembered)) = self.open.get_mut(&id) {
-            *remembered = size;
+        if let Some((_, current)) = self.open.get_mut(&id) {
+            *current = size;
+        }
+    }
+
+    pub fn remember_size(&mut self, id: window::Id, size: Size) {
+        if let Some((kind, _)) = self.open.get(&id) {
             self.memory.resized(*kind, size);
         }
     }
 
-    pub fn set_position(&mut self, id: window::Id, position: Point) {
+    pub fn remember_position(&mut self, id: window::Id, position: Point) {
         if let Some((kind, _)) = self.open.get(&id) {
             self.memory.moved(*kind, position);
+        }
+    }
+
+    pub fn remember_maximized(&mut self, id: window::Id, maximized: bool) {
+        if let Some((kind, _)) = self.open.get(&id) {
+            self.memory.maximized(*kind, maximized);
         }
     }
 

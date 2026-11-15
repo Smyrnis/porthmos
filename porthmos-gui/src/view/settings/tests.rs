@@ -52,3 +52,15 @@ fn the_list_keeps_one_row_in_a_tiny_window() {
     assert!(window_list_height(Size::new(480.0, 320.0)) >= ROW_HEIGHT);
     assert_eq!(window_list_height(Size::new(10.0, 10.0)), ROW_HEIGHT);
 }
+
+#[test]
+fn the_window_builds_for_every_category() {
+    use crate::settings_view::SettingsCategory;
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    for category in SettingsCategory::ALL {
+        harness.press(Message::SettingsCategoryChosen(category));
+        assert!(super::window(&harness.app).is_some(), "{category:?}");
+    }
+}

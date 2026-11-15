@@ -7,6 +7,7 @@ use porthmos_vfs::{ShellInvocation, Target};
 
 use crate::{
     askpass::{HELPER_SWITCH, PASSWORD_VARIABLE, USER_VARIABLE, usable_password},
+    jump::declared_jump,
     version::SshVersion,
 };
 
@@ -73,6 +74,12 @@ pub fn invocation_for(target: &Target, ssh_config_alias: Option<&str>, login: Pa
     if let Some(identity_file) = target.option("identity_file") {
         args.push(OsString::from("-i"));
         args.push(OsString::from(identity_file));
+    }
+    if ssh_config_alias.is_none()
+        && let Some(jump) = declared_jump(target)
+    {
+        args.push(OsString::from("-J"));
+        args.push(OsString::from(jump));
     }
     match ssh_config_alias {
         Some(alias) => args.push(OsString::from(alias)),

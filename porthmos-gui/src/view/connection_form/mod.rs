@@ -40,20 +40,20 @@ pub fn secret_placeholder(saved: bool, forgotten: bool) -> &'static str {
     }
 }
 
-fn input<'a>(placeholder: &str, value: &str) -> text_input::TextInput<'a, Message> {
-    text_input(placeholder, value).size(13.0).font(Font::DEFAULT)
+fn input<'a>(placeholder: &str, value: &str, palette: &Palette) -> text_input::TextInput<'a, Message> {
+    text_input(placeholder, value).size(13.0).font(Font::DEFAULT).style(crate::view::input::style(palette))
 }
 
 fn control<'a>(state: &'a FormState, field: &FieldView, palette: &Palette) -> Element<'a, Message> {
     let key = field.key.clone();
     match &field.kind {
-        FieldKind::Text(value) => input("", value)
+        FieldKind::Text(value) => input("", value, palette)
             .id(App::form_input_id(&key))
             .on_input(move |typed| Message::FormTextTyped(key.clone(), typed))
             .into(),
         FieldKind::Secret { saved, forgotten, .. } => {
             let secret_key = key.clone();
-            let field_input = input(secret_placeholder(*saved, *forgotten), state.secret_text(&key))
+            let field_input = input(secret_placeholder(*saved, *forgotten), state.secret_text(&key), palette)
                 .id(App::form_input_id(&key))
                 .secure(true)
                 .on_input(move |typed| Message::FormSecretTyped(secret_key.clone(), Typed::new(typed)));
@@ -70,10 +70,16 @@ fn control<'a>(state: &'a FormState, field: &FieldView, palette: &Palette) -> El
                 Message::FormChoiceChanged(key.clone(), choice.value)
             })
             .text_size(13.0)
+            .padding([6.0, 8.0])
+            .style(crate::view::dropdown::style(palette))
+            .menu_style(crate::view::dropdown::menu_style(palette))
             .width(Length::Fill)
             .into()
         }
-        FieldKind::Toggle(on) => checkbox(*on).on_toggle(move |value| Message::FormToggled(key.clone(), value)).into(),
+        FieldKind::Toggle(on) => checkbox(*on)
+            .on_toggle(move |value| Message::FormToggled(key.clone(), value))
+            .style(crate::view::checkbox::style(palette))
+            .into(),
     }
 }
 
@@ -89,7 +95,8 @@ fn form_body<'a>(app: &'a App, state: &'a FormState) -> (Element<'a, Message>, E
         .spacing(8);
         fields = fields.push(line);
     }
-    let mut body = column![scrollable(fields).height(Length::Fill)].spacing(8);
+    let mut body =
+        column![scrollable(fields).style(crate::view::scroll::style(palette)).height(Length::Shrink)].spacing(8);
     if let Some(error) = &state.error {
         body = body.push(wrapped_label(error.clone(), palette.err));
     }
@@ -134,7 +141,7 @@ fn test_line<'a>(app: &App, state: &FormState) -> Option<Element<'a, Message>> {
 
 fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
     let palette = app.palette();
-    let field = input("", prompt.text.as_str())
+    let field = input("", prompt.text.as_str(), palette)
         .id(App::test_password_id())
         .secure(true)
         .on_input(|typed| Message::TestPasswordTyped(Typed::new(typed)))
@@ -145,13 +152,9 @@ fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
         text_button("OK", Some(Message::TestPasswordSubmitted), Look::Primary, palette),
     ]
     .spacing(8);
-    let content = column![
-        bold_label("Password", palette.fg_bright),
-        label(format!("Password for {}@{}", prompt.username, prompt.name), palette.fg),
-        field,
-        buttons
-    ]
-    .spacing(12);
+    let content =
+        column![bold_label(prompt.secret, palette.fg_bright), label(prompt.heading(), palette.fg), field, buttons]
+            .spacing(12);
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
     let boxed = container(content).padding(16).width(Length::Fixed(SMALL_WIDTH)).style(move |_| container::Style {
@@ -160,8 +163,7 @@ fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
         ..container::Style::default()
     });
     let blocked = mouse_area(boxed).on_press(Message::ManagerIgnored);
-    let backdrop =
-        mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(Message::ManagerIgnored);
+    let backdrop = mouse_area(crate::view::scrim(palette)).on_press(Message::ManagerIgnored);
     let placed = container(blocked)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -175,7 +177,7 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
     let line = |name: &'static str, value: &str, message: fn(String) -> Message, id: &str| -> Element<'a, Message> {
         row![
             label(name, palette.fg_dim).width(Length::Fixed(LABEL_WIDTH)),
-            input("", value).id(App::form_input_id(id)).on_input(message).width(Length::Fill),
+            input("", value, palette).id(App::form_input_id(id)).on_input(message).width(Length::Fill),
         ]
         .align_y(Alignment::Center)
         .spacing(8)
@@ -189,7 +191,11 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
     .spacing(8);
     if labels.saved_password {
         body = body.push(
-            checkbox(labels.forget_password).label("Forget the saved password").on_toggle(Message::LabelsForgetToggled),
+            checkbox(labels.forget_password)
+                .label("Forget the saved password")
+                .text_size(13.0)
+                .on_toggle(Message::LabelsForgetToggled)
+                .style(crate::view::checkbox::style(palette)),
         );
     }
     if let Some(error) = &labels.error {
@@ -253,6 +259,21 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Screen::Form(state) => (state.title().to_string(), form_body(app, state), FORM_WIDTH, FORM_HEIGHT),
         Screen::Labels(labels) => (format!("Labels for {}", labels.name), labels_body(app, labels), SMALL_WIDTH, 260.0),
         Screen::ConfirmDelete { name } => ("Delete connection".to_string(), delete_body(app, name), SMALL_WIDTH, 150.0),
+        Screen::ImportSource(state) => (
+            "Import connections".to_string(),
+            (
+                super::import_source::body(state.source, &state.path, &state.error, state.waiting, palette),
+                super::import_source::buttons(state.waiting, palette),
+            ),
+            SMALL_WIDTH.max(super::import_source::WIDTH),
+            super::import_source::HEIGHT,
+        ),
+        Screen::ImportReview(view) => (
+            format!("Import from {}", view.source().label()),
+            (super::import_review::body(view, palette), super::import_review::buttons(view, palette)),
+            super::import_review::WIDTH,
+            super::import_review::HEIGHT,
+        ),
         Screen::MissingHost { name, shadowed } => {
             ("Labelled ssh host".to_string(), missing_body(app, name, *shadowed), SMALL_WIDTH, 300.0)
         }
@@ -260,19 +281,24 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let size = dialog_size(app.connections_window_size(), width, height);
     let surface = palette.surface;
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let content =
-        column![bold_label(title, palette.fg_bright), container(body).height(Length::Fill), footer].spacing(12);
+    let content = column![
+        bold_label(title, palette.fg_bright),
+        crate::view::hairline_across(palette),
+        container(body).height(Length::Shrink),
+        crate::view::hairline_across(palette),
+        footer
+    ]
+    .spacing(12);
     let boxed =
-        container(content).padding(16).width(Length::Fixed(size.width)).height(Length::Fixed(size.height)).style(
-            move |_| container::Style {
+        container(content).padding(16).width(Length::Fixed(size.width)).max_height(size.height).style(move |_| {
+            container::Style {
                 background: Some(iced::Background::Color(surface)),
                 border,
                 ..container::Style::default()
-            },
-        );
+            }
+        });
     let blocked = mouse_area(boxed).on_press(Message::ManagerIgnored);
-    let backdrop =
-        mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(Message::ManagerIgnored);
+    let backdrop = mouse_area(crate::view::scrim(palette)).on_press(Message::ManagerIgnored);
     let placed = container(blocked)
         .width(Length::Fill)
         .height(Length::Fill)

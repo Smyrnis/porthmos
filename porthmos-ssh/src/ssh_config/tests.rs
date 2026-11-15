@@ -69,13 +69,46 @@ Host production # trailing comment
 fn unknown_directives_are_ignored() {
     let config = "\
 Host production
-    ProxyJump bastion
+    ForwardAgent yes
     HostName server.example.com
 ";
     let hosts = parse(config, Some(Path::new("/home/test")));
 
     assert_eq!(hosts.len(), 1);
     assert_eq!(hosts[0].host_name.as_deref(), Some("server.example.com"));
+}
+
+#[test]
+fn a_proxy_jump_is_kept_as_written() {
+    let host = only("Host box\n  ProxyJump alice@bastion:2222,hop2\n");
+
+    assert_eq!(host.proxy_jump.as_deref(), Some("alice@bastion:2222,hop2"));
+}
+
+#[test]
+fn a_host_without_a_proxy_jump_has_none() {
+    assert_eq!(only("Host box\n  HostName h\n").proxy_jump, None);
+}
+
+#[test]
+fn a_wildcard_proxy_jump_applies_when_the_host_has_none() {
+    let host = only("Host box\n  HostName h\nHost *\n  ProxyJump gate\n");
+
+    assert_eq!(host.proxy_jump.as_deref(), Some("gate"));
+}
+
+#[test]
+fn the_hosts_own_proxy_jump_wins_over_a_wildcard() {
+    let host = only("Host box\n  ProxyJump mine\nHost *\n  ProxyJump gate\n");
+
+    assert_eq!(host.proxy_jump.as_deref(), Some("mine"));
+}
+
+#[test]
+fn proxy_jump_none_switches_a_wildcard_jump_off() {
+    let host = only("Host box\n  ProxyJump none\nHost *\n  ProxyJump gate\n");
+
+    assert_eq!(host.proxy_jump, None);
 }
 
 #[test]

@@ -1,13 +1,15 @@
 use std::{future::Future, path::PathBuf};
 
 use anyhow::anyhow;
-use porthmos_vfs::{Answer, ErrorKind, Prompter, ProtocolError, Question, Target};
+use porthmos_vfs::{Answer, Environment, ErrorKind, Prompter, ProtocolError, Question, Target};
 use russh::client::Handle;
 use tokio::sync::mpsc;
 
 use crate::{
     client::{self, HostKeyCheck, HostKeyDeclined, HostKeyQuestion, PorthmosHandler, ServerId},
-    discovery::identity_path,
+    discovery::{FALLBACK_USERNAME, identity_path},
+    jump::{effective_jump, resolve_chain},
+    ssh_config::{self, SshConfigHost},
 };
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,7 @@ impl Default for ConnectOptions {
 pub struct Session {
     handle: Handle<PorthmosHandler>,
     server: ServerId,
+    _jumps: Vec<Handle<PorthmosHandler>>,
 }
 
 impl Session {
@@ -72,15 +75,33 @@ pub(crate) async fn answer_host_key_questions<T>(
     }
 }
 
-pub async fn connect(
-    target: &Target, prompter: &mut dyn Prompter, options: &ConnectOptions,
-) -> Result<Session, ProtocolError> {
+struct Via<'a> {
+    handle: &'a Handle<PorthmosHandler>,
+    name: &'a str,
+}
+
+async fn open(
+    target: &Target, via: Option<Via<'_>>, prompter: &mut dyn Prompter, options: &ConnectOptions,
+) -> Result<(Handle<PorthmosHandler>, ServerId), ProtocolError> {
     let (questions, mut asked) = mpsc::channel(1);
     let known_hosts = options.known_hosts.clone().or_else(client::default_known_hosts);
     let host_key = HostKeyCheck::new(&target.host, target.port, known_hosts, questions);
-    let (mut handle, server) = answer_host_key_questions(client::connect(host_key), &mut asked, prompter, target)
-        .await
-        .map_err(connect_error)?;
+    let connecting = async {
+        match via {
+            Some(Via { handle, name }) => {
+                let channel = handle
+                    .channel_open_direct_tcpip(target.host.clone(), u32::from(target.port), "127.0.0.1", 0)
+                    .await
+                    .map_err(|err| {
+                        anyhow!("the jump host {name} refused to forward to {}:{}: {err}", target.host, target.port)
+                    })?;
+                client::connect_over(channel.into_stream(), host_key).await
+            }
+            None => client::connect(host_key).await,
+        }
+    };
+    let (mut handle, server) =
+        answer_host_key_questions(connecting, &mut asked, prompter, target).await.map_err(connect_error)?;
 
     let home = std::env::home_dir();
     let identity_file = target.option("identity_file").map(|path| identity_path(path, home.as_deref()));
@@ -93,23 +114,73 @@ pub async fn connect(
     )
     .await
     {
-        Ok(true) => return Ok(Session { handle, server }),
+        Ok(true) => return Ok((handle, server)),
         Ok(false) => {}
         Err(err) => return Err(ProtocolError::new(ErrorKind::Auth, err)),
     }
 
-    let question = Question::Password { username: target.username.clone(), name: target.name.clone() };
+    let question = Question::Password {
+        username: target.username.clone(),
+        name: target.name.clone(),
+        secret: porthmos_vfs::PASSWORD_LABEL,
+    };
     let Some(Answer::Password(password)) = prompter.ask(question).await else {
         return Err(ProtocolError::new(ErrorKind::Cancelled, anyhow!("Connection cancelled")));
     };
 
     match client::authenticate_password(&mut handle, &target.username, &password).await {
-        Ok(true) => Ok(Session { handle, server }),
+        Ok(true) => Ok((handle, server)),
         Ok(false) => {
             Err(ProtocolError::new(ErrorKind::AuthRejected, anyhow!("Authentication failed for {}", target.name)))
         }
         Err(err) => Err(ProtocolError::new(ErrorKind::Auth, err)),
     }
+}
+
+fn jump_targets(target: &Target, hosts: &[SshConfigHost], fallback_user: &str) -> Result<Vec<Target>, ProtocolError> {
+    let Some(spec) = effective_jump(target, hosts) else {
+        return Ok(Vec::new());
+    };
+    resolve_chain(spec, hosts, fallback_user).map_err(|reason| {
+        ProtocolError::new(ErrorKind::Connect, anyhow!("Can't use the jump host setting \"{spec}\": {reason}"))
+    })
+}
+
+fn reaching_jump(name: &str, error: ProtocolError) -> ProtocolError {
+    match error.kind() {
+        ErrorKind::Connect => {
+            ProtocolError::new(ErrorKind::Connect, anyhow!("Couldn't reach jump host {name}: {error}"))
+        }
+        _ => error,
+    }
+}
+
+async fn connect_through(
+    target: &Target, prompter: &mut dyn Prompter, options: &ConnectOptions, hosts: &[SshConfigHost],
+    fallback_user: &str,
+) -> Result<Session, ProtocolError> {
+    let hops = jump_targets(target, hosts, fallback_user)?;
+    let mut jumps: Vec<Handle<PorthmosHandler>> = Vec::new();
+    for hop in &hops {
+        let via = jumps
+            .last()
+            .zip(jumps.len().checked_sub(1).and_then(|index| hops.get(index)))
+            .map(|(handle, previous)| Via { handle, name: previous.name.as_str() });
+        let (handle, _) = open(hop, via, prompter, options).await.map_err(|error| reaching_jump(&hop.name, error))?;
+        jumps.push(handle);
+    }
+    let via = jumps.last().zip(hops.last()).map(|(handle, last)| Via { handle, name: last.name.as_str() });
+    let (handle, server) = open(target, via, prompter, options).await?;
+    Ok(Session { handle, server, _jumps: jumps })
+}
+
+pub async fn connect(
+    target: &Target, prompter: &mut dyn Prompter, options: &ConnectOptions,
+) -> Result<Session, ProtocolError> {
+    let environment = Environment::from_process();
+    let hosts = ssh_config::load(environment.home.as_deref()).unwrap_or_default();
+    let fallback_user = environment.user.unwrap_or_else(|| FALLBACK_USERNAME.to_string());
+    connect_through(target, prompter, options, &hosts, &fallback_user).await
 }
 
 #[cfg(test)]

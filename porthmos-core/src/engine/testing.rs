@@ -51,6 +51,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         edit: crate::config::settings::EditSettings::default(),
         update: crate::config::UpdateSettings { mode: crate::config::UpdateMode::Off, ..Default::default() },
         reopen: crate::config::ReopenMode::Off,
+        reconnect: false,
         update_record,
         updater: None,
         update_timing: crate::update::UpdateTiming::for_settings(&crate::config::UpdateSettings::default()),
@@ -88,9 +89,8 @@ impl TestEngine {
     }
 
     pub(crate) fn add_session_with(&mut self, name: &str, fs: Arc<dyn FileSystem>) -> SessionId {
-        let id = self.engine.next_session_id;
-        self.engine.next_session_id += 1;
-        self.engine.sessions.insert(
+        let id = self.engine.book.allocate_id();
+        self.engine.book.sessions.insert(
             id,
             LiveSession {
                 name: name.to_string(),
@@ -144,10 +144,21 @@ impl TestEngine {
         loop {
             match tokio::time::timeout(QUIET, self.internal.recv()).await {
                 Ok(Some(done)) => self.engine.handle_internal(done),
-                Err(_) if !self.engine.latest_keyring_job.is_empty() && started.elapsed() < LIMIT => {}
+                Err(_)
+                    if (!self.engine.latest_keyring_job.is_empty() || self.transfers_in_flight())
+                        && started.elapsed() < LIMIT => {}
                 Ok(None) | Err(_) => break,
             }
         }
+    }
+
+    fn transfers_in_flight(&self) -> bool {
+        use crate::transfer::rows::RowState;
+        self.engine
+            .transfers
+            .rows()
+            .iter()
+            .any(|row| matches!(row.state, RowState::Scanning | RowState::Running | RowState::Queued))
     }
 
     pub(crate) fn assert_secret_nowhere(&self, secret: &str, events: &[Event]) {

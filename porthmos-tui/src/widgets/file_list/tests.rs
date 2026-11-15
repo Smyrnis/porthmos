@@ -2,6 +2,7 @@ use porthmos_core::VfsPath;
 
 use chrono::{DateTime, Local, TimeZone};
 use porthmos_core::Entry;
+use porthmos_core::folder_compare::compare_folders;
 use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 use unicode_width::UnicodeWidthStr;
 
@@ -61,7 +62,20 @@ fn draw(
     let now = now();
     terminal
         .draw(|frame| {
-            let context = ListContext { active, show_modified, now: &now };
+            let context = ListContext { active, show_modified, now: &now, marks: None };
+            render_file_list(frame, frame.area(), panel, &context, theme);
+        })
+        .unwrap();
+    terminal
+}
+
+fn draw_marked(panel: &PanelView, marks: &FolderMarks, side: MarkSide, theme: &Theme) -> Terminal<TestBackend> {
+    let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+    let now = now();
+    terminal
+        .draw(|frame| {
+            let context =
+                ListContext { active: true, show_modified: true, now: &now, marks: Some(RowMarks { marks, side }) };
             render_file_list(frame, frame.area(), panel, &context, theme);
         })
         .unwrap();
@@ -293,18 +307,6 @@ fn a_narrow_panel_hides_the_size_column() {
 }
 
 #[test]
-fn size_label_uses_bytes_then_one_decimal_units() {
-    assert_eq!(size_label(0), "0 B");
-    assert_eq!(size_label(1023), "1023 B");
-    assert_eq!(size_label(1024), "1.0 KB");
-    assert_eq!(size_label(2457), "2.4 KB");
-    assert_eq!(size_label(13_312_000), "12.7 MB");
-    assert_eq!(size_label(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
-    assert_eq!(size_label(2 * 1024u64.pow(4)), "2.0 TB");
-    assert!(!size_label(u64::MAX).is_empty());
-}
-
-#[test]
 fn a_five_hundred_character_name_is_cut_inside_the_name_column() {
     let long = "x".repeat(500);
     let panel = panel_of(vec![Entry { modified: seconds_ago(0), ..file(&long, 5) }]);
@@ -422,21 +424,21 @@ fn permissions_string_adds_the_entry_type_in_front_of_the_triplets() {
 }
 
 #[test]
-fn format_size_shows_raw_bytes_under_1024() {
-    assert_eq!(format_size(0, false), "0");
-    assert_eq!(format_size(999, false), "999");
+fn format_size_shows_bytes_with_a_unit_under_1024() {
+    assert_eq!(format_size(0, false), "0 B");
+    assert_eq!(format_size(999, false), "999 B");
 }
 
 #[test]
 fn format_size_uses_kilobyte_units_above_1024() {
-    assert_eq!(format_size(1024, false), "1.0K");
-    assert_eq!(format_size(1536, false), "1.5K");
+    assert_eq!(format_size(1024, false), "1.0 KB");
+    assert_eq!(format_size(1536, false), "1.5 KB");
 }
 
 #[test]
 fn format_size_uses_megabyte_and_gigabyte_units() {
-    assert_eq!(format_size(2 * 1024 * 1024, false), "2.0M");
-    assert_eq!(format_size(3 * 1024 * 1024 * 1024, false), "3.0G");
+    assert_eq!(format_size(2 * 1024 * 1024, false), "2.0 MB");
+    assert_eq!(format_size(3 * 1024 * 1024 * 1024, false), "3.0 GB");
 }
 
 #[test]
@@ -459,14 +461,6 @@ fn truncate_name_leaves_a_wide_name_that_already_fits_untouched() {
     let name = THREE_CHARS_SIX_COLUMNS;
 
     assert_eq!(truncate_name(name, 10), name);
-}
-
-#[test]
-fn size_label_rolls_over_before_it_needs_nine_cells() {
-    assert_eq!(size_label(1_022_976), "999.0 KB");
-    assert_eq!(size_label(1_023_999), "1.0 MB");
-    assert_eq!(size_label(1_048_575), "1.0 MB");
-    assert_eq!(size_label(1_073_741_000), "1.0 GB");
 }
 
 #[test]
@@ -526,4 +520,77 @@ fn permissions_string_marks_a_symlink_with_an_l() {
     let link = Entry { link_target: Some("t".to_string()), permissions: Some(0o120777), ..file("l", 1) };
 
     assert_eq!(permissions_string(&link).as_deref(), Some("lrwxrwxrwx"));
+}
+
+fn marks_of(left: Vec<Entry>, right: Vec<Entry>) -> FolderMarks {
+    compare_folders(&left, &right)
+}
+
+#[test]
+fn each_kind_of_difference_has_its_own_glyph_in_the_second_marker_column() {
+    let theme = indexed();
+    let left = vec![
+        file("only", 1),
+        Entry { modified: Some(1000), ..file("newer", 1) },
+        Entry { modified: Some(10), ..file("older", 1) },
+        file("sized", 1),
+        directory("kind"),
+    ];
+    let right = vec![
+        Entry { modified: Some(10), ..file("newer", 1) },
+        Entry { modified: Some(1000), ..file("older", 1) },
+        file("sized", 9),
+        file("kind", 1),
+    ];
+    let marks = marks_of(left.clone(), right);
+    let panel = panel_of(left);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Left, &theme);
+
+    let glyph = |name: &str| symbol_at(&terminal, 1, row_of(&terminal, name));
+    assert_eq!(glyph("only"), "\u{2022}");
+    assert_eq!(glyph("newer"), "\u{2191}");
+    assert_eq!(glyph("older"), "\u{2193}");
+    assert_eq!(glyph("sized"), "\u{2260}");
+    assert_eq!(glyph("kind/"), "!");
+}
+
+#[test]
+fn the_right_panel_reads_the_right_hand_marks() {
+    let theme = indexed();
+    let right = vec![Entry { modified: Some(10), ..file("a.txt", 1) }];
+    let left = vec![Entry { modified: Some(1000), ..file("a.txt", 1) }];
+    let marks = marks_of(left, right.clone());
+    let panel = panel_of(right);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Right, &theme);
+
+    assert_eq!(symbol_at(&terminal, 1, row_of(&terminal, "a.txt")), "\u{2193}");
+}
+
+#[test]
+fn an_unmarked_row_keeps_a_blank_second_marker_column() {
+    let theme = indexed();
+    let entries = vec![file("same", 1)];
+    let marks = marks_of(entries.clone(), entries.clone());
+    let panel = panel_of(entries);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Left, &theme);
+
+    assert_eq!(symbol_at(&terminal, 1, row_of(&terminal, "same")), " ");
+}
+
+#[test]
+fn a_mark_is_coloured_by_what_it_means() {
+    let theme = indexed();
+    let left = vec![file("only", 1), Entry { modified: Some(1000), ..file("newer", 1) }];
+    let right = vec![Entry { modified: Some(10), ..file("newer", 1) }];
+    let marks = marks_of(left.clone(), right);
+    let panel = panel_of(left);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Left, &theme);
+
+    let colour = |name: &str| cell_fg(&terminal, 1, row_of(&terminal, name));
+    assert_eq!(colour("only"), theme.accent);
+    assert_eq!(colour("newer"), theme.ok);
 }

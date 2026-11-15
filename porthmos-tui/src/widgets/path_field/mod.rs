@@ -11,6 +11,7 @@ pub enum PathOutcome {
     Pending,
     Submit,
     Cancel,
+    Complete,
 }
 
 impl PathField {
@@ -23,6 +24,7 @@ impl PathField {
         match key.code {
             KeyCode::Enter => return PathOutcome::Submit,
             KeyCode::Esc => return PathOutcome::Cancel,
+            KeyCode::Tab if key.modifiers.is_empty() => return PathOutcome::Complete,
             KeyCode::Left => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Right => self.cursor = (self.cursor + 1).min(self.length()),
             KeyCode::Home => self.cursor = 0,

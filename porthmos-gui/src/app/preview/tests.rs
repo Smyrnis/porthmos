@@ -142,7 +142,6 @@ fn previewing_a_remote_file_names_its_session() {
         path: VfsPath::new("/srv"),
         entries: vec![file(&VfsPath::new("/srv"), "r.log")],
     });
-    named(&mut harness, Named::Tab);
     harness.sent();
     harness.app.side_mut(PanelSide::Remote).unwrap().panel.set_cursor(1);
 
@@ -193,7 +192,7 @@ fn a_failed_result_shows_the_message() {
     let mut harness = local_harness();
     let id = open_a(&mut harness);
 
-    harness.feed(Event::PreviewReady { request_id: id, name: "a.txt".to_string(), result: Err("denied".to_string()) });
+    harness.feed(Event::PreviewReady { request_id: id, name: "a.txt".to_string(), result: Err("denied".into()) });
 
     assert_eq!(preview_state(&harness).status(), &PreviewStatus::Failed("denied".to_string()));
 }
@@ -233,7 +232,7 @@ fn closing_a_loading_preview_cancels_it() {
     named(&mut harness, Named::Escape);
 
     assert!(harness.app.tool().is_none());
-    assert_eq!(harness.sent(), vec![Command::CancelPreview]);
+    assert_eq!(harness.sent(), vec![Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Tool }]);
 }
 
 #[test]
@@ -255,7 +254,7 @@ fn opening_another_tool_cancels_a_loading_preview() {
 
     harness.press(Message::MoreItemChosen(MoreItem::Bookmarks));
 
-    assert!(harness.sent().contains(&Command::CancelPreview));
+    assert!(harness.sent().contains(&Command::CancelPreview { slot: porthmos_core::preview::PreviewSlot::Tool }));
 }
 
 #[test]

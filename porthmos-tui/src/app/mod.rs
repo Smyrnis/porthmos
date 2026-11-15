@@ -13,6 +13,7 @@ use porthmos_core::{
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
+    sync::SyncAction,
     transfer::{
         Direction, TransferSnapshot,
         conflicts::{ConflictInfo, Resolution},
@@ -40,6 +41,7 @@ use crate::{
         history_view::{self, HistoryView},
         layout,
         notifications::Notifications,
+        paging::PageRows,
         panel_view::{self, ActivePanel, PanelView},
         search_view::{self, PaneSync, SearchOutcome, SearchView},
         sync_view::{self, SyncView},
@@ -50,6 +52,7 @@ use crate::{
 
 mod actions;
 mod bookmarks;
+mod compare;
 mod conflicts;
 mod connections;
 mod dialogs;
@@ -57,9 +60,12 @@ mod edit;
 mod filter;
 mod hints;
 mod history;
+mod import;
 mod palette;
 mod path_edit;
 mod preview;
+mod properties;
+mod quick_connect;
 mod render;
 mod search;
 mod sync;
@@ -70,10 +76,18 @@ mod update;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
 const READY_EVENT_BATCH: usize = 256;
 
+struct DeleteCount {
+    request_id: RequestId,
+    summary: Vec<String>,
+    answered: bool,
+}
+
 enum PendingAction {
     Mkdir,
     Rename { location: Location, from: VfsPath },
-    Delete { location: Location, paths: Vec<VfsPath> },
+    Permissions { location: Location, paths: Vec<VfsPath> },
+    Properties { request_id: RequestId, location: Location },
+    Delete { location: Location, paths: Vec<VfsPath>, count: Option<DeleteCount> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
     SubmitTestPassword { request_id: RequestId },
@@ -89,9 +103,14 @@ enum PendingAction {
     ClearHistory,
     EditUpload { edit_id: u64 },
     EditConflict { edit_id: u64 },
+    EditComparing { edit_id: u64 },
+    EditDiff { edit_id: u64 },
     ConfirmQuit,
     StartSync { session: SessionId },
+    ConfirmSyncDelete { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     SpeedLimit,
+    ImportSource,
+    Import { import_id: u64 },
 }
 
 enum Reveal {
@@ -132,6 +151,7 @@ enum ConnectionStatus {
 struct SearchSession {
     view: SearchView,
     location: Location,
+    request_id: RequestId,
 }
 
 struct ConflictPrompt {
@@ -153,6 +173,12 @@ pub struct App {
     help_visible: bool,
     preview: Option<crate::widgets::preview_view::PreviewView>,
     next_preview_id: RequestId,
+    next_search_id: RequestId,
+    reported_connection: Option<SessionId>,
+    next_count_id: RequestId,
+    next_properties_id: RequestId,
+    import: import::ImportState,
+    compare_folders: bool,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -165,6 +191,7 @@ pub struct App {
     keyring_waiting: bool,
     save_choice: bool,
     transfers_cursor: usize,
+    transfers_page_rows: PageRows,
     reselect_row: Option<RowKind>,
     connection_status: ConnectionStatus,
     search: Option<SearchSession>,
@@ -214,18 +241,25 @@ impl App {
             help_visible: false,
             preview: None,
             next_preview_id: 0,
+            next_search_id: 1,
+            reported_connection: None,
+            next_count_id: 0,
+            next_properties_id: 0,
+            import: import::ImportState::default(),
+            compare_folders: false,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
             stashed_form: None,
             notifications: Notifications::default(),
-            connections: ConnectionsView::new(),
+            connections: ConnectionsView::with_open_groups(core.remembered_open_groups().to_vec()),
             reveal: None,
             announced_missing: HashSet::new(),
             keyring_available: true,
             keyring_waiting: false,
             save_choice: false,
             transfers_cursor: 0,
+            transfers_page_rows: PageRows::default(),
             reselect_row: None,
             connection_status: ConnectionStatus::Disconnected,
             search: None,
@@ -367,6 +401,11 @@ impl App {
     }
 
     fn apply_key(&mut self, key: KeyEvent) {
+        self.route_key(key);
+        self.report_active_connection();
+    }
+
+    fn route_key(&mut self, key: KeyEvent) {
         if self.drop_stale_path_edit() {
             return;
         }
@@ -398,8 +437,14 @@ impl App {
             let action = self.key_bindings.map_key(self.screen.scope(), key);
             if action == Action::Noop && self.screen == Screen::Connections && key.modifiers.is_empty() {
                 match key.code {
-                    KeyCode::Right => self.connections.expand(),
-                    KeyCode::Left => self.connections.collapse_or_parent(),
+                    KeyCode::Right => {
+                        self.connections.expand();
+                        self.remember_open_groups();
+                    }
+                    KeyCode::Left => {
+                        self.connections.collapse_or_parent();
+                        self.remember_open_groups();
+                    }
                     _ => {}
                 }
             } else if action == Action::Noop && self.screen == Screen::Sync && key.modifiers.is_empty() {
@@ -413,6 +458,7 @@ impl App {
     fn apply_core_event(&mut self, event: Event) {
         self.route_core_event(event);
         self.drop_stale_path_edit();
+        self.report_active_connection();
     }
 
     fn route_core_event(&mut self, event: Event) {
@@ -424,6 +470,7 @@ impl App {
             Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
+            Event::FocusConnection { name } => self.focus_connection(&name),
             Event::ConnectFailed { name, message } => {
                 self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
@@ -438,6 +485,13 @@ impl App {
             Event::ShellReady { .. } | Event::LocalShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
             Event::PathOpened { location } => self.finish_path_edit(location),
+            Event::PathCompleted { location, text, completion } => {
+                if self.take_import_completion(&text) {
+                    self.apply_import_completion(&text, &completion);
+                } else {
+                    self.apply_path_completion(location, text, completion);
+                }
+            }
             Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
             Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
@@ -446,7 +500,10 @@ impl App {
                 self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
                 self.connections.replace(entries);
                 match self.reveal.take() {
-                    Some(Reveal::Ready(name)) => self.connections.reveal(&name),
+                    Some(Reveal::Ready(name)) => {
+                        self.connections.reveal(&name);
+                        self.remember_open_groups();
+                    }
                     other => self.reveal = other,
                 }
                 self.announce_missing_hosts();
@@ -460,26 +517,29 @@ impl App {
                     self.reveal = Some(Reveal::Ready(name));
                 }
             }
-            Event::ProfileRejected { message } => self.set_form_error(message),
+            Event::ProfileRejected { field, message } => self.set_form_error(field, message),
             Event::Bookmarks(bookmarks) => self.bookmarks = bookmarks,
             Event::TransfersChanged(snapshot) => self.apply_transfer_snapshot(snapshot),
             Event::ConflictsFound { batch_id, files } => self.queue_conflict_prompt(batch_id, files),
             Event::ConflictsWithdrawn { batch_ids } => self.drop_conflict_prompts(&batch_ids),
-            Event::SearchFound(entry) => {
-                if let Some(search) = self.search.as_mut() {
+            Event::SearchFound { request_id, entry } => {
+                if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.push_result(entry);
                     self.sync_search_pane();
                 }
             }
-            Event::SearchDone { truncated } => {
-                if let Some(search) = self.search.as_mut() {
+            Event::SearchDone { request_id, truncated, incomplete } => {
+                if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.finish(truncated);
+                    if incomplete {
+                        self.notifications.push(Severity::Warning, porthmos_core::SEARCH_INCOMPLETE_NOTE.to_string());
+                    }
                 }
             }
-            Event::SearchFailed(message) => {
-                if let Some(search) = self.search.as_mut() {
+            Event::SearchFailed { request_id, message } => {
+                if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.finish(false);
-                    self.notifications.push(Severity::Error, message);
+                    self.notifications.push(Severity::Error, message.to_string());
                 }
             }
             Event::PathRejected { location } => self.reject_path_edit(location),
@@ -489,12 +549,31 @@ impl App {
             Event::History(entries) => self.history.replace(entries),
             Event::EditReady { .. } => {}
             Event::EditsBusy(busy) => self.edits_busy = busy,
-            Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
+            Event::PreviewReady { request_id, result, .. } => {
+                self.apply_preview_ready(request_id, result.map_err(|message| message.to_string()))
+            }
+            Event::ContentsCounted { request_id, contents } => self.apply_contents_counted(request_id, contents),
+            Event::MeasureProgress { request_id, measured } => self.apply_measure_progress(request_id, measured),
+            Event::Measured { request_id, result } => {
+                self.apply_measured(request_id, result.map_err(|message| message.to_string()))
+            }
+            Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
+                self.apply_checksum_progress(request_id, &path, bytes_done, bytes_total)
+            }
+            Event::Checksummed { request_id, path, result } => {
+                self.apply_checksummed(request_id, &path, result.map_err(|message| message.to_string()))
+            }
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
+            Event::EditDiff { edit_id, result } => {
+                self.apply_edit_diff(edit_id, result.map_err(|message| message.to_string()))
+            }
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
+            Event::ImportPlanReady(plan) => self.apply_import_plan(plan),
+            Event::ImportReadFailed { import_id, message } => self.apply_import_read_failed(import_id, &message),
+            Event::ImportDone { added, skipped, .. } => self.apply_import_done(added, skipped),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
             Event::Update(state) => self.apply_update_event(state),
         }
@@ -503,7 +582,9 @@ impl App {
     fn ask(&mut self, request_id: RequestId, question: Question) {
         self.make_room_for_question();
         match question {
-            Question::Password { username, name } => self.open_password_prompt(request_id, username, name),
+            Question::Password { username, name, secret } => {
+                self.open_password_prompt(request_id, username, name, secret)
+            }
             Question::TrustHostKey { name, host, port, key_type, fingerprint } => {
                 let message = format!(
                     "{name} ({host}:{port}) is not a known host.\n\

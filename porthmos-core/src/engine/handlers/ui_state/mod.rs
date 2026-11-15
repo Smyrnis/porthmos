@@ -20,7 +20,7 @@ impl Engine {
         self.ui_state.speed_limit = self.ui_state.speed_limit.filter(|rate| *rate > 0);
         self.emit(Event::SaveChoice { save });
         if self.ui_state.speed_limit.is_some() {
-            self.speed_limit.set(self.ui_state.speed_limit);
+            self.work.speed_limit.set(self.ui_state.speed_limit);
             self.publish_transfers();
         }
     }
@@ -52,6 +52,16 @@ impl Engine {
         }
         *slot = memory;
         self.save_quietly("panel settings");
+    }
+
+    pub(crate) fn remember_open_groups(&mut self, mut groups: Vec<String>) {
+        groups.sort();
+        groups.dedup();
+        if self.ui_state.open_groups == groups {
+            return;
+        }
+        self.ui_state.open_groups = groups;
+        self.save_quietly("open connection groups");
     }
 
     pub(crate) fn save_quietly(&mut self, what: &str) {

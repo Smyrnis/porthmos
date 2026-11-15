@@ -21,6 +21,37 @@ async fn started_carries_the_update_mode() {
     }
 }
 
+#[tokio::test]
+async fn a_theme_file_in_the_config_folder_colours_the_started_theme() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(root.path());
+    std::fs::create_dir_all(&paths.config_dir).unwrap();
+    std::fs::write(paths.config_file(), "[gui.theme]\naccent = \"#111111\"\n").unwrap();
+    std::fs::write(paths.theme_file(), "[colors]\nbg = \"#102030\"\nbogus = \"#000000\"\n").unwrap();
+
+    let started = start(Environment::from_process(), paths).unwrap();
+
+    let palette = crate::theme::Palette::new(&started.theme);
+    assert_eq!(palette.bg, iced::Color::from_rgb8(0x10, 0x20, 0x30));
+    assert_eq!(palette.accent, iced::Color::from_rgb8(0x11, 0x11, 0x11));
+    assert!(started.warnings.iter().any(|warning| warning.contains("bogus")), "{:?}", started.warnings);
+    started.core.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_theme_file_wins_over_the_config_accent() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::in_dir(root.path());
+    std::fs::create_dir_all(&paths.config_dir).unwrap();
+    std::fs::write(paths.config_file(), "[gui.theme]\naccent = \"#111111\"\n").unwrap();
+    std::fs::write(paths.theme_file(), "[colors]\naccent = \"#222222\"\n").unwrap();
+
+    let started = start(Environment::from_process(), paths).unwrap();
+
+    assert_eq!(crate::theme::Palette::new(&started.theme).accent, iced::Color::from_rgb8(0x22, 0x22, 0x22));
+    started.core.shutdown().await;
+}
+
 #[test]
 fn the_event_source_hands_out_its_receiver_exactly_once() {
     let (_sender, receiver) = unbounded_channel::<Event>();

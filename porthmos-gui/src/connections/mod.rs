@@ -22,6 +22,14 @@ pub struct Manager {
 }
 
 impl Manager {
+    pub fn with_open_groups(groups: Vec<String>) -> Self {
+        Self { expanded: groups.into_iter().collect(), ..Self::default() }
+    }
+
+    pub fn open_groups(&self) -> Vec<String> {
+        connections_tree::open_groups(&self.entries, &self.expanded)
+    }
+
     pub fn replace(&mut self, entries: Vec<ConnectionEntry>) {
         self.entries = entries;
         let gone = match &self.cursor {
@@ -164,6 +172,8 @@ pub enum Screen {
     ConfirmDelete { name: String },
     Labels(LabelsState),
     MissingHost { name: String, shadowed: bool },
+    ImportSource(crate::import_view::ImportSourceState),
+    ImportReview(crate::import_view::ImportView),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,7 +280,11 @@ pub fn subtitle(entry: &ConnectionEntry) -> String {
     if entry.source.is_orphan_labels() {
         return "labels only".to_string();
     }
-    format!("{}@{}:{}", entry.username, entry.host, entry.port)
+    let address = format!("{}@{}:{}", entry.username, entry.host, entry.port);
+    match entry.bucket() {
+        Some(bucket) => format!("{address}/{bucket}"),
+        None => address,
+    }
 }
 
 #[cfg(test)]

@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use porthmos_core::edit::printable;
 use porthmos_core::preview::{Preview, PreviewContent};
-
-use crate::view::format::size;
+use porthmos_core::size_text;
 
 const HEX_BYTES: usize = 16;
 const TAB: usize = 4;
@@ -72,10 +71,6 @@ pub fn hex_row(offset: usize, bytes: &[u8]) -> String {
     );
     row.push('|');
     row
-}
-
-pub fn size_text(bytes: u64) -> String {
-    if bytes < 1024 { format!("{bytes} B") } else { size(bytes, false) }
 }
 
 pub fn visible_window(top: f32, viewport: f32, rows: usize, row_height: f32) -> (usize, usize) {

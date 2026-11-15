@@ -1,5 +1,5 @@
 use super::*;
-use crate::widgets::filter_line::FilterLine;
+use crate::widgets::{filter_line::FilterLine, paging::Paged};
 
 const HELP_PAGE: usize = 5;
 
@@ -26,6 +26,8 @@ impl App {
                 Screen::Connections => self.open_edit_connection_dialog(),
                 _ => self.open_rename_dialog(),
             },
+            Action::Permissions => self.open_permissions_dialog(),
+            Action::Properties => self.open_properties_dialog(),
             Action::Delete => match self.screen {
                 Screen::Transfers => self.cancel_selected_row(),
                 Screen::History => self.open_clear_history_dialog(),
@@ -51,7 +53,10 @@ impl App {
             Action::OpenTransfers => self.open_transfers_screen(),
             Action::OpenHistory => self.open_history_screen(),
             Action::OpenSync => self.open_sync(),
+            Action::CompareFolders => self.toggle_compare_folders(),
             Action::CheckForUpdates => self.check_for_updates(),
+            Action::ImportConnections => self.open_import_dialog(),
+            Action::ReopenConnections => self.reopen_connections(),
             Action::CycleSession => {
                 if self.screen == Screen::Files {
                     self.sessions.cycle();
@@ -65,6 +70,11 @@ impl App {
             Action::OpenTerminal => self.request_shell(),
             Action::Up
             | Action::Down
+            | Action::PageUp
+            | Action::PageDown
+            | Action::First
+            | Action::Last
+            | Action::Parent
             | Action::ToggleSelect
             | Action::Open
             | Action::Pause
@@ -81,6 +91,10 @@ impl App {
 
     fn jump_to_session(&mut self, number: u8) {
         if self.screen != Screen::Files {
+            return;
+        }
+        if self.sessions.active().is_none() {
+            self.quick_connect(usize::from(number));
             return;
         }
         let target = usize::from(number).checked_sub(1).and_then(|index| self.sessions.iter().nth(index));
@@ -136,6 +150,29 @@ impl App {
                 panel.move_cursor(1);
                 return;
             }
+            Action::PageUp => {
+                panel.page_up();
+                return;
+            }
+            Action::PageDown => {
+                panel.page_down();
+                return;
+            }
+            Action::First => {
+                panel.cursor_to_first();
+                return;
+            }
+            Action::Last => {
+                panel.cursor_to_last();
+                return;
+            }
+            Action::Parent => {
+                let from = panel.path().clone();
+                if let Some(to) = panel.parent_path() {
+                    self.core.send(Command::Navigate { location, from, to });
+                }
+                return;
+            }
             Action::ToggleSelect => {
                 panel.toggle_selection();
                 return;
@@ -156,8 +193,10 @@ impl App {
             }
             Action::Open => {
                 let from = panel.path().clone();
-                if let Some(to) = panel.target_path_for_open() {
-                    self.core.send(Command::Navigate { location, from, to });
+                match panel.target_path_for_open() {
+                    Some(to) => self.core.send(Command::Navigate { location, from, to }),
+                    None if panel.current_entry().is_some() => self.start_preview(),
+                    None => {}
                 }
                 return;
             }
@@ -174,8 +213,15 @@ impl App {
         match action {
             Action::Up => self.connections.move_cursor(-1),
             Action::Down => self.connections.move_cursor(1),
+            Action::PageUp => self.connections.page_up(),
+            Action::PageDown => self.connections.page_down(),
+            Action::First => self.connections.cursor_to_first(),
+            Action::Last => self.connections.cursor_to_last(),
             Action::Open => match self.connections.selected() {
-                Some(Selection::Group(_)) => self.connections.toggle(),
+                Some(Selection::Group(_)) => {
+                    self.connections.toggle();
+                    self.remember_open_groups();
+                }
                 Some(Selection::Connection(entry)) if entry.source.is_orphan_labels() => {
                     self.open_missing_host_dialog()
                 }

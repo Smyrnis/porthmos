@@ -81,9 +81,9 @@ impl App {
             return;
         }
         match question {
-            Question::Password { username, name } => {
+            Question::Password { username, name, secret } => {
                 if let Some(state) = self.form_mut() {
-                    state.prompt = Some(TestPrompt::new(request_id, username, name));
+                    state.prompt = Some(TestPrompt::new(request_id, username, name, secret));
                     self.prompt_version += 1;
                 } else {
                     self.core.send(Command::Answer { request_id, answer: None, save: false });

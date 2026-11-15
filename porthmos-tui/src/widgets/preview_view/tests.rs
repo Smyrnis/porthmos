@@ -109,7 +109,7 @@ fn a_cut_file_says_how_much_of_it_is_shown() {
 
     let rows = screen_rows(&draw(&view, 80, 12));
 
-    assert!(rows[0].trim_end().ends_with("first 256.0K of 3.4M"), "{:?}", rows[0]);
+    assert!(rows[0].trim_end().ends_with("first 256.0 KB of 3.4 MB"), "{:?}", rows[0]);
 }
 
 #[test]
@@ -513,7 +513,7 @@ fn a_size_the_server_did_not_tell_is_left_out_of_the_header() {
     let cut = screen_rows(&draw(&ready("a", preview), 80, 12));
     let whole = screen_rows(&draw(&ready("a", unknown_whole), 80, 12));
 
-    assert!(cut[0].trim_end().ends_with("first 256.0K"), "{:?}", cut[0]);
+    assert!(cut[0].trim_end().ends_with("first 256.0 KB"), "{:?}", cut[0]);
     assert!(whole[0].trim_end().ends_with("text \u{b7} 5 B"), "{:?}", whole[0]);
 }
 

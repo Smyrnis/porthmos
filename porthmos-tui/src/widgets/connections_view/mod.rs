@@ -5,7 +5,10 @@ use porthmos_core::{
     profiles::{ConnectionEntry, ConnectionSource},
 };
 
-use crate::widgets::filter_line::FilterLine;
+use crate::widgets::{
+    filter_line::FilterLine,
+    paging::{PageRows, Paged},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RowKey {
@@ -26,15 +29,24 @@ pub struct ConnectionsView {
     editing_filter: bool,
     rows: Vec<TreeRow>,
     pub cursor: usize,
+    page_rows: PageRows,
 }
 
 impl ConnectionsView {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn with_open_groups(groups: Vec<String>) -> Self {
+        Self { expanded: groups.into_iter().collect(), ..Self::default() }
+    }
+
+    pub fn open_groups(&self) -> Vec<String> {
+        connections_tree::open_groups(&self.entries, &self.expanded)
     }
 
     pub fn entries(&self) -> &[ConnectionEntry] {
         &self.entries
+    }
+
+    pub fn remember_page_rows(&self, rows: usize) {
+        self.page_rows.remember(rows);
     }
 
     pub fn rows(&self) -> &[TreeRow] {
@@ -203,6 +215,16 @@ impl FilterLine for ConnectionsView {
         }
         let last = self.rows.len() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
+    }
+}
+
+impl Paged for ConnectionsView {
+    fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    fn row_count(&self) -> usize {
+        self.rows.len()
     }
 }
 

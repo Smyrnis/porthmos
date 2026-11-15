@@ -38,6 +38,10 @@ impl HistoryLog {
     pub(crate) fn remember_session(&mut self, session_id: u64, name: String) {
         self.session_names.insert(session_id, name);
     }
+
+    pub(crate) fn skip_recording(&mut self, kind: RowKind) {
+        self.recorded.insert(kind);
+    }
 }
 
 fn common_directory<'a>(paths: impl Iterator<Item = &'a VfsPath>) -> VfsPath {
@@ -103,7 +107,8 @@ impl Engine {
     }
 
     pub(crate) fn session_name(&self, session_id: u64) -> String {
-        self.sessions
+        self.book
+            .sessions
             .get(&session_id)
             .map(|session| session.name.clone())
             .or_else(|| self.history.session_names.get(&session_id).cloned())
@@ -111,11 +116,9 @@ impl Engine {
     }
 
     fn scan_session(&self, batch_id: u64) -> Option<u64> {
-        self.planning
-            .iter()
-            .find(|scan| scan.batch_id == batch_id)
-            .map(|scan| scan.session_id)
-            .or_else(|| self.reviews.iter().find(|review| review.batch_id == batch_id).map(|review| review.session_id))
+        self.work.planning.iter().find(|scan| scan.batch_id == batch_id).map(|scan| scan.session_id).or_else(|| {
+            self.work.reviews.iter().find(|review| review.batch_id == batch_id).map(|review| review.session_id)
+        })
     }
 
     pub(crate) fn store_entry(&mut self, entry: HistoryEntry) {
@@ -179,10 +182,16 @@ impl Engine {
         for kind in kinds {
             match self.transfers.row(kind) {
                 None => {
+                    if let RowKind::Batch(batch_id) = kind {
+                        self.forget_pending_deletions(batch_id);
+                    }
                     self.history.recorded.remove(&kind);
                     self.history.counted.remove(&kind);
                 }
                 Some(row) if row.is_finished() => {
+                    if let RowKind::Batch(batch_id) = kind {
+                        self.finish_pending_deletions(batch_id, row.state == RowState::Done);
+                    }
                     if self.history.recorded.insert(kind) {
                         let entry = self.entry_for_row(&row);
                         self.log_failed_jobs(&row, &entry.connection);

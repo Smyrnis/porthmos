@@ -41,10 +41,7 @@ pub fn new_text(view: &ConflictView) -> (String, String) {
 
 pub fn partial_text(view: &ConflictView) -> Option<String> {
     view.partial.map(|partial| {
-        let size = match partial.size {
-            bytes if bytes < 1024 => format!("{bytes} bytes"),
-            bytes => format::size(bytes, false),
-        };
+        let size = format::size(partial.size, false);
         format!("A partial copy of {size} is on the destination; Resume continues it.")
     })
 }
@@ -85,9 +82,11 @@ pub fn body<'a>(view: &ConflictView, apply_to_rest: bool, palette: &Palette) -> 
     }
     let toggle = checkbox(apply_to_rest)
         .label(apply_text())
+        .text_size(13.0)
         .on_toggle(|_| Message::ConflictApplyToRestToggled)
         .size(16)
-        .text_size(13);
+        .text_size(13)
+        .style(crate::view::checkbox::style(palette));
     content.push(toggle).spacing(8).into()
 }
 

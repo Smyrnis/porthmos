@@ -4,6 +4,7 @@ use std::{
 };
 
 use porthmos_core::preview::{Preview, PreviewContent};
+use porthmos_core::size_text;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -15,7 +16,6 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::{
     theme::Theme,
     widgets::{
-        file_list::format_size,
         frame::{fill_background, hairline},
         history_view::printable,
         text_fit::{ELLIPSIS, pad_left},
@@ -276,10 +276,6 @@ pub fn hex_row(offset: usize, bytes: &[u8]) -> String {
     );
     row.push('|');
     row
-}
-
-fn size_text(size: u64) -> String {
-    if size < 1024 { format!("{size} B") } else { format_size(size, false) }
 }
 
 fn info_text(view: &PreviewView) -> String {

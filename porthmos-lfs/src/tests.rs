@@ -186,6 +186,40 @@ async fn set_modified_changes_the_modification_time() {
     assert_eq!(fs.stat(&from_os_path(&file)).await.unwrap().modified, Some(1_700_000_000));
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn set_permissions_changes_the_mode_and_stat_reports_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("run.sh");
+    std::fs::write(&file, b"#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let fs = LocalFs::new(dir.path().into());
+
+    fs.set_permissions(&from_os_path(&file), 0o750).await.unwrap();
+
+    assert!(fs.can_set_permissions());
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o750);
+    assert_eq!(fs.stat(&from_os_path(&file)).await.unwrap().permissions.map(|mode| mode & 0o777), Some(0o750));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn set_permissions_on_a_missing_file_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let fs = LocalFs::new(dir.path().into());
+
+    let error = fs.set_permissions(&from_os_path(&dir.path().join("gone")), 0o644).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_files_cannot_take_unix_permissions() {
+    assert!(!LocalFs::new("C:\\".into()).can_set_permissions());
+}
+
 #[tokio::test]
 async fn set_modified_works_on_a_read_only_file_the_user_owns() {
     let dir = tempfile::tempdir().unwrap();

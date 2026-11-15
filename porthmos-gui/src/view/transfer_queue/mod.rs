@@ -5,12 +5,13 @@ use porthmos_core::transfer::rows::{QueueRow, RowState, percent_of};
 
 use super::button::{compact_button, hinted};
 use super::file_list::{PADDING, line_cells};
+use super::spacing::{LG, SM};
 use super::text_fit::fit;
 use super::{bold_label, filled, hairline_across, label};
 use crate::app::{App, Message};
 use crate::theme::Palette;
 use crate::transfers::{
-    QUEUE_HEADER_HEIGHT, QUEUE_HEIGHT, QUEUE_ROW_HEIGHT, failure_detail, failure_text, format_speed_limit,
+    QUEUE_HEADER_HEIGHT, QUEUE_ROW_HEIGHT, failure_detail, failure_text, format_speed_limit, queue_height,
     queue_window, row_buttons, state_word,
 };
 
@@ -132,6 +133,7 @@ fn header<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
         None => format_speed_limit(app.transfer_speed_limit()),
     };
     let field = text_input("off", &shown)
+        .style(crate::view::input::style(palette))
         .on_input(Message::SpeedLimitTyped)
         .on_submit(Message::SpeedLimitSubmitted)
         .size(12.0)
@@ -148,11 +150,13 @@ fn header<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
     if let Some(error) = queue.speed_error() {
         line = line.push(label(format!("  {}", fit(error, 60)), palette.err));
     }
-    line = line
-        .push(space().width(Length::Fixed(16.0)))
-        .push(button("Clear finished", Message::QueueClearFinished, palette))
-        .push(button("Cancel all", Message::QueueCancelAll, palette))
-        .push(button("Close", Message::ActionRequested(crate::shortcuts::Action::ToggleQueue), palette));
+    let actions = row![
+        button("Clear finished", Message::QueueClearFinished, palette),
+        button("Cancel all", Message::QueueCancelAll, palette),
+        button("Close", Message::ActionRequested(crate::shortcuts::Action::ToggleQueue), palette),
+    ]
+    .spacing(SM);
+    line = line.push(space().width(Length::Fixed(LG))).push(actions);
     container(line)
         .padding([0.0, PADDING])
         .width(Length::Fill)
@@ -181,6 +185,7 @@ fn list<'a>(app: &'a App, cells: usize) -> Element<'a, Message> {
     }
     content = content.push(space().height(Length::Fixed((rows.len() - range.end) as f32 * QUEUE_ROW_HEIGHT)));
     scrollable(content)
+        .style(crate::view::scroll::style(palette))
         .on_scroll(|viewport| Message::QueueScrolled(viewport.absolute_offset().y))
         .width(Length::Fill)
         .height(Length::Fill)
@@ -193,7 +198,7 @@ pub fn pane(app: &App) -> Element<'_, Message> {
         let cells = line_cells((size.width - FIXED_WIDTH).max(0.0));
         column![header(app, palette), hairline_across(palette), list(app, cells)].into()
     })
-    .height(Length::Fixed(QUEUE_HEIGHT))
+    .height(Length::Fixed(queue_height(app.window_size().height)))
     .into()
 }
 

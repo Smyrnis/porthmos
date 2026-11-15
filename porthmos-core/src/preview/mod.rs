@@ -14,6 +14,12 @@ const CHUNK: usize = 16 * 1024;
 const MODE_TYPE_MASK: u32 = 0o170000;
 const SPECIAL_MODE_TYPES: [u32; 4] = [0o010000, 0o020000, 0o060000, 0o140000];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PreviewSlot {
+    Tool,
+    Pane,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreviewContent {
     Text(String),

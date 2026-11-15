@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use iced::{Element, Size, Task, window};
+use iced::{Element, Point, Size, Task, window};
 
 use super::{App, Message};
 use crate::shortcuts::KeyPress;
@@ -69,6 +69,13 @@ impl App {
         }
     }
 
+    pub(in crate::app) fn window_closed(&mut self, id: window::Id) -> Task<Message> {
+        match self.windows.kind_of(id) {
+            None | Some(WindowKind::Main) => Task::none(),
+            Some(_) => self.window_close_requested(id),
+        }
+    }
+
     pub(in crate::app) fn window_key(&mut self, id: window::Id, press: KeyPress) -> Task<Message> {
         match self.windows.kind_of(id) {
             Some(WindowKind::Main) => self.handle(Message::KeyPressed(press)),
@@ -87,6 +94,9 @@ impl App {
     fn connections_window_key(&mut self, press: &KeyPress) -> Task<Message> {
         use iced::keyboard::{Key, key::Named};
         use iced::widget::operation;
+        if !self.modals.is_empty() {
+            return Task::none();
+        }
         if press.key == Key::Named(Named::Tab) {
             return if press.modifiers.shift() { operation::focus_previous() } else { operation::focus_next() };
         }
@@ -103,13 +113,35 @@ impl App {
         self.settings_key(press)
     }
 
-    pub(in crate::app) fn window_sized(&mut self, id: window::Id, size: Size) {
+    pub(in crate::app) fn window_sized(&mut self, id: window::Id, size: Size) -> Task<Message> {
         if self.windows.kind_of(id).is_none() {
-            return;
+            return Task::none();
         }
         self.windows.set_size(id, size);
         if self.is_main(id) {
             self.window_size = size;
+        }
+        window::is_maximized(id).map(move |maximized| Message::WindowSizeSettled(id, size, maximized))
+    }
+
+    pub(in crate::app) fn window_moved(&mut self, id: window::Id, position: Point) -> Task<Message> {
+        if self.windows.kind_of(id).is_none() {
+            return Task::none();
+        }
+        window::is_maximized(id).map(move |maximized| Message::WindowMoveSettled(id, position, maximized))
+    }
+
+    pub(in crate::app) fn window_size_settled(&mut self, id: window::Id, size: Size, maximized: bool) {
+        self.windows.remember_maximized(id, maximized);
+        if !maximized {
+            self.windows.remember_size(id, size);
+        }
+    }
+
+    pub(in crate::app) fn window_move_settled(&mut self, id: window::Id, position: Point, maximized: bool) {
+        self.windows.remember_maximized(id, maximized);
+        if !maximized {
+            self.windows.remember_position(id, position);
         }
     }
 }

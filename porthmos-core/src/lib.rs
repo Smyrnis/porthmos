@@ -1,40 +1,55 @@
 pub mod config;
 mod connection_state;
 pub mod connections_tree;
+pub mod delete_prompt;
+pub mod diff;
 pub mod edit;
 mod engine;
 pub mod error;
+pub mod folder_compare;
 mod health;
 pub mod history;
+pub mod i18n;
+pub mod import;
 pub mod last_used;
 pub mod listing;
 pub mod logging;
 pub mod message;
+pub mod names;
 pub mod panel_memory;
+mod path_completion;
 mod path_text;
 pub mod paths;
+mod permission_tree;
+pub mod permissions;
 pub mod persist;
 pub mod preview;
 pub mod profiles;
+pub mod properties;
 mod protocol_info;
 pub mod reopen;
 pub mod secrets;
+pub mod size_text;
 pub mod state;
 pub mod sync;
 pub mod tasks;
 mod test_connection;
+pub mod theme;
 pub mod transfer;
 pub mod update;
 
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-pub use config::{ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
+pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
-pub use error::{CONNECTION_CANCELLED, Severity, connect_failure_message, failure_report, user_message};
+pub use error::{
+    CONNECTION_CANCELLED, SEARCH_INCOMPLETE_NOTE, Severity, connect_failure_message, failure_report, user_message,
+};
 pub use message::Message;
 pub use panel_memory::PanelKind;
+pub use path_completion::{Completion, CompletionStep, MAX_SHOWN, complete, split_directory};
 pub use paths::{ConfigMigration, Paths};
 pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{
@@ -44,6 +59,7 @@ pub use porthmos_vfs::{
 };
 pub use protocol_info::ProtocolInfo;
 pub use reopen::offer_summary;
+pub use size_text::size_text;
 pub use test_connection::{NotTrusted, StartFolder, TEST_LIMIT, TestOutcome, TestReport, TestStage};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 #[cfg(feature = "update")]
@@ -118,6 +134,7 @@ pub struct CoreHandle {
     protocols: Arc<[ProtocolInfo]>,
     finished: tokio::sync::watch::Receiver<bool>,
     local_folder: Option<VfsPath>,
+    open_groups: Vec<String>,
     panels: Panels,
 }
 
@@ -143,8 +160,17 @@ impl CoreHandle {
         }
     }
 
+    pub fn with_remembered_open_groups(mut self, groups: Vec<String>) -> Self {
+        self.open_groups = groups;
+        self
+    }
+
     pub fn remembered_local_folder(&self) -> Option<VfsPath> {
         self.local_folder.clone()
+    }
+
+    pub fn remembered_open_groups(&self) -> &[String] {
+        &self.open_groups
     }
 
     pub fn send(&self, command: Command) {
@@ -168,6 +194,7 @@ impl CoreHandle {
                 protocols: protocols.into(),
                 finished,
                 local_folder: None,
+                open_groups: Vec::new(),
                 panels: Panels::default(),
             },
             receiver,
@@ -320,6 +347,7 @@ impl CoreBuilder {
             update_timing: update::UpdateTiming::for_settings(&self.settings.update),
             update: self.settings.update,
             reopen: self.settings.startup.reopen,
+            reconnect: self.settings.connection.reconnect,
             update_record,
             updater,
             executable: std::env::current_exe().ok(),
@@ -350,9 +378,11 @@ impl CoreBuilder {
         engine.publish_bookmarks();
         engine.publish_last_used();
         engine.load_ui_state();
+        engine.restore_unfinished_transfers();
         engine.offer_reopen();
         let local_folder =
             engine.ui_state.local_folder.as_deref().map(VfsPath::new).filter(|folder| to_os_path(folder).is_dir());
+        let open_groups = engine.ui_state.open_groups.clone();
         let remembered = |memory: &Option<panel_memory::PanelMemory>| match memory {
             Some(memory) => memory.applied_to(&configured_panel),
             None => configured_panel,
@@ -364,7 +394,7 @@ impl CoreBuilder {
         engine.start_keyring_probe();
         engine.start_updates();
         tokio::spawn(engine.run(command_receiver, internal_receiver));
-        Ok((CoreHandle { commands, protocols: infos, finished, local_folder, panels }, event_receiver))
+        Ok((CoreHandle { commands, protocols: infos, finished, local_folder, open_groups, panels }, event_receiver))
     }
 }
 

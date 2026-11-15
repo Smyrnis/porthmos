@@ -64,3 +64,4 @@ Drawn for Porthmos (MIT license, same as the project; each file carries that in 
 |---|---|
 | main/terminal.svg | terminal window with a prompt, the button that opens a terminal on this computer |
 | main/remoteTerminal.svg | the same window with a globe badge, the button that opens a terminal on the connection |
+| main/symlink.svg | a file box with an arrow pointing out of it, the icon of a symbolic link |

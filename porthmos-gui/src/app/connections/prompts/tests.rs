@@ -8,7 +8,7 @@ use crate::dialogs::{Dialog, Typed};
 use crate::testing::Harness;
 
 fn password_question() -> Question {
-    Question::Password { username: "me".to_string(), name: "prod".to_string() }
+    Question::Password { username: "me".to_string(), name: "prod".to_string(), secret: "Password" }
 }
 
 fn host_question() -> Question {

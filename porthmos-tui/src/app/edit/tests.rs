@@ -3,6 +3,9 @@ use std::path::Path;
 use porthmos_core::VfsPath;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::sync::Arc;
+
+use porthmos_core::diff::{DiffKind, DiffLine, DiffOutcome};
 use porthmos_core::edit::{EditChoice, EditQuestionKind, EditorCommand, EditorExit};
 
 use super::*;
@@ -213,7 +216,7 @@ fn no_and_escape_cancel_the_upload_question() {
 }
 
 #[test]
-fn the_conflict_question_lists_three_choices() {
+fn the_conflict_question_offers_show_differences_first_with_the_cursor_on_keep_copy() {
     let mut test = test_app(&VfsPath::new("/d"));
 
     ask(&mut test, "app.conf", EditQuestionKind::Conflict);
@@ -221,10 +224,199 @@ fn the_conflict_question_lists_three_choices() {
     match &test.app.dialog {
         Some(Dialog::List(dialog)) => {
             assert!(dialog.title.contains("app.conf changed on the server while you were editing"));
-            assert_eq!(dialog.items, ["Overwrite", "Keep mine as a copy", "Cancel"]);
+            assert_eq!(dialog.items, ["Show differences", "Overwrite", "Keep mine as a copy", "Cancel"]);
+            assert_eq!(dialog.cursor, 2);
         }
         _ => panic!("expected a list dialog"),
     }
+}
+
+fn show_differences(test: &mut TestApp) {
+    ask(test, "app.conf", EditQuestionKind::Conflict);
+    press(test, KeyCode::Up);
+    press(test, KeyCode::Up);
+    press(test, KeyCode::Enter);
+}
+
+fn changes() -> Arc<DiffOutcome> {
+    Arc::new(DiffOutcome::Changes(vec![
+        DiffLine { kind: DiffKind::Removed, text: "theirs".to_string() },
+        DiffLine { kind: DiffKind::Added, text: "mine".to_string() },
+    ]))
+}
+
+fn reply_with_changes(test: &mut TestApp) {
+    test.app.apply_core_event(Event::EditDiff { edit_id: 4, result: Ok(changes()) });
+}
+
+#[test]
+fn choosing_show_differences_sends_show_edit_diff_and_keeps_a_comparing_dialog_open() {
+    let mut test = test_app(&VfsPath::new("/d"));
+
+    show_differences(&mut test);
+
+    assert_eq!(test.sent(), vec![Command::ShowEditDiff { edit_id: 4 }]);
+    match &test.app.dialog {
+        Some(Dialog::Message(dialog)) => {
+            assert!(dialog.title.contains("Comparing"), "{}", dialog.title);
+            assert!(dialog.message.contains("app.conf"), "{}", dialog.message);
+            assert!(dialog.message.contains("Esc"), "{}", dialog.message);
+        }
+        _ => panic!("expected the comparing dialog"),
+    }
+}
+
+#[test]
+fn an_edit_diff_reply_opens_the_diff_dialog() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    show_differences(&mut test);
+    test.sent();
+
+    reply_with_changes(&mut test);
+
+    match &test.app.dialog {
+        Some(Dialog::Diff(_)) => {}
+        _ => panic!("expected the diff dialog"),
+    }
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn each_diff_choice_sends_the_matching_resolve_edit() {
+    let expected = [('u', EditChoice::Upload), ('m', EditChoice::KeepCopy), ('c', EditChoice::Cancel)];
+    for (letter, choice) in expected {
+        let mut test = test_app(&VfsPath::new("/d"));
+        show_differences(&mut test);
+        reply_with_changes(&mut test);
+        test.sent();
+
+        press(&mut test, KeyCode::Char(letter));
+
+        assert_eq!(test.sent(), vec![Command::ResolveEdit { edit_id: 4, choice }], "{letter}");
+        assert!(test.app.dialog.is_none(), "{letter}");
+    }
+}
+
+#[test]
+fn back_from_the_diff_asks_the_conflict_question_again() {
+    for code in [KeyCode::Esc, KeyCode::Char('q')] {
+        let mut test = test_app(&VfsPath::new("/d"));
+        show_differences(&mut test);
+        reply_with_changes(&mut test);
+        test.sent();
+
+        press(&mut test, code);
+
+        assert!(test.sent().is_empty(), "{code:?}");
+        match &test.app.dialog {
+            Some(Dialog::List(dialog)) => assert!(dialog.title.contains("app.conf changed on the server"), "{code:?}"),
+            _ => panic!("expected the conflict question again"),
+        }
+        press(&mut test, KeyCode::Enter);
+        assert_eq!(test.sent(), vec![Command::ResolveEdit { edit_id: 4, choice: EditChoice::KeepCopy }]);
+    }
+}
+
+#[test]
+fn a_failed_comparison_reports_the_error_and_asks_the_question_again() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    show_differences(&mut test);
+    test.sent();
+
+    test.app.apply_core_event(Event::EditDiff { edit_id: 4, result: Err("Comparison failed: app.conf".into()) });
+
+    assert!(matches!(test.app.dialog, Some(Dialog::List(_))));
+    assert!(test.notification().is_some_and(|text| text.contains("Comparison failed")));
+    press(&mut test, KeyCode::Esc);
+    assert_eq!(test.sent(), vec![Command::ResolveEdit { edit_id: 4, choice: EditChoice::Cancel }]);
+}
+
+#[test]
+fn escape_while_comparing_goes_back_to_the_question_and_sends_nothing() {
+    for code in [KeyCode::Esc, KeyCode::Enter] {
+        let mut test = test_app(&VfsPath::new("/d"));
+        show_differences(&mut test);
+        test.sent();
+
+        press(&mut test, code);
+
+        assert!(test.sent().is_empty(), "{code:?}");
+        match &test.app.dialog {
+            Some(Dialog::List(dialog)) => assert!(dialog.title.contains("app.conf changed on the server"), "{code:?}"),
+            _ => panic!("expected the conflict question again"),
+        }
+    }
+}
+
+#[test]
+fn a_reply_after_going_back_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    show_differences(&mut test);
+    press(&mut test, KeyCode::Esc);
+    test.sent();
+
+    reply_with_changes(&mut test);
+
+    assert!(matches!(test.app.dialog, Some(Dialog::List(_))));
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_second_edit_question_waits_during_a_comparison_and_none_is_lost() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    show_differences(&mut test);
+    test.sent();
+
+    ask_for(&mut test, 5, "other.conf", EditQuestionKind::Conflict);
+    assert!(matches!(test.app.dialog, Some(Dialog::Message(_))));
+    reply_with_changes(&mut test);
+    assert!(matches!(test.app.dialog, Some(Dialog::Diff(_))));
+    press(&mut test, KeyCode::Char('u'));
+
+    assert_eq!(test.sent(), vec![Command::ResolveEdit { edit_id: 4, choice: EditChoice::Upload }]);
+    match &test.app.dialog {
+        Some(Dialog::List(dialog)) => assert!(dialog.title.contains("other.conf"), "{}", dialog.title),
+        _ => panic!("expected the second question"),
+    }
+    press(&mut test, KeyCode::Enter);
+    assert_eq!(test.sent(), vec![Command::ResolveEdit { edit_id: 5, choice: EditChoice::KeepCopy }]);
+}
+
+#[test]
+fn other_dialogs_cannot_open_during_a_comparison() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    show_differences(&mut test);
+    test.sent();
+
+    press(&mut test, KeyCode::F(7));
+    press(&mut test, KeyCode::Char('q'));
+
+    assert!(matches!(test.app.dialog, Some(Dialog::Message(_))));
+    assert!(test.sent().is_empty());
+    assert!(!test.app.should_quit);
+}
+
+#[test]
+fn a_diff_reply_for_an_edit_that_is_not_being_compared_is_ignored() {
+    let mut test = test_app(&VfsPath::new("/d"));
+
+    reply_with_changes(&mut test);
+
+    assert!(test.app.dialog.is_none());
+    assert!(test.sent().is_empty());
+}
+
+#[test]
+fn a_diff_reply_for_another_edit_leaves_the_comparison_waiting() {
+    let mut test = test_app(&VfsPath::new("/d"));
+    show_differences(&mut test);
+    test.sent();
+
+    test.app.apply_core_event(Event::EditDiff { edit_id: 9, result: Ok(changes()) });
+    assert!(matches!(test.app.dialog, Some(Dialog::Message(_))));
+    reply_with_changes(&mut test);
+
+    assert!(matches!(test.app.dialog, Some(Dialog::Diff(_))));
 }
 
 #[test]
@@ -331,7 +523,11 @@ fn a_password_prompt_does_not_strand_an_open_edit_question() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 9,
-        question: porthmos_core::Question::Password { username: "me".to_string(), name: "prod".to_string() },
+        question: porthmos_core::Question::Password {
+            username: "me".to_string(),
+            name: "prod".to_string(),
+            secret: "Password",
+        },
     });
     assert!(!matches!(test.app.dialog, Some(Dialog::Confirm(_))));
     press(&mut test, KeyCode::Esc);
@@ -402,7 +598,7 @@ fn quitting_during_a_transfer_asks_first() {
 
     assert!(!test.app.should_quit);
     match &test.app.dialog {
-        Some(Dialog::Confirm(dialog)) => assert!(dialog.message.contains("transfers"), "{}", dialog.message),
+        Some(Dialog::Confirm(dialog)) => assert_eq!(dialog.message, porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT),
         _ => panic!("expected a confirm dialog"),
     }
     press(&mut test, KeyCode::Char('n'));

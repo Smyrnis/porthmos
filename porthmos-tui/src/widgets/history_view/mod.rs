@@ -18,6 +18,7 @@ use crate::{
         file_list::format_size,
         filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
+        paging::{PageRows, Paged},
         text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
 };
@@ -37,6 +38,7 @@ pub struct HistoryView {
     filter: Option<String>,
     editing_filter: bool,
     cursor: usize,
+    page_rows: PageRows,
 }
 
 impl HistoryView {
@@ -56,6 +58,10 @@ impl HistoryView {
 
     pub fn total(&self) -> usize {
         self.entries.len()
+    }
+
+    fn remember_page_rows(&self, rows: usize) {
+        self.page_rows.remember(rows);
     }
 
     pub fn matched(&self) -> usize {
@@ -144,6 +150,16 @@ impl FilterLine for HistoryView {
         }
         let last = self.visible.len() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
+    }
+}
+
+impl Paged for HistoryView {
+    fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    fn row_count(&self) -> usize {
+        self.visible.len()
     }
 }
 
@@ -323,6 +339,7 @@ pub fn render_history(frame: &mut Frame, area: Rect, view: &HistoryView, theme: 
         return;
     }
 
+    view.remember_page_rows(usize::from(body.height));
     let cursor = view.cursor();
     let items: Vec<ListItem> = view
         .rows()

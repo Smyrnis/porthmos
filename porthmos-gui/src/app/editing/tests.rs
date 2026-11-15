@@ -7,7 +7,11 @@ use porthmos_core::edit::{EditChoice, EditQuestionKind, EditorCommand, EditorExi
 use porthmos_core::{Command, Entry, Event, Location, Severity, VfsPath};
 
 use crate::menus::{MenuItem, MoreItem};
-use crate::modal::Modal;
+use std::sync::Arc;
+
+use porthmos_core::diff::{DiffKind, DiffLine, DiffOutcome};
+
+use crate::modal::{DiffPane, Modal};
 use crate::shortcuts::KeyPress;
 use crate::testing::Harness;
 
@@ -118,7 +122,6 @@ fn edit_on_the_remote_panel_uses_its_session() {
         path: VfsPath::new("/srv"),
         entries: vec![file(&VfsPath::new("/srv"), "r.log")],
     });
-    named(&mut harness, Named::Tab);
     harness.sent();
     harness.app.side_mut(PanelSide::Remote).unwrap().panel.set_cursor(1);
 
@@ -406,4 +409,193 @@ fn the_context_menu_and_more_items_open_the_edit() {
 
     harness.press(Message::MoreItemChosen(MoreItem::Edit));
     assert_eq!(harness.sent(), vec![command]);
+}
+
+fn conflict(harness: &mut Harness, edit_id: u64) {
+    harness.feed(Event::EditQuestion { edit_id, name: "a.txt".to_string(), kind: EditQuestionKind::Conflict });
+}
+
+fn pane(harness: &Harness) -> DiffPane {
+    match harness.app.modal() {
+        Some(Modal::EditQuestion { diff, .. }) => diff.clone(),
+        other => panic!("expected an edit question, got {other:?}"),
+    }
+}
+
+fn changes() -> Arc<DiffOutcome> {
+    Arc::new(DiffOutcome::Changes(vec![
+        DiffLine { kind: DiffKind::Removed, text: "theirs".to_string() },
+        DiffLine { kind: DiffKind::Added, text: "mine".to_string() },
+    ]))
+}
+
+fn diff_ready(harness: &mut Harness, edit_id: u64) {
+    harness.press(Message::EditShowDiff);
+    harness.sent();
+    harness.feed(Event::EditDiff { edit_id, result: Ok(changes()) });
+}
+
+#[test]
+fn a_new_question_starts_with_no_diff() {
+    let mut harness = local_harness();
+
+    conflict(&mut harness, 1);
+
+    assert_eq!(pane(&harness), DiffPane::Idle);
+}
+
+#[test]
+fn show_differences_sets_comparing_and_sends_show_edit_diff() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+
+    harness.press(Message::EditShowDiff);
+
+    assert_eq!(pane(&harness), DiffPane::Comparing);
+    assert_eq!(harness.sent(), vec![Command::ShowEditDiff { edit_id: 3 }]);
+}
+
+#[test]
+fn a_second_press_while_comparing_sends_nothing() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    harness.press(Message::EditShowDiff);
+    harness.sent();
+
+    harness.press(Message::EditShowDiff);
+
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn show_differences_is_ignored_for_the_upload_question() {
+    let mut harness = local_harness();
+    harness.feed(Event::EditQuestion { edit_id: 1, name: "a.txt".to_string(), kind: EditQuestionKind::Upload });
+
+    harness.press(Message::EditShowDiff);
+
+    assert_eq!(pane(&harness), DiffPane::Idle);
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn a_diff_reply_makes_the_matching_question_ready() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+
+    diff_ready(&mut harness, 3);
+
+    assert_eq!(pane(&harness), DiffPane::Ready(changes()));
+}
+
+#[test]
+fn a_reply_for_a_queued_question_is_ignored() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 1);
+    conflict(&mut harness, 2);
+
+    harness.feed(Event::EditDiff { edit_id: 2, result: Ok(changes()) });
+    harness.press(Message::EditAnswered(EditChoice::Cancel));
+    harness.sent();
+
+    assert_eq!(pane(&harness), DiffPane::Idle);
+}
+
+#[test]
+fn a_failed_reply_becomes_a_failed_pane_with_the_message() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    harness.press(Message::EditShowDiff);
+
+    harness.feed(Event::EditDiff { edit_id: 3, result: Err("Comparison failed: a.txt".into()) });
+
+    assert_eq!(pane(&harness), DiffPane::Failed("Comparison failed: a.txt".to_string()));
+}
+
+#[test]
+fn after_a_failure_show_differences_can_be_tried_again() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    harness.press(Message::EditShowDiff);
+    harness.feed(Event::EditDiff { edit_id: 3, result: Err("no".into()) });
+    harness.sent();
+
+    harness.press(Message::EditShowDiff);
+
+    assert_eq!(pane(&harness), DiffPane::Comparing);
+    assert_eq!(harness.sent(), vec![Command::ShowEditDiff { edit_id: 3 }]);
+}
+
+#[test]
+fn a_reply_for_an_unknown_edit_is_ignored() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    harness.press(Message::EditShowDiff);
+
+    harness.feed(Event::EditDiff { edit_id: 99, result: Ok(changes()) });
+
+    assert_eq!(pane(&harness), DiffPane::Comparing);
+}
+
+#[test]
+fn a_reply_after_going_back_is_ignored() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    harness.press(Message::EditShowDiff);
+    named(&mut harness, Named::Escape);
+
+    harness.feed(Event::EditDiff { edit_id: 3, result: Ok(changes()) });
+
+    assert_eq!(pane(&harness), DiffPane::Idle);
+}
+
+#[test]
+fn back_returns_the_pane_to_idle_without_resolving() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    diff_ready(&mut harness, 3);
+
+    harness.press(Message::EditDiffBack);
+
+    assert_eq!(pane(&harness), DiffPane::Idle);
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn escape_in_a_ready_pane_goes_back_instead_of_cancelling() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    diff_ready(&mut harness, 3);
+
+    named(&mut harness, Named::Escape);
+
+    assert_eq!(pane(&harness), DiffPane::Idle);
+    assert!(harness.sent().is_empty());
+    named(&mut harness, Named::Escape);
+    assert_eq!(harness.sent(), vec![Command::ResolveEdit { edit_id: 3, choice: EditChoice::Cancel }]);
+}
+
+#[test]
+fn buttons_in_the_diff_pane_resolve_like_the_question() {
+    for choice in [EditChoice::Upload, EditChoice::KeepCopy, EditChoice::Cancel] {
+        let mut harness = local_harness();
+        conflict(&mut harness, 3);
+        diff_ready(&mut harness, 3);
+
+        harness.press(Message::EditAnswered(choice));
+
+        assert_eq!(harness.sent(), vec![Command::ResolveEdit { edit_id: 3, choice }]);
+        assert!(harness.app.modal().is_none());
+    }
+}
+
+#[test]
+fn enter_in_a_ready_pane_keeps_a_copy() {
+    let mut harness = local_harness();
+    conflict(&mut harness, 3);
+    diff_ready(&mut harness, 3);
+
+    named(&mut harness, Named::Enter);
+
+    assert_eq!(harness.sent(), vec![Command::ResolveEdit { edit_id: 3, choice: EditChoice::KeepCopy }]);
 }

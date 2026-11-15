@@ -66,8 +66,8 @@ fn found_entries_accumulate_and_the_first_is_selected_on_arrival() {
 #[test]
 fn finished_marks_done_and_truncated_is_remembered() {
     let mut state = searching();
-    state.finished(true);
-    assert_eq!(state.status(), &SearchStatus::Done { truncated: true });
+    state.finished(true, false);
+    assert_eq!(state.status(), &SearchStatus::Done { truncated: true, incomplete: false });
 }
 
 #[test]
@@ -107,16 +107,16 @@ fn status_text_for_every_status() {
     assert_eq!(state.status_text(), "Searching…");
     state.found(hit("/data/a.txt"));
     assert_eq!(state.status_text(), "Searching… 1 found");
-    state.finished(false);
+    state.finished(false, false);
     assert_eq!(state.status_text(), "1 found");
-    state.finished(true);
+    state.finished(true, false);
     assert_eq!(state.status_text(), "1 found");
 }
 
 #[test]
 fn a_finished_search_with_nothing_says_so() {
     let mut state = searching();
-    state.finished(false);
+    state.finished(false, false);
     assert_eq!(state.status_text(), "Nothing found");
 }
 
@@ -125,7 +125,7 @@ fn a_truncated_search_asks_to_narrow_it() {
     let mut state = searching();
     state.found(hit("/data/a.txt"));
     state.found(hit("/data/b.txt"));
-    state.finished(true);
+    state.finished(true, false);
     assert_eq!(state.status_text(), "Showing the first 2 matches; narrow the search");
 }
 
@@ -141,7 +141,7 @@ fn late_results_after_a_blank_pattern_are_dropped() {
     let mut state = searching();
     state.set_pattern(String::new());
     state.found(hit("/data/late.txt"));
-    state.finished(false);
+    state.finished(false, false);
     state.failed("late".to_string());
     assert!(state.results().is_empty());
     assert_eq!(state.status(), &SearchStatus::Idle);
@@ -155,10 +155,10 @@ fn the_shown_parent_is_relative_to_the_search_root() {
 }
 
 #[test]
-fn a_result_directly_in_the_root_shows_a_dot() {
+fn a_result_directly_in_the_root_says_it_is_in_the_top_folder() {
     let state = state();
 
-    assert_eq!(state.shown_parent(&hit("/data/x.txt")), ".");
+    assert_eq!(state.shown_parent(&hit("/data/x.txt")), "(top folder)");
 }
 
 #[test]
@@ -275,4 +275,38 @@ fn preview_arrived_fills_the_pane_for_the_current_request() {
     state.preview_arrived(5, Err("denied".to_string()));
 
     assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if !file.is_loading()));
+}
+
+#[test]
+fn the_scope_names_the_place_and_the_folder_searched() {
+    let state = state();
+
+    assert_eq!(state.scope_text("this computer"), "this computer \u{b7} /data");
+    assert_eq!(state.scope_text("prod"), "prod \u{b7} /data");
+}
+
+#[test]
+fn a_search_that_skipped_folders_says_the_results_may_be_incomplete() {
+    let mut state = searching();
+    state.found(hit("/data/a.txt"));
+    state.finished(false, true);
+
+    assert_eq!(state.status_text(), format!("1 found. {}", porthmos_core::SEARCH_INCOMPLETE_NOTE));
+}
+
+#[test]
+fn an_empty_incomplete_search_does_not_claim_there_is_nothing() {
+    let mut state = searching();
+    state.finished(false, true);
+
+    assert_eq!(state.status_text(), format!("Nothing found. {}", porthmos_core::SEARCH_INCOMPLETE_NOTE));
+}
+
+#[test]
+fn a_complete_search_has_no_note() {
+    let mut state = searching();
+    state.found(hit("/data/a.txt"));
+    state.finished(false, false);
+
+    assert_eq!(state.status_text(), "1 found");
 }

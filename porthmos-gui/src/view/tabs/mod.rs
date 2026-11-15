@@ -1,20 +1,21 @@
-use iced::widget::{button, column, container, mouse_area, row, space, svg};
-use iced::{Alignment, Color, Element, Length};
+use iced::widget::{button, container, mouse_area, row, space, stack, svg};
+use iced::{Alignment, Element, Length};
 
 use super::button::flat;
 use super::{bold_label, filled, label};
 use crate::app::{App, Message};
 use crate::geometry::TAB_HEIGHT;
 use crate::icons::{self, Icon};
+use crate::theme::Palette;
 
 const ACCENT_EDGE: f32 = 2.0;
 const CLOSE_SIZE: f32 = 14.0;
 
-fn close_button<'a>(index: usize) -> Element<'a, Message> {
-    button(svg(icons::handle(Icon::Close)).width(CLOSE_SIZE).height(CLOSE_SIZE))
+fn close_button<'a>(index: usize, palette: &Palette) -> Element<'a, Message> {
+    button(svg(icons::handle(Icon::Close, palette.light)).width(CLOSE_SIZE).height(CLOSE_SIZE))
         .padding(2)
         .on_press(Message::TabClosed(index))
-        .style(flat(Color::WHITE, true))
+        .style(flat(palette, palette.fg_bright, true))
         .into()
 }
 
@@ -33,13 +34,13 @@ pub fn strip(app: &App) -> Element<'_, Message> {
         let edge = if tab.active { palette.accent } else { palette.bg };
         let body = row![
             container(text).padding(iced::Padding { top: 6.0, right: 4.0, bottom: 6.0, left: 12.0 }),
-            close_button(index)
+            close_button(index, palette)
         ]
         .spacing(2)
         .align_y(Alignment::Center);
-        let tab = column![
+        let tab = stack![
+            container(body).padding(iced::Padding { top: ACCENT_EDGE, right: 6.0, ..iced::Padding::ZERO }),
             container(space()).width(Length::Fill).height(Length::Fixed(ACCENT_EDGE)).style(filled(edge)),
-            container(body).padding(iced::Padding { right: 6.0, ..iced::Padding::ZERO }),
         ];
         tabs = tabs.push(mouse_area(tab).on_press(Message::TabClicked(index)));
     }

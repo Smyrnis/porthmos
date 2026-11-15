@@ -3,18 +3,22 @@ use std::path::PathBuf;
 use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::Id;
+use iced::widget::operation::{self, RelativeOffset};
 use iced::{Size, Task, window};
+use porthmos_core::theme::{self, ThemeBase};
 use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
 use crate::config_file::{self, Edit};
-use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, editor_from_text};
+use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text};
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
+use crate::theme::{Palette, ThemeSettings};
 use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
 
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
 const APPLIED_NOTE: &str = "Saved.";
 const RESERVED_TEXT: &str = "That shortcut is reserved by the system.";
+const COMPARE_LIMIT_TEXT: &str = "Enter a whole number from 1 to 64.";
 const NO_CONFIG_TEXT: &str = "The location of the configuration file is unknown.";
 
 fn plain_title(action: Action) -> &'static str {
@@ -25,6 +29,11 @@ impl App {
     pub fn with_settings(mut self, settings: GuiSettings, config_file: PathBuf) -> App {
         self.gui_settings = settings;
         self.config_file = Some(config_file);
+        self
+    }
+
+    pub fn with_theme_accent(mut self, accent: Option<theme::Rgb>) -> App {
+        self.theme_accent = accent;
         self
     }
 
@@ -107,6 +116,29 @@ impl App {
                 false
             }
         }
+    }
+
+    fn theme_file(&self) -> Option<PathBuf> {
+        self.config_file.as_ref().map(|config| config.with_file_name(theme::file::FILE_NAME))
+    }
+
+    fn choose_theme(&mut self, base: ThemeBase) {
+        let Some(path) = self.theme_file() else {
+            self.show_settings_message(Some(SettingsMessage::Error(NO_CONFIG_TEXT.to_string())));
+            return;
+        };
+        if let Err(message) = config_file::save(&path, &Edit::SetThemeBase(base)) {
+            self.show_settings_message(Some(SettingsMessage::Error(message)));
+            return;
+        }
+        let (scheme, warnings) = theme::file::load_from(&path, self.theme_accent);
+        self.palette = Palette::new(&ThemeSettings::default().with_scheme(scheme));
+        self.gui_settings.theme_base = base;
+        let message = match warnings.first() {
+            Some(warning) => SettingsMessage::Note(warning.clone()),
+            None => SettingsMessage::Note(APPLIED_NOTE.to_string()),
+        };
+        self.show_settings_message(Some(message));
     }
 
     fn core_setting_saved(&mut self, edit: Edit, apply: impl FnOnce(&mut GuiSettings)) {
@@ -199,6 +231,24 @@ impl App {
                 let editor = editor_from_text(&state.editor_text);
                 self.core_setting_saved(Edit::SetEditor(editor.clone()), |settings| settings.editor = editor);
             }
+            Message::SettingsCompareLimitTyped(text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.compare_limit_text = text;
+                }
+            }
+            Message::SettingsCompareLimitApplied => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                match compare_limit_from_text(&state.compare_limit_text) {
+                    Some(mib) => {
+                        self.core_setting_saved(Edit::SetCompareLimitMib(mib), |settings| {
+                            settings.compare_limit_mib = mib
+                        });
+                    }
+                    None => self.show_settings_message(Some(SettingsMessage::Error(COMPARE_LIMIT_TEXT.to_string()))),
+                }
+            }
             Message::SettingsTerminalTyped(text) => {
                 if let Some(state) = self.settings_state_mut() {
                     state.terminal_text = text;
@@ -237,6 +287,23 @@ impl App {
                     self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
                 }
             }
+            Message::SettingsReconnectToggled(on) => {
+                if self.save_setting(Edit::SetReconnect(on)) {
+                    self.gui_settings.reconnect = on;
+                    self.core.send(Command::SetReconnect { enabled: on });
+                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                }
+            }
+            Message::SettingsThemeChosen(base) => self.choose_theme(base),
+            Message::SettingsCategoryChosen(category) => {
+                let Some(state) = self.settings_state_mut() else {
+                    return Task::none();
+                };
+                state.category = category;
+                state.capturing = None;
+                state.message = None;
+                return operation::snap_to(App::settings_list_id(), RelativeOffset::START);
+            }
             Message::SettingsClosed => return self.close_settings(),
             _ => {}
         }
@@ -249,6 +316,10 @@ impl App {
             (ReopenMode::Ask, "Offer to reopen"),
             (ReopenMode::Auto, "Reopen automatically"),
         ]
+    }
+
+    pub fn theme_choices() -> [(ThemeBase, &'static str); 3] {
+        [(ThemeBase::Dark, "Dark"), (ThemeBase::HighContrast, "High contrast"), (ThemeBase::Light, "Light")]
     }
 
     pub fn update_mode_choices() -> [(UpdateMode, &'static str); 3] {

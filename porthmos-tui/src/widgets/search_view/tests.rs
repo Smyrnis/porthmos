@@ -140,7 +140,7 @@ fn an_empty_pattern_shows_a_dim_type_to_search_row() {
     let terminal = draw(&SearchView::new(), 60, 10);
 
     let (x, y) = find_text(&terminal, "type to search").unwrap();
-    assert_eq!(y, 2);
+    assert_eq!(y, 3);
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
 }
 
@@ -174,9 +174,9 @@ fn an_accent_rule_follows_the_pattern_row() {
     let theme = indexed();
     let terminal = draw(&typed("a"), 60, 10);
 
-    assert_eq!(terminal.backend().buffer()[(0, 1)].symbol(), "\u{2500}");
-    assert_eq!(cell_fg(&terminal, 0, 1), theme.accent);
-    assert_eq!(cell_fg(&terminal, 59, 1), theme.accent);
+    assert_eq!(terminal.backend().buffer()[(0, 2)].symbol(), "\u{2500}");
+    assert_eq!(cell_fg(&terminal, 0, 2), theme.accent);
+    assert_eq!(cell_fg(&terminal, 59, 2), theme.accent);
 }
 
 #[test]
@@ -191,7 +191,7 @@ fn the_selected_result_has_a_chevron_and_the_focus_background() {
     let terminal = draw(&view, 60, 10);
 
     let (x, y) = find_text(&terminal, "/a2").unwrap();
-    assert_eq!(y, 3);
+    assert_eq!(y, 4);
     assert_eq!(terminal.backend().buffer()[(0, y)].symbol(), "\u{203a}");
     assert_eq!(cell_fg(&terminal, 0, y), theme.accent);
     assert_eq!(cell_bg(&terminal, x, y), theme.row_focus);
@@ -401,8 +401,8 @@ fn a_tall_body_splits_off_half_for_the_pane() {
 
     let (list, pane) = split_for_pane(area);
 
-    assert_eq!(pane, Some(Rect::new(0, 13, 80, 11)));
-    assert_eq!(list, Rect::new(0, 0, 80, 13));
+    assert_eq!(pane, Some(Rect::new(0, 14, 80, 10)));
+    assert_eq!(list, Rect::new(0, 0, 80, 14));
 }
 
 #[test]
@@ -410,4 +410,35 @@ fn a_short_body_gets_no_pane() {
     let area = Rect::new(0, 0, 80, HEADER_ROWS + PREVIEW_PANE_MIN_BODY - 1);
 
     assert_eq!(split_for_pane(area), (area, None));
+}
+
+#[test]
+fn the_scope_is_drawn_under_the_pattern() {
+    let mut view = SearchView::new();
+    view.scope = "prod \u{b7} /srv/data".to_string();
+
+    let terminal = draw(&view, 60, 10);
+
+    let (x, y) = find_text(&terminal, "prod \u{b7} /srv/data").expect("scope is drawn");
+    assert_eq!((x, y), (0, 1));
+}
+
+#[test]
+fn a_long_scope_keeps_its_end_and_never_overflows_the_width() {
+    let mut view = SearchView::new();
+    view.scope = format!("this computer \u{b7} /{}/deepest", "d".repeat(80));
+
+    let terminal = draw(&view, 40, 10);
+
+    assert!(find_text(&terminal, "deepest").is_some());
+    assert!(!has_unprintable_cell(&terminal));
+}
+
+#[test]
+fn an_empty_scope_draws_nothing_extra() {
+    let view = SearchView::new();
+
+    let terminal = draw(&view, 40, 10);
+
+    assert!(find_text(&terminal, "\u{b7}").is_none());
 }
