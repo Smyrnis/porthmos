@@ -253,7 +253,7 @@ pub fn render_transfer_list(frame: &mut Frame, area: Rect, view: &TransferView<'
     }
     if view.rows.is_empty() {
         let message = match view.copy_key {
-            Some(key) => i18n::text_with("queue.empty_with_key", &[("key", &key)]),
+            Some(key) => i18n::text_with("queue.empty_with_key", &[("key", key)]),
             None => i18n::text("queue.empty"),
         };
         let text = truncate_with_ellipsis(&message, usize::from(area.width));

@@ -59,7 +59,7 @@ fn checked(mut row: ImportRow, protocols: &[Arc<dyn Protocol>]) -> ImportRow {
         return row;
     };
     if let Some(field) = longest_field_over_its_limit(&candidate) {
-        invalid(&mut row, i18n::text_with("import.field_too_long", &[("field", &field)]));
+        invalid(&mut row, i18n::text_with("import.field_too_long", &[("field", field)]));
         return row;
     }
     let form = protocol.connection_form();

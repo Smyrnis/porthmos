@@ -141,7 +141,7 @@ impl Engine {
                     Err(err) => self.report(Severity::Error, format!("{err:#}")),
                 }
             }
-            Ok(false) => self.report(Severity::Error, i18n::text_with("profiles.not_in_ssh_config", &[("name", &to)])),
+            Ok(false) => self.report(Severity::Error, i18n::text_with("profiles.not_in_ssh_config", &[("name", to)])),
             Err(err) => self.report(Severity::Error, format!("{err:#}")),
         }
         self.list_profiles();
