@@ -11,7 +11,9 @@ use crate::testing::Harness;
 use super::super::*;
 
 const EDIT_TEXT: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left incomplete; your copy stays in the state folder.";
-const TRANSFER_TEXT: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
+fn transfer_text() -> String {
+    porthmos_core::transfer::quit_with_transfers_text()
+}
 
 fn key(harness: &mut Harness, key: Key, modifiers: Modifiers) {
     let text = match &key {
@@ -93,8 +95,8 @@ fn both_reasons_are_reported_together() {
 #[test]
 fn the_texts_match_the_terminal_front_end() {
     assert_eq!(quit_text(false, true), EDIT_TEXT);
-    assert_eq!(quit_text(true, false), TRANSFER_TEXT);
-    assert_eq!(quit_text(true, true), format!("{EDIT_TEXT}\n\n{TRANSFER_TEXT}"));
+    assert_eq!(quit_text(true, false), transfer_text());
+    assert_eq!(quit_text(true, true), format!("{EDIT_TEXT}\n\n{}", transfer_text()));
 }
 
 #[test]

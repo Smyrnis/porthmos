@@ -1,3 +1,4 @@
+use porthmos_core::i18n::label as tr;
 use porthmos_core::theme::ThemeBase;
 use porthmos_core::{ReopenMode, UpdateMode};
 
@@ -14,6 +15,7 @@ pub struct GuiSettings {
     pub reopen: ReopenMode,
     pub reconnect: bool,
     pub theme_base: ThemeBase,
+    pub language: Option<String>,
 }
 
 impl Default for GuiSettings {
@@ -28,12 +30,14 @@ impl Default for GuiSettings {
             reopen: ReopenMode::Off,
             reconnect: false,
             theme_base: ThemeBase::Dark,
+            language: None,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
+    Language,
     Shortcuts,
     Appearance,
     Editing,
@@ -63,21 +67,24 @@ impl SettingsCategory {
         SettingsCategory::Updates,
     ];
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            SettingsCategory::General => "General",
-            SettingsCategory::EditorAndTerminal => "Editor and terminal",
-            SettingsCategory::Appearance => "Appearance",
-            SettingsCategory::Shortcuts => "Shortcuts",
-            SettingsCategory::Updates => "Updates",
+            SettingsCategory::General => tr("General"),
+            SettingsCategory::EditorAndTerminal => tr("Editor and terminal"),
+            SettingsCategory::Appearance => tr("Appearance"),
+            SettingsCategory::Shortcuts => tr("Shortcuts"),
+            SettingsCategory::Updates => tr("Updates"),
         }
     }
 
     pub fn sections(self) -> &'static [SettingsSection] {
         match self {
-            SettingsCategory::General => {
-                &[SettingsSection::Startup, SettingsSection::Connections, SettingsSection::Search]
-            }
+            SettingsCategory::General => &[
+                SettingsSection::Language,
+                SettingsSection::Startup,
+                SettingsSection::Connections,
+                SettingsSection::Search,
+            ],
             SettingsCategory::EditorAndTerminal => &[SettingsSection::Editing, SettingsSection::Terminal],
             SettingsCategory::Appearance => &[SettingsSection::Appearance],
             SettingsCategory::Shortcuts => &[SettingsSection::Shortcuts],

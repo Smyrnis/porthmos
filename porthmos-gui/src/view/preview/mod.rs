@@ -2,6 +2,8 @@ use iced::widget::scrollable::{Direction, Scrollbar};
 use iced::widget::text::Wrapping;
 use iced::widget::{column, container, row, scrollable, space, text};
 use iced::{Element, Font, Length};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, text_button};
 use super::spacing::DIALOG_GAP;
@@ -58,9 +60,11 @@ fn notice<'a>(text: String, color: iced::Color, height: f32) -> Element<'a, Mess
 pub fn pane<'a>(app: &'a App, state: &'a SearchPreview, height: f32) -> Element<'a, Message> {
     let palette = app.palette();
     let content: Element<'a, Message> = match state {
-        SearchPreview::Folder(name) => notice(format!("{name} · folder"), palette.fg_dim, height),
+        SearchPreview::Folder(name) => {
+            notice(i18n::text_with("gui.preview.folder", &[("name", name)]), palette.fg_dim, height)
+        }
         SearchPreview::File(file) => match file.status() {
-            PreviewStatus::Loading => notice("Loading…".to_string(), palette.fg_dim, height),
+            PreviewStatus::Loading => notice(tr("Loading…"), palette.fg_dim, height),
             PreviewStatus::Failed(message) => notice(message.clone(), palette.err, height),
             PreviewStatus::Ready(_) => rows_view(
                 file,
@@ -81,7 +85,7 @@ pub fn body<'a>(app: &'a App, state: &'a PreviewState) -> Element<'a, Message> {
     let palette = app.palette();
     let viewport = preview_list_height(app.window_size());
     let content: Element<'a, Message> = match state.status() {
-        PreviewStatus::Loading => notice("Loading…".to_string(), palette.fg_dim, viewport),
+        PreviewStatus::Loading => notice(tr("Loading…"), palette.fg_dim, viewport),
         PreviewStatus::Failed(message) => notice(message.clone(), palette.err, viewport),
         PreviewStatus::Ready(_) => rows_view(
             state,
@@ -99,7 +103,7 @@ pub fn body<'a>(app: &'a App, state: &'a PreviewState) -> Element<'a, Message> {
         hairline_across(palette),
         content,
         hairline_across(palette),
-        row![space().width(Length::Fill), text_button("Close", Some(Message::ToolClosed), Look::Primary, palette)],
+        row![space().width(Length::Fill), text_button(&tr("Close"), Some(Message::ToolClosed), Look::Primary, palette)],
     ]
     .spacing(DIALOG_GAP)
     .into()

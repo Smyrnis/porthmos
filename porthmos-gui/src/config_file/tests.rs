@@ -445,3 +445,21 @@ mod theme_base {
         assert!(refused.starts_with("config.toml has a syntax error"), "{refused}");
     }
 }
+
+#[test]
+fn set_language_writes_the_code_under_general() {
+    assert_eq!(apply("", &Edit::SetLanguage(Some("el".to_string()))).unwrap(), "[general]\nlanguage = \"el\"\n");
+    assert_eq!(
+        apply("[general]\nlanguage = \"el\"\n", &Edit::SetLanguage(Some("en".to_string()))).unwrap(),
+        "[general]\nlanguage = \"en\"\n"
+    );
+}
+
+#[test]
+fn set_language_to_automatic_writes_auto_and_keeps_other_settings() {
+    let written =
+        apply("# mine\n[general]\nlanguage = \"el\"\n[edit]\nauto_upload = false\n", &Edit::SetLanguage(None)).unwrap();
+
+    assert!(written.starts_with("# mine\n[general]\nlanguage = \"auto\"\n"), "{written}");
+    assert!(written.contains("[edit]\nauto_upload = false\n"), "{written}");
+}

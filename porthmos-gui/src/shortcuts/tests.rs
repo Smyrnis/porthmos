@@ -391,7 +391,7 @@ fn every_action_has_a_unique_name_and_a_non_empty_title() {
         assert!(!action.title().trim().is_empty(), "{action:?}");
         assert_eq!(Action::from_name(action.name()), Some(action));
     }
-    let mut titles: Vec<&str> = Action::all().map(Action::title).collect();
+    let mut titles: Vec<String> = Action::all().map(Action::title).collect();
     titles.sort_unstable();
     titles.dedup();
     assert_eq!(titles.len(), names.len(), "two actions share a title");

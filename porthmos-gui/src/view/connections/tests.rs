@@ -7,8 +7,8 @@ fn group_text_shows_the_count() {
 
 #[test]
 fn the_empty_hint_depends_on_the_filter() {
-    assert_eq!(empty_hint(0, false), Some("No saved connections. Click Add to create one."));
-    assert_eq!(empty_hint(0, true), Some("No connections match"));
+    assert_eq!(empty_hint(0, false), Some("No saved connections. Click Add to create one.".to_string()));
+    assert_eq!(empty_hint(0, true), Some("No connections match".to_string()));
     assert_eq!(empty_hint(2, true), None);
 }
 

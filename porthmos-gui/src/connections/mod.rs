@@ -1,6 +1,8 @@
 pub mod form;
 pub mod trial;
 
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use std::collections::HashSet;
 
 use porthmos_core::ConnectionState;
@@ -227,23 +229,23 @@ impl Manager {
 
 pub fn details_lines(entry: &ConnectionEntry, protocol_name: &str, link: ConnectionState) -> Vec<(String, String)> {
     let mut lines = vec![
-        ("Protocol".to_string(), protocol_name.to_string()),
-        ("Host".to_string(), entry.host.clone()),
-        ("Port".to_string(), entry.port.to_string()),
-        ("User".to_string(), entry.username.clone()),
-        ("Group".to_string(), entry.group.clone().unwrap_or_default()),
-        ("Tags".to_string(), entry.tags.join(", ")),
-        ("Saved password".to_string(), if entry.saved_password { "yes" } else { "" }.to_string()),
-        ("Start folder".to_string(), entry.options.get("remote_path").cloned().unwrap_or_default()),
+        (tr("Protocol"), protocol_name.to_string()),
+        (tr("Host"), entry.host.clone()),
+        (tr("Port"), entry.port.to_string()),
+        (tr("User"), entry.username.clone()),
+        (tr("Group"), entry.group.clone().unwrap_or_default()),
+        (tr("Tags"), entry.tags.join(", ")),
+        (tr("Saved password"), if entry.saved_password { tr("yes") } else { String::new() }),
+        (tr("Start folder"), entry.options.get("remote_path").cloned().unwrap_or_default()),
     ];
     lines.retain(|(_, value)| !value.is_empty());
     let status = match link {
-        ConnectionState::Disconnected => "Not connected",
-        ConnectionState::Connecting => "Connecting",
-        ConnectionState::Connected => "Connected",
-        ConnectionState::Lost => "Connection lost",
+        ConnectionState::Disconnected => tr("Not connected"),
+        ConnectionState::Connecting => tr("Connecting"),
+        ConnectionState::Connected => tr("Connected"),
+        ConnectionState::Lost => tr("Connection lost"),
     };
-    lines.push(("Status".to_string(), status.to_string()));
+    lines.push((tr("Status"), status));
     lines
 }
 
@@ -264,13 +266,10 @@ pub fn announcement(entries: &[ConnectionEntry], announced: &mut HashSet<String>
     }
     let mut sentences = Vec::new();
     if !missing.is_empty() {
-        sentences.push(format!("These labelled hosts are no longer in ~/.ssh/config: {}.", missing.join(", ")));
+        sentences.push(i18n::text_with("missing.gone", &[("hosts", &missing.join(", "))]));
     }
     if !shadowed.is_empty() {
-        sentences.push(format!(
-            "These labelled hosts are hidden by a saved connection of the same name: {}.",
-            shadowed.join(", ")
-        ));
+        sentences.push(i18n::text_with("missing.hidden", &[("hosts", &shadowed.join(", "))]));
     }
     announced.extend(missing.into_iter().chain(shadowed));
     Some(sentences.join(" "))
@@ -278,7 +277,7 @@ pub fn announcement(entries: &[ConnectionEntry], announced: &mut HashSet<String>
 
 pub fn subtitle(entry: &ConnectionEntry) -> String {
     if entry.source.is_orphan_labels() {
-        return "labels only".to_string();
+        return tr("labels only");
     }
     let address = format!("{}@{}:{}", entry.username, entry.host, entry.port);
     match entry.bucket() {

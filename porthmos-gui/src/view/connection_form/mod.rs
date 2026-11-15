@@ -1,5 +1,7 @@
 use iced::widget::{checkbox, column, container, mouse_area, pick_list, row, scrollable, space, stack, text_input};
 use iced::{Alignment, Border, Element, Font, Length, Size, alignment};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, compact_button, text_button};
 use super::{bold_label, label, wrapped_label};
@@ -21,22 +23,23 @@ pub fn dialog_size(window: Size, width: f32, height: f32) -> Size {
 }
 
 pub fn field_label(field: &FieldView) -> String {
-    if field.required { format!("{} *", field.label) } else { field.label.clone() }
+    let shown = tr(&field.label);
+    if field.required { i18n::text_with("gui.form.required", &[("label", &shown)]) } else { shown }
 }
 
 pub fn missing_title(name: &str, shadowed: bool) -> String {
     if shadowed {
-        format!("{name} is hidden by a saved connection")
+        i18n::text_with("missing.item_hidden", &[("name", name)])
     } else {
-        format!("{name} is no longer in ~/.ssh/config")
+        i18n::text_with("connection.no_longer_in_ssh_config", &[("name", name)])
     }
 }
 
-pub fn secret_placeholder(saved: bool, forgotten: bool) -> &'static str {
+pub fn secret_placeholder(saved: bool, forgotten: bool) -> String {
     match (saved, forgotten) {
-        (true, true) => "Will be removed when you save",
-        (true, false) => "Saved. Type to replace",
-        (false, _) => "",
+        (true, true) => tr("Will be removed when you save"),
+        (true, false) => tr("Saved. Type to replace"),
+        (false, _) => String::new(),
     }
 }
 
@@ -53,15 +56,15 @@ fn control<'a>(state: &'a FormState, field: &FieldView, palette: &Palette) -> El
             .into(),
         FieldKind::Secret { saved, forgotten, .. } => {
             let secret_key = key.clone();
-            let field_input = input(secret_placeholder(*saved, *forgotten), state.secret_text(&key), palette)
+            let field_input = input(&secret_placeholder(*saved, *forgotten), state.secret_text(&key), palette)
                 .id(App::form_input_id(&key))
                 .secure(true)
                 .on_input(move |typed| Message::FormSecretTyped(secret_key.clone(), Typed::new(typed)));
             let mut line = row![field_input].spacing(8).align_y(Alignment::Center);
             if *saved && !*forgotten {
-                line = line.push(compact_button("Forget", Some(Message::FormSecretForgotten(key)), palette));
+                line = line.push(compact_button(&tr("Forget"), Some(Message::FormSecretForgotten(key)), palette));
             } else if *forgotten {
-                line = line.push(compact_button("Keep saved", Some(Message::FormSecretRestored(key)), palette));
+                line = line.push(compact_button(&tr("Keep saved"), Some(Message::FormSecretRestored(key)), palette));
             }
             line.into()
         }
@@ -107,9 +110,11 @@ fn form_body<'a>(app: &'a App, state: &'a FormState) -> (Element<'a, Message>, E
         body = body.push(line);
     }
     let test_button = match state.test {
-        Some(TestState::Running) => text_button("Cancel test", Some(Message::FormTestCancelled), Look::Normal, palette),
+        Some(TestState::Running) => {
+            text_button(&tr("Cancel test"), Some(Message::FormTestCancelled), Look::Normal, palette)
+        }
         _ => text_button(
-            "Test connection",
+            &tr("Test connection"),
             state.check().is_ok().then_some(Message::FormTestPressed),
             Look::Normal,
             palette,
@@ -118,8 +123,8 @@ fn form_body<'a>(app: &'a App, state: &'a FormState) -> (Element<'a, Message>, E
     let footer = row![
         test_button,
         space().width(Length::Fill),
-        text_button("Cancel", Some(Message::ScreenCancelled), Look::Normal, palette),
-        text_button("Save", Some(Message::FormSavePressed), Look::Primary, palette),
+        text_button(&tr("Cancel"), Some(Message::ScreenCancelled), Look::Normal, palette),
+        text_button(&tr("Save"), Some(Message::FormSavePressed), Look::Primary, palette),
     ]
     .spacing(8)
     .into();
@@ -130,7 +135,7 @@ fn test_line<'a>(app: &App, state: &FormState) -> Option<Element<'a, Message>> {
     let palette = app.palette();
     match &state.test {
         None => None,
-        Some(TestState::Running) => Some(label("Testing\u{2026}", palette.fg_muted).into()),
+        Some(TestState::Running) => Some(label(tr("Testing\u{2026}"), palette.fg_muted).into()),
         Some(TestState::Finished(outcome)) => {
             let line = describe(outcome)?;
             let color = if line.good { palette.ok } else { palette.err };
@@ -148,8 +153,8 @@ fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
         .on_submit(Message::TestPasswordSubmitted);
     let buttons = row![
         space().width(Length::Fill),
-        text_button("Cancel", Some(Message::TestPasswordCancelled), Look::Normal, palette),
-        text_button("OK", Some(Message::TestPasswordSubmitted), Look::Primary, palette),
+        text_button(&tr("Cancel"), Some(Message::TestPasswordCancelled), Look::Normal, palette),
+        text_button(&tr("OK"), Some(Message::TestPasswordSubmitted), Look::Primary, palette),
     ]
     .spacing(8);
     let content =
@@ -174,7 +179,7 @@ fn prompt_dialog<'a>(app: &App, prompt: &TestPrompt) -> Element<'a, Message> {
 
 fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Message>, Element<'a, Message>) {
     let palette = app.palette();
-    let line = |name: &'static str, value: &str, message: fn(String) -> Message, id: &str| -> Element<'a, Message> {
+    let line = |name: &str, value: &str, message: fn(String) -> Message, id: &str| -> Element<'a, Message> {
         row![
             label(name, palette.fg_dim).width(Length::Fixed(LABEL_WIDTH)),
             input("", value, palette).id(App::form_input_id(id)).on_input(message).width(Length::Fill),
@@ -184,15 +189,15 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
         .into()
     };
     let mut body = column![
-        label("Labels are kept by Porthmos. Your ~/.ssh/config is not changed.", palette.fg_muted),
-        line("Group", &labels.group, Message::LabelsGroupTyped, "group"),
-        line("Tags", &labels.tags, Message::LabelsTagsTyped, "tags"),
+        label(tr("Labels are kept by Porthmos. Your ~/.ssh/config is not changed."), palette.fg_muted),
+        line(&tr("Group"), &labels.group, Message::LabelsGroupTyped, "group"),
+        line(&tr("Tags"), &labels.tags, Message::LabelsTagsTyped, "tags"),
     ]
     .spacing(8);
     if labels.saved_password {
         body = body.push(
             checkbox(labels.forget_password)
-                .label("Forget the saved password")
+                .label(tr("Forget the saved password"))
                 .text_size(13.0)
                 .on_toggle(Message::LabelsForgetToggled)
                 .style(crate::view::checkbox::style(palette)),
@@ -203,8 +208,8 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
     }
     let footer = row![
         space().width(Length::Fill),
-        text_button("Cancel", Some(Message::ScreenCancelled), Look::Normal, palette),
-        text_button("Save", Some(Message::LabelsSavePressed), Look::Primary, palette),
+        text_button(&tr("Cancel"), Some(Message::ScreenCancelled), Look::Normal, palette),
+        text_button(&tr("Save"), Some(Message::LabelsSavePressed), Look::Primary, palette),
     ]
     .spacing(8)
     .into();
@@ -213,11 +218,11 @@ fn labels_body<'a>(app: &'a App, labels: &'a LabelsState) -> (Element<'a, Messag
 
 fn delete_body<'a>(app: &App, name: &str) -> (Element<'a, Message>, Element<'a, Message>) {
     let palette = app.palette();
-    let body = label(format!("Delete connection \"{name}\"?"), palette.fg).into();
+    let body = label(i18n::text_with("gui.form.delete_confirm", &[("name", name)]), palette.fg).into();
     let footer = row![
         space().width(Length::Fill),
-        text_button("Delete", Some(Message::DeleteConfirmed), Look::Normal, palette),
-        text_button("Cancel", Some(Message::ScreenCancelled), Look::Primary, palette),
+        text_button(&tr("Delete"), Some(Message::DeleteConfirmed), Look::Normal, palette),
+        text_button(&tr("Cancel"), Some(Message::ScreenCancelled), Look::Primary, palette),
     ]
     .spacing(8)
     .into();
@@ -229,10 +234,10 @@ fn missing_body<'a>(app: &App, name: &str, shadowed: bool) -> (Element<'a, Messa
     let candidates = app.manager().unlabelled_hosts();
     let mut body = column![label(missing_title(name, shadowed), palette.fg)].spacing(8);
     if candidates.is_empty() {
-        body = body.push(label("No unlabelled ssh hosts to move the labels to", palette.fg_dim));
+        body = body.push(label(tr("No unlabelled ssh hosts to move the labels to"), palette.fg_dim));
     }
     for candidate in candidates {
-        let title = format!("Move labels to {candidate}");
+        let title = i18n::text_with("gui.form.move_labels_to", &[("name", &candidate)]);
         body = body.push(text_button(
             &title,
             Some(Message::MissingHostChosen(MissingChoice::Move(candidate))),
@@ -241,14 +246,16 @@ fn missing_body<'a>(app: &App, name: &str, shadowed: bool) -> (Element<'a, Messa
         ));
     }
     body = body.push(text_button(
-        "Forget labels",
+        &tr("Forget labels"),
         Some(Message::MissingHostChosen(MissingChoice::Forget)),
         Look::Normal,
         palette,
     ));
-    let footer =
-        row![space().width(Length::Fill), text_button("Cancel", Some(Message::ScreenCancelled), Look::Normal, palette)]
-            .into();
+    let footer = row![
+        space().width(Length::Fill),
+        text_button(&tr("Cancel"), Some(Message::ScreenCancelled), Look::Normal, palette)
+    ]
+    .into();
     (body.into(), footer)
 }
 
@@ -257,10 +264,15 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let (title, (body, footer), width, height) = match app.screen()? {
         Screen::List => return None,
         Screen::Form(state) => (state.title().to_string(), form_body(app, state), FORM_WIDTH, FORM_HEIGHT),
-        Screen::Labels(labels) => (format!("Labels for {}", labels.name), labels_body(app, labels), SMALL_WIDTH, 260.0),
-        Screen::ConfirmDelete { name } => ("Delete connection".to_string(), delete_body(app, name), SMALL_WIDTH, 150.0),
+        Screen::Labels(labels) => (
+            i18n::text_with("gui.form.labels_for", &[("name", &labels.name)]),
+            labels_body(app, labels),
+            SMALL_WIDTH,
+            260.0,
+        ),
+        Screen::ConfirmDelete { name } => (tr("Delete connection"), delete_body(app, name), SMALL_WIDTH, 150.0),
         Screen::ImportSource(state) => (
-            "Import connections".to_string(),
+            tr("Import connections"),
             (
                 super::import_source::body(state.source, &state.path, &state.error, state.waiting, palette),
                 super::import_source::buttons(state.waiting, palette),
@@ -269,13 +281,13 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             super::import_source::HEIGHT,
         ),
         Screen::ImportReview(view) => (
-            format!("Import from {}", view.source().label()),
+            i18n::text_with("gui.import.from", &[("source", view.source().label())]),
             (super::import_review::body(view, palette), super::import_review::buttons(view, palette)),
             super::import_review::WIDTH,
             super::import_review::HEIGHT,
         ),
         Screen::MissingHost { name, shadowed } => {
-            ("Labelled ssh host".to_string(), missing_body(app, name, *shadowed), SMALL_WIDTH, 300.0)
+            (tr("Labelled ssh host"), missing_body(app, name, *shadowed), SMALL_WIDTH, 300.0)
         }
     };
     let size = dialog_size(app.connections_window_size(), width, height);

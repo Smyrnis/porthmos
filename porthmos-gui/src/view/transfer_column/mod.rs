@@ -1,5 +1,6 @@
 use iced::widget::{column, container};
 use iced::{Element, Length, alignment};
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, tool_button};
 use super::filled;
@@ -20,8 +21,8 @@ pub fn bar<'a>(app: &'a App) -> Element<'a, Message> {
     };
     container(
         column![
-            arrow(Icon::Forward, "Copy to the right panel", to_right, PanelSide::Local),
-            arrow(Icon::Back, "Copy to the left panel", to_left, PanelSide::Remote),
+            arrow(Icon::Forward, &tr("Copy to the right panel"), to_right, PanelSide::Local),
+            arrow(Icon::Back, &tr("Copy to the left panel"), to_left, PanelSide::Remote),
         ]
         .spacing(8)
         .align_x(alignment::Horizontal::Center),

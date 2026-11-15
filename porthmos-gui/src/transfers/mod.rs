@@ -1,3 +1,5 @@
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use std::ops::Range;
 
 use porthmos_core::transfer::TransferSnapshot;
@@ -7,7 +9,9 @@ use porthmos_core::{Command, Entry, Location, VfsPath};
 use crate::geometry::visible_range;
 
 const SEPARATOR: &str = " · ";
-const SPEED_LIMIT_HINT: &str = "Use a number with K, M or G (for example 500K), or off";
+fn speed_limit_hint() -> String {
+    tr("Use a number with K, M or G (for example 500K), or off")
+}
 const QUEUE_OVERSCAN: usize = 4;
 const KIBI: u64 = 1024;
 pub const QUEUE_ROW_HEIGHT: f32 = 28.0;
@@ -62,8 +66,7 @@ impl TransferState {
             .collect();
         let mut parts = Vec::new();
         if !working.is_empty() {
-            let noun = if working.len() == 1 { "transfer" } else { "transfers" };
-            let mut text = format!("{} {noun}", working.len());
+            let mut text = i18n::plural("gui.transfers.count", working.len());
             let total: u64 = working.iter().map(|row| row.bytes_total).sum();
             if total > 0 {
                 let done: u64 = working.iter().map(|row| row.bytes_done).sum();
@@ -72,7 +75,10 @@ impl TransferState {
             parts.push(text);
         }
         if self.snapshot.awaiting_answers > 0 {
-            parts.push(format!("{} waiting for an answer", self.snapshot.awaiting_answers));
+            parts.push(i18n::text_with(
+                "gui.transfers.waiting",
+                &[("count", &self.snapshot.awaiting_answers.to_string())],
+            ));
         }
         (!parts.is_empty()).then(|| parts.join(SEPARATOR))
     }
@@ -100,14 +106,14 @@ impl RowButton {
         }
     }
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            RowButton::Pause => "Pause",
-            RowButton::Resume => "Resume",
-            RowButton::Cancel => "Cancel",
-            RowButton::Retry => "Retry",
-            RowButton::MoveUp => "▲",
-            RowButton::MoveDown => "▼",
+            RowButton::Pause => tr("Pause"),
+            RowButton::Resume => tr("Resume"),
+            RowButton::Cancel => tr("Cancel"),
+            RowButton::Retry => tr("Retry"),
+            RowButton::MoveUp => "▲".to_string(),
+            RowButton::MoveDown => "▼".to_string(),
         }
     }
 }
@@ -116,25 +122,24 @@ fn is_paused(row: &QueueRow) -> bool {
     row.paused || row.state == RowState::Paused
 }
 
-pub fn state_word(row: &QueueRow) -> &'static str {
+pub fn state_word(row: &QueueRow) -> String {
     match row.state {
-        RowState::Scanning => "Scanning",
-        RowState::AwaitingAnswer => "Waiting for an answer",
-        RowState::Running | RowState::Queued if row.paused => "Paused",
-        RowState::Running => "Running",
-        RowState::Queued => "Queued",
-        RowState::Paused => "Paused",
-        RowState::Done => "Done",
-        RowState::PartlyFailed(_) => "Partly failed",
-        RowState::Failed => "Failed",
-        RowState::Cancelled => "Cancelled",
+        RowState::Scanning => tr("Scanning"),
+        RowState::AwaitingAnswer => tr("Waiting for an answer"),
+        RowState::Running | RowState::Queued if row.paused => tr("Paused"),
+        RowState::Running => tr("Running"),
+        RowState::Queued => tr("Queued"),
+        RowState::Paused => tr("Paused"),
+        RowState::Done => tr("Done"),
+        RowState::PartlyFailed(_) => tr("Partly failed"),
+        RowState::Failed => tr("Failed"),
+        RowState::Cancelled => tr("Cancelled"),
     }
 }
 
 pub fn failure_detail(row: &QueueRow) -> Option<String> {
     row.failure.as_ref().map(|failure| {
-        let attempts = if failure.attempts == 1 { "attempt" } else { "attempts" };
-        format!("{} {attempts}{SEPARATOR}{}", failure.attempts, failure.message)
+        format!("{}{SEPARATOR}{}", i18n::plural("gui.attempts", failure.attempts as usize), failure.message)
     })
 }
 
@@ -160,7 +165,7 @@ pub fn parse_speed_limit(text: &str) -> Result<Option<u64>, String> {
     if text.is_empty() || text.eq_ignore_ascii_case("off") {
         return Ok(None);
     }
-    let bad = || SPEED_LIMIT_HINT.to_string();
+    let bad = || speed_limit_hint().to_string();
     let (digits, multiplier) = match text.char_indices().last() {
         Some((at, unit)) if unit.is_ascii_alphabetic() => {
             let multiplier = match unit.to_ascii_uppercase() {
@@ -178,7 +183,7 @@ pub fn parse_speed_limit(text: &str) -> Result<Option<u64>, String> {
     }
     let bytes = digits.parse::<u64>().ok().and_then(|count| count.checked_mul(multiplier)).ok_or_else(bad)?;
     if bytes == 0 {
-        return Err("The speed limit must be above zero; type off for none".to_string());
+        return Err(tr("The speed limit must be above zero; type off for none"));
     }
     Ok(Some(bytes))
 }

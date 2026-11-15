@@ -1,5 +1,6 @@
 use iced::widget::{container, mouse_area, row, space};
 use iced::{Alignment, Color, Element, Length, alignment};
+use porthmos_core::i18n::label as tr;
 use porthmos_core::listing::{SortKey, SortOrder};
 
 use super::file_list::{Columns, EDGE_WIDTH, ICON_SLOT, MODIFIED_WIDTH, OWNER_WIDTH, PADDING, SIZE_WIDTH};
@@ -43,12 +44,12 @@ fn plain<'a>(title: &str, width: f32, palette: &Palette) -> Element<'a, Message>
 pub fn columns<'a>(side: PanelSide, panel: &Panel, shown: Columns, palette: &Palette) -> Element<'a, Message> {
     let mut line = row![
         space().width(Length::Fixed(EDGE_WIDTH + ICON_SLOT)),
-        sortable(side, panel, SortKey::Name, "Name", Length::Fill, alignment::Horizontal::Left, palette),
+        sortable(side, panel, SortKey::Name, &tr("Name"), Length::Fill, alignment::Horizontal::Left, palette),
     ]
     .align_y(Alignment::Center);
     if shown.size {
         let right = alignment::Horizontal::Right;
-        line = line.push(sortable(side, panel, SortKey::Size, "Size", Length::Fixed(SIZE_WIDTH), right, palette));
+        line = line.push(sortable(side, panel, SortKey::Size, &tr("Size"), Length::Fixed(SIZE_WIDTH), right, palette));
     }
     if shown.modified {
         let left = alignment::Horizontal::Left;

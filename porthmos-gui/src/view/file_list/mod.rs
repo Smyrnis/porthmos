@@ -3,6 +3,7 @@ use iced::widget::{column, container, mouse_area, row, scrollable, space, svg};
 use iced::{Alignment, Color, Element, Length, Size, alignment};
 use porthmos_core::Entry;
 use porthmos_core::folder_compare::Mark;
+use porthmos_core::i18n;
 use porthmos_core::listing::Row;
 
 use super::{BOLD, filled, format, label};
@@ -96,17 +97,17 @@ pub fn icon_of(row: &Row) -> Icon {
 
 pub fn link_note(entry: &Entry) -> Option<String> {
     let target = entry.link_target.as_deref()?;
-    if target.is_empty() { Some("\u{2192} unreadable target".to_string()) } else { Some(format!("\u{2192} {target}")) }
+    if target.is_empty() { Some(i18n::text("gui.file.unreadable_target")) } else { Some(format!("\u{2192} {target}")) }
 }
 
-pub fn mark_note(mark: Mark) -> &'static str {
-    match mark {
-        Mark::OnlyHere => "only here",
-        Mark::Newer => "newer",
-        Mark::Older => "older",
-        Mark::SizeDiffers => "size differs",
-        Mark::KindDiffers => "file vs folder",
-    }
+pub fn mark_note(mark: Mark) -> String {
+    i18n::text(match mark {
+        Mark::OnlyHere => "mark.only_here",
+        Mark::Newer => "mark.newer",
+        Mark::Older => "mark.older",
+        Mark::SizeDiffers => "mark.size_differs",
+        Mark::KindDiffers => "mark.kind_differs",
+    })
 }
 
 pub fn mark_color(mark: Mark, palette: &Palette) -> Color {

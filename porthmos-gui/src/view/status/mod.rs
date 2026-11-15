@@ -1,6 +1,8 @@
 use iced::widget::{container, row, tooltip};
 use iced::{Element, Length, alignment};
 use porthmos_core::Severity;
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::transfer::limit::speed_limit_note;
 
 use super::button::hinted;
@@ -17,12 +19,15 @@ const SEPARATOR: &str = "  ·  ";
 pub fn panel_summary(panel: &Panel) -> String {
     let (matched, shown) = panel.match_count();
     let count = match panel.filter() {
-        Some(filter) => format!("{matched} of {shown} match \"{filter}\""),
-        None if shown == 1 => "1 item".to_string(),
-        None => format!("{shown} items"),
+        Some(filter) => i18n::text_with(
+            "gui.status.match_count",
+            &[("matched", &matched.to_string()), ("shown", &shown.to_string()), ("filter", filter)],
+        ),
+        None => i18n::plural("list.items", shown),
     };
-    let free = panel.free_bytes().map(|bytes| format!("{} free", format::size(bytes, false)));
-    let hidden = panel.show_hidden().then(|| "hidden shown".to_string());
+    let free =
+        panel.free_bytes().map(|bytes| i18n::text_with("gui.status.free", &[("size", &format::size(bytes, false))]));
+    let hidden = panel.show_hidden().then(|| i18n::text("gui.status.hidden_shown"));
     [Some(count), hidden, free].into_iter().flatten().collect::<Vec<_>>().join(SEPARATOR)
 }
 
@@ -33,25 +38,25 @@ pub fn selection_text(panel: &Panel) -> Option<String> {
     }
     let files: Vec<u64> = panel.selected().iter().filter(|entry| !entry.is_dir).map(|entry| entry.size).collect();
     if files.is_empty() {
-        return Some(format!("{count} selected"));
+        return Some(i18n::text_with("list.selected", &[("count", &count.to_string())]));
     }
     let total: u64 = files.iter().sum();
     let size = format::size(total, false);
-    Some(format!("{count} selected{SEPARATOR}{size}"))
+    Some(format!("{}{SEPARATOR}{size}", i18n::text_with("list.selected", &[("count", &count.to_string())])))
 }
 
 pub fn connection_text(app: &App) -> (bool, String) {
     match app.sessions().names().into_iter().find(|tab| tab.active) {
-        Some(tab) if tab.healthy => (true, format!("{} connected", tab.name)),
-        Some(tab) => (false, format!("{} disconnected", tab.name)),
-        None => (false, "No connection".to_string()),
+        Some(tab) if tab.healthy => (true, i18n::text_with("gui.status.connected", &[("name", &tab.name)])),
+        Some(tab) => (false, i18n::text_with("gui.status.disconnected", &[("name", &tab.name)])),
+        None => (false, tr("No connection")),
     }
 }
 
 pub fn panel_line<'a>(panel: &Panel, palette: &Palette, cells: usize, editing: bool) -> Element<'a, Message> {
     let mut summary = panel_summary(panel);
     if editing {
-        summary = format!("Filter: {}▏  (Enter keeps, Esc clears)", panel.filter().unwrap_or(""));
+        summary = i18n::text_with("gui.status.filter_editing", &[("text", panel.filter().unwrap_or(""))]);
     }
     container(label(fit(&summary, cells), palette.fg_dim))
         .padding([0.0, PADDING])
@@ -67,14 +72,14 @@ pub fn limit_text(app: &App) -> Option<String> {
     speed_limit_note(app.transfer_speed_limit())
 }
 
-pub fn keyring_text(waiting: bool) -> Option<&'static str> {
-    waiting.then_some("Waiting for the keyring\u{2026}")
+pub fn keyring_text(waiting: bool) -> Option<String> {
+    waiting.then(|| i18n::text("gui.status.keyring_waiting"))
 }
 
 pub fn notice_text(severity: Severity, message: &str) -> String {
     match severity {
-        Severity::Error => format!("Error: {message}"),
-        Severity::Warning => format!("Warning: {message}"),
+        Severity::Error => i18n::text_with("gui.status.error", &[("message", message)]),
+        Severity::Warning => i18n::text_with("gui.status.warning", &[("message", message)]),
         Severity::Info => message.to_string(),
     }
 }
@@ -83,8 +88,8 @@ pub fn bar(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
     let notice = app.notices().last();
     let content = match (app.connecting(), notice) {
-        _ if app.is_closing() => label("Closing…", palette.fg_muted),
-        (Some(name), _) => label(format!("Connecting to {name}…"), palette.fg_muted),
+        _ if app.is_closing() => label(tr("Closing…"), palette.fg_muted),
+        (Some(name), _) => label(i18n::text_with("gui.status.connecting", &[("name", name)]), palette.fg_muted),
         (None, Some(notice)) => {
             let color = match notice.severity {
                 Severity::Error => palette.err,
@@ -93,7 +98,7 @@ pub fn bar(app: &App) -> Element<'_, Message> {
             };
             label(one_line(&notice_text(notice.severity, &notice.message.one_line())), color)
         }
-        (None, None) => label("Ready", palette.fg_dim),
+        (None, None) => label(tr("Ready"), palette.fg_dim),
     };
     let content: Element<'_, Message> = match (app.connecting(), notice) {
         (None, Some(notice)) if !app.is_closing() => hinted(

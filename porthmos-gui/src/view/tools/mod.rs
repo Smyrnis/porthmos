@@ -1,5 +1,7 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, stack, svg, text_input};
 use iced::{Alignment, Border, Element, Font, Length, Size, alignment, mouse};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, text_button};
 use super::file_list::CELL_WIDTH;
@@ -76,16 +78,16 @@ fn bookmarks_list_height(window: Size) -> f32 {
     (fit(window, BOOKMARKS_WIDTH, BOOKMARKS_HEIGHT).height - BOOKMARKS_CHROME).max(ROW_HEIGHT)
 }
 
-pub fn history_hint(visible: usize, total: usize) -> Option<&'static str> {
+pub fn history_hint(visible: usize, total: usize) -> Option<String> {
     match (visible, total) {
-        (0, 0) => Some("No transfers yet."),
-        (0, _) => Some("No transfers match."),
+        (0, 0) => Some(i18n::text("gui.history.empty")),
+        (0, _) => Some(i18n::text("gui.history.no_match")),
         _ => None,
     }
 }
 
-pub fn bookmarks_hint(count: usize) -> Option<&'static str> {
-    (count == 0).then_some("No bookmarks yet. Use Bookmark this folder.")
+pub fn bookmarks_hint(count: usize) -> Option<String> {
+    (count == 0).then(|| i18n::text("gui.bookmarks.empty"))
 }
 
 const BOOKMARK_ROW_CHROME: f32 = 2.0 + 6.0 + ICON_SIZE + 6.0 + 2.0 * MARGIN;
@@ -143,15 +145,15 @@ fn bookmarks_body<'a>(app: &'a App, state: &'a BookmarksState) -> Element<'a, Me
         .height(Length::Fixed(bookmarks_list_height(app.window_size())));
     let chosen = selected.is_some();
     column![
-        bold_label("Bookmarks", palette.fg_bright),
+        bold_label(tr("Bookmarks"), palette.fg_bright),
         hairline_across(palette),
         list,
         hairline_across(palette),
         row![
-            text_button("Remove", chosen.then_some(Message::BookmarkRemovePressed), Look::Normal, palette),
+            text_button(&tr("Remove"), chosen.then_some(Message::BookmarkRemovePressed), Look::Normal, palette),
             space().width(Length::Fill),
-            text_button("Close", Some(Message::ToolClosed), Look::Normal, palette),
-            text_button("Go", chosen.then_some(Message::BookmarkGoPressed), Look::Primary, palette),
+            text_button(&tr("Close"), Some(Message::ToolClosed), Look::Normal, palette),
+            text_button(&tr("Go"), chosen.then_some(Message::BookmarkGoPressed), Look::Primary, palette),
         ]
         .spacing(SM),
     ]
@@ -184,7 +186,7 @@ fn history_row<'a>(
 
 fn history_body<'a>(app: &'a App, state: &'a HistoryState) -> Element<'a, Message> {
     let palette = app.palette();
-    let input = text_input("Filter transfers", state.filter())
+    let input = text_input(&tr("Filter transfers"), state.filter())
         .style(crate::view::input::style(palette))
         .id(App::history_filter_id())
         .on_input(Message::HistoryFilterTyped)
@@ -205,16 +207,21 @@ fn history_body<'a>(app: &'a App, state: &'a HistoryState) -> Element<'a, Messag
         .height(Length::Fixed(history_list_height(app.window_size())));
     let chosen = state.selected().is_some();
     column![
-        bold_label("Transfer history", palette.fg_bright),
+        bold_label(tr("Transfer history"), palette.fg_bright),
         hairline_across(palette),
         input,
         list,
         hairline_across(palette),
         row![
-            text_button("Clear", (state.total() > 0).then_some(Message::HistoryClearPressed), Look::Normal, palette),
+            text_button(
+                &tr("Clear"),
+                (state.total() > 0).then_some(Message::HistoryClearPressed),
+                Look::Normal,
+                palette
+            ),
             space().width(Length::Fill),
-            text_button("Close", Some(Message::ToolClosed), Look::Normal, palette),
-            text_button("Details", chosen.then_some(Message::HistoryDetailsPressed), Look::Primary, palette),
+            text_button(&tr("Close"), Some(Message::ToolClosed), Look::Normal, palette),
+            text_button(&tr("Details"), chosen.then_some(Message::HistoryDetailsPressed), Look::Primary, palette),
         ]
         .spacing(SM),
     ]

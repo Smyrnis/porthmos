@@ -1,5 +1,7 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, text_input};
 use iced::{Alignment, Border, Element, Font, Length, alignment};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use super::tools::palette_list_height;
 use super::{filled, label};
@@ -9,12 +11,17 @@ use crate::palette::{Entry, PaletteState};
 use crate::theme::Palette;
 
 const HINT_MARGIN: f32 = 20.0;
-const NO_MATCHES: &str = "No matches.";
+fn no_matches() -> String {
+    tr("No matches.")
+}
 pub fn more_hint(shown: usize, total: usize) -> Option<String> {
-    (total > shown).then(|| format!("Showing the first {shown} of {total} matches. Keep typing to narrow them."))
+    (total > shown)
+        .then(|| i18n::text_with("gui.palette.more", &[("shown", &shown.to_string()), ("total", &total.to_string())]))
 }
 
-const PLACEHOLDER: &str = "Type a command, @host or #file";
+fn placeholder() -> String {
+    tr("Type a command, @host or #file")
+}
 
 fn entry_row<'a>(palette: &Palette, index: usize, entry: &Entry, selected: bool) -> Element<'a, Message> {
     let name_color = if selected { palette.fg_focus } else { palette.fg };
@@ -42,7 +49,7 @@ fn entry_row<'a>(palette: &Palette, index: usize, entry: &Entry, selected: bool)
 
 pub fn body<'a>(app: &'a App, state: &'a PaletteState) -> Element<'a, Message> {
     let palette = app.palette();
-    let input = text_input(PLACEHOLDER, state.query())
+    let input = text_input(&placeholder(), state.query())
         .style(crate::view::input::style(palette))
         .id(App::palette_input_id())
         .on_input(Message::PaletteTyped)
@@ -53,7 +60,7 @@ pub fn body<'a>(app: &'a App, state: &'a PaletteState) -> Element<'a, Message> {
         rows = rows.push(entry_row(palette, index, entry, state.selected() == index));
     }
     if state.hit_count() == 0 {
-        rows = rows.push(container(label(NO_MATCHES, palette.fg_dim)).padding(12));
+        rows = rows.push(container(label(no_matches(), palette.fg_dim)).padding(12));
     }
     if let Some(hint) = more_hint(state.hit_count(), state.total_matches()) {
         rows = rows.push(container(label(hint, palette.fg_dim)).padding(12));

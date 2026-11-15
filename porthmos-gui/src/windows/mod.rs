@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::collections::HashMap;
 
 use iced::{Point, Size, window};
@@ -42,13 +43,13 @@ pub fn settings_for(kind: WindowKind) -> window::Settings {
 }
 
 impl WindowKind {
-    pub fn title(self) -> &'static str {
-        match self {
-            WindowKind::Main => "Porthmos",
-            WindowKind::Settings => "Porthmos Settings",
-            WindowKind::Connections => "Porthmos Connections",
-            WindowKind::Search => "Porthmos Search",
-        }
+    pub fn title(self) -> String {
+        i18n::text(match self {
+            WindowKind::Main => "gui.window.main",
+            WindowKind::Settings => "gui.window.settings",
+            WindowKind::Connections => "gui.window.connections",
+            WindowKind::Search => "gui.window.search",
+        })
     }
 }
 

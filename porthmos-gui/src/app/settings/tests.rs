@@ -98,6 +98,7 @@ fn opening_shows_the_saved_editor() {
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
         theme_base: porthmos_core::theme::ThemeBase::Dark,
+        language: None,
     };
     let mut harness = Harness::with_gui_settings(settings);
 
@@ -405,6 +406,63 @@ fn each_update_mode_choice_writes_update_mode() {
         assert_eq!(config_text(&harness), format!("[update]\nmode = \"{text}\"\n"));
         assert_eq!(harness.app.gui_settings().update_mode, mode);
     }
+}
+
+#[test]
+fn choosing_a_language_writes_it_and_remembers_it() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsLanguageChosen(Some("en".to_string())));
+
+    assert_eq!(config_text(&harness), "[general]\nlanguage = \"en\"\n");
+    assert_eq!(harness.app.gui_settings().language.as_deref(), Some("en"));
+    assert_eq!(porthmos_core::i18n::language(), "en");
+}
+
+#[test]
+fn choosing_automatic_writes_auto_and_forgets_the_language() {
+    let mut harness =
+        Harness::with_gui_settings(GuiSettings { language: Some("en".to_string()), ..GuiSettings::default() });
+    open(&mut harness);
+
+    harness.press(Message::SettingsLanguageChosen(None));
+
+    assert_eq!(config_text(&harness), "[general]\nlanguage = \"auto\"\n");
+    assert_eq!(harness.app.gui_settings().language, None);
+}
+
+#[test]
+fn a_failed_language_save_keeps_the_old_language() {
+    let mut harness = Harness::new();
+    std::fs::write(config_path(&harness), "[panel\n").unwrap();
+    open(&mut harness);
+
+    harness.press(Message::SettingsLanguageChosen(Some("en".to_string())));
+
+    assert_eq!(harness.app.gui_settings().language, None);
+    assert!(error_of(&harness).contains("syntax error"));
+}
+
+#[test]
+fn a_language_that_is_not_offered_is_refused() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsLanguageChosen(Some("xx".to_string())));
+
+    assert_eq!(config_text(&harness), "");
+    assert_eq!(harness.app.gui_settings().language, None);
+}
+
+#[test]
+fn the_language_choices_start_with_automatic_and_list_every_language() {
+    let choices = App::language_choices();
+
+    assert_eq!(choices.first().map(|(code, _)| code.clone()), Some(None));
+    let codes: Vec<_> = choices.iter().filter_map(|(code, _)| code.clone()).collect();
+    assert_eq!(codes, vec!["en".to_string(), "el".to_string()]);
+    assert!(choices.iter().any(|(_, title)| title == "Ελληνικά"));
 }
 
 #[test]
@@ -903,11 +961,15 @@ mod theme_base {
 
     #[test]
     fn the_choices_list_every_base_with_a_title_in_order() {
-        let titles: Vec<_> = App::theme_choices().iter().map(|(base, title)| (*base, *title)).collect();
+        let titles: Vec<_> = App::theme_choices().iter().map(|(base, title)| (*base, title.clone())).collect();
 
         assert_eq!(
             titles,
-            vec![(ThemeBase::Dark, "Dark"), (ThemeBase::HighContrast, "High contrast"), (ThemeBase::Light, "Light")]
+            vec![
+                (ThemeBase::Dark, "Dark".to_string()),
+                (ThemeBase::HighContrast, "High contrast".to_string()),
+                (ThemeBase::Light, "Light".to_string())
+            ]
         );
     }
 }

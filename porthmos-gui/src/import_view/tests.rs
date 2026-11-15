@@ -126,7 +126,7 @@ fn the_view_remembers_which_import_and_source_it_shows() {
 
 #[test]
 fn each_source_filters_the_chooser_by_its_own_extension() {
-    let filters: Vec<(&str, &[&str])> = ImportSource::ALL
+    let filters: Vec<(String, &[&str])> = ImportSource::ALL
         .into_iter()
         .map(|source| pick_request(source, ""))
         .map(|r| (r.filter_name, r.extensions))
@@ -135,9 +135,9 @@ fn each_source_filters_the_chooser_by_its_own_extension() {
     assert_eq!(
         filters,
         vec![
-            ("FileZilla site manager", &["xml"][..]),
-            ("WinSCP settings", &["ini"][..]),
-            ("PuTTY registry export", &["reg"][..])
+            ("FileZilla site manager".to_string(), &["xml"][..]),
+            ("WinSCP settings".to_string(), &["ini"][..]),
+            ("PuTTY registry export".to_string(), &["reg"][..])
         ]
     );
 }

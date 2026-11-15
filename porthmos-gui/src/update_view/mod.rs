@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use porthmos_core::{UpdateMode, UpdateState};
 
 pub const BADGE_FULL_WIDTH: f32 = 900.0;
@@ -81,11 +82,11 @@ impl UpdateView {
         let badge = self.badge()?;
         let version = &badge.version;
         Some(match (&self.ready, &self.state, badge.kind) {
-            (None, Some(UpdateState::Managed { reason, .. }), _) => format!(
-                "Porthmos {version} is available. This copy is managed ({reason}); update it with your package manager."
-            ),
-            (_, _, BadgeKind::Ready) => format!("Porthmos {version} is ready and will be installed when you quit"),
-            (_, _, BadgeKind::Available) => format!("Porthmos {version} is available"),
+            (None, Some(UpdateState::Managed { reason, .. }), _) => {
+                i18n::text_with("update.managed_available", &[("version", version), ("reason", reason)])
+            }
+            (_, _, BadgeKind::Ready) => i18n::text_with("update.ready_notice", &[("version", version)]),
+            (_, _, BadgeKind::Available) => i18n::text_with("update.available_notice", &[("version", version)]),
         })
     }
 }

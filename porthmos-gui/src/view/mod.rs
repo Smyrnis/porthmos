@@ -31,6 +31,8 @@ mod transfer_queue;
 use iced::widget::text::Wrapping;
 use iced::widget::{column, container, mouse_area, responsive, row, space, stack, text};
 use iced::{Background, Color, Element, Font, Length, font};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use crate::app::{App, Message, PanelSide, offer_label};
 use crate::panel::Panel;
@@ -156,7 +158,7 @@ fn populated<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, size: iced::Si
 
 fn no_connection<'a>(app: &App, side: PanelSide) -> Element<'a, Message> {
     let palette = app.palette();
-    let mut content = column![label("No connection", palette.fg_dim)].spacing(12).align_x(iced::Alignment::Center);
+    let mut content = column![label(tr("No connection"), palette.fg_dim)].spacing(12).align_x(iced::Alignment::Center);
     if side == PanelSide::Remote && !app.reopen_offer().is_empty() {
         let offer = offer_label(app.reopen_offer());
         content =
@@ -171,21 +173,21 @@ fn saved_connections<'a>(app: &App) -> Element<'a, Message> {
     let names = app.quick_connections();
     if names.is_empty() {
         return column![
-            label("No saved connections yet", palette.fg_dim),
-            button::text_button("Add a connection", Some(Message::ManagerToggled), button::Look::Primary, palette),
+            label(tr("No saved connections yet"), palette.fg_dim),
+            button::text_button(&tr("Add a connection"), Some(Message::ManagerToggled), button::Look::Primary, palette),
         ]
         .spacing(8)
         .align_x(iced::Alignment::Center)
         .into();
     }
-    let mut list = column![label("Connect to", palette.fg_dim)].spacing(6).align_x(iced::Alignment::Center);
+    let mut list = column![label(tr("Connect to"), palette.fg_dim)].spacing(6).align_x(iced::Alignment::Center);
     for name in names {
         let press = Message::QuickConnectPressed(name.clone());
         list = list.push(button::text_button(&name, Some(press), button::Look::Normal, palette));
     }
     let hidden = app.quick_connections_hidden();
     if hidden > 0 {
-        let more = format!("{hidden} more in Connections");
+        let more = i18n::text_with("gui.connect.more", &[("count", &hidden.to_string())]);
         list = list.push(button::text_button(&more, Some(Message::ManagerToggled), button::Look::Normal, palette));
     }
     list.into()

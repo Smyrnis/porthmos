@@ -2,6 +2,8 @@ use iced::Task;
 use iced::keyboard::key::Named;
 use iced::widget::{Id, operation};
 use porthmos_core::edit::printable;
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::listing::Row;
 use porthmos_core::profiles::ConnectionSource;
 use porthmos_core::{Command, Location};
@@ -46,7 +48,9 @@ const COMMANDS: &[(Action, Available)] = &[
     (Action::Quit, |_| true),
 ];
 
-const MANAGER_TITLE: &str = "Connection manager";
+fn manager_title() -> String {
+    tr("Connection manager")
+}
 
 impl App {
     pub fn palette_input_id() -> Id {
@@ -87,14 +91,14 @@ impl App {
         if !self.reopen_offer.is_empty() {
             entries.push(Entry {
                 group: Group::Commands,
-                label: "Reopen last connections".to_string(),
+                label: i18n::text("palette.reopen"),
                 hint: None,
                 target: Target::Reopen,
             });
         }
         entries.push(Entry {
             group: Group::Commands,
-            label: MANAGER_TITLE.to_string(),
+            label: manager_title(),
             hint: None,
             target: Target::ConnectionManager,
         });
@@ -102,7 +106,7 @@ impl App {
             if matches!(profile.source, ConnectionSource::Profile | ConnectionSource::SshConfig) {
                 entries.push(Entry {
                     group: Group::Hosts,
-                    label: printable(&format!("Connect {}", profile.name)),
+                    label: printable(&i18n::text_with("gui.palette.connect", &[("name", &profile.name)])),
                     hint: Some(printable(&self.protocol_name(&profile.protocol))),
                     target: Target::Connect(profile.name.clone()),
                 });
@@ -111,8 +115,8 @@ impl App {
         for tab in self.sessions.names() {
             entries.push(Entry {
                 group: Group::Hosts,
-                label: printable(&format!("Disconnect {}", tab.name)),
-                hint: Some("connected".to_string()),
+                label: printable(&i18n::text_with("gui.palette.disconnect", &[("name", &tab.name)])),
+                hint: Some(tr("connected")),
                 target: Target::Disconnect(tab.id),
             });
         }
@@ -126,7 +130,7 @@ impl App {
                 continue;
             };
             let hint = match side {
-                PanelSide::Local => "local".to_string(),
+                PanelSide::Local => tr("local"),
                 PanelSide::Remote => self.sessions.active().map(|session| printable(&session.name)).unwrap_or_default(),
             };
             for row in panel.rows() {

@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -50,9 +51,11 @@ impl fmt::Display for TerminalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TerminalError::NoneFound => {
-                write!(formatter, "No terminal program found. Set $TERMINAL to your terminal's command.")
+                write!(formatter, "{}", i18n::text("gui.terminal.none_found"))
             }
-            TerminalError::Io(message) => write!(formatter, "Couldn't prepare the terminal command: {message}"),
+            TerminalError::Io(message) => {
+                write!(formatter, "{}", i18n::text_with("gui.terminal.prepare_failed", &[("message", message)]))
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ use iced::widget::{column, container, mouse_area, row, scrollable, space, stack,
 use iced::{Alignment, Border, Element, Font, Length};
 use porthmos_core::ConnectionState;
 use porthmos_core::connections_tree::TreeRow;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::profiles::ConnectionSource;
 
 use super::button::{Look, flat, hinted, text_button};
@@ -28,10 +29,10 @@ pub fn group_text(name: &str, count: usize) -> String {
     format!("{name} ({count})")
 }
 
-pub fn empty_hint(matches: usize, filtering: bool) -> Option<&'static str> {
+pub fn empty_hint(matches: usize, filtering: bool) -> Option<String> {
     match (matches, filtering) {
-        (0, true) => Some("No connections match"),
-        (0, false) => Some("No saved connections. Click Add to create one."),
+        (0, true) => Some(tr("No connections match")),
+        (0, false) => Some(tr("No saved connections. Click Add to create one.")),
         _ => None,
     }
 }
@@ -41,7 +42,7 @@ pub fn button<'a>(palette: &Palette) -> Element<'a, Message> {
         .padding([6.0, 12.0])
         .on_press(Message::ManagerToggled)
         .style(flat(palette, palette.fg_bright, true));
-    hinted(plus.into(), "Connections".to_string(), tooltip::Position::Left, palette)
+    hinted(plus.into(), tr("Connections"), tooltip::Position::Left, palette)
 }
 
 fn group_row<'a>(
@@ -124,7 +125,8 @@ fn list<'a>(app: &'a App) -> Element<'a, Message> {
     let mut lines = column![];
     for (index, tree_row) in rows.iter().enumerate() {
         if starts_ungrouped_section(&rows, index) {
-            lines = lines.push(container(label("Ungrouped", palette.fg_dim)).padding([6.0, 10.0]).width(Length::Fill));
+            lines =
+                lines.push(container(label(tr("Ungrouped"), palette.fg_dim)).padding([6.0, 10.0]).width(Length::Fill));
         }
         lines = lines.push(match tree_row {
             TreeRow::Group { path, name, depth, count, expanded } => {
@@ -139,14 +141,14 @@ fn list<'a>(app: &'a App) -> Element<'a, Message> {
 fn details<'a>(app: &'a App) -> Element<'a, Message> {
     let palette = app.palette();
     let Some(entry) = app.manager().selected_entry() else {
-        return container(label("Select a connection to see its details", palette.fg_dim)).padding(12).into();
+        return container(label(tr("Select a connection to see its details"), palette.fg_dim)).padding(12).into();
     };
     let mut lines = column![bold_label(entry.name.clone(), palette.fg_bright)].spacing(6);
     if entry.source == ConnectionSource::SshConfig {
-        lines = lines.push(label("From ~/.ssh/config", palette.fg_dim));
+        lines = lines.push(label(tr("From ~/.ssh/config"), palette.fg_dim));
     }
     if entry.source.is_orphan_labels() {
-        lines = lines.push(label("This host is not in ~/.ssh/config", palette.fg_muted));
+        lines = lines.push(label(tr("This host is not in ~/.ssh/config"), palette.fg_muted));
     } else {
         let protocol = app.protocol_name(&entry.protocol);
         for (name, value) in details_lines(entry, &protocol, app.link_state(&entry.name)) {
@@ -163,13 +165,13 @@ fn footer<'a>(app: &App) -> Element<'a, Message> {
     let palette = app.palette();
     let buttons = app.manager_buttons();
     row![
-        text_button("Add", Some(Message::ManagerAddPressed), Look::Normal, palette),
-        text_button("Edit", buttons.edit.then_some(Message::ManagerEditPressed), Look::Normal, palette),
-        text_button("Delete", buttons.delete.then_some(Message::ManagerDeletePressed), Look::Normal, palette),
-        text_button("Import\u{2026}", Some(Message::ImportPressed), Look::Normal, palette),
+        text_button(&tr("Add"), Some(Message::ManagerAddPressed), Look::Normal, palette),
+        text_button(&tr("Edit"), buttons.edit.then_some(Message::ManagerEditPressed), Look::Normal, palette),
+        text_button(&tr("Delete"), buttons.delete.then_some(Message::ManagerDeletePressed), Look::Normal, palette),
+        text_button(&tr("Import\u{2026}"), Some(Message::ImportPressed), Look::Normal, palette),
         space().width(Length::Fill),
-        text_button("Close", Some(Message::ManagerClosed), Look::Normal, palette),
-        text_button(app.connect_label(), buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),
+        text_button(&tr("Close"), Some(Message::ManagerClosed), Look::Normal, palette),
+        text_button(&app.connect_label(), buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),
     ]
     .spacing(8)
     .into()
@@ -181,7 +183,7 @@ pub fn window(app: &App) -> Option<Element<'_, Message>> {
     }
     let palette = app.palette();
     let size = app.connections_window_size();
-    let filter = text_input("Filter connections", app.manager().filter())
+    let filter = text_input(&tr("Filter connections"), app.manager().filter())
         .style(crate::view::input::style(palette))
         .id(App::filter_input_id())
         .on_input(Message::ManagerFilterTyped)
@@ -194,7 +196,7 @@ pub fn window(app: &App) -> Option<Element<'_, Message>> {
             .push(container(details(app)).width(Length::Fixed(DETAILS_WIDTH)).height(Length::Fill));
     }
     let content = column![
-        bold_label("Connections", palette.fg_bright),
+        bold_label(tr("Connections"), palette.fg_bright),
         hairline_across(palette),
         filter,
         container(body).height(Length::Fill).style(bordered(palette)),

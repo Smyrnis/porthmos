@@ -136,7 +136,7 @@ fn failed_row(file: &str, message: &str, attempts: u32) -> QueueRow {
 
 #[test]
 fn every_row_state_has_a_word_that_is_not_only_a_colour() {
-    let words: Vec<&str> = [
+    let words: Vec<String> = [
         RowState::Scanning,
         RowState::AwaitingAnswer,
         RowState::Running,

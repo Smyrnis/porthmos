@@ -1,4 +1,5 @@
 use iced::Point;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::listing::Row;
 use porthmos_core::{Command, Entry, Location, VfsPath};
 
@@ -34,15 +35,15 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    pub fn message(self) -> &'static str {
+    pub fn message(self) -> String {
         match self {
-            Refusal::ToItself => "A folder can't be dropped onto itself",
-            Refusal::ToOwnChild => "A folder can't be dropped into one of its own subfolders",
-            Refusal::SameFolder => "These files are already in that folder",
-            Refusal::SamePanel => "Drop onto the other panel; use Rename to move within a panel",
-            Refusal::NoConnection => "Connect to a server first to drop files onto the right panel",
-            Refusal::NothingDragged => "There is nothing to drop",
-            Refusal::DesktopToLocal => "Dropped files can only be uploaded: drop them on the right panel",
+            Refusal::ToItself => tr("A folder can't be dropped onto itself"),
+            Refusal::ToOwnChild => tr("A folder can't be dropped into one of its own subfolders"),
+            Refusal::SameFolder => tr("These files are already in that folder"),
+            Refusal::SamePanel => tr("Drop onto the other panel; use Rename to move within a panel"),
+            Refusal::NoConnection => tr("Connect to a server first to drop files onto the right panel"),
+            Refusal::NothingDragged => tr("There is nothing to drop"),
+            Refusal::DesktopToLocal => tr("Dropped files can only be uploaded: drop them on the right panel"),
         }
     }
 }

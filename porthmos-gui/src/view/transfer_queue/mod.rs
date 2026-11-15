@@ -1,5 +1,6 @@
 use iced::widget::{column, container, responsive, row, scrollable, space, text_input, tooltip};
 use iced::{Alignment, Element, Font, Length, alignment};
+use porthmos_core::i18n::label as tr;
 use porthmos_core::transfer::Direction;
 use porthmos_core::transfer::rows::{QueueRow, RowState, percent_of};
 
@@ -95,7 +96,7 @@ fn row_view<'a>(row: &QueueRow, cells: usize, palette: &Palette) -> Element<'a, 
     };
     let mut buttons = row![].spacing(2);
     for action in row_buttons(row) {
-        buttons = buttons.push(button(action.title(), Message::QueueRowPressed(row.kind, action), palette));
+        buttons = buttons.push(button(&action.title(), Message::QueueRowPressed(row.kind, action), palette));
     }
     let text_cell = label(fit(&row_text(row), cells), text_color).width(Length::Fill);
     let text_cell: Element<'a, Message> = match row_hint(row) {
@@ -140,10 +141,10 @@ fn header<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
         .font(Font::DEFAULT)
         .width(Length::Fixed(SPEED_FIELD_WIDTH));
     let mut line = row![
-        bold_label("Transfers", palette.fg_bright),
+        bold_label(tr("Transfers"), palette.fg_bright),
         label(format!("  {}", app.transfer_summary().unwrap_or_default()), palette.accent),
         space().width(Length::Fill),
-        label("Speed limit ", palette.fg_dim),
+        label(tr("Speed limit "), palette.fg_dim),
         field,
     ]
     .align_y(Alignment::Center);
@@ -151,9 +152,9 @@ fn header<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
         line = line.push(label(format!("  {}", fit(error, 60)), palette.err));
     }
     let actions = row![
-        button("Clear finished", Message::QueueClearFinished, palette),
-        button("Cancel all", Message::QueueCancelAll, palette),
-        button("Close", Message::ActionRequested(crate::shortcuts::Action::ToggleQueue), palette),
+        button(&tr("Clear finished"), Message::QueueClearFinished, palette),
+        button(&tr("Cancel all"), Message::QueueCancelAll, palette),
+        button(&tr("Close"), Message::ActionRequested(crate::shortcuts::Action::ToggleQueue), palette),
     ]
     .spacing(SM);
     line = line.push(space().width(Length::Fixed(LG))).push(actions);
@@ -171,7 +172,7 @@ fn list<'a>(app: &'a App, cells: usize) -> Element<'a, Message> {
     let palette = app.palette();
     let rows = app.transfers().rows();
     if rows.is_empty() {
-        return container(label("No transfers", palette.fg_dim))
+        return container(label(tr("No transfers"), palette.fg_dim))
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(alignment::Horizontal::Center)

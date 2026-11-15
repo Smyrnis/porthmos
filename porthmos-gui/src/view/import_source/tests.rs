@@ -36,9 +36,12 @@ fn each_source_is_offered_by_its_label() {
 
 #[test]
 fn putty_offers_a_file_and_a_folder_while_the_others_offer_one_file_button() {
-    assert_eq!(browse_labels(ImportSource::FileZilla), vec![("Browse\u{2026}", false)]);
-    assert_eq!(browse_labels(ImportSource::WinScp), vec![("Browse\u{2026}", false)]);
-    assert_eq!(browse_labels(ImportSource::Putty), vec![("File\u{2026}", false), ("Folder\u{2026}", true)]);
+    assert_eq!(browse_labels(ImportSource::FileZilla), vec![("Browse\u{2026}".to_string(), false)]);
+    assert_eq!(browse_labels(ImportSource::WinScp), vec![("Browse\u{2026}".to_string(), false)]);
+    assert_eq!(
+        browse_labels(ImportSource::Putty),
+        vec![("File\u{2026}".to_string(), false), ("Folder\u{2026}".to_string(), true)]
+    );
 }
 
 #[test]

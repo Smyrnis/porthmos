@@ -1,3 +1,5 @@
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -146,8 +148,8 @@ impl FormState {
         }
     }
 
-    pub fn title(&self) -> &'static str {
-        if self.original.is_some() { "Edit connection" } else { "Add connection" }
+    pub fn title(&self) -> String {
+        tr(if self.original.is_some() { "Edit connection" } else { "Add connection" })
     }
 
     #[cfg(test)]
@@ -166,7 +168,10 @@ impl FormState {
             .map(|info| Choice { value: info.id.to_string(), label: info.display_name.to_string() })
             .collect();
         if !self.protocols.iter().any(|info| info.id == self.protocol) {
-            choices.push(Choice { value: self.protocol.clone(), label: format!("{} (not available)", self.protocol) });
+            choices.push(Choice {
+                value: self.protocol.clone(),
+                label: i18n::text_with("form.protocol_unavailable", &[("id", &self.protocol)]),
+            });
         }
         choices
     }

@@ -63,6 +63,7 @@ pub fn local_start(remembered: Option<VfsPath>, home: Option<PathBuf>, current: 
 pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
+    porthmos_core::i18n::use_language(settings.language.as_deref());
     let (theme, mut theme_warnings) = ThemeSettings::from_frontend(&settings.frontend);
     let (scheme, scheme_warnings) = porthmos_core::theme::file::load(&paths, theme.accent);
     theme_warnings.extend(scheme_warnings);
@@ -79,6 +80,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         reopen: settings.startup.reopen,
         reconnect: settings.connection.reconnect,
         theme_base: porthmos_core::theme::file::read_base(&paths.theme_file()),
+        language: settings.language.clone(),
     };
     let config_file = paths.config_file();
     let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();

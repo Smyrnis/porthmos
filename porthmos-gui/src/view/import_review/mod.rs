@@ -1,5 +1,7 @@
 use iced::widget::{checkbox, column, container, row, scrollable, space, tooltip};
 use iced::{Alignment, Color, Element, Length};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use crate::app::Message;
 use crate::geometry::ROW_HEIGHT;
@@ -35,7 +37,7 @@ pub struct RowTexts {
 }
 
 pub fn run_label(view: &ImportView) -> String {
-    format!("Import {}", view.ticked_rows().len())
+    i18n::text_with("gui.import.count", &[("count", &view.ticked_rows().len().to_string())])
 }
 
 pub fn run_enabled(view: &ImportView) -> bool {
@@ -112,10 +114,10 @@ fn table_row<'a>(index: usize, row: &ImportViewRow, palette: &Palette) -> Elemen
 fn header<'a>(palette: &Palette) -> Element<'a, Message> {
     row![
         space().width(Length::Fixed(TICK_WIDTH)),
-        cell("Name".to_string(), Length::Fixed(NAME_WIDTH), palette.fg_dim),
-        cell("Connection".to_string(), Length::Fixed(SUMMARY_WIDTH), palette.fg_dim),
-        cell("Group".to_string(), Length::Fixed(GROUP_WIDTH), palette.fg_dim),
-        cell("Note".to_string(), Length::Fill, palette.fg_dim),
+        cell(tr("Name"), Length::Fixed(NAME_WIDTH), palette.fg_dim),
+        cell(tr("Connection"), Length::Fixed(SUMMARY_WIDTH), palette.fg_dim),
+        cell(tr("Group"), Length::Fixed(GROUP_WIDTH), palette.fg_dim),
+        cell(tr("Note"), Length::Fill, palette.fg_dim),
     ]
     .spacing(GAP)
     .into()
@@ -159,10 +161,10 @@ pub fn buttons<'a>(view: &ImportView, palette: &Palette) -> Element<'a, Message>
         palette,
     );
     row![
-        button("Tick all new", Message::ImportTickNew, palette),
-        button("Untick all", Message::ImportUntickAll, palette),
+        button(&tr("Tick all new"), Message::ImportTickNew, palette),
+        button(&tr("Untick all"), Message::ImportUntickAll, palette),
         space().width(Length::Fill),
-        button("Cancel", Message::ImportCancelled, palette),
+        button(&tr("Cancel"), Message::ImportCancelled, palette),
         run,
     ]
     .spacing(8)

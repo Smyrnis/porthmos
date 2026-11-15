@@ -37,7 +37,7 @@ fn the_list_area_of_each_tool_never_shrinks_below_one_row() {
 
 #[test]
 fn the_empty_hint_points_at_the_add_action() {
-    assert_eq!(bookmarks_hint(0), Some("No bookmarks yet. Use Bookmark this folder."));
+    assert_eq!(bookmarks_hint(0), Some("No bookmarks yet. Use Bookmark this folder.".to_string()));
     assert_eq!(bookmarks_hint(2), None);
 }
 
@@ -53,8 +53,8 @@ fn the_history_dialog_has_its_own_size_and_list_height() {
 
 #[test]
 fn the_history_hint_depends_on_the_filter() {
-    assert_eq!(history_hint(0, 0), Some("No transfers yet."));
-    assert_eq!(history_hint(0, 5), Some("No transfers match."));
+    assert_eq!(history_hint(0, 0), Some("No transfers yet.".to_string()));
+    assert_eq!(history_hint(0, 5), Some("No transfers match.".to_string()));
     assert_eq!(history_hint(3, 5), None);
 }
 

@@ -239,7 +239,7 @@ impl SearchState {
                     (_, 0) => "Nothing found".to_string(),
                     _ => format!("{count} found"),
                 };
-                if *incomplete { format!("{summary}. {}", porthmos_core::SEARCH_INCOMPLETE_NOTE) } else { summary }
+                if *incomplete { format!("{summary}. {}", porthmos_core::search_incomplete_note()) } else { summary }
             }
             SearchStatus::Failed(message) => format!("Search failed: {message}"),
         }

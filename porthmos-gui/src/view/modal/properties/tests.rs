@@ -28,9 +28,9 @@ fn a_finished_measure_has_size_contents_and_skipped_rows() {
     assert_eq!(
         measure_rows(&pane),
         vec![
-            ("Size", "4.2 GB (4,521,983,744 bytes)".to_string()),
-            ("Contents", "1,204 files, 87 folders".to_string()),
-            ("Skipped", "2 links not followed, 1 folder not readable".to_string()),
+            ("Size".to_string(), "4.2 GB (4,521,983,744 bytes)".to_string()),
+            ("Contents".to_string(), "1,204 files, 87 folders".to_string()),
+            ("Skipped".to_string(), "2 links not followed, 1 folder not readable".to_string()),
         ]
     );
 }
@@ -40,7 +40,7 @@ fn a_measure_with_nothing_skipped_has_no_skipped_row() {
     let mut pane = pane_for(&[]);
     pane.set_measured(Ok(Measured { bytes: 5, files: 1, ..Measured::default() }));
 
-    let labels: Vec<&str> = measure_rows(&pane).iter().map(|(label, _)| *label).collect();
+    let labels: Vec<String> = measure_rows(&pane).into_iter().map(|(label, _)| label).collect();
 
     assert_eq!(labels, ["Size", "Contents"]);
 }
@@ -53,8 +53,8 @@ fn a_running_measure_shows_the_size_so_far_and_progress() {
     assert_eq!(
         measure_rows(&pane),
         vec![
-            ("Size", "2.0 KB (2,048 bytes)".to_string()),
-            ("Progress", "measuring\u{2026} 812 files and 40 folders so far".to_string()),
+            ("Size".to_string(), "2.0 KB (2,048 bytes)".to_string()),
+            ("Progress".to_string(), "measuring\u{2026} 812 files and 40 folders so far".to_string()),
         ]
     );
 }
@@ -76,7 +76,7 @@ fn a_cancelled_measure_says_cancelled_not_zero() {
     let mut pane = pane_for(&[]);
     pane.cancel_running();
 
-    assert_eq!(measure_rows(&pane), vec![("Size", "cancelled".to_string())]);
+    assert_eq!(measure_rows(&pane), vec![("Size".to_string(), "cancelled".to_string())]);
 }
 
 #[test]
@@ -128,9 +128,9 @@ fn the_verdict_line_is_a_word_and_a_flag() {
     assert_eq!(verdict_line(&pane), None);
 
     pane.expected = ABC.to_string();
-    assert_eq!(verdict_line(&pane), Some(("matches", true)));
+    assert_eq!(verdict_line(&pane), Some(("matches".to_string(), true)));
     pane.expected = "0".repeat(64);
-    assert_eq!(verdict_line(&pane), Some(("does NOT match", false)));
+    assert_eq!(verdict_line(&pane), Some(("does NOT match".to_string(), false)));
 }
 
 #[test]

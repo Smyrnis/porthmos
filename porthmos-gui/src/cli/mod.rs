@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use porthmos_core::{AppIdentity, HeadlessUpdate, Product};
 
 pub fn app_identity() -> AppIdentity {
@@ -65,12 +66,18 @@ fn interpret_update(args: impl Iterator<Item = String>) -> Invocation {
 
 pub fn describe_update(update: &HeadlessUpdate) -> String {
     match update {
-        HeadlessUpdate::UpToDate { current } => format!("Porthmos {current} is up to date."),
-        HeadlessUpdate::Available { version } => format!("Porthmos {version} is available."),
-        HeadlessUpdate::Managed { version, reason } => format!(
-            "Porthmos {version} is available. This copy is managed ({reason}); update it with your package manager."
-        ),
-        HeadlessUpdate::Installed { version } => format!("Porthmos updated to {version}."),
+        HeadlessUpdate::UpToDate { current } => {
+            i18n::text_with("update.cli_up_to_date", &[("version", &current.to_string())])
+        }
+        HeadlessUpdate::Available { version } => {
+            i18n::text_with("update.cli_available", &[("version", &version.to_string())])
+        }
+        HeadlessUpdate::Managed { version, reason } => {
+            i18n::text_with("update.managed_available", &[("version", &version.to_string()), ("reason", reason)])
+        }
+        HeadlessUpdate::Installed { version } => {
+            i18n::text_with("update.cli_updated", &[("version", &version.to_string())])
+        }
     }
 }
 

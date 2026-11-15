@@ -1,3 +1,4 @@
+use porthmos_core::i18n::label as tr;
 use std::path::PathBuf;
 
 use porthmos_core::{
@@ -28,16 +29,16 @@ impl ImportSourceState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PickRequest {
-    pub filter_name: &'static str,
+    pub filter_name: String,
     pub extensions: &'static [&'static str],
     pub start_dir: Option<PathBuf>,
 }
 
 pub fn pick_request(source: ImportSource, current_path: &str) -> PickRequest {
-    let (filter_name, extensions): (&'static str, &'static [&'static str]) = match source {
-        ImportSource::FileZilla => ("FileZilla site manager", &["xml"]),
-        ImportSource::WinScp => ("WinSCP settings", &["ini"]),
-        ImportSource::Putty => ("PuTTY registry export", &["reg"]),
+    let (filter_name, extensions): (String, &'static [&'static str]) = match source {
+        ImportSource::FileZilla => (tr("FileZilla site manager"), &["xml"]),
+        ImportSource::WinScp => (tr("WinSCP settings"), &["ini"]),
+        ImportSource::Putty => (tr("PuTTY registry export"), &["reg"]),
     };
     let typed = (!current_path.trim().is_empty())
         .then(|| path_from_text(current_path, Environment::from_process().home.as_deref()));
@@ -155,10 +156,10 @@ impl ImportView {
     pub fn summary(&self) -> String {
         let count = |wanted: fn(&Verdict) -> bool| self.verdicts.iter().filter(|verdict| wanted(verdict)).count();
         let parts = [
-            (count(|verdict| matches!(verdict, Verdict::New)), "new"),
-            (count(|verdict| matches!(verdict, Verdict::Exists)), "existing"),
-            (count(|verdict| matches!(verdict, Verdict::Unsupported(_))), "unsupported"),
-            (count(|verdict| matches!(verdict, Verdict::Invalid(_))), "invalid"),
+            (count(|verdict| matches!(verdict, Verdict::New)), tr("new")),
+            (count(|verdict| matches!(verdict, Verdict::Exists)), tr("existing")),
+            (count(|verdict| matches!(verdict, Verdict::Unsupported(_))), tr("unsupported")),
+            (count(|verdict| matches!(verdict, Verdict::Invalid(_))), tr("invalid")),
         ];
         parts
             .iter()

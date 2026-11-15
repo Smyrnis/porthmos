@@ -1,5 +1,6 @@
 use iced::widget::{button, container, mouse_area, row, space, text_input};
 use iced::{Background, Border, Element, Length, alignment};
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, flat, tool_button};
 use super::{bold_label, filled, label};
@@ -103,9 +104,9 @@ pub fn bar<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, width: f32) -> E
     };
     container(
         row![
-            navigation(Icon::Back, "Back", app.can_go_back(side), Message::NavigateBack(side)),
-            navigation(Icon::Forward, "Forward", app.can_go_forward(side), Message::NavigateForward(side)),
-            navigation(Icon::Up, "Up", app.can_go_up(side), Message::NavigateUp(side)),
+            navigation(Icon::Back, &tr("Back"), app.can_go_back(side), Message::NavigateBack(side)),
+            navigation(Icon::Forward, &tr("Forward"), app.can_go_forward(side), Message::NavigateForward(side)),
+            navigation(Icon::Up, &tr("Up"), app.can_go_up(side), Message::NavigateUp(side)),
             field,
         ]
         .spacing(4)
@@ -120,7 +121,7 @@ pub fn bar<'a>(app: &'a App, side: PanelSide, panel: &'a Panel, width: f32) -> E
 }
 
 pub fn more_text(more: usize) -> Option<String> {
-    (more > 0).then(|| format!("and {more} more"))
+    (more > 0).then(|| porthmos_core::i18n::text_with("common.and_more", &[("count", &more.to_string())]))
 }
 
 const CANDIDATE_INSET: f32 = 118.0;

@@ -1,6 +1,8 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, text_input};
 use iced::{Alignment, Border, Color, Element, Font, Length};
 use porthmos_core::edit::printable;
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::sync::{SyncAction, SyncReason};
 
 use super::button::{Look, text_button};
@@ -107,14 +109,14 @@ fn header<'a>(times: bool, palette: &Palette) -> Element<'a, Message> {
     let dim = palette.fg_dim;
     let mut line = row![
         space().width(Length::Fixed(LEFT_WIDTH)),
-        cell("reason".to_string(), Length::Fixed(REASON_WIDTH), dim),
-        cell("path".to_string(), Length::Fill, dim),
-        cell("size".to_string(), Length::Fixed(SIZE_WIDTH), dim),
+        cell(tr("reason"), Length::Fixed(REASON_WIDTH), dim),
+        cell(tr("path"), Length::Fill, dim),
+        cell(tr("size"), Length::Fixed(SIZE_WIDTH), dim),
     ]
     .spacing(GAP);
     if times {
-        line = line.push(cell("local".to_string(), Length::Fixed(TIME_WIDTH), dim)).push(cell(
-            "remote".to_string(),
+        line = line.push(cell(tr("local"), Length::Fixed(TIME_WIDTH), dim)).push(cell(
+            tr("remote"),
             Length::Fixed(TIME_WIDTH),
             dim,
         ));
@@ -193,33 +195,41 @@ fn hint<'a>(text: &str, height: f32, palette: &Palette) -> Element<'a, Message> 
 pub fn body<'a>(app: &'a App, view: &'a SyncView) -> Element<'a, Message> {
     let palette = app.palette();
     let times = show_times(frame_size(&Tool::Sync, app.window_size()).width);
-    let input = text_input("Filter rows", view.filter().unwrap_or_default())
+    let input = text_input(&tr("Filter rows"), view.filter().unwrap_or_default())
         .style(crate::view::input::style(palette))
         .id(App::sync_filter_id())
         .on_input(Message::SyncFilterTyped)
         .size(13.0)
         .font(Font::DEFAULT);
     let counts = match view.filter() {
-        Some(_) => format!("{} of {}", view.matched(), view.total()),
-        None => format!("{} rows", view.total()),
+        Some(_) => i18n::text_with(
+            "list.matched",
+            &[("matched", &view.matched().to_string()), ("total", &view.total().to_string())],
+        ),
+        None => i18n::text_with("gui.sync.rows", &[("count", &view.total().to_string())]),
     };
     let viewport = sync_list_height(app.window_size());
     let rows: Element<'a, Message> = match (view.matched(), view.total()) {
-        (0, 0) => hint("Nothing to synchronize.", viewport, palette),
-        (0, _) => hint("No rows match.", viewport, palette),
+        (0, 0) => hint(&tr("Nothing to synchronize."), viewport, palette),
+        (0, _) => hint(&tr("No rows match."), viewport, palette),
         _ => rows_view(app, view, times, palette),
     };
     let table: Element<'a, Message> =
         column![header(times, palette), hairline_across(palette), rows].spacing(XS).width(Length::Fill).into();
     let selection = row![
-        text_button("Tick all", Some(Message::SyncTickAllPressed), Look::Normal, palette),
-        text_button("Untick all", Some(Message::SyncUntickAllPressed), Look::Normal, palette),
-        text_button("Switch direction", view.can_flip().then_some(Message::SyncFlipPressed), Look::Normal, palette),
+        text_button(&tr("Tick all"), Some(Message::SyncTickAllPressed), Look::Normal, palette),
+        text_button(&tr("Untick all"), Some(Message::SyncUntickAllPressed), Look::Normal, palette),
+        text_button(
+            &tr("Switch direction"),
+            view.can_flip().then_some(Message::SyncFlipPressed),
+            Look::Normal,
+            palette
+        ),
     ]
     .spacing(SM);
     let actions = row![
-        text_button("Cancel", Some(Message::ToolClosed), Look::Normal, palette),
-        text_button("Run", run_enabled(view).then_some(Message::SyncRunPressed), Look::Primary, palette),
+        text_button(&tr("Cancel"), Some(Message::ToolClosed), Look::Normal, palette),
+        text_button(&tr("Run"), run_enabled(view).then_some(Message::SyncRunPressed), Look::Primary, palette),
     ]
     .spacing(SM);
     let buttons: Element<'a, Message> = if stacked_buttons(frame_size(&Tool::Sync, app.window_size()).width) {

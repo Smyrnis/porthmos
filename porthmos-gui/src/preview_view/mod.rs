@@ -1,3 +1,4 @@
+use porthmos_core::i18n;
 use std::sync::Arc;
 
 use porthmos_core::edit::printable;
@@ -137,11 +138,14 @@ impl PreviewState {
         };
         if preview.truncated {
             return match preview.size {
-                Some(total) => format!("first {} of {}", size_text(preview.shown as u64), size_text(total)),
-                None => format!("first {}", size_text(preview.shown as u64)),
+                Some(total) => i18n::text_with(
+                    "preview.first_of",
+                    &[("shown", &size_text(preview.shown as u64)), ("total", &size_text(total))],
+                ),
+                None => i18n::text_with("preview.first", &[("shown", &size_text(preview.shown as u64))]),
             };
         }
-        let kind = if self.is_binary() { "binary" } else { "text" };
+        let kind = i18n::text(if self.is_binary() { "preview.binary" } else { "preview.text" });
         format!("{kind} · {}", size_text(preview.size.unwrap_or(preview.shown as u64)))
     }
 

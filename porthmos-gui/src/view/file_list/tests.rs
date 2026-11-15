@@ -115,7 +115,7 @@ fn an_ordinary_entry_has_no_link_note() {
 
 #[test]
 fn each_mark_has_its_own_short_note() {
-    let notes: Vec<&str> = [Mark::OnlyHere, Mark::Newer, Mark::Older, Mark::SizeDiffers, Mark::KindDiffers]
+    let notes: Vec<String> = [Mark::OnlyHere, Mark::Newer, Mark::Older, Mark::SizeDiffers, Mark::KindDiffers]
         .into_iter()
         .map(mark_note)
         .collect();

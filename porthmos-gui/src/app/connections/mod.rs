@@ -1,6 +1,7 @@
 use iced::keyboard;
 use iced::widget::{Id, operation};
 use iced::{Size, Task, window};
+use porthmos_core::i18n::label as tr;
 use porthmos_core::profiles::ConnectionSource;
 use porthmos_core::{Command, ConnectionState, Severity};
 
@@ -64,13 +65,13 @@ impl App {
         ManagerButtons { connect: buttons.connect && !busy, ..buttons }
     }
 
-    pub fn connect_label(&self) -> &'static str {
+    pub fn connect_label(&self) -> String {
         let open = self
             .manager
             .selected_entry()
             .and_then(|entry| self.sessions.by_name(&entry.name))
             .is_some_and(|session| session.healthy);
-        if open { "Switch to" } else { "Connect" }
+        if open { tr("Switch to") } else { tr("Connect") }
     }
 
     pub fn link_state(&self, name: &str) -> ConnectionState {
@@ -90,7 +91,7 @@ impl App {
             entry.name == name && matches!(entry.source, ConnectionSource::Profile | ConnectionSource::SshConfig)
         });
         if !known {
-            self.push_notice(Severity::Warning, "That connection no longer exists".to_string());
+            self.push_notice(Severity::Warning, tr("That connection no longer exists"));
             return false;
         }
         if let Some(session) = self.sessions.by_name(name) {

@@ -1,6 +1,7 @@
 use iced::widget::{column, container, mouse_area, row, scrollable, space, svg, text_input};
 use iced::{Alignment, Element, Font, Length, Size};
 use porthmos_core::Entry;
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, text_button};
 use super::spacing::{DIALOG_GAP, DIALOG_PADDING, SM};
@@ -72,7 +73,7 @@ fn status_color(state: &SearchState, palette: &Palette) -> iced::Color {
 
 fn body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message> {
     let palette = app.palette();
-    let input = text_input("Name to search for", state.pattern())
+    let input = text_input(&tr("Name to search for"), state.pattern())
         .style(crate::view::input::style(palette))
         .id(App::search_input_id())
         .on_input(Message::SearchTyped)
@@ -89,7 +90,7 @@ fn body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message> {
         .height(Length::Fixed(search_list_height(app.search_window_size(), state.preview_enabled())));
     let open = state.selected().is_some().then_some(Message::SearchOpenPressed);
     let title = row![
-        bold_label("Search", palette.fg_bright),
+        bold_label(tr("Search"), palette.fg_bright),
         container(label(state.scope_text(&app.search_place()), palette.fg_dim)).width(Length::Fill).clip(true)
     ]
     .spacing(DIALOG_GAP)
@@ -107,8 +108,8 @@ fn body<'a>(app: &'a App, state: &'a SearchState) -> Element<'a, Message> {
         .push(
             row![
                 space().width(Length::Fill),
-                text_button("Close", Some(Message::SearchClosed), Look::Normal, palette),
-                text_button("Open", open, Look::Primary, palette),
+                text_button(&tr("Close"), Some(Message::SearchClosed), Look::Normal, palette),
+                text_button(&tr("Open"), open, Look::Primary, palette),
             ]
             .spacing(SM),
         )

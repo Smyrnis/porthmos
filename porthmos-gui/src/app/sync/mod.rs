@@ -1,10 +1,12 @@
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use std::sync::Arc;
 
 use iced::Task;
 use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::{Id, operation};
-use porthmos_core::delete_prompt::THIS_COMPUTER;
+use porthmos_core::delete_prompt::this_computer;
 use porthmos_core::edit::printable;
 use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection, SyncOptions, SyncPlan, mirror_delete_prompt};
 use porthmos_core::{Command, Severity};
@@ -19,7 +21,9 @@ use crate::view::text_fit::fit;
 use crate::view::tools::sync_list_height;
 
 const TITLE_CELLS: usize = 60;
-const HELD_NOTICE: &str = "Sync preview ready; open it from More \u{2192} Synchronize\u{2026}";
+fn held_notice() -> String {
+    tr("Sync preview ready; open it from More \u{2192} Synchronize\u{2026}")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncChoice {
@@ -42,8 +46,8 @@ impl App {
         let name =
             self.sync_view.plan().and_then(|plan| self.sessions.by_id(plan.session)).map(|session| &session.name);
         match name {
-            Some(name) => format!("Synchronize with {}", fit(&printable(name), TITLE_CELLS)),
-            None => "Synchronize".to_string(),
+            Some(name) => i18n::text_with("gui.sync.title_with", &[("name", &fit(&printable(name), TITLE_CELLS))]),
+            None => tr("Synchronize"),
         }
     }
 
@@ -59,10 +63,10 @@ impl App {
             return;
         }
         let Some(session) = self.sessions.active() else {
-            return self.push_notice(Severity::Warning, "Connect to a remote server first".to_string());
+            return self.push_notice(Severity::Warning, tr("Connect to a remote server first"));
         };
         if !session.pane.is_listed() {
-            return self.push_notice(Severity::Warning, "Wait for the remote folder to finish loading".to_string());
+            return self.push_notice(Severity::Warning, tr("Wait for the remote folder to finish loading"));
         }
         self.modals.push(Modal::SyncOptions {
             session: session.id,
@@ -124,7 +128,7 @@ impl App {
     pub(in crate::app) fn start_sync(&mut self, session: porthmos_core::SessionId, options: SyncOptions) {
         let remote_dir = self.sessions.by_id(session).map(|live| live.pane.panel.path().clone());
         let Some(remote_dir) = remote_dir else {
-            return self.push_notice(Severity::Warning, "That connection is no longer available".to_string());
+            return self.push_notice(Severity::Warning, tr("That connection is no longer available"));
         };
         let local_dir = self.local.panel.path().clone();
         self.core.send(Command::StartSync { session, local_dir, remote_dir, options });
@@ -144,10 +148,7 @@ impl App {
         if let Some(held) = self.sync_view.sync_id() {
             if held != plan.sync_id {
                 self.core.send(Command::CancelSync { sync_id: plan.sync_id });
-                self.push_notice(
-                    Severity::Warning,
-                    "A sync preview is already open; the new one was dropped".to_string(),
-                );
+                self.push_notice(Severity::Warning, tr("A sync preview is already open; the new one was dropped"));
             }
             return;
         }
@@ -155,7 +156,7 @@ impl App {
         if self.overlay_free() {
             self.open_tool(Tool::Sync);
         } else {
-            self.push_notice(Severity::Info, HELD_NOTICE.to_string());
+            self.push_notice(Severity::Info, held_notice());
         }
     }
 
@@ -167,7 +168,7 @@ impl App {
         if self.sync_review_open() {
             self.tool = None;
         }
-        self.push_notice(Severity::Info, "The sync plan was cancelled".to_string());
+        self.push_notice(Severity::Info, tr("The sync plan was cancelled"));
     }
 
     pub(in crate::app) fn cancel_sync_review(&mut self) {
@@ -184,11 +185,11 @@ impl App {
         let choices = self.sync_view.visible_choices();
         if choices.is_empty() {
             let message = if self.sync_view.filter().is_some() {
-                "Nothing is ticked in the rows shown"
+                tr("Nothing is ticked in the rows shown")
             } else {
-                "Nothing is ticked"
+                tr("Nothing is ticked")
             };
-            return self.push_notice(Severity::Warning, message.to_string());
+            return self.push_notice(Severity::Warning, message);
         }
         let (files, folders) = self.sync_view.plan().map_or((0, 0), |plan| plan.deletion_counts(&choices));
         if files + folders > 0 {
@@ -211,7 +212,7 @@ impl App {
             return String::new();
         };
         match plan.options.direction {
-            SyncDirection::RemoteToLocal => THIS_COMPUTER.to_string(),
+            SyncDirection::RemoteToLocal => this_computer(),
             _ => self.sessions.by_id(plan.session).map(|session| session.name.clone()).unwrap_or_default(),
         }
     }

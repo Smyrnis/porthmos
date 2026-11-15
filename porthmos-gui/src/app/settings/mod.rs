@@ -1,3 +1,5 @@
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use std::path::PathBuf;
 
 use iced::keyboard::Key;
@@ -15,14 +17,24 @@ use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effectiv
 use crate::theme::{Palette, ThemeSettings};
 use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
 
-const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
-const APPLIED_NOTE: &str = "Saved.";
-const RESERVED_TEXT: &str = "That shortcut is reserved by the system.";
-const COMPARE_LIMIT_TEXT: &str = "Enter a whole number from 1 to 64.";
-const NO_CONFIG_TEXT: &str = "The location of the configuration file is unknown.";
+fn restart_note() -> String {
+    tr("Saved. Takes effect the next time Porthmos starts.")
+}
+fn applied_note() -> String {
+    tr("Saved.")
+}
+fn reserved_text() -> String {
+    tr("That shortcut is reserved by the system.")
+}
+fn compare_limit_text() -> String {
+    tr("Enter a whole number from 1 to 64.")
+}
+fn no_config_text() -> String {
+    tr("The location of the configuration file is unknown.")
+}
 
-fn plain_title(action: Action) -> &'static str {
-    action.title().trim_end_matches('\u{2026}')
+fn plain_title(action: Action) -> String {
+    action.title().trim_end_matches('\u{2026}').to_string()
 }
 
 impl App {
@@ -106,7 +118,7 @@ impl App {
 
     fn save_setting(&mut self, edit: Edit) -> bool {
         let Some(path) = self.config_file.clone() else {
-            self.show_settings_message(Some(SettingsMessage::Error(NO_CONFIG_TEXT.to_string())));
+            self.show_settings_message(Some(SettingsMessage::Error(no_config_text())));
             return false;
         };
         match config_file::save(&path, &edit) {
@@ -124,7 +136,7 @@ impl App {
 
     fn choose_theme(&mut self, base: ThemeBase) {
         let Some(path) = self.theme_file() else {
-            self.show_settings_message(Some(SettingsMessage::Error(NO_CONFIG_TEXT.to_string())));
+            self.show_settings_message(Some(SettingsMessage::Error(no_config_text())));
             return;
         };
         if let Err(message) = config_file::save(&path, &Edit::SetThemeBase(base)) {
@@ -136,7 +148,7 @@ impl App {
         self.gui_settings.theme_base = base;
         let message = match warnings.first() {
             Some(warning) => SettingsMessage::Note(warning.clone()),
-            None => SettingsMessage::Note(APPLIED_NOTE.to_string()),
+            None => SettingsMessage::Note(applied_note()),
         };
         self.show_settings_message(Some(message));
     }
@@ -144,7 +156,7 @@ impl App {
     fn core_setting_saved(&mut self, edit: Edit, apply: impl FnOnce(&mut GuiSettings)) {
         if self.save_setting(edit) {
             apply(&mut self.gui_settings);
-            self.show_settings_message(Some(SettingsMessage::Note(RESTART_NOTE.to_string())));
+            self.show_settings_message(Some(SettingsMessage::Note(restart_note())));
         }
     }
 
@@ -155,10 +167,10 @@ impl App {
         let before = self.shortcuts.clone();
         match self.shortcuts.assign(action, chord.clone()) {
             Err(AssignError::Reserved) => {
-                self.show_settings_message(Some(SettingsMessage::Error(RESERVED_TEXT.to_string())));
+                self.show_settings_message(Some(SettingsMessage::Error(reserved_text())));
             }
             Err(AssignError::UsedBy(owner)) => {
-                let text = format!("Already used by {}", plain_title(owner));
+                let text = i18n::text_with("gui.settings.already_used", &[("name", &plain_title(owner))]);
                 self.show_settings_message(Some(SettingsMessage::Error(text)));
             }
             Ok(()) => {
@@ -246,7 +258,7 @@ impl App {
                             settings.compare_limit_mib = mib
                         });
                     }
-                    None => self.show_settings_message(Some(SettingsMessage::Error(COMPARE_LIMIT_TEXT.to_string()))),
+                    None => self.show_settings_message(Some(SettingsMessage::Error(compare_limit_text()))),
                 }
             }
             Message::SettingsTerminalTyped(text) => {
@@ -261,7 +273,7 @@ impl App {
                 let terminal = editor_from_text(&state.terminal_text);
                 if self.save_setting(Edit::SetTerminal(terminal.clone())) {
                     self.gui_settings.terminal = terminal;
-                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
                 }
             }
             Message::SettingsAutoUploadToggled(on) => {
@@ -271,7 +283,17 @@ impl App {
                 if self.save_setting(Edit::SetSearchPreview(on)) {
                     self.gui_settings.search_preview = on;
                     self.apply_search_preview_setting(on);
-                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
+                }
+            }
+            Message::SettingsLanguageChosen(code) => {
+                if code.as_deref().is_some_and(|code| !i18n::is_available(code)) {
+                    return Task::none();
+                }
+                if self.save_setting(Edit::SetLanguage(code.clone())) {
+                    i18n::use_language(code.as_deref());
+                    self.gui_settings.language = code;
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
                 }
             }
             Message::SettingsUpdateModeChosen(mode) => {
@@ -284,14 +306,14 @@ impl App {
                     if mode == ReopenMode::Off {
                         self.reopen_offer.clear();
                     }
-                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
                 }
             }
             Message::SettingsReconnectToggled(on) => {
                 if self.save_setting(Edit::SetReconnect(on)) {
                     self.gui_settings.reconnect = on;
                     self.core.send(Command::SetReconnect { enabled: on });
-                    self.show_settings_message(Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
                 }
             }
             Message::SettingsThemeChosen(base) => self.choose_theme(base),
@@ -310,20 +332,30 @@ impl App {
         Task::none()
     }
 
-    pub fn reopen_choices() -> [(ReopenMode, &'static str); 3] {
+    pub fn reopen_choices() -> [(ReopenMode, String); 3] {
         [
-            (ReopenMode::Off, "Don't reopen"),
-            (ReopenMode::Ask, "Offer to reopen"),
-            (ReopenMode::Auto, "Reopen automatically"),
+            (ReopenMode::Off, tr("Don't reopen")),
+            (ReopenMode::Ask, tr("Offer to reopen")),
+            (ReopenMode::Auto, tr("Reopen automatically")),
         ]
     }
 
-    pub fn theme_choices() -> [(ThemeBase, &'static str); 3] {
-        [(ThemeBase::Dark, "Dark"), (ThemeBase::HighContrast, "High contrast"), (ThemeBase::Light, "Light")]
+    pub fn language_choices() -> Vec<(Option<String>, String)> {
+        let mut choices = vec![(None, tr("Automatic"))];
+        choices.extend(
+            i18n::available_languages()
+                .iter()
+                .map(|language| (Some(language.code.to_string()), language.name.to_string())),
+        );
+        choices
     }
 
-    pub fn update_mode_choices() -> [(UpdateMode, &'static str); 3] {
-        [(UpdateMode::Auto, "Automatic"), (UpdateMode::Notify, "Notify only"), (UpdateMode::Off, "Never")]
+    pub fn theme_choices() -> [(ThemeBase, String); 3] {
+        [(ThemeBase::Dark, tr("Dark")), (ThemeBase::HighContrast, tr("High contrast")), (ThemeBase::Light, tr("Light"))]
+    }
+
+    pub fn update_mode_choices() -> [(UpdateMode, String); 3] {
+        [(UpdateMode::Auto, tr("Automatic")), (UpdateMode::Notify, tr("Notify only")), (UpdateMode::Off, tr("Never"))]
     }
 }
 

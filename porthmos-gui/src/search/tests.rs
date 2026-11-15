@@ -291,7 +291,7 @@ fn a_search_that_skipped_folders_says_the_results_may_be_incomplete() {
     state.found(hit("/data/a.txt"));
     state.finished(false, true);
 
-    assert_eq!(state.status_text(), format!("1 found. {}", porthmos_core::SEARCH_INCOMPLETE_NOTE));
+    assert_eq!(state.status_text(), format!("1 found. {}", porthmos_core::search_incomplete_note()));
 }
 
 #[test]
@@ -299,7 +299,7 @@ fn an_empty_incomplete_search_does_not_claim_there_is_nothing() {
     let mut state = searching();
     state.finished(false, true);
 
-    assert_eq!(state.status_text(), format!("Nothing found. {}", porthmos_core::SEARCH_INCOMPLETE_NOTE));
+    assert_eq!(state.status_text(), format!("Nothing found. {}", porthmos_core::search_incomplete_note()));
 }
 
 #[test]

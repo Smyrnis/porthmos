@@ -1,5 +1,7 @@
 use iced::widget::{button, column, container, mouse_area, row, space, stack};
 use iced::{Background, Border, Element, Length, alignment};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, flat, tool_button};
 use super::{filled, label};
@@ -43,9 +45,10 @@ fn badge_button(app: &App) -> Option<Element<'_, Message>> {
 }
 
 fn hint(app: &App, title: &str, action: Action) -> String {
+    let title = tr(title);
     match app.shortcuts().label_for(action) {
         Some(keys) => format!("{title} ({keys})"),
-        None => title.to_string(),
+        None => title,
     }
 }
 
@@ -75,35 +78,39 @@ pub fn bar(app: &App) -> Element<'_, Message> {
     let state = app.toolbar_state();
     let titles = show_titles(app.window_size().width);
     let running = app.running_transfer_count();
-    let transfers_title = if running > 0 { format!("Transfers · {running}") } else { "Transfers".to_string() };
+    let transfers_title = if running > 0 {
+        i18n::text_with("gui.toolbar.transfers_running", &[("count", &running.to_string())])
+    } else {
+        tr("Transfers")
+    };
     let transfers_look = if running > 0 { Look::Primary } else { Look::Normal };
     let line = row![
-        action_button(app, Icon::Copy, "Copy", Action::Copy, state.copy),
-        action_button(app, Icon::Move, "Move", Action::Move, state.move_),
-        action_button(app, Icon::NewFolder, "New folder", Action::NewFolder, state.new_folder),
-        action_button(app, Icon::Rename, "Rename", Action::Rename, state.rename),
-        action_button(app, Icon::Delete, "Delete", Action::Delete, state.delete),
+        action_button(app, Icon::Copy, &tr("Copy"), Action::Copy, state.copy),
+        action_button(app, Icon::Move, &tr("Move"), Action::Move, state.move_),
+        action_button(app, Icon::NewFolder, &tr("New folder"), Action::NewFolder, state.new_folder),
+        action_button(app, Icon::Rename, &tr("Rename"), Action::Rename, state.rename),
+        action_button(app, Icon::Delete, &tr("Delete"), Action::Delete, state.delete),
         separator(palette),
-        action_button(app, Icon::Refresh, "Refresh", Action::Refresh, state.refresh),
-        action_button(app, Icon::Search, "Filter", Action::StartFilter, state.filter),
+        action_button(app, Icon::Refresh, &tr("Refresh"), Action::Refresh, state.refresh),
+        action_button(app, Icon::Search, &tr("Filter"), Action::StartFilter, state.filter),
         separator(palette),
         terminal_button(
             app,
             PanelSide::Local,
             Icon::Terminal,
-            "Terminal",
-            "Open a terminal in this computer's folder",
+            &tr("Terminal"),
+            &tr("Open a terminal in this computer's folder"),
             state.local_terminal,
         ),
         terminal_button(
             app,
             PanelSide::Remote,
             Icon::RemoteTerminal,
-            "Remote",
-            if state.remote_terminal {
-                "Open a terminal on the connection"
+            &tr("Remote"),
+            &if state.remote_terminal {
+                tr("Open a terminal on the connection")
             } else {
-                "Needs a connection that supports a terminal"
+                tr("Needs a connection that supports a terminal")
             },
             state.remote_terminal,
         ),
@@ -120,18 +127,18 @@ pub fn bar(app: &App) -> Element<'_, Message> {
         ),
         tool_button(
             Some(Icon::More),
-            "More",
+            &tr("More"),
             titles,
-            "More".to_string(),
+            tr("More"),
             Some(Message::MoreMenuToggled),
             Look::Normal,
             palette,
         ),
         tool_button(
             Some(Icon::Settings),
-            "Settings",
+            &tr("Settings"),
             titles,
-            hint(app, "Settings", Action::Settings),
+            hint(app, &tr("Settings"), Action::Settings),
             Some(Message::ActionRequested(Action::Settings)),
             Look::Normal,
             palette

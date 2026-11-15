@@ -1,5 +1,6 @@
 use iced::widget::{column, row};
 use iced::{Element, Length};
+use porthmos_core::i18n::label as tr;
 use porthmos_core::sync::{SyncBy, SyncDirection};
 
 use super::super::button::{Look, text_button};
@@ -29,13 +30,13 @@ fn stacked<'a>(choices: Vec<Element<'a, Message>>) -> Element<'a, Message> {
     column(choices).spacing(6).into()
 }
 
-fn direction_titles(offer_both: bool) -> Vec<(&'static str, SyncDirection)> {
+fn direction_titles(offer_both: bool) -> Vec<(String, SyncDirection)> {
     let mut titles = vec![
-        ("Local \u{2192} Remote", SyncDirection::LocalToRemote),
-        ("Remote \u{2192} Local", SyncDirection::RemoteToLocal),
+        (tr("Local \u{2192} Remote"), SyncDirection::LocalToRemote),
+        (tr("Remote \u{2192} Local"), SyncDirection::RemoteToLocal),
     ];
     if offer_both {
-        titles.push(("Both (the newer file wins)", SyncDirection::Both));
+        titles.push((tr("Both (the newer file wins)"), SyncDirection::Both));
     }
     titles
 }
@@ -46,30 +47,30 @@ pub fn body<'a>(
 ) -> Element<'a, Message> {
     let directions: Vec<_> = direction_titles(offer_both)
         .into_iter()
-        .map(|(title, value)| choice(title, direction == value, SyncChoice::Direction(value), palette))
+        .map(|(title, value)| choice(&title, direction == value, SyncChoice::Direction(value), palette))
         .collect();
     let comparisons = vec![
-        choice("Modification time", by == SyncBy::Time, SyncChoice::By(SyncBy::Time), palette),
-        choice("Size", by == SyncBy::Size, SyncChoice::By(SyncBy::Size), palette),
+        choice(&tr("Modification time"), by == SyncBy::Time, SyncChoice::By(SyncBy::Time), palette),
+        choice(&tr("Size"), by == SyncBy::Size, SyncChoice::By(SyncBy::Size), palette),
     ];
     let folders = vec![
-        choice("Included", subfolders, SyncChoice::Subfolders(true), palette),
-        choice("Not included", !subfolders, SyncChoice::Subfolders(false), palette),
+        choice(&tr("Included"), subfolders, SyncChoice::Subfolders(true), palette),
+        choice(&tr("Not included"), !subfolders, SyncChoice::Subfolders(false), palette),
     ];
     let mirroring = vec![
-        choice("Off", !mirror, SyncChoice::Mirror(false), palette),
-        choice("Delete files missing from the source", mirror, SyncChoice::Mirror(true), palette),
+        choice(&tr("Off"), !mirror, SyncChoice::Mirror(false), palette),
+        choice(&tr("Delete files missing from the source"), mirror, SyncChoice::Mirror(true), palette),
     ];
     let mut content = column![
-        line("Direction", stacked(directions), palette),
-        line("Compare by", beside(comparisons), palette),
-        line("Subfolders", beside(folders), palette),
-        line("Mirror", beside(mirroring), palette),
+        line(&tr("Direction"), stacked(directions), palette),
+        line(&tr("Compare by"), beside(comparisons), palette),
+        line(&tr("Subfolders"), beside(folders), palette),
+        line(&tr("Mirror"), beside(mirroring), palette),
     ]
     .spacing(10);
     if !offer_both {
-        content =
-            content.push(label("Both isn't offered: this connection can't keep modification times", palette.fg_dim));
+        content = content
+            .push(label(tr("Both isn't offered: this connection can't keep modification times"), palette.fg_dim));
     }
     if let Some(error) = error {
         content = content.push(label(error.clone(), palette.err));

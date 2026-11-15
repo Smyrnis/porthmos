@@ -13,6 +13,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
         theme_base: porthmos_core::theme::ThemeBase::Dark,
+        language: None,
     }
 }
 
@@ -71,6 +72,7 @@ mod categories {
     #[test]
     fn every_section_belongs_to_exactly_one_category() {
         let all = [
+            SettingsSection::Language,
             SettingsSection::Shortcuts,
             SettingsSection::Appearance,
             SettingsSection::Editing,
@@ -97,10 +99,15 @@ mod categories {
     }
 
     #[test]
-    fn general_holds_the_startup_connection_and_search_options() {
+    fn general_holds_the_language_startup_connection_and_search_options() {
         assert_eq!(
             SettingsCategory::General.sections(),
-            &[SettingsSection::Startup, SettingsSection::Connections, SettingsSection::Search]
+            &[
+                SettingsSection::Language,
+                SettingsSection::Startup,
+                SettingsSection::Connections,
+                SettingsSection::Search
+            ]
         );
     }
 }

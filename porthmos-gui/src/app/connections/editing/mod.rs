@@ -1,5 +1,7 @@
 use iced::Task;
 use iced::widget::{Id, operation};
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::profiles::{ConnectionEntry, ConnectionSource};
 use porthmos_core::{Command, Severity};
 
@@ -7,8 +9,12 @@ use super::super::{App, Message};
 use crate::connections::form::FormState;
 use crate::connections::{LabelsState, MissingChoice, Screen, announcement};
 
-const NO_PROTOCOLS: &str = "No protocols are available in this build";
-const SSH_CONFIG_DELETE: &str = "This connection is defined in ~/.ssh/config and can't be deleted here";
+fn no_protocols() -> String {
+    tr("No protocols are available in this build")
+}
+fn ssh_config_delete() -> String {
+    tr("This connection is defined in ~/.ssh/config and can't be deleted here")
+}
 
 impl App {
     pub fn screen(&self) -> Option<&Screen> {
@@ -21,7 +27,7 @@ impl App {
 
     pub(in crate::app) fn profiles_arrived(&mut self, entries: Vec<ConnectionEntry>) {
         if let Some(text) = announcement(&entries, &mut self.announced_orphans) {
-            self.push_notice(Severity::Warning, format!("{text} They are marked \u{26A0} in the connection list."));
+            self.push_notice(Severity::Warning, format!("{text} {}", i18n::text("missing.marked")));
         }
         self.manager.replace(entries);
         if let Some(name) = self.reveal.take() {
@@ -60,7 +66,7 @@ impl App {
                 operation::focus(App::form_input_id("name"))
             }
             None => {
-                self.push_notice(Severity::Warning, NO_PROTOCOLS.to_string());
+                self.push_notice(Severity::Warning, no_protocols());
                 Task::none()
             }
         }
@@ -76,7 +82,7 @@ impl App {
                     self.set_screen(Some(Screen::Form(Box::new(state))));
                     return operation::focus(App::form_input_id("name"));
                 }
-                None => self.push_notice(Severity::Warning, NO_PROTOCOLS.to_string()),
+                None => self.push_notice(Severity::Warning, no_protocols()),
             },
             ConnectionSource::SshConfig => {
                 self.set_screen(Some(Screen::Labels(LabelsState::for_entry(&entry))));
@@ -99,7 +105,7 @@ impl App {
                 let name = entry.name.clone();
                 self.set_screen(Some(Screen::ConfirmDelete { name }));
             }
-            ConnectionSource::SshConfig => self.push_notice(Severity::Info, SSH_CONFIG_DELETE.to_string()),
+            ConnectionSource::SshConfig => self.push_notice(Severity::Info, ssh_config_delete()),
             ConnectionSource::MissingSshHost | ConnectionSource::ShadowedSshHost => {}
         }
     }

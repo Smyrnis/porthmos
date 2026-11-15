@@ -1,4 +1,5 @@
 use porthmos_core::edit::EditorExit;
+use porthmos_core::i18n::label as tr;
 use porthmos_core::{Command, Severity, ShellInvocation};
 
 use super::editing::JobRole;
@@ -29,11 +30,10 @@ impl App {
             return;
         }
         let Some(session) = self.sessions.active() else {
-            return self.push_notice(Severity::Warning, "Connect to a server first".to_string());
+            return self.push_notice(Severity::Warning, tr("Connect to a server first"));
         };
         if !session.shell_available {
-            return self
-                .push_notice(Severity::Warning, "This connection doesn't support a terminal session".to_string());
+            return self.push_notice(Severity::Warning, tr("This connection doesn't support a terminal session"));
         }
         let directory = Some(session.pane.panel.path().clone());
         self.core.send(Command::PrepareShell { session: session.id, directory });

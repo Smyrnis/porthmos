@@ -20,7 +20,7 @@ async fn pick(source: ImportSource, current_path: String, folder: bool) -> Optio
     let handle = if folder {
         dialog.pick_folder().await
     } else {
-        dialog.add_filter(request.filter_name, request.extensions).add_filter("All files", &["*"]).pick_file().await
+        dialog.add_filter(&request.filter_name, request.extensions).add_filter("All files", &["*"]).pick_file().await
     };
     handle.map(|handle| handle.path().to_path_buf())
 }

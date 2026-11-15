@@ -1,11 +1,13 @@
+use porthmos_core::i18n;
+use porthmos_core::i18n::label as tr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use iced::widget::{Id, operation};
 use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
-use porthmos_core::delete_prompt::THIS_COMPUTER;
 use porthmos_core::delete_prompt::count::Contents;
+use porthmos_core::delete_prompt::this_computer;
 use porthmos_core::listing::{Row, SortKey};
 use porthmos_core::names::entry_name_problem;
 use porthmos_core::transfer::conflicts::Resolution;
@@ -200,6 +202,7 @@ pub enum Message {
     SettingsSearchPreviewToggled(bool),
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
+    SettingsLanguageChosen(Option<String>),
     SettingsReopenChosen(porthmos_core::ReopenMode),
     SettingsReconnectToggled(bool),
     SettingsThemeChosen(porthmos_core::theme::ThemeBase),
@@ -660,12 +663,11 @@ impl App {
     fn desktop_hint(&self, count: usize) -> Option<DragHint> {
         let target = self.pointer.and_then(|at| self.hit_at(at)).map(|hit| self.target_of(hit));
         if let Some(refused) = target.and_then(|target| drop_in_refusal(target.as_ref())) {
-            return Some(DragHint { glyph: "✕", text: refused.message().to_string(), refused: true });
+            return Some(DragHint { glyph: "✕", text: refused.message(), refused: true });
         }
         let text = match count {
-            0 => "Upload files".to_string(),
-            1 => "Upload 1 item".to_string(),
-            count => format!("Upload {count} items"),
+            0 => tr("Upload files"),
+            count => i18n::plural("gui.drag.upload", count),
         };
         Some(DragHint { glyph: "+", text, refused: false })
     }
@@ -683,12 +685,10 @@ impl App {
         if let Some(hit) = self.hit_at(at)
             && let Some(refused) = refusal(source, self.target_of(hit).as_ref())
         {
-            return Some(DragHint { glyph: "✕", text: refused.message().to_string(), refused: true });
+            return Some(DragHint { glyph: "✕", text: refused.message(), refused: true });
         }
-        let (glyph, verb) = if self.modifiers.shift() { ("→", "Move") } else { ("+", "Copy") };
-        let count = source.entries.len();
-        let noun = if count == 1 { "item" } else { "items" };
-        Some(DragHint { glyph, text: format!("{verb} {count} {noun}"), refused: false })
+        let (glyph, key) = if self.modifiers.shift() { ("→", "gui.drag.move") } else { ("+", "gui.drag.copy") };
+        Some(DragHint { glyph, text: i18n::plural(key, source.entries.len()), refused: false })
     }
 
     pub fn transfer_summary(&self) -> Option<String> {
@@ -1286,6 +1286,7 @@ impl App {
             | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsClosed
             | Message::SettingsUpdateModeChosen(_)
+            | Message::SettingsLanguageChosen(_)
             | Message::SettingsReopenChosen(_)
             | Message::SettingsReconnectToggled(_)
             | Message::SettingsThemeChosen(_)
@@ -1467,7 +1468,7 @@ impl App {
 
     fn place_name(&self, side: PanelSide) -> String {
         match side {
-            PanelSide::Local => THIS_COMPUTER.to_string(),
+            PanelSide::Local => this_computer(),
             PanelSide::Remote => self.sessions.active().map(|session| session.name.clone()).unwrap_or_default(),
         }
     }
@@ -1481,7 +1482,7 @@ impl App {
 
     fn prompt_problem(&self) -> Option<String> {
         if let Some(Modal::BookmarkName { text, .. }) = self.modals.front() {
-            return text.trim().is_empty().then(|| "Enter a name".to_string());
+            return text.trim().is_empty().then(|| tr("Enter a name"));
         }
         let (side, text, original) = match self.modals.front()? {
             Modal::NewFolder { side, text, .. } => (*side, text, None),
@@ -1533,7 +1534,10 @@ impl App {
             Ok(()) => self.poll_native(),
             Err(error) => {
                 self.drag.abandon();
-                self.push_notice(Severity::Warning, format!("Could not drag out of the window: {error}"));
+                self.push_notice(
+                    Severity::Warning,
+                    i18n::text_with("gui.drag.out_failed", &[("error", &error.to_string())]),
+                );
             }
         }
     }
@@ -1570,7 +1574,10 @@ impl App {
             Ok(staging) => staging.expecting(names),
             Err(error) => {
                 self.drag.abandon();
-                self.push_notice(Severity::Warning, format!("Could not prepare files to drag out: {error}"));
+                self.push_notice(
+                    Severity::Warning,
+                    i18n::text_with("gui.drag.prepare_failed", &[("error", &error.to_string())]),
+                );
                 return;
             }
         };
@@ -1594,7 +1601,10 @@ impl App {
             Stage::Preparing => {
                 if let Some(problem) = job.staging.failure(self.transfers.snapshot()) {
                     self.abort_staging();
-                    self.push_notice(Severity::Warning, format!("Could not prepare files to drag out: {problem}"));
+                    self.push_notice(
+                        Severity::Warning,
+                        i18n::text_with("gui.drag.prepare_failed", &[("error", &problem.to_string())]),
+                    );
                 } else if job.staging.finished(self.transfers.snapshot(), job.seen_a_row) {
                     self.hand_over_staged_files();
                 }
@@ -1643,7 +1653,10 @@ impl App {
                 if let Some(job) = self.staging.take() {
                     job.staging.remove();
                 }
-                self.push_notice(Severity::Warning, format!("Could not drag out of the window: {error}"));
+                self.push_notice(
+                    Severity::Warning,
+                    i18n::text_with("gui.drag.out_failed", &[("error", &error.to_string())]),
+                );
             }
         }
     }
@@ -1691,7 +1704,7 @@ impl App {
         match decide_drop_in(&entries, target.as_ref()) {
             Ok(command) => self.core.send(command),
             Err(Refusal::NothingDragged) => {}
-            Err(refused) => self.push_notice(Severity::Warning, refused.message().to_string()),
+            Err(refused) => self.push_notice(Severity::Warning, refused.message()),
         }
     }
 
@@ -1705,7 +1718,7 @@ impl App {
         let target = self.target_of(hit);
         match decide(&source, from, target.as_ref(), self.modifiers.shift()) {
             Ok(command) => self.core.send(command),
-            Err(refused) => self.push_notice(Severity::Warning, refused.message().to_string()),
+            Err(refused) => self.push_notice(Severity::Warning, refused.message()),
         }
     }
 
@@ -2062,10 +2075,7 @@ impl App {
             PanelSide::Remote => PanelSide::Local,
         };
         let Some(dest_dir) = self.panel_of(to_side).map(|panel| panel.path().clone()) else {
-            self.push_notice(
-                Severity::Info,
-                "Connect to a server first: copy and move go between the two panels".to_string(),
-            );
+            self.push_notice(Severity::Info, tr("Connect to a server first: copy and move go between the two panels"));
             return;
         };
         let entries = self.panel_of(from_side).map(Panel::target_entries).unwrap_or_default();

@@ -1,3 +1,4 @@
+use porthmos_core::i18n::label as tr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,8 +39,8 @@ impl App {
         };
         let file = match panel.target_entries().as_slice() {
             [entry] if !entry.is_dir => entry.clone(),
-            [] | [_] => return self.push_notice(Severity::Warning, "Can't edit a folder".to_string()),
-            _ => return self.push_notice(Severity::Warning, "Select one file to edit".to_string()),
+            [] | [_] => return self.push_notice(Severity::Warning, tr("Can't edit a folder")),
+            _ => return self.push_notice(Severity::Warning, tr("Select one file to edit")),
         };
         if let Some(location) = self.location_of(self.active) {
             self.core.send(Command::EditFile { location, path: file.path });

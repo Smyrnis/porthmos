@@ -5,6 +5,7 @@ mod sync_options;
 
 use iced::widget::{checkbox, column, container, row, stack, text, text_input};
 use iced::{Border, Element, Font, Length, alignment};
+use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, text_button};
 use super::{bold_label, label, wrapped_label};
@@ -35,7 +36,7 @@ pub(super) fn body_text<'a>(content: String, palette: &Palette) -> Element<'a, M
 }
 
 fn name_input<'a>(value: &str, palette: &Palette) -> Element<'a, Message> {
-    text_input("Name", value)
+    text_input(&tr("Name"), value)
         .style(crate::view::input::style(palette))
         .id(App::dialog_input_id())
         .on_input(Message::ModalTyped)
@@ -60,8 +61,11 @@ const PERMISSION_CELL_WIDTH: f32 = 80.0;
 
 fn permissions_title(entries: &[porthmos_core::Entry]) -> String {
     match entries {
-        [only] => format!("Permissions of {}", fit(&printable(&only.name), NAME_CELLS)),
-        many => format!("Permissions of {} items", many.len()),
+        [only] => porthmos_core::i18n::text_with(
+            "permissions.dialog_one",
+            &[("name", &fit(&printable(&only.name), NAME_CELLS))],
+        ),
+        many => porthmos_core::i18n::text_with("permissions.dialog_many", &[("count", &many.len().to_string())]),
     }
 }
 
@@ -71,7 +75,7 @@ fn permissions_body<'a>(mode: u32, recursive: bool, has_folder: bool, palette: &
         return grid;
     }
     let inside = checkbox(recursive)
-        .label("Apply to everything inside folders")
+        .label(tr("Apply to everything inside folders"))
         .on_toggle(Message::PermissionsRecursiveToggled)
         .style(crate::view::checkbox::style(palette));
     column![grid, inside].spacing(12).into()
@@ -81,11 +85,11 @@ fn permissions_grid<'a>(mode: u32, palette: &Palette) -> Element<'a, Message> {
     let cell = |content: Element<'a, Message>| container(content).width(Length::Fixed(PERMISSION_CELL_WIDTH));
     let mut header = row![label(String::new(), palette.fg_dim).width(Length::Fixed(PERMISSION_LABEL_WIDTH))].spacing(8);
     for (kind, _) in PERMISSION_KINDS {
-        header = header.push(cell(label(kind.to_string(), palette.fg_dim).into()));
+        header = header.push(cell(label(tr(kind), palette.fg_dim).into()));
     }
     let mut rows = column![header].spacing(10);
     for (class, unit) in PERMISSION_CLASSES {
-        let mut line = row![label(class.to_string(), palette.fg_dim).width(Length::Fixed(PERMISSION_LABEL_WIDTH))]
+        let mut line = row![label(tr(class), palette.fg_dim).width(Length::Fixed(PERMISSION_LABEL_WIDTH))]
             .spacing(8)
             .align_y(alignment::Vertical::Center);
         for (_, weight) in PERMISSION_KINDS {
@@ -114,7 +118,9 @@ fn cautious_buttons<'a>(accept: &str, decline: &str, palette: &Palette) -> Eleme
         .into()
 }
 
-const CONFLICT_EXPLANATION: &str = "Overwrite the server's copy with yours, keep yours as a separate copy next to it, or cancel and keep the temporary file.";
+fn conflict_explanation() -> String {
+    porthmos_core::i18n::text("edit.conflict_explanation")
+}
 
 fn question_width(diff: &DiffPane) -> f32 {
     match diff {
@@ -128,29 +134,31 @@ fn conflict_content<'a>(diff: &DiffPane, palette: &Palette) -> Element<'a, Messa
         DiffPane::Ready(outcome) => edit_diff::body(outcome, palette),
         DiffPane::Failed(message) => column![
             wrapped_label(edit_diff::failed_text(message), palette.err),
-            body_text(CONFLICT_EXPLANATION.to_string(), palette),
+            body_text(conflict_explanation(), palette),
         ]
         .spacing(8)
         .into(),
-        DiffPane::Idle | DiffPane::Comparing => body_text(CONFLICT_EXPLANATION.to_string(), palette),
+        DiffPane::Idle | DiffPane::Comparing => body_text(conflict_explanation(), palette),
     }
 }
 
 fn conflict_buttons<'a>(diff: &DiffPane, palette: &Palette) -> Element<'a, Message> {
-    let overwrite = button("Overwrite", Message::EditAnswered(EditChoice::Upload), palette);
-    let keep = primary_button("Keep mine as a copy", Message::EditAnswered(EditChoice::KeepCopy), palette);
-    let cancel = button("Cancel", Message::EditAnswered(EditChoice::Cancel), palette);
+    let overwrite = button(&tr("Overwrite"), Message::EditAnswered(EditChoice::Upload), palette);
+    let keep = primary_button(&tr("Keep mine as a copy"), Message::EditAnswered(EditChoice::KeepCopy), palette);
+    let cancel = button(&tr("Cancel"), Message::EditAnswered(EditChoice::Cancel), palette);
     match diff {
         DiffPane::Ready(_) => {
-            row![overwrite, keep, cancel, button("Back", Message::EditDiffBack, palette)].spacing(8).into()
+            row![overwrite, keep, cancel, button(&tr("Back"), Message::EditDiffBack, palette)].spacing(8).into()
         }
         DiffPane::Comparing => {
-            row![text_button("Comparing\u{2026}", None, Look::Normal, palette), overwrite, keep, cancel]
+            row![text_button(&tr("Comparing\u{2026}"), None, Look::Normal, palette), overwrite, keep, cancel]
                 .spacing(8)
                 .into()
         }
         DiffPane::Idle | DiffPane::Failed(_) => {
-            row![button("Show differences", Message::EditShowDiff, palette), overwrite, keep, cancel].spacing(8).into()
+            row![button(&tr("Show differences"), Message::EditShowDiff, palette), overwrite, keep, cancel]
+                .spacing(8)
+                .into()
         }
     }
 }
@@ -159,7 +167,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let palette = app.palette();
     let (title, content, buttons) = match app.modal()? {
         Modal::Question(Dialog::Confirm { title, body, .. }) => {
-            (title.clone(), body_text(body.clone(), palette), cautious_buttons("Yes", "No", palette))
+            (title.clone(), body_text(body.clone(), palette), cautious_buttons(&tr("Yes"), &tr("No"), palette))
         }
         Modal::Question(Dialog::Password { title, prompt, text: typed, save, .. }) => {
             let input = text_input("", typed.as_str())
@@ -174,7 +182,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             if let Some(save) = save {
                 content = content.push(
                     checkbox(*save)
-                        .label("Save in keyring")
+                        .label(tr("Save in keyring"))
                         .text_size(13.0)
                         .on_toggle(Message::PasswordSaveToggled)
                         .style(crate::view::checkbox::style(palette)),
@@ -183,32 +191,34 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             if let Some(hint) = app.keyring_hint() {
                 content = content.push(wrapped_label(hint, palette.fg_dim));
             }
-            (title.clone(), content.into(), buttons("OK", "Cancel", palette))
+            (title.clone(), content.into(), buttons(&tr("OK"), &tr("Cancel"), palette))
         }
         Modal::NewFolder { text, error, .. } => {
-            ("New folder".to_string(), name_prompt(text, error, palette), buttons("Create", "Cancel", palette))
+            (tr("New folder"), name_prompt(text, error, palette), buttons(&tr("Create"), &tr("Cancel"), palette))
         }
         Modal::BookmarkName { text, error, .. } => {
-            ("Bookmark this folder".to_string(), name_prompt(text, error, palette), buttons("Add", "Cancel", palette))
+            (tr("Bookmark this folder"), name_prompt(text, error, palette), buttons(&tr("Add"), &tr("Cancel"), palette))
         }
-        Modal::Info { title, body } => {
-            (title.clone(), body_text(body.clone(), palette), primary_button("Close", Message::ModalAccepted, palette))
-        }
+        Modal::Info { title, body } => (
+            title.clone(),
+            body_text(body.clone(), palette),
+            primary_button(&tr("Close"), Message::ModalAccepted, palette),
+        ),
         Modal::ConfirmClearHistory => (
-            "Clear history".to_string(),
-            body_text("Clear the whole transfer history?".to_string(), palette),
-            cautious_buttons("Clear", "Cancel", palette),
+            tr("Clear history"),
+            body_text(tr("Clear the whole transfer history?"), palette),
+            cautious_buttons(&tr("Clear"), &tr("Cancel"), palette),
         ),
         Modal::Permissions { mode, entries, recursive, .. } => (
             permissions_title(entries),
             permissions_body(*mode, *recursive, entries.iter().any(|entry| entry.is_dir), palette),
-            buttons("Apply", "Cancel", palette),
+            buttons(&tr("Apply"), &tr("Cancel"), palette),
         ),
         Modal::Properties { pane, .. } => {
             (pane.title.clone(), properties::body(pane, palette), properties::buttons(pane, palette))
         }
         Modal::Rename { text, error, .. } => {
-            ("Rename".to_string(), name_prompt(text, error, palette), buttons("Rename", "Cancel", palette))
+            (tr("Rename"), name_prompt(text, error, palette), buttons(&tr("Rename"), &tr("Cancel"), palette))
         }
         Modal::Conflict { view, apply_to_rest } => (
             conflict::title(view).to_string(),
@@ -220,10 +230,10 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             match kind {
                 EditQuestionKind::Upload => (
                     title,
-                    body_text("The file was changed. Upload it back to the server?".to_string(), palette),
+                    body_text(tr("The file was changed. Upload it back to the server?"), palette),
                     row![
-                        primary_button("Upload", Message::EditAnswered(EditChoice::Upload), palette),
-                        button("Discard", Message::EditAnswered(EditChoice::Cancel), palette),
+                        primary_button(&tr("Upload"), Message::EditAnswered(EditChoice::Upload), palette),
+                        button(&tr("Discard"), Message::EditAnswered(EditChoice::Cancel), palette),
                     ]
                     .spacing(8)
                     .into(),
@@ -232,26 +242,26 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             }
         }
         Modal::EditWaiting { name, .. } => (
-            "Editing".to_string(),
+            tr("Editing"),
             body_text(waiting_notice(name), palette),
-            primary_button("Done", Message::EditDoneEditing, palette),
+            primary_button(&tr("Done"), Message::EditDoneEditing, palette),
         ),
         Modal::ConfirmQuit { transfers, edits } => (
-            "Quit Porthmos".to_string(),
+            tr("Quit Porthmos"),
             body_text(quit_text(*transfers, *edits), palette),
-            cautious_buttons("Quit", "Cancel", palette),
+            cautious_buttons(&tr("Quit"), &tr("Cancel"), palette),
         ),
         Modal::SyncOptions { name, offer_both, direction, by, subfolders, mirror, error, .. } => (
-            format!("Synchronize with {}", fit(&printable(name), NAME_CELLS)),
+            porthmos_core::i18n::text_with("sync.form_title", &[("name", &fit(&printable(name), NAME_CELLS))]),
             sync_options::body(*direction, *by, *subfolders, *mirror, *offer_both, error, palette),
-            buttons("Start", "Cancel", palette),
+            buttons(&tr("Start"), &tr("Cancel"), palette),
         ),
         Modal::ConfirmSyncDelete { message, .. } => {
-            ("Delete".to_string(), body_text(message.clone(), palette), cautious_buttons("Delete", "Cancel", palette))
+            (tr("Delete"), body_text(message.clone(), palette), cautious_buttons(&tr("Delete"), &tr("Cancel"), palette))
         }
         Modal::ConfirmDelete { entries, place, count, .. } => {
             let lines = delete_lines(entries, place, count.as_ref()).join("\n");
-            ("Delete".to_string(), body_text(lines, palette), cautious_buttons("Delete", "Cancel", palette))
+            (tr("Delete"), body_text(lines, palette), cautious_buttons(&tr("Delete"), &tr("Cancel"), palette))
         }
     };
     let width = match app.modal() {

@@ -2,7 +2,7 @@ use iced::keyboard::Key;
 use iced::keyboard::key::Named;
 use iced::widget::{Id, operation};
 use iced::{Size, Task, window};
-use porthmos_core::delete_prompt::THIS_COMPUTER;
+use porthmos_core::delete_prompt::this_computer;
 use porthmos_core::preview::PreviewSlot;
 use porthmos_core::{Command, Entry, Location};
 
@@ -48,7 +48,7 @@ impl App {
             Some(Location::Session(id)) => {
                 self.sessions.by_id(id).map_or_else(|| id.to_string(), |session| session.name.clone())
             }
-            _ => THIS_COMPUTER.to_string(),
+            _ => this_computer(),
         }
     }
 

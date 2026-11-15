@@ -176,29 +176,31 @@ impl ModalQueue {
     }
 }
 
-const EDIT_QUIT_TEXT: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left incomplete; your copy stays in the state folder.";
-const TRANSFER_QUIT_TEXT: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
-
 pub fn quit_text(transfers: bool, edits: bool) -> String {
+    let edit_text = porthmos_core::i18n::text("edit.quit_question");
+    let transfer_text = porthmos_core::transfer::quit_with_transfers_text();
     match (transfers, edits) {
-        (true, true) => format!("{EDIT_QUIT_TEXT}\n\n{TRANSFER_QUIT_TEXT}"),
-        (false, true) => EDIT_QUIT_TEXT.to_string(),
-        _ => TRANSFER_QUIT_TEXT.to_string(),
+        (true, true) => format!("{edit_text}\n\n{transfer_text}"),
+        (false, true) => edit_text,
+        _ => transfer_text,
     }
 }
 
 pub fn edit_question_title(name: &str, kind: EditQuestionKind) -> String {
     let name = fit(&printable(name), NAME_CELLS);
     match kind {
-        EditQuestionKind::Upload => format!("Upload your changes to {name}?"),
-        EditQuestionKind::Conflict => format!("{name} changed on the server while you were editing"),
+        EditQuestionKind::Upload => porthmos_core::i18n::text_with("edit.upload_question", &[("name", &name)]),
+        EditQuestionKind::Conflict => porthmos_core::i18n::text_with("edit.conflict_title", &[("name", &name)]),
     }
 }
 
 pub fn properties_title(entries: &[Entry]) -> String {
     match entries {
-        [only] => format!("Properties: {}", fit(&printable(&only.name), NAME_CELLS)),
-        many => format!("Properties: {} items", many.len()),
+        [only] => porthmos_core::i18n::text_with(
+            "properties.title_one",
+            &[("name", &fit(&printable(&only.name), NAME_CELLS))],
+        ),
+        many => porthmos_core::i18n::text_with("properties.title_many", &[("count", &many.len().to_string())]),
     }
 }
 

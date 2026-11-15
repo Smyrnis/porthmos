@@ -112,7 +112,7 @@ fn small_selections_show_bytes_with_a_unit() {
 
 #[test]
 fn the_keyring_text_shows_only_while_waiting() {
-    assert_eq!(keyring_text(true), Some("Waiting for the keyring\u{2026}"));
+    assert_eq!(keyring_text(true), Some("Waiting for the keyring\u{2026}".to_string()));
     assert_eq!(keyring_text(false), None);
 }
 

@@ -1,4 +1,5 @@
 use iced::Point;
+use porthmos_core::i18n::label as tr;
 
 use crate::app::PanelSide;
 use crate::shortcuts::Action;
@@ -28,20 +29,20 @@ pub struct MoreState {
 }
 
 pub fn more_items(state: MoreState) -> Vec<(MoreItem, String, bool)> {
-    let hidden = if state.hidden_shown { "Hide hidden files" } else { "Show hidden files" };
+    let hidden = if state.hidden_shown { tr("Hide hidden files") } else { tr("Show hidden files") };
     vec![
-        (MoreItem::Palette, "Command palette…".to_string(), true),
-        (MoreItem::SelectAll, "Select all".to_string(), true),
+        (MoreItem::Palette, tr("Command palette…"), true),
+        (MoreItem::SelectAll, tr("Select all"), true),
         (MoreItem::ToggleHidden, hidden.to_string(), true),
-        (MoreItem::Preview, "Preview".to_string(), state.file),
-        (MoreItem::Edit, "Edit".to_string(), state.file),
-        (MoreItem::Search, "Search…".to_string(), true),
-        (MoreItem::Bookmarks, "Bookmarks…".to_string(), true),
-        (MoreItem::BookmarkHere, "Bookmark this folder".to_string(), true),
-        (MoreItem::History, "Transfer history…".to_string(), true),
-        (MoreItem::Sync, "Synchronize…".to_string(), state.sync),
-        (MoreItem::Reopen, "Reopen last connections".to_string(), state.reopen),
-        (MoreItem::CheckForUpdates, "Check for updates".to_string(), true),
+        (MoreItem::Preview, tr("Preview"), state.file),
+        (MoreItem::Edit, tr("Edit"), state.file),
+        (MoreItem::Search, tr("Search…"), true),
+        (MoreItem::Bookmarks, tr("Bookmarks…"), true),
+        (MoreItem::BookmarkHere, tr("Bookmark this folder"), true),
+        (MoreItem::History, tr("Transfer history…"), true),
+        (MoreItem::Sync, tr("Synchronize…"), state.sync),
+        (MoreItem::Reopen, tr("Reopen last connections"), state.reopen),
+        (MoreItem::CheckForUpdates, tr("Check for updates"), true),
     ]
 }
 
@@ -61,19 +62,19 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            MenuItem::Open => "Open",
-            MenuItem::Preview => "Preview",
-            MenuItem::Edit => "Edit",
-            MenuItem::CopyToOther => "Copy to other panel",
-            MenuItem::MoveToOther => "Move to other panel",
-            MenuItem::Rename => "Rename…",
-            MenuItem::Permissions => "Permissions…",
-            MenuItem::Properties => "Properties…",
-            MenuItem::Delete => "Delete",
-            MenuItem::NewFolder => "New folder",
-            MenuItem::Refresh => "Refresh",
+            MenuItem::Open => tr("Open"),
+            MenuItem::Preview => tr("Preview"),
+            MenuItem::Edit => tr("Edit"),
+            MenuItem::CopyToOther => tr("Copy to other panel"),
+            MenuItem::MoveToOther => tr("Move to other panel"),
+            MenuItem::Rename => tr("Rename…"),
+            MenuItem::Permissions => tr("Permissions…"),
+            MenuItem::Properties => tr("Properties…"),
+            MenuItem::Delete => tr("Delete"),
+            MenuItem::NewFolder => tr("New folder"),
+            MenuItem::Refresh => tr("Refresh"),
         }
     }
 

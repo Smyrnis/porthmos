@@ -1,5 +1,6 @@
 use iced::widget::{column, row, text_input};
 use iced::{Alignment, Element, Font, Length};
+use porthmos_core::i18n::label as tr;
 use porthmos_core::import::ImportSource;
 
 use crate::app::{App, Message};
@@ -31,17 +32,17 @@ fn source_choice<'a>(candidate: ImportSource, chosen: ImportSource, palette: &Pa
     text_button(source_title(candidate), Some(Message::ImportSourceChosen(candidate)), look, palette)
 }
 
-pub fn browse_labels(source: ImportSource) -> Vec<(&'static str, bool)> {
+pub fn browse_labels(source: ImportSource) -> Vec<(String, bool)> {
     match source {
-        ImportSource::Putty => vec![("File\u{2026}", false), ("Folder\u{2026}", true)],
-        ImportSource::FileZilla | ImportSource::WinScp => vec![("Browse\u{2026}", false)],
+        ImportSource::Putty => vec![(tr("File\u{2026}"), false), (tr("Folder\u{2026}"), true)],
+        ImportSource::FileZilla | ImportSource::WinScp => vec![(tr("Browse\u{2026}"), false)],
     }
 }
 
 fn browse_buttons<'a>(source: ImportSource, waiting: Option<u64>, palette: &Palette) -> Element<'a, Message> {
     row(browse_labels(source).into_iter().map(|(title, folder)| {
         let look = if read_enabled(waiting) { Look::Normal } else { Look::Disabled };
-        text_button(title, read_enabled(waiting).then_some(Message::ImportBrowsePressed(folder)), look, palette)
+        text_button(&title, read_enabled(waiting).then_some(Message::ImportBrowsePressed(folder)), look, palette)
     }))
     .spacing(6)
     .into()
@@ -52,7 +53,7 @@ pub fn body<'a>(
 ) -> Element<'a, Message> {
     let sources =
         row(ImportSource::ALL.into_iter().map(|candidate| source_choice(candidate, source, palette))).spacing(6);
-    let mut input = text_input("Path of the file or folder", path)
+    let mut input = text_input(&tr("Path of the file or folder"), path)
         .style(crate::view::input::style(palette))
         .id(App::import_input_id())
         .size(13.0)
@@ -64,7 +65,7 @@ pub fn body<'a>(
     let path_line = row![input.width(Length::Fill), browse].spacing(8).align_y(Alignment::Center);
     let mut content = column![sources, path_line, wrapped_label(source.hint(), palette.fg_dim)].spacing(8);
     if waiting.is_some() {
-        content = content.push(label("Reading\u{2026}", palette.fg_dim));
+        content = content.push(label(tr("Reading\u{2026}"), palette.fg_dim));
     }
     if let Some(error) = error {
         content = content.push(wrapped_label(error.clone(), palette.err));
@@ -74,12 +75,12 @@ pub fn body<'a>(
 
 pub fn buttons<'a>(waiting: Option<u64>, palette: &Palette) -> Element<'a, Message> {
     let read = text_button(
-        "Read",
+        &tr("Read"),
         read_enabled(waiting).then_some(Message::ImportReadPressed),
         if read_enabled(waiting) { Look::Primary } else { Look::Disabled },
         palette,
     );
-    row![read, button("Cancel", cancel_message(), palette)].spacing(8).into()
+    row![read, button(&tr("Cancel"), cancel_message(), palette)].spacing(8).into()
 }
 
 #[cfg(test)]

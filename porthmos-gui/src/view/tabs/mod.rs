@@ -1,5 +1,6 @@
 use iced::widget::{button, container, mouse_area, row, space, stack, svg};
 use iced::{Alignment, Element, Length};
+use porthmos_core::i18n::label as tr;
 
 use super::button::flat;
 use super::{bold_label, filled, label};
@@ -23,7 +24,7 @@ pub fn strip(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
     let local_active = app.sessions().is_empty() || app.active_side() == crate::app::PanelSide::Local;
     let local_color = if local_active { palette.fg_bright } else { palette.fg_muted };
-    let mut tabs = row![container(label("Local", local_color)).padding([6.0, 14.0])].align_y(Alignment::Center);
+    let mut tabs = row![container(label(tr("Local"), local_color)).padding([6.0, 14.0])].align_y(Alignment::Center);
     for (index, tab) in app.sessions().names().into_iter().enumerate() {
         let (title, color) = match (tab.healthy, tab.active) {
             (false, _) => (format!("! {}", tab.name), palette.err),
