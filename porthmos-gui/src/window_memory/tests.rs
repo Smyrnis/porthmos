@@ -229,3 +229,54 @@ fn the_saved_file_is_private_to_the_user() {
 
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
 }
+
+#[test]
+fn a_maximized_window_is_remembered_beside_its_normal_size() {
+    let mut memory = WindowMemory::default();
+    memory.resized(WindowKind::Main, Size::new(900.0, 640.0));
+    memory.maximized(WindowKind::Main, true);
+
+    let settings = memory.applied_to(WindowKind::Main, defaults());
+
+    assert!(settings.maximized);
+    assert_eq!(settings.size, Size::new(900.0, 640.0));
+}
+
+#[test]
+fn nothing_remembered_does_not_maximize() {
+    let settings = WindowMemory::default().applied_to(WindowKind::Main, defaults());
+
+    assert!(!settings.maximized);
+}
+
+#[test]
+fn the_maximized_state_belongs_to_its_own_window_kind() {
+    let mut memory = WindowMemory::default();
+    memory.maximized(WindowKind::Search, true);
+
+    assert!(!memory.applied_to(WindowKind::Main, defaults()).maximized);
+    assert!(memory.applied_to(WindowKind::Search, defaults()).maximized);
+}
+
+#[test]
+fn the_maximized_state_survives_saving_and_loading() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut memory = WindowMemory::default();
+    memory.maximized(WindowKind::Main, true);
+
+    memory.save(&file_in(dir.path())).unwrap();
+    let loaded = WindowMemory::load(&file_in(dir.path()));
+
+    assert_eq!(loaded.memory, memory);
+    assert!(loaded.memory.applied_to(WindowKind::Main, defaults()).maximized);
+}
+
+#[test]
+fn a_file_without_the_maximized_key_loads_as_not_maximized() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file_in(dir.path()), "[main]\nwidth = 900.0\nheight = 640.0\n").unwrap();
+
+    let loaded = WindowMemory::load(&file_in(dir.path()));
+
+    assert!(!loaded.memory.applied_to(WindowKind::Main, defaults()).maximized);
+}

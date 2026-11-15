@@ -228,8 +228,8 @@ fn closing_the_main_window_with_search_open_cancels_the_search_and_closes_its_wi
 fn quitting_saves_the_window_sizes_and_positions() {
     let mut harness = Harness::with_window_memory(Default::default());
     let main = harness.main_id();
-    harness.press(Message::WindowSized(main, iced::Size::new(900.0, 600.0)));
-    harness.press(Message::WindowMoved(main, iced::Point::new(25.0, 35.0)));
+    harness.press(Message::WindowSizeSettled(main, iced::Size::new(900.0, 600.0), false));
+    harness.press(Message::WindowMoveSettled(main, iced::Point::new(25.0, 35.0), false));
 
     harness.press(Message::CloseRequested);
 
@@ -244,7 +244,7 @@ fn a_secondary_window_closed_earlier_is_still_saved_on_quit() {
     let mut harness = Harness::with_window_memory(Default::default());
     harness.press(Message::ActionRequested(crate::shortcuts::Action::Settings));
     let settings_id = harness.settings_id().expect("settings window is open");
-    harness.press(Message::WindowSized(settings_id, iced::Size::new(640.0, 480.0)));
+    harness.press(Message::WindowSizeSettled(settings_id, iced::Size::new(640.0, 480.0), false));
     harness.press(Message::WindowCloseRequested(settings_id));
 
     harness.press(Message::CloseRequested);

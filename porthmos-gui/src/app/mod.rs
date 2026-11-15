@@ -107,9 +107,12 @@ pub enum Message {
     Core(Event),
     CloseRequested,
     WindowCloseRequested(window::Id),
+    WindowClosed(window::Id),
     WindowKey(window::Id, KeyPress),
     WindowSized(window::Id, Size),
     WindowMoved(window::Id, Point),
+    WindowSizeSettled(window::Id, Size, bool),
+    WindowMoveSettled(window::Id, Point, bool),
     FromWindow(window::Id, Box<Message>),
     MainWindowOpened,
     WindowOpened(window::Id),
@@ -1140,9 +1143,12 @@ impl App {
             }
             Message::CloseRequested => return self.request_close(),
             Message::WindowCloseRequested(id) => return self.window_close_requested(id),
+            Message::WindowClosed(id) => return self.window_closed(id),
             Message::WindowKey(id, press) => return self.window_key(id, press),
-            Message::WindowSized(id, size) => self.window_sized(id, size),
-            Message::WindowMoved(id, position) => self.windows.set_position(id, position),
+            Message::WindowSized(id, size) => return self.window_sized(id, size),
+            Message::WindowMoved(id, position) => return self.window_moved(id, position),
+            Message::WindowSizeSettled(id, size, maximized) => self.window_size_settled(id, size, maximized),
+            Message::WindowMoveSettled(id, position, maximized) => self.window_move_settled(id, position, maximized),
             Message::FromWindow(id, inner) => {
                 if self.is_main(id) {
                     return self.handle(*inner);
@@ -2254,6 +2260,7 @@ impl App {
             self.native_subscription(),
             self.staging_subscription(),
             self.notice_subscription(),
+                iced::Event::Window(window::Event::Closed) => Some(Message::WindowClosed(window)),
             self.desktop.subscription().map(Message::Desktop),
             self.processes.subscription().map(Message::ProcessFinished),
             event::listen_with(|event, _, window| {

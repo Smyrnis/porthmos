@@ -159,8 +159,8 @@ fn the_search_window_is_a_third_kind_with_its_own_size_and_title() {
 fn a_closed_window_reopens_with_the_size_and_position_it_last_had() {
     let (mut windows, _) = registry();
     let (id, _) = open_new(&mut windows, WindowKind::Search);
-    windows.set_size(id, Size::new(900.0, 650.0));
-    windows.set_position(id, Point::new(30.0, 70.0));
+    windows.remember_size(id, Size::new(900.0, 650.0));
+    windows.remember_position(id, Point::new(30.0, 70.0));
     windows.close(id);
 
     let (_, settings) = open_new(&mut windows, WindowKind::Search);
@@ -173,7 +173,7 @@ fn a_closed_window_reopens_with_the_size_and_position_it_last_had() {
 fn a_window_that_was_never_moved_opens_at_the_default_position() {
     let (mut windows, _) = registry();
     let (id, _) = open_new(&mut windows, WindowKind::Settings);
-    windows.set_size(id, Size::new(900.0, 650.0));
+    windows.remember_size(id, Size::new(900.0, 650.0));
     windows.close(id);
 
     let (_, settings) = open_new(&mut windows, WindowKind::Settings);
@@ -184,8 +184,8 @@ fn a_window_that_was_never_moved_opens_at_the_default_position() {
 #[test]
 fn the_main_window_geometry_is_remembered_without_being_reopened() {
     let (mut windows, main) = registry();
-    windows.set_size(main, Size::new(1000.0, 640.0));
-    windows.set_position(main, Point::new(5.0, 6.0));
+    windows.remember_size(main, Size::new(1000.0, 640.0));
+    windows.remember_position(main, Point::new(5.0, 6.0));
 
     let settings = windows.memory().applied_to(WindowKind::Main, main_window::settings());
 
@@ -197,7 +197,7 @@ fn the_main_window_geometry_is_remembered_without_being_reopened() {
 fn moving_an_unknown_window_is_ignored() {
     let (mut windows, _) = registry();
 
-    windows.set_position(window::Id::unique(), Point::new(1.0, 2.0));
+    windows.remember_position(window::Id::unique(), Point::new(1.0, 2.0));
 
     assert_eq!(windows.memory(), &WindowMemory::default());
 }
@@ -214,4 +214,48 @@ fn remembered_geometry_given_to_the_registry_shapes_the_windows_it_opens() {
 
     assert_eq!(settings.size, Size::new(950.0, 600.0));
     assert_eq!(position_of(&settings), Some(Point::new(11.0, 12.0)));
+}
+
+#[test]
+fn a_live_size_is_not_remembered_until_it_is_settled() {
+    let (mut windows, main) = registry();
+
+    windows.set_size(main, Size::new(1000.0, 640.0));
+
+    assert_eq!(windows.size_of(main), Some(Size::new(1000.0, 640.0)));
+    assert_eq!(windows.memory(), &WindowMemory::default());
+}
+
+#[test]
+fn a_maximized_window_reopens_maximized_with_the_size_it_had_before() {
+    let (mut windows, _) = registry();
+    let (id, _) = open_new(&mut windows, WindowKind::Search);
+    windows.remember_size(id, Size::new(900.0, 650.0));
+    windows.remember_maximized(id, true);
+    windows.close(id);
+
+    let (_, settings) = open_new(&mut windows, WindowKind::Search);
+
+    assert!(settings.maximized);
+    assert_eq!(settings.size, Size::new(900.0, 650.0));
+}
+
+#[test]
+fn restoring_a_window_clears_the_maximized_memory() {
+    let (mut windows, main) = registry();
+    windows.remember_maximized(main, true);
+
+    windows.remember_maximized(main, false);
+
+    let settings = windows.memory().applied_to(WindowKind::Main, main_window::settings());
+    assert!(!settings.maximized);
+}
+
+#[test]
+fn remembering_the_maximized_state_of_an_unknown_window_is_ignored() {
+    let (mut windows, _) = registry();
+
+    windows.remember_maximized(window::Id::unique(), true);
+
+    assert_eq!(windows.memory(), &WindowMemory::default());
 }

@@ -147,7 +147,7 @@ fn a_move_of_the_main_window_is_remembered() {
     let mut harness = Harness::new();
     let main = harness.main_id();
 
-    harness.press(Message::WindowMoved(main, Point::new(150.0, 90.0)));
+    harness.press(Message::WindowMoveSettled(main, Point::new(150.0, 90.0), false));
 
     let settings = harness.app.windows.memory().applied_to(WindowKind::Main, crate::main_window::settings());
     assert!(matches!(settings.position, window::Position::Specific(p) if p == Point::new(150.0, 90.0)));
@@ -159,7 +159,7 @@ fn a_move_of_a_secondary_window_is_remembered_under_its_own_kind() {
     harness.press(Message::ActionRequested(crate::shortcuts::Action::Settings));
     let settings_id = harness.settings_id().expect("settings window is open");
 
-    harness.press(Message::WindowMoved(settings_id, Point::new(7.0, 8.0)));
+    harness.press(Message::WindowMoveSettled(settings_id, Point::new(7.0, 8.0), false));
 
     let memory = harness.app.windows.memory();
     let settings = memory.applied_to(WindowKind::Settings, crate::main_window::settings());
@@ -172,7 +172,7 @@ fn a_move_of_a_secondary_window_is_remembered_under_its_own_kind() {
 fn a_move_of_an_unknown_window_is_ignored() {
     let mut harness = Harness::new();
 
-    harness.press(Message::WindowMoved(window::Id::unique(), Point::new(1.0, 1.0)));
+    harness.press(Message::WindowMoveSettled(window::Id::unique(), Point::new(1.0, 1.0), false));
 
     assert_eq!(harness.app.windows.memory(), &crate::window_memory::WindowMemory::default());
 }
@@ -183,7 +183,7 @@ fn a_resize_of_a_secondary_window_is_remembered() {
     harness.press(Message::ActionRequested(crate::shortcuts::Action::Settings));
     let settings_id = harness.settings_id().expect("settings window is open");
 
-    harness.press(Message::WindowSized(settings_id, Size::new(640.0, 480.0)));
+    harness.press(Message::WindowSizeSettled(settings_id, Size::new(640.0, 480.0), false));
 
     let settings = harness.app.windows.memory().applied_to(WindowKind::Settings, crate::main_window::settings());
     assert_eq!(settings.size, Size::new(640.0, 480.0));
@@ -197,4 +197,124 @@ fn the_remembered_geometry_survives_the_main_window_being_registered() {
 
     let settings = harness.app.windows.memory().applied_to(WindowKind::Search, crate::main_window::settings());
     assert_eq!(settings.size, Size::new(777.0, 555.0));
+}
+
+#[test]
+fn a_search_window_destroyed_without_a_close_request_is_forgotten() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Search));
+    let id = harness.search_id().unwrap();
+
+    harness.press(Message::WindowClosed(id));
+
+    assert!(harness.app.search_state().is_none());
+    assert!(harness.app.window_id_of(WindowKind::Search).is_none());
+}
+
+#[test]
+fn a_settings_window_destroyed_without_a_close_request_is_forgotten() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+    let id = harness.app.window_id_of(WindowKind::Settings).unwrap();
+
+    harness.press(Message::WindowClosed(id));
+
+    assert!(harness.app.window_id_of(WindowKind::Settings).is_none());
+}
+
+#[test]
+fn a_connections_window_destroyed_without_a_close_request_closes_the_manager() {
+    let mut harness = Harness::new();
+    harness.press(Message::ManagerToggled);
+    let id = harness.connections_id().unwrap();
+
+    harness.press(Message::WindowClosed(id));
+
+    assert!(!harness.app.manager_open());
+    assert!(harness.app.window_id_of(WindowKind::Connections).is_none());
+}
+
+#[test]
+fn the_destruction_of_the_main_window_or_an_unknown_one_changes_nothing() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Search));
+    let main = harness.app.main_window();
+
+    harness.press(Message::WindowClosed(main));
+    harness.press(Message::WindowClosed(window::Id::unique()));
+
+    assert!(harness.app.search_state().is_some());
+    assert!(harness.app.window_id_of(WindowKind::Main).is_some());
+}
+
+#[test]
+fn a_resize_is_checked_for_maximization_before_it_is_remembered() {
+    let mut harness = Harness::new();
+    let main = harness.main_id();
+
+    let units = harness.app.update(Message::WindowSized(main, Size::new(1300.0, 800.0))).units();
+
+    assert_eq!(units, 1);
+    let remembered = harness.app.windows.memory().applied_to(WindowKind::Main, crate::main_window::settings());
+    assert_eq!(remembered.size, crate::main_window::settings().size);
+}
+
+#[test]
+fn a_move_is_checked_for_maximization_before_it_is_remembered() {
+    let mut harness = Harness::new();
+    let main = harness.main_id();
+
+    let units = harness.app.update(Message::WindowMoved(main, Point::new(10.0, 10.0))).units();
+
+    assert_eq!(units, 1);
+    assert_eq!(harness.app.windows.memory(), &crate::window_memory::WindowMemory::default());
+}
+
+#[test]
+fn an_unknown_window_is_not_checked() {
+    let mut harness = Harness::new();
+
+    let sized = harness.app.update(Message::WindowSized(window::Id::unique(), Size::new(1.0, 1.0))).units();
+    let moved = harness.app.update(Message::WindowMoved(window::Id::unique(), Point::new(1.0, 1.0))).units();
+
+    assert_eq!((sized, moved), (0, 0));
+}
+
+#[test]
+fn maximizing_the_main_window_keeps_the_size_and_position_it_had_before() {
+    let mut harness = Harness::new();
+    let main = harness.main_id();
+    harness.press(Message::WindowSizeSettled(main, Size::new(900.0, 640.0), false));
+    harness.press(Message::WindowMoveSettled(main, Point::new(40.0, 50.0), false));
+
+    harness.press(Message::WindowSizeSettled(main, Size::new(1920.0, 1080.0), true));
+    harness.press(Message::WindowMoveSettled(main, Point::new(0.0, 0.0), true));
+
+    let settings = harness.app.windows.memory().applied_to(WindowKind::Main, crate::main_window::settings());
+    assert!(settings.maximized);
+    assert_eq!(settings.size, Size::new(900.0, 640.0));
+    assert!(matches!(settings.position, window::Position::Specific(p) if p == Point::new(40.0, 50.0)));
+}
+
+#[test]
+fn restoring_the_main_window_forgets_the_maximized_state_and_remembers_the_new_size() {
+    let mut harness = Harness::new();
+    let main = harness.main_id();
+    harness.press(Message::WindowSizeSettled(main, Size::new(1920.0, 1080.0), true));
+
+    harness.press(Message::WindowSizeSettled(main, Size::new(1000.0, 700.0), false));
+
+    let settings = harness.app.windows.memory().applied_to(WindowKind::Main, crate::main_window::settings());
+    assert!(!settings.maximized);
+    assert_eq!(settings.size, Size::new(1000.0, 700.0));
+}
+
+#[test]
+fn the_live_window_size_follows_every_resize_even_while_maximized() {
+    let mut harness = Harness::new();
+    let main = harness.main_id();
+
+    harness.press(Message::WindowSized(main, Size::new(1920.0, 1080.0)));
+
+    assert_eq!(harness.app.windows.size_of(main), Some(Size::new(1920.0, 1080.0)));
 }
