@@ -233,6 +233,18 @@ test_the_release_builds_the_installer_only_for_the_windows_window_app() {
   grep -q 'installer/check.ps1' "$ROOT/.github/workflows/ci.yml"
 }
 
+test_the_windows_installer_is_a_full_wizard_with_every_page() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  grep -q '^WizardStyle=modern$' "$script"
+  grep -q '^DisableWelcomePage=no$' "$script"
+  grep -q '^DisableDirPage=no$' "$script"
+  grep -q '^DisableReadyPage=no$' "$script"
+  grep -q '^DisableFinishedPage=no$' "$script"
+  grep -q '^LicenseFile=' "$script"
+  grep -q '^\[Tasks\]' "$script"
+  grep -Eq '^Filename: "\{app\}\\porthmos-gui.exe"; Description: .*Flags: nowait postinstall skipifsilent$' "$script"
+}
+
 set +e
 for name in $(declare -F | awk '{print $3}' | grep '^test_'); do
   ( set -eu; "$name" ) > "$WORK/log-$name" 2>&1
