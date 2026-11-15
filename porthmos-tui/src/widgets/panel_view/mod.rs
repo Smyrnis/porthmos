@@ -4,7 +4,7 @@ use chrono::{DateTime, Local};
 pub use porthmos_core::listing::Row;
 use porthmos_core::{
     Completion, Entry, VfsPath,
-    listing::{Listing, SortKey, SortOrder, SortSpec},
+    listing::{Listing, SortOrder, SortSpec},
 };
 use ratatui::{
     Frame,
@@ -449,10 +449,7 @@ fn render_footer(frame: &mut Frame, area: Rect, panel: &PanelView, theme: &Theme
 }
 
 fn sort_indicator(spec: SortSpec) -> String {
-    let key = match spec.key {
-        SortKey::Name => "name",
-        SortKey::Size => "size",
-    };
+    let key = spec.key.label();
     let arrow = match spec.order {
         SortOrder::Ascending => '\u{2191}',
         SortOrder::Descending => '\u{2193}',

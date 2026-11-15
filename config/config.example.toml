@@ -5,7 +5,7 @@
 [panel]
 # Show dotfiles when a folder is opened.
 show_hidden = false
-# "name" or "size"
+# "name", "size", "modified" or "type"
 sort_key = "name"
 # "ascending" or "descending"
 sort_order = "ascending"

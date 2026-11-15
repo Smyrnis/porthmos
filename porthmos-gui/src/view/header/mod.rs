@@ -51,7 +51,16 @@ pub fn columns<'a>(side: PanelSide, panel: &Panel, shown: Columns, palette: &Pal
         line = line.push(sortable(side, panel, SortKey::Size, "Size", Length::Fixed(SIZE_WIDTH), right, palette));
     }
     if shown.modified {
-        line = line.push(plain("  Modified", MODIFIED_WIDTH, palette));
+        let left = alignment::Horizontal::Left;
+        line = line.push(sortable(
+            side,
+            panel,
+            SortKey::Modified,
+            "  Modified",
+            Length::Fixed(MODIFIED_WIDTH),
+            left,
+            palette,
+        ));
     }
     if shown.owner {
         line = line.push(plain("  Owner", OWNER_WIDTH, palette));

@@ -197,12 +197,11 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
     let show_hidden = file.panel.show_hidden.unwrap_or(false);
 
     let key = match file.panel.sort_key.as_deref() {
-        None | Some("name") => SortKey::Name,
-        Some("size") => SortKey::Size,
-        Some(other) => {
-            warnings.push(format!("unknown panel.sort_key \"{other}\", using \"name\""));
+        None => SortKey::Name,
+        Some(text) => SortKey::parse(text).unwrap_or_else(|| {
+            warnings.push(format!("unknown panel.sort_key \"{text}\", using \"name\""));
             SortKey::Name
-        }
+        }),
     };
 
     let order = match file.panel.sort_order.as_deref() {

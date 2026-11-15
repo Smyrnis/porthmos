@@ -352,6 +352,31 @@ fn the_sort_header_click_cycles_direction_on_the_second_click() {
 }
 
 #[test]
+fn the_modified_header_click_sorts_by_modification_time() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+
+    harness.press(Message::HeaderClicked(PanelSide::Local, SortKey::Modified));
+
+    let spec = harness.app.local().panel.sort_spec();
+    assert_eq!((spec.key, spec.order), (SortKey::Modified, SortOrder::Ascending));
+}
+
+#[test]
+fn the_sort_shortcut_reaches_the_type_sort() {
+    let mut harness = Harness::new();
+    fill_local(&mut harness, &["a", "b"]);
+
+    let mut reached = Vec::new();
+    for _ in 0..8 {
+        let _ = harness.app.perform(Action::CycleSort);
+        reached.push(harness.app.local().panel.sort_spec().key);
+    }
+
+    assert!(reached.contains(&SortKey::Type), "{reached:?}");
+    assert!(reached.contains(&SortKey::Modified), "{reached:?}");
+}
+#[test]
 fn clicking_a_tab_activates_that_connection() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha");

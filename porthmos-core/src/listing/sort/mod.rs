@@ -6,6 +6,25 @@ use porthmos_vfs::Entry;
 pub enum SortKey {
     Name,
     Size,
+    Modified,
+    Type,
+}
+
+impl SortKey {
+    pub const ALL: [SortKey; 4] = [SortKey::Name, SortKey::Size, SortKey::Modified, SortKey::Type];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Name => "name",
+            SortKey::Size => "size",
+            SortKey::Modified => "modified",
+            SortKey::Type => "type",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<SortKey> {
+        SortKey::ALL.into_iter().find(|key| key.label() == text)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,11 +47,13 @@ impl Default for SortSpec {
 
 impl SortSpec {
     pub fn cycled(self) -> SortSpec {
-        match (self.key, self.order) {
-            (SortKey::Name, SortOrder::Ascending) => SortSpec { key: SortKey::Name, order: SortOrder::Descending },
-            (SortKey::Name, SortOrder::Descending) => SortSpec { key: SortKey::Size, order: SortOrder::Ascending },
-            (SortKey::Size, SortOrder::Ascending) => SortSpec { key: SortKey::Size, order: SortOrder::Descending },
-            (SortKey::Size, SortOrder::Descending) => SortSpec { key: SortKey::Name, order: SortOrder::Ascending },
+        match self.order {
+            SortOrder::Ascending => SortSpec { key: self.key, order: SortOrder::Descending },
+            SortOrder::Descending => {
+                let position = SortKey::ALL.iter().position(|key| *key == self.key).unwrap_or(0);
+                let next = SortKey::ALL[(position + 1) % SortKey::ALL.len()];
+                SortSpec { key: next, order: SortOrder::Ascending }
+            }
         }
     }
 }
@@ -45,12 +66,21 @@ fn compare_by(a: &Entry, b: &Entry, spec: SortSpec) -> Ordering {
     let primary = match spec.key {
         SortKey::Name => natural_cmp(&a.name, &b.name),
         SortKey::Size => a.size.cmp(&b.size),
+        SortKey::Modified => a.modified.cmp(&b.modified),
+        SortKey::Type => natural_cmp(extension_of(&a.name), extension_of(&b.name)),
     };
     let primary = match spec.order {
         SortOrder::Ascending => primary,
         SortOrder::Descending => primary.reverse(),
     };
     primary.then_with(|| natural_cmp(&a.name, &b.name)).then_with(|| a.name.cmp(&b.name))
+}
+
+fn extension_of(name: &str) -> &str {
+    match name.rfind('.') {
+        Some(0) | None => "",
+        Some(dot) => &name[dot + 1..],
+    }
 }
 
 fn take_digits(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {

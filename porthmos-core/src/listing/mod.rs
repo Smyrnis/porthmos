@@ -35,6 +35,10 @@ impl Listing {
         &self.path
     }
 
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }

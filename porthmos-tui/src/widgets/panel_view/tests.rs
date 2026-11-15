@@ -2,6 +2,8 @@ use chrono::{Local, TimeZone};
 use ratatui::{Terminal, backend::TestBackend};
 use unicode_width::UnicodeWidthStr;
 
+use porthmos_core::listing::SortKey;
+
 use super::*;
 use crate::{
     app::testing::{cell_fg, cursor_name, find_text},
@@ -590,6 +592,19 @@ fn the_sort_indicator_follows_the_sort_spec() {
 }
 
 #[test]
+#[test]
+fn the_sort_indicator_names_the_new_sort_keys() {
+    for (key, label) in [(SortKey::Modified, "modified"), (SortKey::Type, "type")] {
+        let spec = SortSpec { key, order: SortOrder::Ascending };
+        let mut panel = PanelView::new(VfsPath::from("/d"), spec, false);
+        panel.replace_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
+
+        let terminal = drawn(&panel, 40, 8, true);
+
+        let expected = format!("{label} \u{2191}");
+        assert!(row_string(&terminal, 0).trim_end().ends_with(&expected), "{label}");
+    }
+}
 fn a_long_path_is_cut_from_the_left_with_an_ellipsis() {
     let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
     let now = fixed_now();

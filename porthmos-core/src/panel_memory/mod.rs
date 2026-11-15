@@ -24,10 +24,7 @@ pub struct PanelMemory {
 
 impl PanelMemory {
     pub fn of(settings: &PanelSettings) -> Self {
-        let key = match settings.sort.key {
-            SortKey::Name => "name",
-            SortKey::Size => "size",
-        };
+        let key = settings.sort.key.label();
         let order = match settings.sort.order {
             SortOrder::Ascending => "ascending",
             SortOrder::Descending => "descending",
@@ -40,11 +37,7 @@ impl PanelMemory {
     }
 
     pub fn applied_to(&self, base: &PanelSettings) -> PanelSettings {
-        let key = match self.sort_key.as_deref() {
-            Some("name") => SortKey::Name,
-            Some("size") => SortKey::Size,
-            _ => base.sort.key,
-        };
+        let key = self.sort_key.as_deref().and_then(SortKey::parse).unwrap_or(base.sort.key);
         let order = match self.sort_order.as_deref() {
             Some("ascending") => SortOrder::Ascending,
             Some("descending") => SortOrder::Descending,

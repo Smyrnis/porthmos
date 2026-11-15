@@ -56,20 +56,76 @@ fn equal_sizes_tiebreak_ascending_by_name() {
 }
 
 #[test]
-fn cycled_advances_name_asc_desc_size_asc_desc_then_wraps() {
+fn cycled_walks_every_key_ascending_then_descending_and_wraps() {
     let start = SortSpec::default();
-    assert_eq!(start, SortSpec { key: SortKey::Name, order: SortOrder::Ascending });
+    let mut seen = vec![start];
+    let mut spec = start.cycled();
+    while spec != start {
+        seen.push(spec);
+        spec = spec.cycled();
+    }
 
-    let s1 = start.cycled();
-    assert_eq!(s1, SortSpec { key: SortKey::Name, order: SortOrder::Descending });
+    let expected: Vec<SortSpec> = [SortKey::Name, SortKey::Size, SortKey::Modified, SortKey::Type]
+        .into_iter()
+        .flat_map(|key| {
+            [SortOrder::Ascending, SortOrder::Descending].into_iter().map(move |order| SortSpec { key, order })
+        })
+        .collect();
+    assert_eq!(seen, expected);
+}
 
-    let s2 = s1.cycled();
-    assert_eq!(s2, SortSpec { key: SortKey::Size, order: SortOrder::Ascending });
+fn dated(name: &str, modified: Option<u64>) -> Entry {
+    Entry { modified, ..entry(name, false, 0) }
+}
 
-    let s3 = s2.cycled();
-    assert_eq!(s3, SortSpec { key: SortKey::Size, order: SortOrder::Descending });
+#[test]
+fn modified_ascending_puts_the_oldest_first_and_unknown_times_before_them() {
+    let mut entries = vec![dated("new", Some(300)), dated("unknown", None), dated("old", Some(100))];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Modified, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["unknown", "old", "new"]);
+}
 
-    assert_eq!(s3.cycled(), start);
+#[test]
+fn modified_descending_puts_the_newest_first() {
+    let mut entries = vec![dated("old", Some(100)), dated("new", Some(300)), dated("mid", Some(200))];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Modified, order: SortOrder::Descending });
+    assert_eq!(names(&entries), vec!["new", "mid", "old"]);
+}
+
+#[test]
+fn files_modified_at_the_same_time_fall_back_to_name_order() {
+    let mut entries = vec![dated("b", Some(5)), dated("a", Some(5))];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Modified, order: SortOrder::Descending });
+    assert_eq!(names(&entries), vec!["a", "b"]);
+}
+
+#[test]
+fn type_groups_files_by_extension_ignoring_case() {
+    let mut entries =
+        vec![entry("z.TXT", false, 0), entry("a.rs", false, 0), entry("m.txt", false, 0), entry("b.md", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["b.md", "a.rs", "m.txt", "z.TXT"]);
+}
+
+#[test]
+fn files_without_an_extension_come_first_under_type_ascending() {
+    let mut entries = vec![entry("a.txt", false, 0), entry("Makefile", false, 0), entry(".gitignore", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec![".gitignore", "Makefile", "a.txt"]);
+}
+
+#[test]
+fn only_the_last_extension_counts_for_type() {
+    let mut entries = vec![entry("a.tar.gz", false, 0), entry("b.zip", false, 0), entry("c.gz", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Ascending });
+    assert_eq!(names(&entries), vec!["a.tar.gz", "c.gz", "b.zip"]);
+}
+
+#[test]
+fn type_descending_reverses_the_extension_order_but_keeps_folders_first() {
+    let mut entries = vec![entry("a.rs", false, 0), entry("dir", true, 0), entry("b.txt", false, 0)];
+    sort_entries(&mut entries, SortSpec { key: SortKey::Type, order: SortOrder::Descending });
+    assert_eq!(names(&entries), vec!["dir", "b.txt", "a.rs"]);
 }
 
 fn sorted_names(input: &[&str], spec: SortSpec) -> Vec<String> {

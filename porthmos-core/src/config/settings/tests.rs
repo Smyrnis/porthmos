@@ -485,3 +485,18 @@ fn the_connection_table_is_not_passed_on_to_the_front_ends() {
 
     assert!(!settings.frontend.contains_key("connection"));
 }
+
+#[test]
+fn settings_from_file_accepts_every_sort_key_by_its_label() {
+    for key in SortKey::ALL {
+        let file = SettingsFile {
+            panel: PanelSettingsFile { show_hidden: None, sort_key: Some(key.label().to_string()), sort_order: None },
+            ..SettingsFile::default()
+        };
+
+        let (settings, warnings) = settings_from_file(file);
+
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(settings.panel.sort.key, key);
+    }
+}
