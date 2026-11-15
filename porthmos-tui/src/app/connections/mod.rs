@@ -167,6 +167,10 @@ impl App {
     }
 
     pub(super) fn form_choice_changed(&mut self, key: &'static str) {
+        if key == "source" {
+            self.import_source_changed();
+            return;
+        }
         if key != "protocol" {
             return;
         }

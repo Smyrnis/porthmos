@@ -533,6 +533,7 @@ fn outcome(test: &mut TestApp) -> (&'static str, Vec<Command>, Option<String>, S
         Some(Dialog::Message(_)) => "message",
         Some(Dialog::Diff(_)) => "diff",
         Some(Dialog::Properties(_)) => "properties",
+        Some(Dialog::Import(_)) => "import",
     };
     (dialog, test.sent(), test.notification(), test.app.screen)
 }

@@ -59,6 +59,7 @@ mod edit;
 mod filter;
 mod hints;
 mod history;
+mod import;
 mod palette;
 mod path_edit;
 mod preview;
@@ -107,6 +108,8 @@ enum PendingAction {
     StartSync { session: SessionId },
     ConfirmSyncDelete { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     SpeedLimit,
+    ImportSource,
+    Import { import_id: u64 },
 }
 
 enum Reveal {
@@ -170,6 +173,7 @@ pub struct App {
     next_preview_id: RequestId,
     next_count_id: RequestId,
     next_properties_id: RequestId,
+    import: import::ImportState,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -234,6 +238,7 @@ impl App {
             next_preview_id: 0,
             next_count_id: 0,
             next_properties_id: 0,
+            import: import::ImportState::default(),
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
@@ -539,6 +544,8 @@ impl App {
                 self.sessions.set_preserves_times(session, preserves_times)
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
+            Event::ImportPlanReady(plan) => self.apply_import_plan(plan),
+            Event::ImportDone { added, skipped, .. } => self.apply_import_done(added, skipped),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
             Event::Update(state) => self.apply_update_event(state),
         }

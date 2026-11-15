@@ -260,6 +260,8 @@ impl App {
                     | Some(PendingAction::ConfirmQuit)
                     | Some(PendingAction::StartSync { .. })
                     | Some(PendingAction::ConfirmSyncDelete { .. })
+                    | Some(PendingAction::ImportSource)
+                    | Some(PendingAction::Import { .. })
                     | None => {}
                 }
             }
@@ -284,6 +286,7 @@ impl App {
                 }
             }
             DialogOutcome::PropertiesChosen(choice) => self.apply_properties_choice(choice),
+            DialogOutcome::ImportChosen(choice) => self.apply_import_choice(choice),
             DialogOutcome::Removed(index) => {
                 self.core.send(Command::RemoveBookmark { index });
                 if let Some(Dialog::List(list)) = self.dialog.as_mut() {
@@ -315,6 +318,7 @@ impl App {
                     let session = *session;
                     self.submit_sync_options(session, values);
                 }
+                Some(PendingAction::ImportSource) => self.submit_import_source(values),
                 _ => self.dialog = None,
             },
             DialogOutcome::FormTest(values) => self.start_connection_test(values),

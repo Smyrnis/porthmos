@@ -60,6 +60,7 @@ const ACTIONS: &[(Action, &str, Availability)] = &[
     (Action::CancelTransfer, "Cancel all transfers", Availability::Everywhere),
     (Action::SpeedLimit, "Set the speed limit", Availability::Everywhere),
     (Action::CheckForUpdates, "Check for updates", Availability::Everywhere),
+    (Action::ImportConnections, "Import connections from FileZilla, WinSCP or PuTTY", Availability::Everywhere),
 ];
 
 const PAGE: isize = 5;
