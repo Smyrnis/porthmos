@@ -337,6 +337,11 @@ impl App {
     }
 
     fn answer_displaced_question(&mut self) {
+        if let Some(&PendingAction::Properties { request_id, .. }) = self.pending_action.as_ref() {
+            self.pending_action = None;
+            self.core.send(Command::CancelProperties { request_id });
+            return;
+        }
         let request_id = match &self.pending_action {
             Some(
                 PendingAction::SubmitPassword { request_id }

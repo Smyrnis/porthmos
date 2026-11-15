@@ -10,6 +10,7 @@ mod moves;
 mod pause;
 mod preview;
 mod profiles;
+mod properties;
 mod reconnect;
 mod reopen;
 mod reorder;

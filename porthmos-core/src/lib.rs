@@ -21,6 +21,7 @@ pub mod permissions;
 pub mod persist;
 pub mod preview;
 pub mod profiles;
+pub mod properties;
 mod protocol_info;
 pub mod reopen;
 pub mod secrets;

@@ -163,6 +163,9 @@ pub enum Message {
     EditDoneEditing,
     EditShowDiff,
     EditDiffBack,
+    PropertiesCompute,
+    PropertiesExpectedTyped(String),
+    PropertiesCopyDigest(usize),
     SearchTyped(String),
     SearchRowPressed(usize),
     SearchRowActivated(usize),
@@ -304,6 +307,7 @@ pub struct App {
     tool_version: u64,
     next_preview_id: u64,
     next_count_id: u64,
+    next_properties_id: u64,
     launcher: Launcher,
     processes: ProcessSource,
     jobs: std::collections::HashMap<u64, editing::JobRole>,
@@ -384,6 +388,7 @@ impl App {
             tool_version: 0,
             next_preview_id: 1,
             next_count_id: 0,
+            next_properties_id: 0,
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
             processes,
             jobs: std::collections::HashMap::new(),
@@ -857,6 +862,12 @@ impl App {
             Event::SearchFailed(message) => self.search_failed(message),
             Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
             Event::ContentsCounted { request_id, contents } => self.contents_counted(request_id, contents),
+            Event::MeasureProgress { request_id, measured } => self.properties_progress(request_id, measured),
+            Event::Measured { request_id, result } => self.properties_measured(request_id, result),
+            Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
+                self.properties_checksum_progress(request_id, &path, bytes_done, bytes_total)
+            }
+            Event::Checksummed { request_id, path, result } => self.properties_checksummed(request_id, &path, result),
             Event::LocalShellReady { invocation } => self.shell_ready(invocation),
             Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
             Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
@@ -1240,6 +1251,9 @@ impl App {
                 self.edit_diff_back();
             }
             Message::EditDoneEditing => self.answer_modal(true),
+            Message::PropertiesCompute => self.properties_compute(),
+            Message::PropertiesExpectedTyped(text) => self.properties_expected_typed(text),
+            Message::PropertiesCopyDigest(index) => return self.properties_copy_digest(index),
             message @ (Message::SearchClosed
             | Message::SearchTyped(_)
             | Message::SearchRowPressed(_)
@@ -1692,7 +1706,7 @@ impl App {
         if !accepted && matches!(self.modals.front(), Some(Modal::EditWaiting { .. })) {
             return;
         }
-        if !accepted && self.edit_diff_back() {
+        if !accepted && (self.edit_diff_back() || self.properties_escape()) {
             return;
         }
         let Some(modal) = self.modals.pop() else {
@@ -1700,6 +1714,7 @@ impl App {
         };
         match (accepted, modal) {
             (accepted, Modal::Question(dialog)) => self.answer_question(accepted, dialog),
+            (_, Modal::Properties { request_id, .. }) => self.core.send(Command::CancelProperties { request_id }),
             (accepted, Modal::EditQuestion { edit_id, kind, .. }) => {
                 self.resolve_edit_question(accepted, edit_id, kind)
             }
@@ -2078,6 +2093,7 @@ impl App {
                     self.modals.push(Modal::Permissions { side, entries, mode });
                 }
             }
+            Action::Properties => self.open_properties(side),
             Action::Delete => {
                 let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
                 if !entries.is_empty() {
@@ -2198,6 +2214,7 @@ mod connections;
 mod editing;
 mod palette;
 mod preview;
+mod properties;
 mod quick_connect;
 mod quit;
 mod reopen;

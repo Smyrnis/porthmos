@@ -27,6 +27,7 @@ impl App {
                 _ => self.open_rename_dialog(),
             },
             Action::Permissions => self.open_permissions_dialog(),
+            Action::Properties => self.open_properties_dialog(),
             Action::Delete => match self.screen {
                 Screen::Transfers => self.cancel_selected_row(),
                 Screen::History => self.open_clear_history_dialog(),

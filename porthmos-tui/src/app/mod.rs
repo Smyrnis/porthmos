@@ -62,6 +62,7 @@ mod history;
 mod palette;
 mod path_edit;
 mod preview;
+mod properties;
 mod quick_connect;
 mod render;
 mod search;
@@ -83,6 +84,7 @@ enum PendingAction {
     Mkdir,
     Rename { location: Location, from: VfsPath },
     Permissions { location: Location, paths: Vec<VfsPath> },
+    Properties { request_id: RequestId, location: Location },
     Delete { location: Location, paths: Vec<VfsPath>, count: Option<DeleteCount> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
@@ -167,6 +169,7 @@ pub struct App {
     preview: Option<crate::widgets::preview_view::PreviewView>,
     next_preview_id: RequestId,
     next_count_id: RequestId,
+    next_properties_id: RequestId,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -230,6 +233,7 @@ impl App {
             preview: None,
             next_preview_id: 0,
             next_count_id: 0,
+            next_properties_id: 0,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
@@ -523,6 +527,12 @@ impl App {
             Event::EditsBusy(busy) => self.edits_busy = busy,
             Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
             Event::ContentsCounted { request_id, contents } => self.apply_contents_counted(request_id, contents),
+            Event::MeasureProgress { request_id, measured } => self.apply_measure_progress(request_id, measured),
+            Event::Measured { request_id, result } => self.apply_measured(request_id, result),
+            Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
+                self.apply_checksum_progress(request_id, &path, bytes_done, bytes_total)
+            }
+            Event::Checksummed { request_id, path, result } => self.apply_checksummed(request_id, &path, result),
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
             Event::EditDiff { edit_id, result } => self.apply_edit_diff(edit_id, result),
             Event::SessionCapabilities { session, preserves_times } => {

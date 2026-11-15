@@ -4,6 +4,7 @@ pub mod diff;
 pub mod form;
 pub mod list;
 pub mod message;
+pub mod properties;
 pub mod text_input;
 
 pub use confirm::ConfirmDialog;
@@ -30,6 +31,7 @@ pub enum Dialog {
     Conflict(ConflictDialog),
     Message(message::MessageDialog),
     Diff(diff::DiffDialog),
+    Properties(properties::PropertiesDialog),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -45,6 +47,7 @@ pub enum DialogOutcome {
     FormChoiceChanged { key: &'static str },
     Resolved { resolution: Option<porthmos_core::transfer::conflicts::Resolution>, apply_to_rest: bool },
     DiffChosen(diff::DiffChoice),
+    PropertiesChosen(properties::PropertiesChoice),
 }
 
 impl std::fmt::Debug for DialogOutcome {
@@ -67,6 +70,7 @@ impl std::fmt::Debug for DialogOutcome {
                 .field("apply_to_rest", apply_to_rest)
                 .finish(),
             DialogOutcome::DiffChosen(choice) => f.debug_tuple("DiffChosen").field(choice).finish(),
+            DialogOutcome::PropertiesChosen(choice) => f.debug_tuple("PropertiesChosen").field(choice).finish(),
         }
     }
 }
@@ -111,6 +115,10 @@ impl Dialog {
                 Some(choice) => DialogOutcome::DiffChosen(choice),
                 None => DialogOutcome::Pending,
             },
+            Dialog::Properties(dialog) => match dialog.handle_key(key) {
+                properties::PropertiesChoice::Pending => DialogOutcome::Pending,
+                choice => DialogOutcome::PropertiesChosen(choice),
+            },
         }
     }
 
@@ -124,6 +132,7 @@ impl Dialog {
             Dialog::Conflict(dialog) => conflict::render_conflict(frame, area, dialog, theme),
             Dialog::Message(dialog) => message::render_message(frame, area, dialog, theme),
             Dialog::Diff(dialog) => diff::render_diff(frame, area, dialog, theme),
+            Dialog::Properties(dialog) => properties::render_properties(frame, area, dialog, theme),
         }
     }
 }

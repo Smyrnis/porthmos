@@ -1,3 +1,5 @@
+pub mod properties;
+
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -57,6 +59,11 @@ pub enum Modal {
     Info {
         title: String,
         body: String,
+    },
+    Properties {
+        location: Location,
+        request_id: u64,
+        pane: properties::PropertiesPane,
     },
     ConfirmClearHistory,
     ConfirmDelete {
@@ -184,6 +191,13 @@ pub fn edit_question_title(name: &str, kind: EditQuestionKind) -> String {
     match kind {
         EditQuestionKind::Upload => format!("Upload your changes to {name}?"),
         EditQuestionKind::Conflict => format!("{name} changed on the server while you were editing"),
+    }
+}
+
+pub fn properties_title(entries: &[Entry]) -> String {
+    match entries {
+        [only] => format!("Properties: {}", fit(&printable(&only.name), NAME_CELLS)),
+        many => format!("Properties: {} items", many.len()),
     }
 }
 

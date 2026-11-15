@@ -242,6 +242,7 @@ impl App {
                     Some(PendingAction::SubmitPassword { .. })
                     | Some(PendingAction::SubmitTestPassword { .. })
                     | Some(PendingAction::Delete { .. })
+                    | Some(PendingAction::Properties { .. })
                     | Some(PendingAction::TrustHostKey { .. })
                     | Some(PendingAction::TrustCertificate { .. })
                     | Some(PendingAction::AddConnection)
@@ -282,6 +283,7 @@ impl App {
                     self.answer_edit_diff(edit_id, choice);
                 }
             }
+            DialogOutcome::PropertiesChosen(choice) => self.apply_properties_choice(choice),
             DialogOutcome::Removed(index) => {
                 self.core.send(Command::RemoveBookmark { index });
                 if let Some(Dialog::List(list)) = self.dialog.as_mut() {

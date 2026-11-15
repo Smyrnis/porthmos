@@ -22,6 +22,8 @@ pub enum Scope {
     Edit(u64),
     Search,
     Count,
+    Measure,
+    Checksum,
     Preview,
     PreviewHint,
     Background,

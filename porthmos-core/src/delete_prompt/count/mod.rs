@@ -59,7 +59,7 @@ pub async fn count_contents(
     Ok(Some(count))
 }
 
-fn grouped(number: u64) -> String {
+pub(crate) fn grouped(number: u64) -> String {
     let digits = number.to_string();
     let first = digits.len() % 3;
     let mut groups: Vec<&str> = Vec::new();
@@ -70,7 +70,7 @@ fn grouped(number: u64) -> String {
     groups.join(",")
 }
 
-fn counted(number: u64, singular: &str, plural: &str) -> Option<String> {
+pub(crate) fn counted(number: u64, singular: &str, plural: &str) -> Option<String> {
     match number {
         0 => None,
         1 => Some(format!("1 {singular}")),

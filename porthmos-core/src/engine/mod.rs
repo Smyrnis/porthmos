@@ -202,6 +202,8 @@ pub(crate) struct Engine {
     reconnect: handlers::ReconnectState,
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
+    properties_request: Option<RequestId>,
+    properties_location: Option<Location>,
     preview_busy: bool,
     preview_hint: Option<RequestId>,
     preview_next: Option<(u64, Location, VfsPath)>,
@@ -307,6 +309,8 @@ impl Engine {
             preview_request: None,
             preview_busy: false,
             preview_hint: None,
+            properties_request: None,
+            properties_location: None,
             preview_next: None,
             pause_stops: std::collections::HashSet::new(),
             source_removals: std::collections::HashSet::new(),
@@ -421,6 +425,9 @@ impl Engine {
                 self.count_contents(request_id, location, folders);
             }
             Command::CancelCount => self.cancel_count(),
+            Command::Measure { request_id, location, paths } => self.measure(request_id, location, paths),
+            Command::Checksum { request_id, location, paths } => self.checksum(request_id, location, paths),
+            Command::CancelProperties { request_id } => self.cancel_properties(request_id),
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
             Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
             Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),

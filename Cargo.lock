@@ -5112,6 +5112,7 @@ dependencies = [
  "porthmos-vfs",
  "porthmos-webdav",
  "serde",
+ "sha2 0.10.9",
  "similar",
  "tempfile",
  "tokio",

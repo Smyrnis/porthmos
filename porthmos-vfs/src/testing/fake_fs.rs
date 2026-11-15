@@ -23,7 +23,7 @@ enum Node {
 #[derive(Default)]
 struct Tree {
     nodes: BTreeMap<VfsPath, Node>,
-    failing_read_dirs: BTreeSet<VfsPath>,
+    failing_read_dirs: BTreeMap<VfsPath, ErrorKind>,
     failing_reads: BTreeSet<VfsPath>,
     unopenable: BTreeSet<VfsPath>,
     hanging_reads: BTreeMap<VfsPath, usize>,
@@ -243,7 +243,11 @@ impl FakeFs {
     }
 
     pub fn fail_read_dir(&self, path: impl Into<VfsPath>) -> &Self {
-        self.tree.lock().unwrap().failing_read_dirs.insert(path.into());
+        self.fail_read_dir_with(path, ErrorKind::PermissionDenied)
+    }
+
+    pub fn fail_read_dir_with(&self, path: impl Into<VfsPath>, kind: ErrorKind) -> &Self {
+        self.tree.lock().unwrap().failing_read_dirs.insert(path.into(), kind);
         self
     }
 
@@ -467,8 +471,8 @@ impl FileSystem for FakeFs {
 
     async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let tree = self.tree.lock().unwrap();
-        if tree.failing_read_dirs.contains(dir) {
-            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("Permission denied")));
+        if let Some(kind) = tree.failing_read_dirs.get(dir) {
+            return Err(ProtocolError::new(*kind, anyhow::anyhow!("Directory listing failed")));
         }
         if !tree.is_dir(dir) {
             return Err(not_found(dir));

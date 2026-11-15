@@ -21,8 +21,12 @@ const FILES: &[(Action, &str)] = &[
     (Action::ToggleSelect, "select"),
     (Action::SwitchPanel, "panel"),
 ];
-const FILES_HELP_ONLY: &[(Action, &str)] =
-    &[(Action::GoToPath, "go to path"), (Action::Parent, "parent folder"), (Action::Permissions, "permissions")];
+const FILES_HELP_ONLY: &[(Action, &str)] = &[
+    (Action::GoToPath, "go to path"),
+    (Action::Parent, "parent folder"),
+    (Action::Permissions, "permissions"),
+    (Action::Properties, "properties"),
+];
 const LIST_HELP: &[(Action, &str)] = &[
     (Action::PageUp, "page up"),
     (Action::PageDown, "page down"),

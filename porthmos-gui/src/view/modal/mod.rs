@@ -1,5 +1,6 @@
 mod conflict;
 mod edit_diff;
+mod properties;
 mod sync_options;
 
 use iced::widget::{checkbox, column, container, row, stack, text, text_input};
@@ -189,6 +190,9 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Modal::Permissions { mode, entries, .. } => {
             (permissions_title(entries), permissions_grid(*mode, palette), buttons("Apply", "Cancel", palette))
         }
+        Modal::Properties { pane, .. } => {
+            (pane.title.clone(), properties::body(pane, palette), properties::buttons(pane, palette))
+        }
         Modal::Rename { text, error, .. } => {
             ("Rename".to_string(), name_prompt(text, error, palette), buttons("Rename", "Cancel", palette))
         }
@@ -239,6 +243,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let width = match app.modal() {
         Some(Modal::Conflict { .. }) => CONFLICT_WIDTH,
         Some(Modal::EditQuestion { diff, .. }) => question_width(diff),
+        Some(Modal::Properties { .. }) => properties::WIDTH,
         _ => DIALOG_WIDTH,
     };
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };

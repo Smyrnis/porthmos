@@ -917,3 +917,12 @@ fn permissions_is_bound_to_capital_p_on_the_files_screen_and_round_trips_by_name
     assert_eq!(Action::from_name("permissions"), Some(Action::Permissions));
     assert!(ALL_ACTIONS.contains(&Action::Permissions));
 }
+
+#[test]
+fn i_opens_properties_in_the_files_scope_only() {
+    assert_eq!(map_key_via_defaults(Scope::Files, KeyCode::Char('i')), Action::Properties);
+    assert_ne!(map_key_via_defaults(Scope::Connections, KeyCode::Char('i')), Action::Properties);
+    assert_eq!(Action::Properties.name(), "properties");
+    assert_eq!(Action::from_name("properties"), Some(Action::Properties));
+    assert!(ALL_ACTIONS.contains(&Action::Properties));
+}

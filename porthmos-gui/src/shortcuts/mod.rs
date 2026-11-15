@@ -24,6 +24,7 @@ pub enum Action {
     NewFolder,
     Rename,
     Permissions,
+    Properties,
     Delete,
     Copy,
     Move,
@@ -42,7 +43,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 37] = [
+const NAMES: [(Action, &str); 38] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -64,6 +65,7 @@ const NAMES: [(Action, &str); 37] = [
     (Action::NewFolder, "new_folder"),
     (Action::Rename, "rename"),
     (Action::Permissions, "permissions"),
+    (Action::Properties, "properties"),
     (Action::Delete, "delete"),
     (Action::Copy, "copy"),
     (Action::Move, "move"),
@@ -151,6 +153,7 @@ impl Action {
             Action::NewFolder => "New folder",
             Action::Rename => "Rename",
             Action::Permissions => "Permissions\u{2026}",
+            Action::Properties => "Properties\u{2026}",
             Action::Delete => "Delete",
             Action::Copy => "Copy to other panel",
             Action::Move => "Move to other panel",
@@ -369,6 +372,7 @@ impl Default for Shortcuts {
             (named(Named::F7), none, Action::NewFolder),
             (named(Named::F2), none, Action::Rename),
             (character("p"), Modifiers::SHIFT, Action::Permissions),
+            (named(Named::Enter), Modifiers::ALT, Action::Properties),
             (named(Named::Delete), none, Action::Delete),
             (named(Named::F8), none, Action::Delete),
             (character("q"), Modifiers::COMMAND, Action::Quit),
