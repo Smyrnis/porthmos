@@ -199,6 +199,9 @@ async fn a_connection_the_server_dropped_is_found_alive_again_after_reconnecting
 async fn listing_gives_the_owner_and_group_the_server_reports() {
     let server = support::start(Some("pw"), None).await;
     std::fs::write(server.root.path().join("a.txt"), b"x").unwrap();
+    if std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(server.root.path().join("a.txt")).unwrap()) == 0 {
+        return;
+    }
     let fs = connect_to(&server).await;
 
     let entries = fs.list(&VfsPath::new("/")).await.unwrap();

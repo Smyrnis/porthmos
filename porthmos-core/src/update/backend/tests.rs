@@ -3,7 +3,10 @@ use std::sync::{Arc, atomic::AtomicBool};
 use chrono::{TimeZone, Utc};
 
 use super::*;
-use crate::engine::testing::FakeUpdater;
+use crate::{
+    engine::testing::FakeUpdater,
+    update::{AppIdentity, Product},
+};
 
 fn info(version: &str) -> UpdateInfo {
     UpdateInfo {
@@ -22,7 +25,20 @@ fn info(version: &str) -> UpdateInfo {
 fn the_release_updater_builds_with_a_user_agent() {
     let dir = tempfile::tempdir().unwrap();
 
-    assert!(ReleaseUpdater::new(dir.path().join("update"), "porthmos/9.9.9").is_ok());
+    let identity = AppIdentity::new(Product::Tui, "2026.5.0");
+
+    assert!(ReleaseUpdater::new(&identity, dir.path().join("update")).is_ok());
+}
+
+#[test]
+fn a_release_updater_for_the_gui_builds_with_the_gui_feed_and_staging_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = AppIdentity::new(Product::Gui, "2026.5.0-dev.1");
+
+    let updater = ReleaseUpdater::new(&identity, dir.path().join("update"));
+
+    assert!(updater.is_ok());
+    assert_eq!(identity.user_agent(), "porthmos-gui/2026.5.0-dev.1");
 }
 
 #[tokio::test]

@@ -138,7 +138,7 @@ fn transfers_list_retry_cancel_and_clear_done() {
 
 #[test]
 fn the_search_screen_hints_are_move_open_and_esc_close() {
-    let hints = search_hints();
+    let hints = search_hints(false);
 
     assert_eq!(keys_and_labels(&hints), vec![pair("\u{2191}\u{2193}", "move"), pair("enter", "open")]);
     assert_eq!(hints.right, Some(Hint { key: "esc".to_string(), label: "close" }));
@@ -146,7 +146,7 @@ fn the_search_screen_hints_are_move_open_and_esc_close() {
 
 #[test]
 fn the_search_hints_have_no_help_key_because_a_question_mark_is_typed() {
-    assert_eq!(search_hints().pinned, None);
+    assert_eq!(search_hints(false).pinned, None);
 }
 
 fn section<'a>(sections: &'a [HelpSection], title: &str) -> &'a HelpSection {
@@ -225,6 +225,8 @@ fn every_action_is_listed_somewhere_and_no_section_lists_an_action_twice() {
         [Screen::Files, Screen::Connections, Screen::Transfers, Screen::History, Screen::Sync]
             .iter()
             .flat_map(|screen| screen_actions(*screen).iter().map(|(action, _)| *action))
+            .chain(FILES_HELP_ONLY.iter().map(|(action, _)| *action))
+            .chain(LIST_HELP.iter().map(|(action, _)| *action))
             .collect();
     let sections = help_sections(&KeyBindings::defaults());
     let global: HashSet<&str> = section(&sections, "global").rows.iter().map(|row| row.action).collect();
@@ -394,4 +396,64 @@ fn both_reorder_keys_unbound_leave_no_reorder_hint() {
     let hints = hints_for(Screen::Transfers, &configured("[keys.transfers]\nrow_up = []\nrow_down = []\n"));
 
     assert!(keys_and_labels(&hints).iter().all(|(_, label)| *label != "reorder"));
+}
+
+#[test]
+fn the_files_help_lists_go_to_path_with_its_key() {
+    let sections = help_sections(&KeyBindings::defaults());
+
+    assert!(rows_of(section(&sections, "files")).contains(&(Some("Ctrl+'"), "go to path")));
+}
+
+#[test]
+fn an_unbound_go_to_path_is_left_out_of_the_files_help() {
+    let sections = help_sections(&configured("[keys.files]\ngo_to_path = []\n"));
+
+    assert!(rows_of(section(&sections, "files")).contains(&(None, "go to path")));
+}
+
+#[test]
+fn editing_a_path_shows_enter_go_tab_complete_and_esc_cancel() {
+    let hints = path_edit_hints();
+
+    assert_eq!(keys_and_labels(&hints), vec![pair("enter", "go"), pair("tab", "complete")]);
+    assert_eq!(hints.right.map(|hint| (hint.key, hint.label)), Some(("esc".to_string(), "cancel")));
+}
+
+#[test]
+fn the_global_help_lists_the_list_movement_keys_and_the_files_help_the_parent_key() {
+    let sections = help_sections(&KeyBindings::defaults());
+    let global = rows_of(section(&sections, "global"));
+    let files = rows_of(section(&sections, "files"));
+
+    assert!(global.contains(&(Some("PageUp"), "page up")));
+    assert!(global.contains(&(Some("PageDown"), "page down")));
+    assert!(global.contains(&(Some("Home"), "first row")));
+    assert!(global.contains(&(Some("End"), "last row")));
+    assert!(files.contains(&(Some("Backspace"), "parent folder")));
+    assert!(!files.iter().any(|(_, listed)| *listed == "page up" || *listed == "last row"));
+}
+
+#[test]
+fn rebinding_a_page_key_in_the_global_scope_changes_the_global_help() {
+    let sections = help_sections(&configured("[keys.global]\npage_down = \"ctrl+j\"\n"));
+
+    assert!(rows_of(section(&sections, "global")).contains(&(Some("Ctrl+J"), "page down")));
+}
+
+#[test]
+fn files_only_actions_are_not_repeated_in_the_global_help() {
+    let sections = help_sections(&KeyBindings::defaults());
+    let global = rows_of(section(&sections, "global"));
+
+    for action in ["page_up", "page_down", "first", "last", "parent", "go_to_path"] {
+        assert!(!global.iter().any(|(_, listed)| *listed == action), "{action}");
+    }
+}
+
+#[test]
+fn the_bottom_hint_bar_of_the_files_screen_stays_short() {
+    let hints = hints_for(Screen::Files, &KeyBindings::defaults());
+
+    assert!(keys_and_labels(&hints).iter().all(|(_, label)| !label.contains("page") && *label != "parent folder"));
 }

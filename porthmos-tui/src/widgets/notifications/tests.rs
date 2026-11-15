@@ -27,12 +27,12 @@ fn expire_drops_only_notifications_whose_deadline_has_passed() {
     notifications.queue.push_back(Notification {
         severity: Severity::Info,
         message: "old".to_string(),
-        expires_at: Some(now),
+        expires_at: now,
     });
     notifications.queue.push_back(Notification {
         severity: Severity::Info,
         message: "fresh".to_string(),
-        expires_at: Some(now + Duration::from_secs(10)),
+        expires_at: now + Duration::from_secs(10),
     });
 
     notifications.expire(now + Duration::from_millis(1));
@@ -41,23 +41,48 @@ fn expire_drops_only_notifications_whose_deadline_has_passed() {
 }
 
 #[test]
-fn errors_never_auto_expire() {
-    let now = Instant::now();
-    let mut notifications = Notifications::default();
-    notifications.push(Severity::Error, "connection failed");
+fn every_severity_lasts_as_long_as_core_says() {
+    for severity in [Severity::Info, Severity::Warning, Severity::Error] {
+        let lifetime = severity.lifetime();
+        let mut notifications = Notifications::default();
+        let before = Instant::now();
+        notifications.push(severity, "message");
+        let after = Instant::now();
 
-    notifications.expire(now + Duration::from_secs(3600));
+        let wake = notifications.next_wake().unwrap();
 
-    assert_eq!(notifications.current().unwrap().message, "connection failed");
+        assert!(wake >= before + lifetime && wake <= after + lifetime, "{severity:?}");
+    }
 }
 
 #[test]
-fn next_wake_is_none_when_the_queue_is_empty_or_fronted_by_an_error() {
+fn an_error_stays_until_its_lifetime_has_passed_and_then_goes() {
     let mut notifications = Notifications::default();
-    assert_eq!(notifications.next_wake(), None);
+    notifications.push(Severity::Error, "connection failed");
+    let wake = notifications.next_wake().unwrap();
+
+    notifications.expire(wake - Duration::from_millis(1));
+    assert_eq!(notifications.current().unwrap().message, "connection failed");
+
+    notifications.expire(wake);
+    assert!(notifications.current().is_none());
+}
+
+#[test]
+fn next_wake_is_none_when_the_queue_is_empty() {
+    assert_eq!(Notifications::default().next_wake(), None);
+}
+
+#[test]
+fn a_repeated_error_gets_a_fresh_lifetime() {
+    let mut notifications = Notifications::default();
+    notifications.push(Severity::Error, "boom");
+    let first = notifications.next_wake().unwrap();
+    std::thread::sleep(Duration::from_millis(5));
 
     notifications.push(Severity::Error, "boom");
-    assert_eq!(notifications.next_wake(), None);
+
+    assert!(notifications.next_wake().unwrap() > first);
 }
 
 #[test]

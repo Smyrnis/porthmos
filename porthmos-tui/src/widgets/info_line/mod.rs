@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local};
 use porthmos_core::Entry;
+use porthmos_core::size_text;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -11,7 +12,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::{
     theme::Theme,
     widgets::{
-        file_list::{dates::format_modified_with_time, permissions_string, size_label},
+        file_list::{dates::format_modified_with_time, permissions_string},
         history_view::printable,
         text_fit::truncate_with_ellipsis,
     },
@@ -49,7 +50,7 @@ fn trailing_fields(entry: &Entry, now: &DateTime<Local>) -> Vec<Field> {
     let required = |text: String| Field { text, optional: false };
     let mut fields = Vec::new();
     if !entry.is_dir {
-        fields.push(required(size_label(entry.size)));
+        fields.push(required(size_text(entry.size)));
     }
     fields.extend(permissions_string(entry).map(required));
     fields.extend(ownership_label(entry).map(|text| Field { text, optional: true }));

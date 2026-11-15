@@ -37,7 +37,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
     let paths = Paths::in_dir(dir.path());
     let history = crate::history::History::load(&paths).0;
     let last_used = crate::last_used::LastUsed::load(&paths).0;
-    let update_record = crate::update::record::UpdateRecord::load(&paths).0;
+    let update_record = crate::update::record::UpdateRecord::load(&paths, "tui").0;
     let parts = EngineParts {
         paths,
         env: Environment::default(),
@@ -50,10 +50,14 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         last_used,
         edit: crate::config::settings::EditSettings::default(),
         update: crate::config::UpdateSettings { mode: crate::config::UpdateMode::Off, ..Default::default() },
+        reopen: crate::config::ReopenMode::Off,
+        reconnect: false,
         update_record,
         updater: None,
         update_timing: crate::update::UpdateTiming::for_settings(&crate::config::UpdateSettings::default()),
         executable: None,
+        #[cfg(feature = "update")]
+        identity: crate::update::AppIdentity::new(crate::update::Product::Tui, env!("CARGO_PKG_VERSION")),
         publish_interval: std::time::Duration::ZERO,
         persist_interval: std::time::Duration::ZERO,
     };
@@ -103,11 +107,21 @@ impl TestEngine {
         std::iter::from_fn(|| self.events.try_recv().ok()).collect()
     }
 
+    pub(crate) fn connection_states(events: &[Event]) -> Vec<(String, crate::ConnectionState)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::ConnectionState { name, state } => Some((name.clone(), *state)),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(crate) fn notices(&mut self) -> Vec<(Severity, String)> {
         self.drain()
             .into_iter()
             .filter_map(|event| match event {
-                Event::Notice { severity, message } => Some((severity, message)),
+                Event::Notice { severity, message } => Some((severity, message.to_string())),
                 _ => None,
             })
             .collect()
@@ -131,10 +145,21 @@ impl TestEngine {
         loop {
             match tokio::time::timeout(QUIET, self.internal.recv()).await {
                 Ok(Some(done)) => self.engine.handle_internal(done),
-                Err(_) if !self.engine.latest_keyring_job.is_empty() && started.elapsed() < LIMIT => {}
+                Err(_)
+                    if (!self.engine.latest_keyring_job.is_empty() || self.transfers_in_flight())
+                        && started.elapsed() < LIMIT => {}
                 Ok(None) | Err(_) => break,
             }
         }
+    }
+
+    fn transfers_in_flight(&self) -> bool {
+        use crate::transfer::rows::RowState;
+        self.engine
+            .transfers
+            .rows()
+            .iter()
+            .any(|row| matches!(row.state, RowState::Scanning | RowState::Running | RowState::Queued))
     }
 
     pub(crate) fn assert_secret_nowhere(&self, secret: &str, events: &[Event]) {
@@ -264,4 +289,10 @@ mod fake_updater {
             self.stages.lock().unwrap().pop_front().unwrap_or(Err(StageError::Download("no answer queued".to_string())))
         }
     }
+}
+
+pub(crate) fn utc(
+    year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32,
+) -> chrono::DateTime<chrono::Utc> {
+    chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, year, month, day, hour, minute, second).unwrap()
 }

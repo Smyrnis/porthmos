@@ -17,14 +17,34 @@ fn ssh_launch_failure(error: &std::io::Error, windows: bool) -> String {
     }
 }
 
-fn ssh_exit_failure(code: Option<i32>, via_sshpass: bool) -> String {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LoginKind {
+    Sshpass,
+    Askpass,
+    Other,
+}
+
+fn login_kind(invocation: &ShellInvocation) -> LoginKind {
+    let via_sshpass = std::path::Path::new(&invocation.program).file_stem().is_some_and(|name| name == "sshpass");
+    let via_askpass = invocation.env.iter().any(|(name, _)| name == "SSH_ASKPASS_REQUIRE");
+    match (via_sshpass, via_askpass) {
+        (true, _) => LoginKind::Sshpass,
+        (false, true) => LoginKind::Askpass,
+        (false, false) => LoginKind::Other,
+    }
+}
+
+fn ssh_exit_failure(code: Option<i32>, login: LoginKind) -> String {
     let Some(code) = code else {
         return "ssh was stopped before it finished".to_string();
     };
-    let hint = match (via_sshpass, code) {
-        (true, 5) => Some("the password is incorrect"),
-        (true, 6) => Some("the host key is not known to ssh; add it to ~/.ssh/known_hosts"),
-        (true, 7) => Some("the host key has changed; check ~/.ssh/known_hosts"),
+    let hint = match (login, code) {
+        (LoginKind::Sshpass, 5) => Some("the password is incorrect"),
+        (LoginKind::Sshpass, 6) => Some("the host key is not known to ssh; add it to ~/.ssh/known_hosts"),
+        (LoginKind::Sshpass, 7) => Some("the host key has changed; check ~/.ssh/known_hosts"),
+        (LoginKind::Askpass, 255) => Some(
+            "the saved password may be wrong, or ssh asked something that is not answered for you (a host key question or a key passphrase); try ssh once in a plain terminal",
+        ),
         _ => None,
     };
     match hint {
@@ -33,8 +53,27 @@ fn ssh_exit_failure(code: Option<i32>, via_sshpass: bool) -> String {
     }
 }
 
+fn local_shell_failure(
+    program: &str, result: Result<std::io::Result<std::process::ExitStatus>, String>,
+) -> Option<String> {
+    match result {
+        Ok(Ok(_)) => None,
+        Ok(Err(io_error)) => Some(format!("Failed to launch {program}: {io_error}")),
+        Err(join_error) => Some(format!("terminal task failed: {join_error}")),
+    }
+}
+
 impl App {
+    pub(super) fn remember_open_groups(&self) {
+        self.core.send(Command::RememberOpenGroups { groups: self.connections.open_groups() });
+    }
+
     pub(super) fn request_shell(&mut self) {
+        if self.active_panel == ActivePanel::Local {
+            let directory = self.panel(Location::Local).map(|panel| panel.path().clone()).unwrap_or_default();
+            self.core.send(Command::PrepareLocalShell { directory });
+            return;
+        }
         let Some(session) = self.sessions.active() else {
             self.notifications.push(Severity::Warning, "Connect to a server first");
             return;
@@ -47,19 +86,37 @@ impl App {
         self.core.send(Command::PrepareShell { session: session.id, directory });
     }
 
+    pub(super) async fn launch_local_shell(
+        &mut self, terminal: &mut ratatui::Terminal<Backend>, invocation: ShellInvocation,
+    ) -> Result<()> {
+        terminal::restore()?;
+
+        let program = invocation.program.to_string_lossy().into_owned();
+        let result = tokio::task::spawn_blocking(move || invocation.to_command().status())
+            .await
+            .map_err(|join_error| join_error.to_string());
+
+        *terminal = terminal::init()?;
+
+        if let Some(message) = local_shell_failure(&program, result) {
+            self.error(message);
+        }
+        Ok(())
+    }
+
     pub(super) async fn launch_shell(
         &mut self, terminal: &mut ratatui::Terminal<Backend>, invocation: ShellInvocation,
     ) -> Result<()> {
         terminal::restore()?;
 
-        let via_sshpass = std::path::Path::new(&invocation.program).file_stem().is_some_and(|name| name == "sshpass");
+        let login = login_kind(&invocation);
         let ssh_result = tokio::task::spawn_blocking(move || invocation.to_command().status()).await;
 
         *terminal = terminal::init()?;
 
         match ssh_result {
             Ok(Ok(status)) if !status.success() => {
-                self.error(ssh_exit_failure(status.code(), via_sshpass));
+                self.error(ssh_exit_failure(status.code(), login));
             }
             Ok(Ok(_)) => {}
             Ok(Err(io_err)) => {
@@ -110,6 +167,10 @@ impl App {
     }
 
     pub(super) fn form_choice_changed(&mut self, key: &'static str) {
+        if key == "source" {
+            self.import_source_changed();
+            return;
+        }
         if key != "protocol" {
             return;
         }
@@ -237,20 +298,24 @@ impl App {
         (!self.keyring_available).then(|| NO_KEYRING_HINT.to_string())
     }
 
-    pub(super) fn open_password_prompt(&mut self, request_id: RequestId, username: String, name: String) {
-        let mut fields = vec![FormField::masked("password", "Password", "")];
+    pub(super) fn open_password_prompt(
+        &mut self, request_id: RequestId, username: String, name: String, secret: &'static str,
+    ) {
+        let mut fields = vec![FormField::masked("password", secret, "")];
         if self.keyring_available {
             let choices = vec![("true".to_string(), "Yes".to_string()), ("false".to_string(), "No".to_string())];
             let current = if self.save_choice { "true" } else { "false" };
             fields.push(FormField::choice("save", "Save in keyring", choices, current));
         }
-        self.dialog = Some(Dialog::Form(FormDialog::new(format!("Password for {username}@{name}"), fields)));
+        self.dialog = Some(Dialog::Form(FormDialog::new(format!("{secret} for {username}@{name}"), fields)));
         self.pending_action = Some(PendingAction::SubmitPassword { request_id });
     }
 
-    pub(super) fn open_test_password_prompt(&mut self, request_id: RequestId, username: String, name: String) {
-        let fields = vec![FormField::masked("password", "Password", "")];
-        self.dialog = Some(Dialog::Form(FormDialog::new(format!("Password for {username}@{name}"), fields)));
+    pub(super) fn open_test_password_prompt(
+        &mut self, request_id: RequestId, username: String, name: String, secret: &'static str,
+    ) {
+        let fields = vec![FormField::masked("password", secret, "")];
+        self.dialog = Some(Dialog::Form(FormDialog::new(format!("{secret} for {username}@{name}"), fields)));
         self.pending_action = Some(PendingAction::SubmitTestPassword { request_id });
     }
 
@@ -259,9 +324,9 @@ impl App {
             return;
         }
         match question {
-            Question::Password { username, name } => {
+            Question::Password { username, name, secret } => {
                 self.make_room_for_question();
-                self.open_test_password_prompt(request_id, username, name);
+                self.open_test_password_prompt(request_id, username, name, secret);
             }
             Question::TrustHostKey { .. } | Question::TrustCertificate { .. } => {
                 self.core.send(Command::Answer { request_id, answer: None, save: false });
@@ -276,6 +341,11 @@ impl App {
     }
 
     fn answer_displaced_question(&mut self) {
+        if let Some(&PendingAction::Properties { request_id, .. }) = self.pending_action.as_ref() {
+            self.pending_action = None;
+            self.core.send(Command::CancelProperties { request_id });
+            return;
+        }
         let request_id = match &self.pending_action {
             Some(
                 PendingAction::SubmitPassword { request_id }
@@ -340,9 +410,9 @@ impl App {
         self.pending_action = None;
     }
 
-    pub(super) fn set_form_error(&mut self, message: String) {
+    pub(super) fn set_form_error(&mut self, field: Option<&'static str>, message: String) {
         if let Some(Dialog::Form(form)) = self.dialog.as_mut() {
-            form.error = Some(message);
+            form.reject(field, message);
         }
     }
 
@@ -351,6 +421,14 @@ impl App {
             return;
         };
         self.connect_profile(&name);
+    }
+
+    pub(super) fn reopen_connections(&mut self) {
+        if self.reopen_offer.is_empty() {
+            return;
+        }
+        self.reopen_offer.clear();
+        self.core.send(Command::ReopenConnections);
     }
 
     pub(super) fn connect_profile(&mut self, name: &str) -> bool {
@@ -390,8 +468,13 @@ impl App {
         if self.sessions.activate(session) {
             return;
         }
-        let placeholder_panel = PanelView::from_listing(VfsPath::root(), Vec::new());
+        let remembered = self.core.panel_settings(PanelKind::Remote);
+        let placeholder_panel = PanelView::new(VfsPath::root(), remembered.sort, remembered.show_hidden);
         self.sessions.insert(session, name, shell_available, placeholder_panel);
+        if matches!(self.screen, Screen::Connections | Screen::Files) {
+            self.screen = Screen::Files;
+            self.active_panel = ActivePanel::Remote;
+        }
     }
 }
 

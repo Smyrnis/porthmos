@@ -44,6 +44,7 @@ fn files_live_in_their_directories() {
     assert_eq!(paths.config_file(), PathBuf::from("/tmp/t/config/config.toml"));
     assert_eq!(paths.connections_file(), PathBuf::from("/tmp/t/config/connections.toml"));
     assert_eq!(paths.bookmarks_file(), PathBuf::from("/tmp/t/config/bookmarks.toml"));
+    assert_eq!(paths.theme_file(), PathBuf::from("/tmp/t/config/theme.toml"));
     assert_eq!(paths.known_certificates_file(), PathBuf::from("/tmp/t/config/known_certificates.toml"));
     assert_eq!(paths.log_file(), PathBuf::from("/tmp/t/state/porthmos.log"));
     assert_eq!(paths.history_file(), PathBuf::from("/tmp/t/state/history.toml"));
@@ -165,7 +166,8 @@ fn the_update_paths_sit_in_the_state_folder() {
     let root = Path::new("/r");
     let paths = Paths::in_dir(root);
 
-    assert_eq!(paths.update_state_file(), root.join("state").join("update.toml"));
+    assert_eq!(paths.update_state_file("tui"), root.join("state").join("update-tui.toml"));
+    assert_eq!(paths.update_state_file("gui"), root.join("state").join("update-gui.toml"));
     assert_eq!(paths.update_dir(), root.join("state").join("update"));
 }
 

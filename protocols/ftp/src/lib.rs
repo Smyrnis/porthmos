@@ -140,7 +140,11 @@ async fn authenticate(
             return Err(rejected());
         }
     }
-    let question = Question::Password { username: settings.username.clone(), name: target.name.clone() };
+    let question = Question::Password {
+        username: settings.username.clone(),
+        name: target.name.clone(),
+        secret: porthmos_vfs::PASSWORD_LABEL,
+    };
     let Some(Answer::Password(password)) = prompter.ask(question).await else {
         return Err(cancelled());
     };

@@ -88,7 +88,7 @@ fn an_invalid_draft_is_rejected_with_the_reason() {
     t.engine.handle_command(Command::SaveProfile { original: None, draft: Box::new(draft("prod", "h", "not-a-port")) });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ProfileRejected { message }] if message == "Port must be a number from 1-65535")
+        matches!(t.drain().as_slice(), [Event::ProfileRejected { field: Some("port"), message }] if message == "Port must be a number from 1-65535")
     );
     assert!(saved(&t).is_empty());
 }
@@ -104,7 +104,7 @@ fn add_connection_dialog_rejects_a_name_that_already_exists() {
     });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ProfileRejected { message }] if message == "A connection named \"prod\" already exists")
+        matches!(t.drain().as_slice(), [Event::ProfileRejected { field: Some("name"), message }] if message == "A connection named \"prod\" already exists")
     );
     assert_eq!(saved(&t)[0].host, "original.example.com");
 }
@@ -212,7 +212,7 @@ fn saving_a_draft_for_an_unknown_protocol_is_rejected() {
 
     assert!(matches!(
         t.drain().as_slice(),
-        [Event::ProfileRejected { message }] if message == "No \"gopher\" protocol is available"
+        [Event::ProfileRejected { field: Some("protocol"), message }] if message == "No \"gopher\" protocol is available"
     ));
     assert!(saved(&t).is_empty());
 }
@@ -320,7 +320,7 @@ fn saving_ssh_labels_for_an_unknown_host_is_rejected() {
     t.engine.handle_command(Command::SaveSshLabels { name: "nope".into(), group: "A".into(), tags: String::new() });
 
     assert!(
-        matches!(t.drain().as_slice(), [Event::ProfileRejected { message }] if message == "nope is not in ~/.ssh/config")
+        matches!(t.drain().as_slice(), [Event::ProfileRejected { field: None, message }] if message == "nope is not in ~/.ssh/config")
     );
     assert!(store::load_ssh_labels(&t.engine.paths).unwrap().is_empty());
 }
@@ -415,7 +415,7 @@ fn error_notices(events: &[Event]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match event {
-            Event::Notice { severity: Severity::Error, message } => Some(message.clone()),
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
             _ => None,
         })
         .collect()
@@ -1040,4 +1040,69 @@ fn listing_with_a_malformed_connections_file_shows_the_file_name_and_the_line() 
     let (severity, message) = t.first_notice().expect("an error notice");
     assert_eq!(severity, Severity::Error);
     assert!(message.contains("connections.toml") && message.contains("line 2"), "{message}");
+}
+
+fn with_resume_folders(t: &mut TestEngine, names: &[&str]) {
+    for name in names {
+        t.engine.resume_folders.insert(name.to_string(), porthmos_vfs::VfsPath::new("/srv/old"));
+    }
+}
+
+fn resuming(t: &TestEngine) -> Vec<String> {
+    let mut names: Vec<String> = t.engine.resume_folders.keys().cloned().collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn editing_a_profile_forgets_the_folder_a_lost_session_would_have_resumed() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod", "other"]);
+
+    t.engine.handle_command(Command::SaveProfile {
+        original: Some("prod".to_string()),
+        draft: Box::new(draft("prod", "server.example.com", "22")),
+    });
+
+    assert_eq!(resuming(&t), ["other"]);
+}
+
+#[test]
+fn renaming_a_profile_forgets_the_resume_folder_under_both_names() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod", "production", "other"]);
+
+    t.engine.handle_command(Command::SaveProfile {
+        original: Some("prod".to_string()),
+        draft: Box::new(draft("production", "server.example.com", "22")),
+    });
+
+    assert_eq!(resuming(&t), ["other"]);
+}
+
+#[test]
+fn a_rejected_save_keeps_the_resume_folder() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod"]);
+
+    t.engine.handle_command(Command::SaveProfile {
+        original: Some("prod".to_string()),
+        draft: Box::new(draft("prod", "h", "not-a-port")),
+    });
+
+    assert_eq!(resuming(&t), ["prod"]);
+}
+
+#[test]
+fn deleting_a_profile_forgets_its_resume_folder() {
+    let mut t = engine_with_sftp();
+    seed(&t, "prod", "server.example.com", BTreeMap::new());
+    with_resume_folders(&mut t, &["prod", "other"]);
+
+    t.engine.handle_command(Command::DeleteProfile { name: "prod".to_string() });
+
+    assert_eq!(resuming(&t), ["other"]);
 }

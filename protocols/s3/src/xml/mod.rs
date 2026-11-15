@@ -187,6 +187,15 @@ fn root(xml: &str, expected: &str) -> Result<Node, ProtocolError> {
     if node.name == expected { Ok(node) } else { Err(invalid(format!("expected {expected}, got {}", node.name))) }
 }
 
+fn root_among(xml: &str, expected: &[&str]) -> Result<Node, ProtocolError> {
+    let node = parse(xml)?;
+    if expected.contains(&node.name.as_str()) {
+        Ok(node)
+    } else {
+        Err(invalid(format!("expected {}, got {}", expected[0], node.name)))
+    }
+}
+
 fn number<T: std::str::FromStr>(node: &Node, name: &str) -> Option<T> {
     node.text_of(name)?.trim().parse().ok()
 }
@@ -253,7 +262,7 @@ pub(crate) fn uploads(xml: &str) -> Result<Uploads, ProtocolError> {
 }
 
 pub(crate) fn parts(xml: &str) -> Result<Parts, ProtocolError> {
-    let document = root(xml, "ListPartsResult")?;
+    let document = root_among(xml, &["ListPartsResult", "ListPartsResponse"])?;
     let parts: Vec<Part> = document
         .all("Part")
         .filter_map(|part| {

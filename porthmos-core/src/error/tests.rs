@@ -36,3 +36,12 @@ fn connect_failures_keep_their_established_wording() {
     assert_eq!(connect_failure_message(&failure(ErrorKind::Cancelled), "web", "SFTP"), "Connection cancelled");
     assert_eq!(connect_failure_message(&failure(ErrorKind::Other), "web", "SFTP"), "Unable to connect to web:\ndetail");
 }
+
+#[test]
+fn notices_stay_longer_the_more_serious_they_are() {
+    use std::time::Duration;
+
+    assert_eq!(Severity::Info.lifetime(), Duration::from_secs(4));
+    assert_eq!(Severity::Warning.lifetime(), Duration::from_secs(8));
+    assert_eq!(Severity::Error.lifetime(), Duration::from_secs(15));
+}

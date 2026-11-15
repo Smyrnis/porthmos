@@ -38,7 +38,7 @@ where
 {
     let Some(file) = in_clock_zone(modified, now) else { return String::new() };
     match day_of(&file, now) {
-        Day::Today => "today".to_string(),
+        Day::Today => format!("today {}", file.format("%H:%M")),
         Day::Yesterday => "yesterday".to_string(),
         Day::ThisYear => file.format("%b %d").to_string(),
         Day::OtherYear => file.format("%b %d %Y").to_string(),
@@ -52,7 +52,7 @@ where
     let Some(file) = in_clock_zone(modified, now) else { return String::new() };
     let label = format_modified(modified, now);
     match day_of(&file, now) {
-        Day::OtherYear => label,
+        Day::Today | Day::OtherYear => label,
         _ => format!("{label} {}", file.format("%H:%M")),
     }
 }

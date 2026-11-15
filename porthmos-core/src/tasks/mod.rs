@@ -21,7 +21,12 @@ pub enum Scope {
     Planning(u64),
     Edit(u64),
     Search,
+    Count,
+    Measure,
+    Checksum,
+    Import,
     Preview,
+    PreviewHint,
     Background,
     Test,
 }

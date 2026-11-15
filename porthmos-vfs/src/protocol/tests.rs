@@ -145,6 +145,77 @@ fn an_invocation_without_arguments_is_left_as_it_was() {
     assert_eq!(bare.clone().starting_in(&VfsPath::new("/x")), bare);
 }
 
+const POSIX_CHANGE_AND_EXEC: &str = r#"cd -- "$1" && exec "$2" -l"#;
+
+#[test]
+fn a_local_shell_changes_into_the_folder_and_replaces_itself_with_the_users_shell() {
+    let local = ShellInvocation::local_in(&VfsPath::new("/home/tester/docs"), Some("/usr/bin/zsh"), false);
+
+    assert_eq!(local.program, "sh");
+    assert_eq!(args_of(&local), ["-c", POSIX_CHANGE_AND_EXEC, "sh", "/home/tester/docs", "/usr/bin/zsh"]);
+    assert!(local.env.is_empty());
+}
+
+#[test]
+fn a_local_shell_passes_the_folder_as_an_argument_so_no_quoting_can_go_wrong() {
+    let tricky = "/srv/it's mine; $(rm -rf ~) \"x\" `y`";
+
+    let local = ShellInvocation::local_in(&VfsPath::new(tricky), Some("/bin/bash"), false);
+
+    assert_eq!(args_of(&local)[1], POSIX_CHANGE_AND_EXEC);
+    assert_eq!(args_of(&local)[3], tricky);
+}
+
+#[test]
+fn a_local_shell_without_a_shell_variable_uses_bin_sh() {
+    let local = ShellInvocation::local_in(&VfsPath::new("/x"), None, false);
+
+    assert_eq!(args_of(&local)[4], "/bin/sh");
+}
+
+#[test]
+fn a_blank_shell_variable_is_treated_as_unset() {
+    let local = ShellInvocation::local_in(&VfsPath::new("/x"), Some("  "), false);
+
+    assert_eq!(args_of(&local)[4], "/bin/sh");
+}
+
+#[test]
+fn a_local_shell_on_windows_opens_powershell_in_the_folder() {
+    let local = ShellInvocation::local_in(&VfsPath::new(r"C:\Users\me\My Docs"), Some("/bin/bash"), true);
+
+    assert_eq!(local.program, "powershell.exe");
+    assert_eq!(args_of(&local), ["-NoLogo", "-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\Users\me\My Docs'"]);
+}
+
+#[test]
+fn a_local_shell_on_windows_doubles_apostrophes_in_the_folder() {
+    let local = ShellInvocation::local_in(&VfsPath::new(r"C:\Users\O'Neil"), None, true);
+
+    assert_eq!(args_of(&local).last().unwrap(), r"Set-Location -LiteralPath 'C:\Users\O''Neil'");
+}
+
+#[test]
+fn the_shell_comes_from_the_shell_variable() {
+    assert_eq!(Environment::shell_from(Some("/usr/bin/fish".into())), Some("/usr/bin/fish".to_string()));
+    assert_eq!(Environment::shell_from(Some("".into())), None);
+    assert_eq!(Environment::shell_from(Some("  ".into())), None);
+    assert_eq!(Environment::shell_from(None), None);
+}
+
+#[test]
+fn a_local_shell_uses_the_environments_shell() {
+    let env = Environment { shell: Some("/usr/bin/fish".to_string()), ..Environment::default() };
+
+    let local = ShellInvocation::local(&VfsPath::new("/x"), &env);
+
+    if cfg!(windows) {
+        assert_eq!(local.program, "powershell.exe");
+    } else {
+        assert_eq!(args_of(&local)[4], "/usr/bin/fish");
+    }
+}
+
 #[test]
 fn home_wins_over_the_user_profile() {
     let home = Environment::home_from(Some("/home/me".into()), Some(r"C:\Users\me".into()));

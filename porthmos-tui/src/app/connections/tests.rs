@@ -126,7 +126,7 @@ fn connecting_to_an_unreachable_host_reports_failure() {
 
     test.app.apply_core_event(Event::ConnectFailed {
         name: "unreachable".to_string(),
-        message: "Unable to connect to unreachable:\nConnection refused".to_string(),
+        message: "Unable to connect to unreachable:\nConnection refused".into(),
     });
 
     match test.app.connection_status {
@@ -170,7 +170,7 @@ fn panel_event_failed_shows_a_notification_when_the_session_still_exists() {
     let mut test = app();
     test.connect(1, "test");
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "boom".into() });
 
     assert_eq!(test.notification().as_deref(), Some("boom"));
 }
@@ -196,8 +196,7 @@ fn disconnect_selected_reports_a_confirmation_notification() {
     test.app.apply_action(Action::Disconnect);
 
     assert_eq!(test.sent(), vec![Command::Disconnect { session }]);
-    test.app
-        .apply_core_event(Event::Notice { severity: Severity::Info, message: "Disconnected from test".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Info, message: "Disconnected from test".into() });
     test.app.apply_core_event(Event::Disconnected { session, name: "test".to_string() });
     assert!(test.app.sessions.is_empty());
     assert_eq!(test.notification().as_deref(), Some("Disconnected from test"));
@@ -209,7 +208,7 @@ fn a_password_question_opens_a_masked_prompt() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 4,
-        question: Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: Question::Password { username: "u".to_string(), name: "srv".to_string(), secret: "Password" },
     });
 
     match test.app.dialog {
@@ -223,11 +222,77 @@ fn a_password_question_opens_a_masked_prompt() {
 }
 
 #[test]
+fn a_secret_that_is_not_a_password_is_named_in_the_prompt() {
+    let mut test = app();
+
+    test.app.apply_core_event(Event::Question {
+        request_id: 4,
+        question: Question::Password {
+            username: "AK".to_string(),
+            name: "s3".to_string(),
+            secret: "Secret access key",
+        },
+    });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref dialog)) => {
+            assert_eq!(dialog.title, "Secret access key for AK@s3");
+            assert_eq!(dialog.fields[0].label, "Secret access key");
+            assert_eq!(dialog.fields[0].key, "password");
+        }
+        _ => panic!("expected the prompt"),
+    }
+}
+
+#[test]
+fn the_whole_name_of_the_secret_is_on_the_screen() {
+    let mut test = app();
+    test.app.apply_core_event(Event::Question {
+        request_id: 4,
+        question: Question::Password {
+            username: "AK".to_string(),
+            name: "s3".to_string(),
+            secret: "Secret access key",
+        },
+    });
+
+    let screen = screen_text(&test);
+
+    assert!(screen.contains("Secret access key for AK@s3"), "{screen}");
+    assert!(screen.matches("Secret access key").count() >= 2, "{screen}");
+}
+
+#[test]
+fn a_connection_test_names_a_secret_that_is_not_a_password_too() {
+    let mut test = open_add_form();
+    test.app.apply_key(ctrl_t());
+    test.sent();
+
+    test.app.apply_core_event(Event::TestQuestion {
+        test_id: 0,
+        request_id: 31,
+        question: Question::Password {
+            username: "AK".to_string(),
+            name: "s3".to_string(),
+            secret: "Secret access key",
+        },
+    });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref dialog)) => {
+            assert_eq!(dialog.title, "Secret access key for AK@s3");
+            assert_eq!(dialog.fields[0].label, "Secret access key");
+        }
+        _ => panic!("expected the prompt"),
+    }
+}
+
+#[test]
 fn submitting_the_password_answers_the_question() {
     let mut test = app();
     test.app.apply_core_event(Event::Question {
         request_id: 4,
-        question: Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: Question::Password { username: "u".to_string(), name: "srv".to_string(), secret: "Password" },
     });
 
     for c in "pw".chars() {
@@ -247,7 +312,7 @@ fn escaping_the_password_prompt_cancels_the_connection() {
     test.app.connection_status = ConnectionStatus::Connecting("srv".to_string());
     test.app.apply_core_event(Event::Question {
         request_id: 4,
-        question: Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: Question::Password { username: "u".to_string(), name: "srv".to_string(), secret: "Password" },
     });
 
     test.app.apply_dialog_key(key(KeyCode::Esc));
@@ -355,7 +420,10 @@ fn add_connection_dialog_keeps_the_dialog_open_on_invalid_port() {
     fill_form(&mut test, ["prod", "server.example.com", "not-a-port", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::ProfileRejected { message: "Port must be a number from 1-65535".to_string() });
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: Some("port"),
+        message: "Port must be a number from 1-65535".to_string(),
+    });
 
     match test.app.dialog {
         Some(Dialog::Form(ref form)) => assert!(form.error.is_some()),
@@ -370,7 +438,10 @@ fn add_connection_dialog_keeps_the_dialog_open_on_port_zero() {
     fill_form(&mut test, ["prod", "server.example.com", "0", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::ProfileRejected { message: "Port must be a number from 1-65535".to_string() });
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: Some("port"),
+        message: "Port must be a number from 1-65535".to_string(),
+    });
 
     match test.app.dialog {
         Some(Dialog::Form(ref form)) => assert_eq!(form.error.as_deref(), Some("Port must be a number from 1-65535")),
@@ -385,8 +456,10 @@ fn add_connection_dialog_rejects_a_name_that_already_exists() {
     fill_form(&mut test, ["prod", "new.example.com", "22", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app
-        .apply_core_event(Event::ProfileRejected { message: "A connection named \"prod\" already exists".to_string() });
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: None,
+        message: "A connection named \"prod\" already exists".to_string(),
+    });
 
     match test.app.dialog {
         Some(Dialog::Form(ref form)) => assert!(form.error.is_some()),
@@ -406,6 +479,7 @@ fn edit_connection_rejects_renaming_onto_an_existing_name() {
         [Command::SaveProfile { original: Some(original), draft }] if original == "prod" && draft.name == "staging"
     ));
     test.app.apply_core_event(Event::ProfileRejected {
+        field: None,
         message: "A connection named \"staging\" already exists".to_string(),
     });
     assert!(matches!(test.app.dialog, Some(Dialog::Form(ref form)) if form.error.is_some()));
@@ -425,7 +499,7 @@ fn add_connection_dialog_stays_open_when_saving_fails() {
     fill_form(&mut test, ["prod", "server.example.com", "22", "deploy"]);
     test.app.apply_dialog_key(key(KeyCode::Enter));
 
-    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "Not a directory".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Error, message: "Not a directory".into() });
 
     assert!(test.app.dialog.is_some(), "the form must stay open so the user's input isn't lost on a save error");
     assert!(test.app.notifications.current().is_some());
@@ -620,7 +694,7 @@ fn enter_on_a_group_toggles_it_and_enter_on_a_connection_connects() {
 
     test.app.apply_key(key(KeyCode::Enter));
     assert_eq!(test.app.connections.rows().len(), 2);
-    assert!(test.sent().is_empty());
+    assert!(test.sent().iter().all(|command| matches!(command, Command::RememberOpenGroups { .. })));
 
     test.app.apply_key(key(KeyCode::Down));
     test.app.apply_key(key(KeyCode::Enter));
@@ -741,7 +815,7 @@ fn a_rejected_labels_save_shows_in_the_form() {
     test.app.connections.replace(vec![connection("web1", ConnectionSource::SshConfig)]);
     test.app.apply_action(Action::Rename);
 
-    test.app.apply_core_event(Event::ProfileRejected { message: "web1 is not in ~/.ssh/config".into() });
+    test.app.apply_core_event(Event::ProfileRejected { field: None, message: "web1 is not in ~/.ssh/config".into() });
 
     let Some(Dialog::Form(form)) = &test.app.dialog else { panic!("form closed") };
     assert_eq!(form.error.as_deref(), Some("web1 is not in ~/.ssh/config"));
@@ -810,7 +884,7 @@ fn a_listing_without_a_save_does_not_move_the_cursor() {
         .connections
         .replace(vec![connection("a", ConnectionSource::Profile), connection("b", ConnectionSource::Profile)]);
     test.app.submit_connection_form(vec![("name", "b".into())], None);
-    test.app.apply_core_event(Event::ProfileRejected { message: "bad".into() });
+    test.app.apply_core_event(Event::ProfileRejected { field: None, message: "bad".into() });
 
     test.app.apply_core_event(Event::Profiles(vec![
         connection("a", ConnectionSource::Profile),
@@ -861,7 +935,7 @@ fn delete_on_a_shadowed_labels_row_does_not_disconnect_the_same_named_profile() 
 fn ask_password(test: &mut TestApp, request_id: u64) {
     test.app.apply_core_event(Event::Question {
         request_id,
-        question: Question::Password { username: "u".into(), name: "web".into() },
+        question: Question::Password { username: "u".into(), name: "web".into(), secret: "Password" },
     });
 }
 
@@ -1436,7 +1510,7 @@ fn ask_test_password(test: &mut TestApp, test_id: u64, request_id: u64) {
     test.app.apply_core_event(Event::TestQuestion {
         test_id,
         request_id,
-        question: Question::Password { username: "deploy".into(), name: "nas".into() },
+        question: Question::Password { username: "deploy".into(), name: "nas".into(), secret: "Password" },
     });
 }
 
@@ -1737,24 +1811,24 @@ fn another_launch_error_on_windows_keeps_the_plain_message() {
 
 #[test]
 fn a_failed_ssh_names_its_exit_code() {
-    assert_eq!(ssh_exit_failure(Some(255), false), "ssh exited with code 255");
+    assert_eq!(ssh_exit_failure(Some(255), LoginKind::Other), "ssh exited with code 255");
 }
 
 #[test]
 fn an_ssh_killed_by_a_signal_has_no_code_to_name() {
-    assert_eq!(ssh_exit_failure(None, false), "ssh was stopped before it finished");
+    assert_eq!(ssh_exit_failure(None, LoginKind::Other), "ssh was stopped before it finished");
 }
 
 #[test]
 fn sshpass_reports_a_wrong_password_as_a_hint() {
-    let message = ssh_exit_failure(Some(5), true);
+    let message = ssh_exit_failure(Some(5), LoginKind::Sshpass);
 
     assert!(message.contains("password") && message.contains("incorrect"), "{message}");
 }
 
 #[test]
 fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
-    let message = ssh_exit_failure(Some(6), true);
+    let message = ssh_exit_failure(Some(6), LoginKind::Sshpass);
 
     assert!(message.contains("known_hosts"), "{message}");
     assert!(!message.contains("status"), "{message}");
@@ -1762,5 +1836,264 @@ fn sshpass_reports_an_unknown_host_key_with_the_known_hosts_hint() {
 
 #[test]
 fn exit_code_six_without_sshpass_is_just_an_exit_code() {
-    assert_eq!(ssh_exit_failure(Some(6), false), "ssh exited with code 6");
+    assert_eq!(ssh_exit_failure(Some(6), LoginKind::Other), "ssh exited with code 6");
+}
+
+#[test]
+fn askpass_with_exit_code_255_says_the_password_may_be_wrong_or_a_question_was_refused() {
+    let message = ssh_exit_failure(Some(255), LoginKind::Askpass);
+
+    assert!(message.starts_with("ssh exited with code 255"), "{message}");
+    assert!(
+        message.contains("password") && message.contains("host key") && message.contains("passphrase"),
+        "{message}"
+    );
+}
+
+#[test]
+fn askpass_with_another_exit_code_names_only_the_code() {
+    assert_eq!(ssh_exit_failure(Some(1), LoginKind::Askpass), "ssh exited with code 1");
+    assert_eq!(ssh_exit_failure(Some(5), LoginKind::Askpass), "ssh exited with code 5");
+}
+
+#[test]
+fn askpass_with_no_code_is_reported_as_stopped() {
+    assert_eq!(ssh_exit_failure(None, LoginKind::Askpass), "ssh was stopped before it finished");
+}
+
+fn invocation_with(program: &str, env: &[&str]) -> ShellInvocation {
+    ShellInvocation {
+        program: program.into(),
+        args: Vec::new(),
+        env: env.iter().map(|name| ((*name).into(), "x".into())).collect(),
+    }
+}
+
+#[test]
+fn the_login_kind_comes_from_the_program_and_the_askpass_variable() {
+    assert_eq!(login_kind(&invocation_with("sshpass", &["SSHPASS"])), LoginKind::Sshpass);
+    assert_eq!(login_kind(&invocation_with("/usr/bin/sshpass", &[])), LoginKind::Sshpass);
+    assert_eq!(login_kind(&invocation_with("ssh", &["SSH_ASKPASS_REQUIRE", "SSH_ASKPASS"])), LoginKind::Askpass);
+    assert_eq!(login_kind(&invocation_with("ssh", &[])), LoginKind::Other);
+    assert_eq!(login_kind(&invocation_with("ssh", &["SSHPASS"])), LoginKind::Other);
+}
+
+fn exited(code: i32) -> std::io::Result<std::process::ExitStatus> {
+    let program = if cfg!(windows) { "cmd" } else { "sh" };
+    let flag = if cfg!(windows) { "/c" } else { "-c" };
+    std::process::Command::new(program).args([flag, &format!("exit {code}")]).status()
+}
+
+#[test]
+fn a_local_shell_that_ends_with_a_failing_status_says_nothing() {
+    assert_eq!(local_shell_failure("sh", Ok(exited(3))), None);
+    assert_eq!(local_shell_failure("sh", Ok(exited(0))), None);
+}
+
+#[test]
+fn a_local_shell_that_cannot_start_names_the_program_and_the_error() {
+    let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+    let message = local_shell_failure("powershell.exe", Ok(Err(error)));
+
+    assert_eq!(
+        message,
+        Some(format!("Failed to launch powershell.exe: {}", std::io::Error::from(std::io::ErrorKind::NotFound)))
+    );
+}
+
+#[test]
+fn a_local_shell_task_that_fails_to_join_is_reported() {
+    let message = local_shell_failure("sh", Err("panicked".to_string()));
+
+    assert_eq!(message.as_deref(), Some("terminal task failed: panicked"));
+}
+
+#[test]
+fn a_new_connection_takes_you_to_the_files_screen_with_the_remote_panel_focused() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    assert_eq!(test.app.active_panel, ActivePanel::Local);
+
+    test.connect_and_follow(2, "prod");
+
+    assert_eq!(test.app.screen, Screen::Files);
+    assert_eq!(test.app.active_panel, ActivePanel::Remote);
+}
+
+#[test]
+fn a_new_connection_from_the_files_screen_focuses_the_remote_panel() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.app.screen = Screen::Files;
+
+    test.connect_and_follow(2, "prod");
+
+    assert_eq!(test.app.screen, Screen::Files);
+    assert_eq!(test.app.active_panel, ActivePanel::Remote);
+}
+
+#[test]
+fn a_connection_made_while_on_another_screen_does_not_pull_you_away() {
+    for screen in [Screen::Transfers, Screen::History, Screen::Sync, Screen::Search] {
+        let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+        test.app.screen = screen;
+
+        test.connect_and_follow(2, "prod");
+
+        assert_eq!(test.app.screen, screen);
+        assert_eq!(test.app.active_panel, ActivePanel::Local);
+    }
+}
+
+#[test]
+fn a_restored_session_does_not_move_the_focus() {
+    let mut test = on_connections_screen(vec![connection("prod", ConnectionSource::Profile)]);
+    test.connect(2, "prod");
+    test.app.screen = Screen::Connections;
+    test.app.active_panel = ActivePanel::Local;
+
+    test.app.apply_core_event(Event::Connected { session: 2, name: "prod".to_string(), shell_available: true });
+
+    assert_eq!(test.app.screen, Screen::Connections);
+    assert_eq!(test.app.active_panel, ActivePanel::Local);
+}
+
+#[test]
+fn a_rejected_port_moves_focus_to_the_port_field_and_marks_it() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    fill_form(&mut test, ["prod", "server.example.com", "222222", "deploy"]);
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+
+    test.app.apply_core_event(Event::ProfileRejected {
+        field: Some("port"),
+        message: "Port must be a number from 1-65535".to_string(),
+    });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref form)) => {
+            assert_eq!(form.fields[form.focused].key, "port");
+            assert_eq!(form.rejected_field(), Some("port"));
+        }
+        _ => panic!("expected the form dialog to stay open"),
+    }
+}
+
+#[test]
+fn a_rejection_with_no_field_keeps_focus_where_it_was() {
+    let mut test = on_connections_screen(Vec::new());
+    test.app.apply_action(Action::AddConnection);
+    fill_form(&mut test, ["prod", "server.example.com", "22", "deploy"]);
+    test.app.apply_dialog_key(key(KeyCode::Enter));
+    let before = match test.app.dialog {
+        Some(Dialog::Form(ref form)) => form.focused,
+        _ => panic!("expected the form"),
+    };
+
+    test.app.apply_core_event(Event::ProfileRejected { field: None, message: "nope".to_string() });
+
+    match test.app.dialog {
+        Some(Dialog::Form(ref form)) => {
+            assert_eq!(form.focused, before);
+            assert_eq!(form.rejected_field(), None);
+        }
+        _ => panic!("expected the form"),
+    }
+}
+
+fn many_connections(count: usize) -> Vec<ConnectionEntry> {
+    (0..count).map(|index| connection(&format!("host{index:03}"), ConnectionSource::Profile)).collect()
+}
+
+fn draw_connections(test: &TestApp, height: u16) {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut terminal = Terminal::new(TestBackend::new(120, height)).unwrap();
+    terminal.draw(|frame| test.app.render(frame)).unwrap();
+}
+
+#[test]
+fn page_keys_move_by_the_rows_the_screen_drew_and_home_and_end_jump_to_the_ends() {
+    let mut test = on_connections_screen(many_connections(80));
+
+    draw_connections(&test, 14);
+    test.app.apply_key(key(KeyCode::PageDown));
+    let short_page = test.app.connections.cursor;
+    test.app.apply_key(key(KeyCode::PageUp));
+    assert_eq!(test.app.connections.cursor, 0);
+    draw_connections(&test, 30);
+    test.app.apply_key(key(KeyCode::PageDown));
+    let tall_page = test.app.connections.cursor;
+
+    assert!(0 < short_page && short_page < tall_page, "{short_page} {tall_page}");
+    test.app.apply_key(key(KeyCode::End));
+    let last = test.app.connections.rows().len() - 1;
+    assert_eq!(test.app.connections.cursor, last);
+    test.app.apply_key(key(KeyCode::PageDown));
+    assert_eq!(test.app.connections.cursor, last);
+    test.app.apply_key(key(KeyCode::Home));
+    assert_eq!(test.app.connections.cursor, 0);
+}
+
+#[test]
+fn page_and_jump_keys_on_an_empty_connections_list_do_nothing() {
+    let mut test = on_connections_screen(Vec::new());
+
+    for code in [KeyCode::PageDown, KeyCode::PageUp, KeyCode::Home, KeyCode::End] {
+        test.app.apply_key(key(code));
+    }
+
+    assert_eq!(test.app.connections.cursor, 0);
+}
+
+fn remembered_groups(commands: Vec<Command>) -> Vec<Vec<String>> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::RememberOpenGroups { groups } => Some(groups),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn opening_a_group_tells_core_which_groups_are_open() {
+    let mut test = on_connections_screen(vec![grouped("alpha", "Work")]);
+    test.sent();
+
+    test.app.apply_key(key(KeyCode::Enter));
+
+    assert_eq!(remembered_groups(test.sent()), vec![vec!["Work".to_string()]]);
+}
+
+#[test]
+fn the_right_and_left_arrows_tell_core_too() {
+    let mut test = on_connections_screen(vec![grouped("alpha", "Work")]);
+    test.sent();
+
+    test.app.apply_key(key(KeyCode::Right));
+    test.app.apply_key(key(KeyCode::Left));
+
+    assert_eq!(remembered_groups(test.sent()), vec![vec!["Work".to_string()], Vec::<String>::new()]);
+}
+
+#[test]
+fn a_new_connection_that_reveals_its_group_opens_it_for_core_too() {
+    let mut test = on_connections_screen(vec![grouped("alpha", "Work")]);
+    test.sent();
+    test.app.reveal = Some(Reveal::Ready("alpha".to_string()));
+
+    test.app.apply_core_event(Event::Profiles(vec![grouped("alpha", "Work")]));
+
+    assert_eq!(remembered_groups(test.sent()), vec![vec!["Work".to_string()]]);
+}
+
+#[test]
+fn the_app_starts_with_the_groups_core_remembered() {
+    let (core, _commands) = CoreHandle::detached();
+    let core = core.with_remembered_open_groups(vec!["Work".to_string()]);
+    let mut app = App::new(core, VfsPath::new("/d"), &PanelSettings::default(), crate::input::KeyBindings::defaults());
+
+    app.connections.replace(vec![grouped("alpha", "Work")]);
+
+    assert_eq!(app.connections.rows().len(), 2);
 }

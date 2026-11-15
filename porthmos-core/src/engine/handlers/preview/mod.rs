@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use porthmos_vfs::{FileSystem, VfsPath};
 
@@ -8,6 +8,8 @@ use crate::{
     tasks::Scope,
     user_message,
 };
+
+pub(crate) const PREVIEW_REST: Duration = Duration::from_millis(150);
 
 fn name_of(path: &VfsPath) -> String {
     path.file_name().map_or_else(|| path.to_string(), |name| name.to_string_lossy().into_owned())
@@ -76,7 +78,28 @@ impl Engine {
         self.emit(Event::PreviewReady { request_id, name, result: result.map(Arc::new) });
     }
 
+    pub(crate) fn hint_preview(&mut self, request_id: u64, location: Location, path: VfsPath) {
+        self.tasks.cancel(Scope::PreviewHint);
+        self.preview_hint = Some(request_id);
+        self.preview_request = None;
+        self.preview_next = None;
+        if self.preview_busy {
+            self.tasks.cancel(Scope::Preview);
+            self.tasks.forget(Scope::Preview);
+        }
+        let internal = self.internal.clone();
+        self.tasks.spawn("preview-hint", Scope::PreviewHint, move |cancel| async move {
+            tokio::time::sleep(PREVIEW_REST).await;
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
+            let _ = internal.send(Internal::PreviewRested { request_id, location, path });
+        });
+    }
+
     pub(crate) fn cancel_preview(&mut self) {
+        self.tasks.cancel(Scope::PreviewHint);
+        self.preview_hint = None;
         self.preview_request = None;
         self.preview_next = None;
         if self.preview_busy {

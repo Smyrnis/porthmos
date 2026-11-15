@@ -121,9 +121,13 @@ fn io_failure(error: io::Error) -> InstallError {
     }
 }
 
-fn version_on_disk(executable: &Path) -> Option<Version> {
+fn version_on_disk(executable: &Path, program: &str) -> Option<Version> {
     let output = version_output(executable, PROBE_TIMEOUT).ok()?;
-    output.strip_prefix("porthmos ")?.trim().parse().ok()
+    output.trim().strip_prefix(program)?.strip_prefix(' ')?.trim().parse().ok()
+}
+
+fn program_installed_by(staged: &Staged) -> Option<&str> {
+    staged.binary.file_stem()?.to_str()
 }
 
 #[cfg_attr(not(unix), allow(unused_variables))]
@@ -169,7 +173,8 @@ fn run_install(
         return Err(InstallError::Corrupt);
     }
     check_time(deadline)?;
-    if version_on_disk(executable).is_some_and(|current| current >= staged.version) {
+    let on_disk_version = program_installed_by(staged).and_then(|program| version_on_disk(executable, program));
+    if on_disk_version.is_some_and(|current| current >= staged.version) {
         discard_staged(dir);
         return Err(InstallError::AlreadyCurrent);
     }

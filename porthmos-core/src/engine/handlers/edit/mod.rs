@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use porthmos_lfs::{checked_os_path, from_os_path};
 use porthmos_vfs::{ErrorKind, FileSystem, ProtocolError, VfsPath};
 use tokio::io::AsyncWriteExt;
@@ -13,6 +13,7 @@ use super::super::{Engine, Event, Internal, Location};
 use crate::{
     Severity,
     config::settings::EditSettings,
+    diff::DiffOutcome,
     edit::{
         EditChoice, EditQuestionKind, EditorCommand, EditorExit, MAX_EDIT_BYTES, conflict_copy_name, hash_file,
         printable, resolve_editor,
@@ -22,6 +23,8 @@ use crate::{
     transfer::{self, TransferOutcome},
     user_message,
 };
+
+mod diff;
 
 #[derive(Clone)]
 pub(crate) struct TempCopy {
@@ -46,6 +49,16 @@ pub(crate) struct EditSession {
     pending: Option<EditQuestionKind>,
     awaiting_editor: bool,
     saving: bool,
+    diffing: bool,
+    diff_cancel: Option<Arc<AtomicBool>>,
+}
+
+impl EditSession {
+    fn stop_diff(&self) {
+        if let Some(cancel) = &self.diff_cancel {
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
 }
 
 pub(crate) enum Prepared {
@@ -58,6 +71,7 @@ pub(crate) enum EditEvent {
     Prepared { edit_id: u64, result: Prepared },
     Inspected { edit_id: u64, result: Result<bool, String>, aborted: Option<i32> },
     Conflict { edit_id: u64 },
+    Diffed { edit_id: u64, result: Result<DiffOutcome, String> },
     Uploaded { edit_id: u64, result: Result<String, String> },
 }
 
@@ -161,7 +175,7 @@ struct UploadJob {
     baseline: Baseline,
     name: String,
     mode: UploadMode,
-    at: DateTime<Utc>,
+    at: DateTime<chrono::FixedOffset>,
 }
 
 async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSystem>) -> EditEvent {
@@ -227,6 +241,8 @@ impl Engine {
                 pending: None,
                 awaiting_editor: false,
                 saving: false,
+                diffing: false,
+                diff_cancel: None,
             },
         );
         edit_id
@@ -258,7 +274,7 @@ impl Engine {
         };
         let edit_id = self.new_edit_session(Location::Session(session_id), path.clone(), editor);
         let name = self.edit.sessions[&edit_id].name.clone();
-        let dir = self.paths.edit_dir().join(format!("{}-{edit_id}", (self.clock)().timestamp_millis()));
+        let dir = self.paths.edit_dir().join(format!("{}-{edit_id}", self.now().timestamp_millis()));
         let local = self.local_fs.clone();
         let internal = self.internal.clone();
         self.info(format!("Downloading {} to edit\u{2026}", printable(&name)));
@@ -277,10 +293,11 @@ impl Engine {
 
     fn drop_edit(&mut self, edit_id: u64) {
         self.tasks.forget(Scope::Edit(edit_id));
-        if let Some(session) = self.edit.sessions.remove(&edit_id)
-            && let Some(temp) = session.temp
-        {
-            remove_dir(&temp.dir);
+        if let Some(session) = self.edit.sessions.remove(&edit_id) {
+            session.stop_diff();
+            if let Some(temp) = session.temp {
+                remove_dir(&temp.dir);
+            }
         }
     }
 
@@ -289,6 +306,7 @@ impl Engine {
             EditEvent::Prepared { edit_id, result } => self.finish_prepare(edit_id, result),
             EditEvent::Inspected { edit_id, result, aborted } => self.finish_inspect(edit_id, result, aborted),
             EditEvent::Conflict { edit_id } => self.ask_edit(edit_id, EditQuestionKind::Conflict),
+            EditEvent::Diffed { edit_id, result } => self.finish_diff(edit_id, result),
             EditEvent::Uploaded { edit_id, result } => self.finish_upload(edit_id, result),
         }
     }
@@ -419,6 +437,7 @@ impl Engine {
         let Some(session) = self.edit.sessions.remove(&edit_id) else {
             return;
         };
+        session.stop_diff();
         let reason = printable(&reason.replace('\n', " "));
         match session.temp {
             Some(temp) => self.report(
@@ -448,7 +467,11 @@ impl Engine {
     }
 
     pub(crate) fn resolve_edit(&mut self, edit_id: u64, choice: EditChoice) {
-        let Some(kind) = self.edit.sessions.get_mut(&edit_id).and_then(|session| session.pending.take()) else {
+        let Some(kind) = self.edit.sessions.get_mut(&edit_id).and_then(|session| {
+            session.diffing = false;
+            session.stop_diff();
+            session.pending.take()
+        }) else {
             return;
         };
         match (kind, choice) {
@@ -480,7 +503,15 @@ impl Engine {
         };
         let local = self.local_fs.clone();
         let internal = self.internal.clone();
-        let job = UploadJob { edit_id, remote, file: temp.file, baseline, name, mode, at: (self.clock)() };
+        let job = UploadJob {
+            edit_id,
+            remote,
+            file: temp.file,
+            baseline,
+            name,
+            mode,
+            at: self.now().with_timezone(&(self.local_offset)()),
+        };
         self.tasks.spawn("edit-upload", Scope::Edit(edit_id), move |_| async move {
             let event = upload(job, fs, local).await;
             let _ = internal.send(Internal::Edit(event));

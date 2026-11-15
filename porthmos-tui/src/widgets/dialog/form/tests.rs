@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEventKind, KeyEventState, KeyModifiers};
 
 use super::*;
+use crate::widgets::form_fields::LABEL_WIDTH;
 use crate::{
     app::testing::{cell_fg, find_text, has_unprintable_cell},
     theme::{ColorDepth, ThemeSettings},
@@ -654,10 +655,10 @@ fn the_focused_field_has_a_bright_label_and_an_accent_underline() {
 
     let (x, y) = find_text(&terminal, "Name").unwrap();
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_bright);
-    assert_eq!(cell_fg(&terminal, x + 15, y + 1), theme.accent);
+    assert_eq!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.accent);
     let (x, y) = find_text(&terminal, "Host").unwrap();
     assert_eq!(cell_fg(&terminal, x, y), theme.fg_dim);
-    assert_eq!(cell_fg(&terminal, x + 15, y + 1), theme.line_strong);
+    assert_eq!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.line_strong);
 }
 
 #[test]
@@ -936,6 +937,70 @@ fn a_running_test_is_cleared_by_an_edit_too() {
     assert_eq!(form.test, None);
 }
 
+#[test]
+fn an_edit_clears_the_error_but_moving_around_does_not() {
+    let rejected = || Some("Port must be a number from 1-65535".to_string());
+    let mut form = screen_form();
+    form.focused = 1;
+    form.error = rejected();
+
+    for code in [
+        KeyCode::Down,
+        KeyCode::Up,
+        KeyCode::Tab,
+        KeyCode::BackTab,
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::Home,
+        KeyCode::End,
+    ] {
+        form.handle_key(key(code));
+        assert_eq!(form.error, rejected(), "{code:?}");
+    }
+    form.focused = 1;
+    form.handle_key(key(KeyCode::Char('x')));
+    assert_eq!(form.error, None);
+
+    form.error = rejected();
+    form.handle_key(key(KeyCode::Backspace));
+    assert_eq!(form.error, None);
+}
+
+#[test]
+fn a_protocol_or_toggle_change_clears_the_error() {
+    let mut form = screen_form();
+    form.error = Some("rejected".to_string());
+    form.handle_key(key(KeyCode::Down));
+    assert_eq!(form.error, None);
+
+    form.error = Some("rejected".to_string());
+    form.focused = 3;
+    form.handle_key(key(KeyCode::Char(' ')));
+    assert_eq!(form.error, None);
+}
+
+#[test]
+fn submitting_or_testing_unchanged_values_keeps_the_error() {
+    let mut form = screen_form();
+    form.error = Some("rejected".to_string());
+
+    form.handle_key(ctrl('s'));
+    assert_eq!(form.error.as_deref(), Some("rejected"));
+
+    form.handle_key(ctrl('t'));
+    assert_eq!(form.error.as_deref(), Some("rejected"));
+}
+
+#[test]
+fn an_edit_clears_the_error_of_a_popup_form_too() {
+    let mut form = sample_form();
+    form.error = Some("rejected".to_string());
+
+    form.handle_key(key(KeyCode::Char('a')));
+
+    assert_eq!(form.error, None);
+}
+
 fn modified(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }
 }
@@ -977,4 +1042,83 @@ fn control_with_alt_replaces_a_saved_secret_like_any_typed_character() {
     form.handle_key(modified(KeyCode::Char('q'), KeyModifiers::CONTROL | KeyModifiers::ALT));
 
     assert_eq!((form.fields[4].kind.clone(), form.value("password").as_deref()), (FieldKind::Masked, Some("q")));
+}
+
+#[test]
+fn rejecting_with_a_field_moves_focus_there_and_keeps_the_message() {
+    let mut form = sample_form();
+    assert_eq!(form.focused, 0);
+
+    form.reject(Some("host"), "Host can't be empty");
+
+    let host = form.fields.iter().position(|field| field.key == "host").unwrap();
+    assert_eq!(form.focused, host);
+    assert_eq!(form.error.as_deref(), Some("Host can't be empty"));
+}
+
+#[test]
+fn rejecting_without_a_known_field_leaves_focus_alone() {
+    let mut form = sample_form();
+    form.focused = 1;
+
+    form.reject(None, "Something general");
+    assert_eq!(form.focused, 1);
+    assert_eq!(form.error.as_deref(), Some("Something general"));
+
+    form.reject(Some("no_such_field"), "Still general");
+    assert_eq!(form.focused, 1);
+    assert_eq!(form.error.as_deref(), Some("Still general"));
+}
+
+#[test]
+fn the_rejected_field_is_drawn_in_the_error_colour_label_and_underline() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.reject(Some("host"), "Host can't be empty");
+
+    let terminal = draw(&form, 60, 14);
+
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_eq!(cell_fg(&terminal, x, y), theme.err);
+    assert_eq!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.err);
+    let (x, y) = find_text(&terminal, "Name").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.err);
+    assert_ne!(cell_fg(&terminal, x + LABEL_WIDTH as u16, y + 1), theme.err);
+}
+
+#[test]
+fn the_message_is_still_drawn_at_the_bottom_of_the_form() {
+    let mut form = sample_form();
+    form.reject(Some("host"), "Host can't be empty");
+
+    let terminal = draw(&form, 60, 14);
+
+    assert!(find_text(&terminal, "Host can't be empty").is_some());
+}
+
+#[test]
+fn editing_the_rejected_field_clears_the_marker_and_the_message() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.reject(Some("host"), "Host can't be empty");
+
+    press(&mut form, KeyCode::Char('x'));
+
+    assert_eq!(form.error, None);
+    let terminal = draw(&form, 60, 14);
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.err);
+}
+
+#[test]
+fn a_marker_does_not_outlive_a_later_error_without_a_field() {
+    let theme = indexed();
+    let mut form = sample_form();
+    form.reject(Some("host"), "first");
+    form.reject(None, "second");
+
+    let terminal = draw(&form, 60, 14);
+
+    let (x, y) = find_text(&terminal, "Host").unwrap();
+    assert_ne!(cell_fg(&terminal, x, y), theme.err);
 }

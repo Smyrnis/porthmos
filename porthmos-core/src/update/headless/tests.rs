@@ -11,8 +11,8 @@ use porthmos_vfs::async_trait;
 
 use super::*;
 use crate::update::{
-    CheckError, StageError, Staged,
-    testing::{run_version, stage_on_disk, write_program},
+    CheckError, Product, StageError, Staged, Version,
+    testing::{run_version, stage_on_disk, staged_dir, write_program},
 };
 
 const BUDGET: Duration = Duration::from_secs(5);
@@ -35,6 +35,7 @@ struct DiskUpdater {
     check: Mutex<VecDeque<Result<Outcome, CheckError>>>,
     stage_error: Mutex<Option<StageError>>,
     calls: Mutex<Vec<String>>,
+    checked_versions: Mutex<Vec<Version>>,
 }
 
 impl DiskUpdater {
@@ -44,6 +45,7 @@ impl DiskUpdater {
             check: Mutex::new(VecDeque::from([check])),
             stage_error: Mutex::new(None),
             calls: Mutex::new(Vec::new()),
+            checked_versions: Mutex::new(Vec::new()),
         }
     }
 
@@ -54,7 +56,8 @@ impl DiskUpdater {
 
 #[async_trait]
 impl Updater for DiskUpdater {
-    async fn check(&self, _current: &Version) -> Result<Outcome, CheckError> {
+    async fn check(&self, current: &Version) -> Result<Outcome, CheckError> {
+        self.checked_versions.lock().unwrap().push(current.clone());
         self.calls.lock().unwrap().push("check".to_string());
         self.check.lock().unwrap().pop_front().unwrap()
     }
@@ -91,13 +94,13 @@ impl World {
     }
 
     async fn run(&self, updater: &DiskUpdater, check_only: bool) -> Result<HeadlessUpdate, String> {
-        let current: Version = "0.3.0".parse().unwrap();
-        run_update_with(updater, &self.paths, &self.executable(), Some(self.root.path()), &current, check_only, BUDGET)
+        let identity = AppIdentity::new(Product::Tui, "0.3.0");
+        run_update_with(updater, &self.paths, &self.executable(), Some(self.root.path()), &identity, check_only, BUDGET)
             .await
     }
 
     fn staged_files_exist(&self, version: &str) -> bool {
-        self.paths.update_dir().join(version).join("porthmos").exists()
+        staged_dir(&self.paths, Product::Tui).path().join(version).join("porthmos").exists()
     }
 }
 
@@ -131,9 +134,9 @@ async fn a_managed_executable_reports_the_reason_and_stages_nothing() {
     let executable = home.join(".cargo").join("bin").join("porthmos");
     write_program(&executable, "0.3.0");
     let updater = DiskUpdater::new(&world.paths, Ok(Outcome::Available(info("0.9.0"))));
-    let current: Version = "0.3.0".parse().unwrap();
+    let identity = AppIdentity::new(Product::Tui, "0.3.0");
 
-    let report = run_update_with(&updater, &world.paths, &executable, Some(&home), &current, false, BUDGET).await;
+    let report = run_update_with(&updater, &world.paths, &executable, Some(&home), &identity, false, BUDGET).await;
 
     assert!(
         matches!(&report, Ok(HeadlessUpdate::Managed { version, reason }) if version == "0.9.0" && !reason.is_empty()),
@@ -193,14 +196,14 @@ async fn a_failed_stage_returns_the_error_text_and_leaves_the_executable_alone()
 async fn a_failed_install_returns_the_message_and_keeps_the_staged_files() {
     let world = World::new();
     let updater = DiskUpdater::new(&world.paths, Ok(Outcome::Available(info("0.9.0"))));
-    let current: Version = "0.3.0".parse().unwrap();
+    let identity = AppIdentity::new(Product::Tui, "0.3.0");
 
     let report = run_update_with(
         &updater,
         &world.paths,
         &world.executable(),
         Some(world.root.path()),
-        &current,
+        &identity,
         false,
         Duration::ZERO,
     )
@@ -209,4 +212,34 @@ async fn a_failed_install_returns_the_message_and_keeps_the_staged_files() {
     assert!(matches!(&report, Err(message) if message.contains("too long")), "{report:?}");
     assert!(world.staged_files_exist("0.9.0"));
     assert_eq!(run_version(&world.executable()), "porthmos 0.3.0");
+}
+
+#[tokio::test]
+async fn the_check_is_made_for_the_version_of_the_given_identity() {
+    let world = World::new();
+    let updater = DiskUpdater::new(&world.paths, Ok(Outcome::UpToDate));
+    let identity = AppIdentity::new(Product::Gui, "2026.5.0-dev.1");
+
+    let report =
+        run_update_with(&updater, &world.paths, &world.executable(), Some(world.root.path()), &identity, true, BUDGET)
+            .await;
+
+    assert_eq!(report, Ok(HeadlessUpdate::UpToDate { current: "2026.5.0-dev.1".to_string() }));
+    assert_eq!(*updater.checked_versions.lock().unwrap(), ["2026.5.0-dev.1".parse::<Version>().unwrap()]);
+}
+
+#[tokio::test]
+async fn the_headless_update_removes_the_update_files_of_the_old_layout() {
+    let world = World::new();
+    std::fs::create_dir_all(world.paths.update_dir().join("0.2.0")).unwrap();
+    std::fs::write(world.paths.update_dir().join("staged.toml"), "version = \"0.2.0\"").unwrap();
+    std::fs::create_dir_all(&world.paths.state_dir).unwrap();
+    std::fs::write(world.paths.state_dir.join("update.toml"), "last_failure = \"old\"\n").unwrap();
+    let updater = DiskUpdater::new(&world.paths, Ok(Outcome::UpToDate));
+
+    world.run(&updater, true).await.unwrap();
+
+    assert!(!world.paths.update_dir().join("staged.toml").exists());
+    assert!(!world.paths.update_dir().join("0.2.0").exists());
+    assert!(!world.paths.state_dir.join("update.toml").exists());
 }

@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Event;
-use crate::Severity;
+use crate::{Message, Severity};
 
 #[derive(Clone)]
 pub(crate) struct Reporter {
@@ -25,19 +25,19 @@ impl Reporter {
         }
     }
 
-    pub(crate) fn show(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn show(&self, severity: Severity, message: impl Into<Message>) {
         let _ = self.events.send(Event::Notice { severity, message: message.into() });
     }
 
     #[track_caller]
-    pub(crate) fn report(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn report(&self, severity: Severity, message: impl Into<Message>) {
         let message = message.into();
-        self.log(severity, &message);
+        self.log(severity, &message.to_string());
         self.show(severity, message);
     }
 
     #[track_caller]
-    pub(crate) fn report_cause(&self, severity: Severity, message: impl Into<String>, cause: &dyn Debug) {
+    pub(crate) fn report_cause(&self, severity: Severity, message: impl Into<Message>, cause: &dyn Debug) {
         tracing::debug!("{cause:?}");
         self.report(severity, message);
     }

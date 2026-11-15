@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use chrono::Datelike;
@@ -22,10 +28,16 @@ pub(crate) struct FtpFs {
     pool: Arc<Pool>,
     home: VfsPath,
     mfmt: bool,
+    chmod_refused: AtomicBool,
     greeting: Option<String>,
 }
 
 const LAST_MFMT_YEAR: i32 = 9999;
+const CHMOD_BITS: u32 = 0o7777;
+
+fn chmod_unsupported() -> ProtocolError {
+    ProtocolError::new(ErrorKind::Unsupported, anyhow!("this server doesn't support changing permissions (SITE CHMOD)"))
+}
 
 pub(crate) fn mfmt_stamp(seconds: u64) -> Result<String, ProtocolError> {
     let moment = i64::try_from(seconds)
@@ -126,7 +138,7 @@ impl FtpFs {
     pub(crate) async fn new(pool: Pool, greeting: Option<String>) -> Result<Self, ProtocolError> {
         let home = VfsPath::new(&pool.run(|connection| Box::pin(connection.pwd())).await?);
         let mfmt = advertises_mfmt(&pool).await;
-        Ok(Self { pool: Arc::new(pool), home, mfmt, greeting })
+        Ok(Self { pool: Arc::new(pool), home, mfmt, chmod_refused: AtomicBool::new(false), greeting })
     }
 
     async fn mlsd(&self, path: &str) -> Result<Option<Vec<ListedItem>>, ProtocolError> {
@@ -428,6 +440,37 @@ impl FileSystem for FtpFs {
 
     fn can_set_modified(&self) -> bool {
         self.mfmt
+    }
+
+    async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<(), ProtocolError> {
+        if self.chmod_refused.load(Ordering::Relaxed) {
+            return Err(chmod_unsupported());
+        }
+        let command = format!("SITE CHMOD {:03o} {}", mode & CHMOD_BITS, remote(path));
+        let result = self
+            .pool
+            .run_raw(|connection| {
+                let command = command.clone();
+                Box::pin(async move {
+                    connection
+                        .custom_command(command, &[Status::CommandOk, Status::RequestedFileActionOk])
+                        .await
+                        .map(|_| ())
+                })
+            })
+            .await?;
+        match result {
+            Ok(()) => Ok(()),
+            Err(err) if is_not_implemented(&err) => {
+                self.chmod_refused.store(true, Ordering::Relaxed);
+                Err(chmod_unsupported())
+            }
+            Err(err) => Err(ftp_error(err)),
+        }
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        !self.chmod_refused.load(Ordering::Relaxed)
     }
 
     fn time_resolution(&self) -> u64 {

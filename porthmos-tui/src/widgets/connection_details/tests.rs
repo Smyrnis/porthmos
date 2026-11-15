@@ -214,15 +214,15 @@ fn values_are_sanitised() {
     assert!(pairs(&entry).contains(&kv("host", "h?ost?name")));
 }
 
-struct Draw<'a> {
+struct Draw {
     protocols: Vec<ProtocolInfo>,
     connected: bool,
     lost: bool,
-    failure: Option<&'a str>,
+    failure: Option<porthmos_core::Message>,
     last_used: Option<DateTime<Utc>>,
 }
 
-impl<'a> Draw<'a> {
+impl Draw {
     fn new() -> Self {
         Self { protocols: protocols(), connected: false, lost: false, failure: None, last_used: None }
     }
@@ -233,7 +233,7 @@ impl<'a> Draw<'a> {
             protocols: &self.protocols,
             connected: self.connected,
             lost: self.lost,
-            failure: self.failure,
+            failure: self.failure.as_ref(),
             last_used: self.last_used,
             now: now(),
         };
@@ -286,7 +286,7 @@ fn the_header_shows_name_protocol_and_connected_status() {
 fn a_failed_entry_shows_its_last_error_line_in_err() {
     let theme = indexed();
     let mut draw = Draw::new();
-    draw.failure = Some("Authentication failed\nsecond line");
+    draw.failure = Some("Authentication failed\nsecond line".into());
 
     let terminal = draw.entry(&sftp_entry(), 50, 8);
 
@@ -516,7 +516,7 @@ fn the_longest_option_labels_are_not_cut_short() {
 #[test]
 fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
     let mut draw = Draw::new();
-    draw.failure = Some("Unable to connect to web:\nConnection refused (os error 111)");
+    draw.failure = Some("Unable to connect to web:\nConnection refused (os error 111)".into());
 
     let terminal = draw.entry(&sftp_entry(), 80, 8);
 

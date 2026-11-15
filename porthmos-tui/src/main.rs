@@ -1,10 +1,10 @@
 use anyhow::Result;
-use tracing_subscriber::prelude::*;
 
 mod app;
 mod cli;
 mod clock;
 mod input;
+#[cfg(test)]
 mod logging;
 mod palette;
 mod rate;
@@ -14,7 +14,7 @@ mod theme;
 mod widgets;
 
 use app::App;
-use porthmos_core::{Core, Environment, Paths, UpdateMode, config, from_os_path};
+use porthmos_core::{Core, Environment, PanelKind, Paths, UpdateMode, config, from_os_path};
 
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
@@ -26,32 +26,6 @@ fn install_panic_hook() {
         let _ = terminal::restore();
         default_hook(panic_info);
     }));
-}
-
-fn init_tracing(log_file: Option<&std::path::Path>) {
-    let filter = logging::log_filter(std::env::var("RUST_LOG").ok().as_deref());
-    let writer = match log_file {
-        Some(path) => logging::open_writer_at(path),
-        None => Err(anyhow::anyhow!("HOME environment variable is not set")),
-    };
-    match writer {
-        Ok(file) => {
-            tracing_subscriber::registry()
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(std::sync::Mutex::new(file))
-                        .with_ansi(false)
-                        .with_filter(filter),
-                )
-                .init();
-        }
-        Err(err) => {
-            eprintln!("porthmos: failed to open log file, logging disabled: {err}");
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_writer(std::io::sink).with_filter(filter))
-                .init();
-        }
-    }
 }
 
 struct ExitUpdate {
@@ -66,17 +40,27 @@ fn start_app(
     paths.migrate_legacy_config();
     let (settings, config_warnings) = config::load(&paths)?;
     let (key_bindings, key_warnings) = input::KeyBindings::from_frontend(&settings.frontend);
-    let (theme_settings, theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
-    let panel = settings.panel.clone();
+    let (theme_settings, mut theme_warnings) = theme::ThemeSettings::from_frontend(&settings.frontend);
+    let (scheme, scheme_warnings) = porthmos_core::theme::file::load(&paths, theme_settings.accent);
+    theme_warnings.extend(scheme_warnings);
+    let theme_settings = theme_settings.with_scheme(scheme);
     let update_mode = settings.update.mode;
+    let search_preview = settings.search.preview;
     let exit_update = ExitUpdate { paths: paths.clone(), mode: update_mode };
-    let (core, events) = Core::builder().paths(paths).environment(env).settings(settings).release_updates().start()?;
+    let (core, events) = Core::builder()
+        .paths(paths)
+        .environment(env)
+        .settings(settings)
+        .release_updates(cli::app_identity())
+        .start()?;
 
     let theme = theme::Theme::new(theme::ColorDepth::from_environment(), &theme_settings);
-    let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &panel, key_bindings)
+    let local_panel = core.panel_settings(PanelKind::Local);
+    let mut app = App::new(core, from_os_path(&std::env::current_dir()?), &local_panel, key_bindings)
         .with_theme(theme)
         .with_home(home)
-        .with_update_mode(update_mode);
+        .with_update_mode(update_mode)
+        .with_search_preview(search_preview);
     for warning in config_warnings {
         app.warn(warning.0);
     }
@@ -92,6 +76,9 @@ fn start_app(
 const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn main() -> Result<()> {
+    if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
+        std::process::exit(code);
+    }
     match cli::interpret(std::env::args().skip(1)) {
         cli::Invocation::Run => {}
         cli::Invocation::Print(text) => {
@@ -116,9 +103,10 @@ fn main() -> Result<()> {
 }
 
 fn install_update(exit: ExitUpdate) {
-    match cli::install_message(&porthmos_core::apply_staged_update(&exit.paths, exit.mode)) {
-        Some(cli::ExitLine::Out(line)) => println!("{line}"),
-        Some(cli::ExitLine::Err(line)) => eprintln!("{line}"),
+    let identity = cli::app_identity();
+    match porthmos_core::apply_staged_update(&exit.paths, exit.mode, &identity).exit_line(identity.product.program()) {
+        Some(porthmos_core::ExitLine::Out(line)) => println!("{line}"),
+        Some(porthmos_core::ExitLine::Err(line)) => eprintln!("{line}"),
         None => {}
     }
 }
@@ -132,7 +120,7 @@ fn run_update_command(check_only: bool) -> Result<()> {
         }
     };
     let runtime = tokio::runtime::Runtime::new()?;
-    match runtime.block_on(porthmos_core::run_update(&paths, check_only)) {
+    match runtime.block_on(porthmos_core::run_update(&paths, check_only, &cli::app_identity())) {
         Ok(update) => {
             println!("{}", cli::describe_update(&update));
             Ok(())
@@ -147,7 +135,7 @@ fn run_update_command(check_only: bool) -> Result<()> {
 async fn run() -> Result<Option<ExitUpdate>> {
     let env = Environment::from_process();
     let paths = Paths::from_env(&env);
-    init_tracing(paths.as_ref().ok().map(Paths::log_file).as_deref());
+    porthmos_core::logging::init("porthmos", paths.as_ref().ok().map(Paths::log_file).as_deref());
 
     install_panic_hook();
 

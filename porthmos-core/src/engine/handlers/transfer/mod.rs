@@ -172,6 +172,9 @@ impl Engine {
                     if !executed.times_kept {
                         let _ = internal.send(Internal::Transfer(TransferEvent::TimesNotKept { id }));
                     }
+                    if !executed.permissions_kept {
+                        let _ = internal.send(Internal::Transfer(TransferEvent::PermissionsNotKept { id }));
+                    }
                     TransferEvent::Finished { id, outcome: executed.outcome }
                 }
                 Err(err) => {
@@ -184,6 +187,16 @@ impl Engine {
             };
             let _ = internal.send(Internal::Transfer(event));
         });
+    }
+
+    fn batch_and_destination_name(&self, id: u64) -> Option<(u64, String)> {
+        let job = self.transfers.get(id)?;
+        let batch_id = job.batch_id?;
+        let connection = match job.direction {
+            Direction::Upload => self.session_name(job.session_id),
+            Direction::Download => crate::delete_prompt::THIS_COMPUTER.to_string(),
+        };
+        Some((batch_id, connection))
     }
 
     pub(crate) fn handle_transfer_event(&mut self, event: TransferEvent) {
@@ -287,24 +300,24 @@ impl Engine {
                 self.sync_folders_ready(batch_id, session_id, direction, plan)
             }
             TransferEvent::TimesNotKept { id } => {
-                let Some((batch_id, session_id, direction)) = self
-                    .transfers
-                    .get(id)
-                    .and_then(|job| job.batch_id.map(|batch| (batch, job.session_id, job.direction)))
-                else {
+                let Some((batch_id, connection)) = self.batch_and_destination_name(id) else {
                     return;
                 };
                 if self.transfers.flag_unkept_times(batch_id) {
-                    let connection = match direction {
-                        Direction::Upload => self.session_name(session_id),
-                        Direction::Download => "this computer".to_string(),
-                    };
                     self.report(
                         Severity::Warning,
                         format!(
                             "Couldn't keep the modification times on {connection}; the next sync will list these files again"
                         ),
                     );
+                }
+            }
+            TransferEvent::PermissionsNotKept { id } => {
+                let Some((batch_id, connection)) = self.batch_and_destination_name(id) else {
+                    return;
+                };
+                if self.transfers.flag_unkept_permissions(batch_id) {
+                    self.report(Severity::Warning, format!("Couldn't keep the file permissions on {connection}"));
                 }
             }
             TransferEvent::PartialsRemoved { session_id } => self.refresh_destination(session_id, Direction::Upload),
@@ -701,7 +714,9 @@ impl Engine {
                     removed_local |= std::fs::remove_file(part).is_ok();
                 }
                 Direction::Upload => {
-                    remote_parts.entry(job.session_id).or_default().push(format!("{}{PART_SUFFIX}", job.remote_path))
+                    if let Some(session_id) = self.usable_session_for(job.session_id) {
+                        remote_parts.entry(session_id).or_default().push(format!("{}{PART_SUFFIX}", job.remote_path));
+                    }
                 }
             }
         }

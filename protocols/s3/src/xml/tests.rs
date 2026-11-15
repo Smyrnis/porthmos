@@ -189,3 +189,20 @@ fn a_copied_part_reports_its_etag() {
     assert_eq!(copy_part_etag(xml), Some("\"abc\"".to_string()));
     assert_eq!(copy_part_etag("<Error><Code>InternalError</Code></Error>"), None);
 }
+
+#[test]
+fn a_parts_page_with_the_response_root_that_moto_sends_is_accepted() {
+    let xml = PARTS.replace("ListPartsResult", "ListPartsResponse");
+
+    let page = parts(&xml).unwrap();
+
+    assert_eq!(page.parts.len(), 2);
+    assert_eq!(page.next, Some(2));
+}
+
+#[test]
+fn a_parts_page_with_another_root_is_still_rejected() {
+    let xml = PARTS.replace("ListPartsResult", "ListBucketResult");
+
+    assert!(parts(&xml).is_err());
+}

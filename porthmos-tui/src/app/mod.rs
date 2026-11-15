@@ -8,11 +8,12 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use porthmos_core::{
-    Command, CoreHandle, Event, Location, Question, RequestId, SessionId, Severity, ShellInvocation, UpdateMode,
-    UpdateState, VfsPath,
+    Command, ConnectionState, CoreHandle, Event, Location, Message, PanelKind, Question, RequestId, SessionId,
+    Severity, ShellInvocation, UpdateMode, UpdateState, VfsPath,
     config::{bookmarks::Bookmark, settings::PanelSettings},
     edit::{EditChoice, EditQuestionKind},
     profiles::{ConnectionEntry, ConnectionSource},
+    sync::SyncAction,
     transfer::{
         Direction, TransferSnapshot,
         conflicts::{ConflictInfo, Resolution},
@@ -40,8 +41,9 @@ use crate::{
         history_view::{self, HistoryView},
         layout,
         notifications::Notifications,
+        paging::PageRows,
         panel_view::{self, ActivePanel, PanelView},
-        search_view::{self, SearchOutcome, SearchView},
+        search_view::{self, PaneSync, SearchOutcome, SearchView},
         sync_view::{self, SyncView},
         transfer_list,
         update_badge::BadgeKind,
@@ -57,8 +59,12 @@ mod edit;
 mod filter;
 mod hints;
 mod history;
+mod import;
 mod palette;
+mod path_edit;
 mod preview;
+mod properties;
+mod quick_connect;
 mod render;
 mod search;
 mod sync;
@@ -67,11 +73,20 @@ mod transfers;
 mod update;
 
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(35);
+const READY_EVENT_BATCH: usize = 256;
+
+struct DeleteCount {
+    request_id: RequestId,
+    summary: Vec<String>,
+    answered: bool,
+}
 
 enum PendingAction {
     Mkdir,
     Rename { location: Location, from: VfsPath },
-    Delete { location: Location, paths: Vec<VfsPath> },
+    Permissions { location: Location, paths: Vec<VfsPath> },
+    Properties { request_id: RequestId, location: Location },
+    Delete { location: Location, paths: Vec<VfsPath>, count: Option<DeleteCount> },
     AddBookmark,
     SubmitPassword { request_id: RequestId },
     SubmitTestPassword { request_id: RequestId },
@@ -87,9 +102,14 @@ enum PendingAction {
     ClearHistory,
     EditUpload { edit_id: u64 },
     EditConflict { edit_id: u64 },
+    EditComparing { edit_id: u64 },
+    EditDiff { edit_id: u64 },
     ConfirmQuit,
     StartSync { session: SessionId },
+    ConfirmSyncDelete { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     SpeedLimit,
+    ImportSource,
+    Import { import_id: u64 },
 }
 
 enum Reveal {
@@ -124,7 +144,7 @@ impl Screen {
 enum ConnectionStatus {
     Disconnected,
     Connecting(String),
-    Failed(String),
+    Failed(Message),
 }
 
 struct SearchSession {
@@ -136,12 +156,6 @@ struct ConflictPrompt {
     batch_id: u64,
     files: Vec<ConflictInfo>,
     answers: Vec<Option<Resolution>>,
-}
-
-struct PendingFocus {
-    location: Location,
-    folder: VfsPath,
-    name: String,
 }
 
 pub struct App {
@@ -157,6 +171,9 @@ pub struct App {
     help_visible: bool,
     preview: Option<crate::widgets::preview_view::PreviewView>,
     next_preview_id: RequestId,
+    next_count_id: RequestId,
+    next_properties_id: RequestId,
+    import: import::ImportState,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -169,10 +186,10 @@ pub struct App {
     keyring_waiting: bool,
     save_choice: bool,
     transfers_cursor: usize,
+    transfers_page_rows: PageRows,
     reselect_row: Option<RowKind>,
     connection_status: ConnectionStatus,
     search: Option<SearchSession>,
-    pending_focus: Option<PendingFocus>,
     transfers: TransferSnapshot,
     history: HistoryView,
     sync_view: SyncView,
@@ -188,11 +205,15 @@ pub struct App {
     rates: RateTracker,
     details_popup: bool,
     body_width: std::cell::Cell<u16>,
-    last_failure: HashMap<String, String>,
+    last_failure: HashMap<String, Message>,
+    connection_states: HashMap<String, ConnectionState>,
     last_used: BTreeMap<String, DateTime<Utc>>,
     rate_observed_at: Instant,
     failed_at: HashMap<RowKind, DateTime<Local>>,
     update_mode: UpdateMode,
+    path_edit: Option<path_edit::PathEdit>,
+    search_preview: bool,
+    reopen_offer: Vec<String>,
     home: Option<VfsPath>,
     update_state: Option<UpdateState>,
     ready_update: Option<String>,
@@ -215,22 +236,25 @@ impl App {
             help_visible: false,
             preview: None,
             next_preview_id: 0,
+            next_count_id: 0,
+            next_properties_id: 0,
+            import: import::ImportState::default(),
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,
             stashed_form: None,
             notifications: Notifications::default(),
-            connections: ConnectionsView::new(),
+            connections: ConnectionsView::with_open_groups(core.remembered_open_groups().to_vec()),
             reveal: None,
             announced_missing: HashSet::new(),
             keyring_available: true,
             keyring_waiting: false,
             save_choice: false,
             transfers_cursor: 0,
+            transfers_page_rows: PageRows::default(),
             reselect_row: None,
             connection_status: ConnectionStatus::Disconnected,
             search: None,
-            pending_focus: None,
             transfers: TransferSnapshot::default(),
             history: HistoryView::new(),
             sync_view: SyncView::new(),
@@ -247,10 +271,14 @@ impl App {
             details_popup: false,
             body_width: std::cell::Cell::new(0),
             last_failure: HashMap::new(),
+            connection_states: HashMap::new(),
             last_used: BTreeMap::new(),
             rate_observed_at: Instant::now(),
             failed_at: HashMap::new(),
             update_mode: UpdateMode::default(),
+            path_edit: None,
+            search_preview: false,
+            reopen_offer: Vec::new(),
             home: None,
             update_state: None,
             ready_update: None,
@@ -273,6 +301,11 @@ impl App {
 
     pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
         self.update_mode = mode;
+        self
+    }
+
+    pub fn with_search_preview(mut self, enabled: bool) -> Self {
+        self.search_preview = enabled;
         self
     }
 
@@ -312,18 +345,27 @@ impl App {
                     }
                 }
                 Some(core_event) = core_events.recv() => {
-                    if let Event::ShellReady { invocation, .. } = core_event {
-                        drop(events);
-                        let launched = self.launch_shell(terminal, invocation).await;
-                        events = EventStream::new();
-                        launched?;
-                    } else if let Event::EditReady { edit_id, file, editor } = core_event {
-                        drop(events);
-                        let launched = self.launch_editor(terminal, edit_id, file, editor).await;
-                        events = EventStream::new();
-                        launched?;
-                    } else {
-                        self.apply_core_event(core_event);
+                    let mut next = Some(core_event);
+                    while let Some(core_event) = next.take() {
+                        if let Event::ShellReady { invocation, .. } = core_event {
+                            drop(events);
+                            let launched = self.launch_shell(terminal, invocation).await;
+                            events = EventStream::new();
+                            launched?;
+                        } else if let Event::LocalShellReady { invocation } = core_event {
+                            drop(events);
+                            let launched = self.launch_local_shell(terminal, invocation).await;
+                            events = EventStream::new();
+                            launched?;
+                        } else if let Event::EditReady { edit_id, file, editor } = core_event {
+                            drop(events);
+                            let launched = self.launch_editor(terminal, edit_id, file, editor).await;
+                            events = EventStream::new();
+                            launched?;
+                        } else {
+                            self.apply_core_event(core_event);
+                            next = self.apply_ready_events(&mut core_events);
+                        }
                     }
                 }
                 _ = sleep_until_or_pending(self.notifications.next_wake()) => {
@@ -339,7 +381,21 @@ impl App {
         Ok(())
     }
 
+    fn apply_ready_events(&mut self, core_events: &mut UnboundedReceiver<Event>) -> Option<Event> {
+        for _ in 0..READY_EVENT_BATCH {
+            match core_events.try_recv() {
+                Ok(event) if needs_terminal(&event) => return Some(event),
+                Ok(event) => self.apply_core_event(event),
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
     fn apply_key(&mut self, key: KeyEvent) {
+        if self.drop_stale_path_edit() {
+            return;
+        }
         if self.details_popup && !self.details_popup_visible() {
             self.details_popup = false;
         }
@@ -354,6 +410,8 @@ impl App {
         } else if self.dialog.is_some() {
             self.apply_dialog_key(key);
             self.after_dialog_key();
+        } else if self.path_edit.is_some() {
+            self.apply_path_key(key);
         } else if self.screen == Screen::Search {
             if self.opens_palette(key) {
                 self.open_palette();
@@ -366,8 +424,14 @@ impl App {
             let action = self.key_bindings.map_key(self.screen.scope(), key);
             if action == Action::Noop && self.screen == Screen::Connections && key.modifiers.is_empty() {
                 match key.code {
-                    KeyCode::Right => self.connections.expand(),
-                    KeyCode::Left => self.connections.collapse_or_parent(),
+                    KeyCode::Right => {
+                        self.connections.expand();
+                        self.remember_open_groups();
+                    }
+                    KeyCode::Left => {
+                        self.connections.collapse_or_parent();
+                        self.remember_open_groups();
+                    }
                     _ => {}
                 }
             } else if action == Action::Noop && self.screen == Screen::Sync && key.modifiers.is_empty() {
@@ -379,14 +443,23 @@ impl App {
     }
 
     fn apply_core_event(&mut self, event: Event) {
+        self.route_core_event(event);
+        self.drop_stale_path_edit();
+    }
+
+    fn route_core_event(&mut self, event: Event) {
         match event {
-            Event::Notice { severity, message } => self.notifications.push(severity, message),
+            Event::Notice { severity, message } => self.notifications.push(severity, message.to_string()),
+            Event::ConnectionState { name, state } => {
+                self.connection_states.insert(name, state);
+            }
+            Event::ReopenOffer { names } => self.reopen_offer = names,
             Event::Connecting { name } => self.connection_status = ConnectionStatus::Connecting(name),
             Event::Connected { session, name, shell_available } => self.apply_connected(session, name, shell_available),
             Event::ConnectFailed { name, message } => {
                 self.last_failure.insert(name, message.clone());
                 self.connection_status = ConnectionStatus::Failed(message.clone());
-                self.notifications.push(Severity::Error, message);
+                self.notifications.push(Severity::Error, message.to_string());
             }
             Event::Question { request_id, question } => self.ask(request_id, question),
             Event::TestQuestion { test_id, request_id, question } => self.ask_test(test_id, request_id, question),
@@ -394,8 +467,13 @@ impl App {
             Event::Disconnected { session, .. } => {
                 self.sessions.remove(session);
             }
-            Event::ShellReady { .. } => {}
+            Event::ShellReady { .. } | Event::LocalShellReady { .. } => {}
             Event::Listed { location, path, entries } => self.apply_listing(location, path, entries),
+            Event::PathOpened { location } => self.finish_path_edit(location),
+            Event::PathCompleted { location, text, completion } => {
+                self.apply_path_completion(location, text, completion)
+            }
+            Event::Revealed { location, folder, name } => self.apply_revealed(location, &folder, &name),
             Event::SessionHealth { session, healthy } => self.sessions.set_healthy(session, healthy),
             Event::FreeSpace { location, path, bytes } => self.apply_free_space(location, &path, bytes),
             Event::LocationChanged { location } => self.relist(location),
@@ -403,7 +481,10 @@ impl App {
                 self.last_failure.retain(|name, _| entries.iter().any(|entry| entry.name == *name));
                 self.connections.replace(entries);
                 match self.reveal.take() {
-                    Some(Reveal::Ready(name)) => self.connections.reveal(&name),
+                    Some(Reveal::Ready(name)) => {
+                        self.connections.reveal(&name);
+                        self.remember_open_groups();
+                    }
                     other => self.reveal = other,
                 }
                 self.announce_missing_hosts();
@@ -417,7 +498,7 @@ impl App {
                     self.reveal = Some(Reveal::Ready(name));
                 }
             }
-            Event::ProfileRejected { message } => self.set_form_error(message),
+            Event::ProfileRejected { field, message } => self.set_form_error(field, message),
             Event::Bookmarks(bookmarks) => self.bookmarks = bookmarks,
             Event::TransfersChanged(snapshot) => self.apply_transfer_snapshot(snapshot),
             Event::ConflictsFound { batch_id, files } => self.queue_conflict_prompt(batch_id, files),
@@ -425,11 +506,15 @@ impl App {
             Event::SearchFound(entry) => {
                 if let Some(search) = self.search.as_mut() {
                     search.view.push_result(entry);
+                    self.sync_search_pane();
                 }
             }
-            Event::SearchDone { truncated } => {
+            Event::SearchDone { truncated, incomplete } => {
                 if let Some(search) = self.search.as_mut() {
                     search.view.finish(truncated);
+                    if incomplete {
+                        self.notifications.push(Severity::Warning, porthmos_core::SEARCH_INCOMPLETE_NOTE.to_string());
+                    }
                 }
             }
             Event::SearchFailed(message) => {
@@ -438,6 +523,7 @@ impl App {
                     self.notifications.push(Severity::Error, message);
                 }
             }
+            Event::PathRejected { location } => self.reject_path_edit(location),
             Event::KeyringStatus { available } => self.keyring_available = available,
             Event::KeyringWaiting { waiting } => self.keyring_waiting = waiting,
             Event::SaveChoice { save } => self.save_choice = save,
@@ -445,11 +531,21 @@ impl App {
             Event::EditReady { .. } => {}
             Event::EditsBusy(busy) => self.edits_busy = busy,
             Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
+            Event::ContentsCounted { request_id, contents } => self.apply_contents_counted(request_id, contents),
+            Event::MeasureProgress { request_id, measured } => self.apply_measure_progress(request_id, measured),
+            Event::Measured { request_id, result } => self.apply_measured(request_id, result),
+            Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
+                self.apply_checksum_progress(request_id, &path, bytes_done, bytes_total)
+            }
+            Event::Checksummed { request_id, path, result } => self.apply_checksummed(request_id, &path, result),
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
+            Event::EditDiff { edit_id, result } => self.apply_edit_diff(edit_id, result),
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)
             }
             Event::SyncPlanReady(plan) => self.apply_sync_plan(plan),
+            Event::ImportPlanReady(plan) => self.apply_import_plan(plan),
+            Event::ImportDone { added, skipped, .. } => self.apply_import_done(added, skipped),
             Event::SyncWithdrawn { sync_ids } => self.withdraw_sync(&sync_ids),
             Event::Update(state) => self.apply_update_event(state),
         }
@@ -458,7 +554,9 @@ impl App {
     fn ask(&mut self, request_id: RequestId, question: Question) {
         self.make_room_for_question();
         match question {
-            Question::Password { username, name } => self.open_password_prompt(request_id, username, name),
+            Question::Password { username, name, secret } => {
+                self.open_password_prompt(request_id, username, name, secret)
+            }
             Question::TrustHostKey { name, host, port, key_type, fingerprint } => {
                 let message = format!(
                     "{name} ({host}:{port}) is not a known host.\n\
@@ -482,7 +580,6 @@ impl App {
     }
 
     fn apply_listing(&mut self, location: Location, path: VfsPath, entries: Vec<porthmos_core::Entry>) {
-        let focus = self.pending_focus.take_if(|pending| pending.location == location && pending.folder == path);
         match location {
             Location::Local => {
                 if &path != self.local.path() {
@@ -499,13 +596,15 @@ impl App {
                 }
             }
         }
-        if let Some(focus) = focus {
-            match location {
-                Location::Local => self.local.focus_name(&focus.name),
-                Location::Session(id) => {
-                    self.sessions.by_id_mut(id).is_some_and(|session| session.panel.focus_name(&focus.name))
-                }
-            };
+    }
+
+    fn apply_revealed(&mut self, location: Location, folder: &VfsPath, name: &str) {
+        let panel = match location {
+            Location::Local => Some(&mut self.local),
+            Location::Session(id) => self.sessions.by_id_mut(id).map(|session| &mut session.panel),
+        };
+        if let Some(panel) = panel.filter(|panel| panel.path() == folder) {
+            panel.focus_name(name);
         }
     }
 
@@ -544,6 +643,10 @@ impl App {
             Location::Session(id) => self.sessions.by_id(id).map(|session| &session.panel),
         }
     }
+}
+
+fn needs_terminal(event: &Event) -> bool {
+    matches!(event, Event::ShellReady { .. } | Event::LocalShellReady { .. } | Event::EditReady { .. })
 }
 
 async fn sleep_until_or_pending(deadline: Option<Instant>) {

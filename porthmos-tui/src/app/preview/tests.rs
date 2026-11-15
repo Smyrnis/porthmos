@@ -337,7 +337,7 @@ fn the_viewer_covers_the_screen_and_the_files_screen_returns_after_closing() {
 #[test]
 fn a_toast_still_shows_over_the_viewer() {
     let mut test = viewer_with_many_lines();
-    test.app.apply_core_event(Event::Notice { severity: Severity::Warning, message: "heads up".to_string() });
+    test.app.apply_core_event(Event::Notice { severity: Severity::Warning, message: "heads up".into() });
 
     assert!(draw(&test).iter().any(|row| row.contains("heads up")));
 }
@@ -371,7 +371,11 @@ fn a_password_question_that_arrives_while_the_viewer_is_open_can_be_answered() {
 
     test.app.apply_core_event(Event::Question {
         request_id: 9,
-        question: porthmos_core::Question::Password { username: "u".to_string(), name: "srv".to_string() },
+        question: porthmos_core::Question::Password {
+            username: "u".to_string(),
+            name: "srv".to_string(),
+            secret: "Password",
+        },
     });
     for character in "pw".chars() {
         press(&mut test, KeyCode::Char(character));

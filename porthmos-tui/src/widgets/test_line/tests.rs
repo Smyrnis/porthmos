@@ -130,8 +130,7 @@ fn a_certificate_not_trusted_yet_shows_the_fingerprint_in_bright() {
 #[test]
 fn failures_use_err_and_their_wording() {
     let theme = indexed();
-    let failed =
-        |stage, message: &str| TestState::Finished(TestOutcome::Failed { stage, message: message.to_string() });
+    let failed = |stage, message: &str| TestState::Finished(TestOutcome::Failed { stage, message: message.into() });
 
     let login = render(&failed(TestStage::Login, "Authentication failed for nas"), 100);
     assert_eq!(screen_rows(&login)[0].trim_end(), "\u{25cf} failed at login \u{b7} Authentication failed for nas");
@@ -203,7 +202,7 @@ fn server_text_and_messages_are_sanitised_and_cut_but_the_time_never_is() {
     let state = report(142, Some(&hostile), opens(&"\u{65e5}".repeat(300)));
     let failed = TestState::Finished(TestOutcome::Failed {
         stage: TestStage::Connect,
-        message: format!("first\nsecond\u{1b}[31m{}", "x".repeat(500)),
+        message: format!("first\nsecond\u{1b}[31m{}", "x".repeat(500)).into(),
     });
 
     for width in [20u16, 40, 80, 130] {
@@ -213,7 +212,7 @@ fn server_text_and_messages_are_sanitised_and_cut_but_the_time_never_is() {
         let terminal = render(&failed, width);
         assert!(!has_unprintable_cell(&terminal), "{width}");
     }
-    assert!(text(&failed, 130).contains("first - second"));
+    assert!(text(&failed, 130).contains("first: second"));
 }
 
 #[test]
@@ -222,7 +221,7 @@ fn the_line_fits_one_row_at_every_width_and_never_panics() {
     let states = [
         TestState::Running,
         report(142, Some("OpenSSH_9.6p1 Ubuntu-3ubuntu13.4"), opens("/home/deploy/projects")),
-        TestState::Finished(TestOutcome::Failed { stage: TestStage::Login, message: "x".repeat(200) }),
+        TestState::Finished(TestOutcome::Failed { stage: TestStage::Login, message: "x".repeat(200).into() }),
         TestState::Finished(TestOutcome::NotTrusted(NotTrusted::HostKey {
             key_type: "k".into(),
             fingerprint: "SHA256:".to_string() + &"a".repeat(43),
@@ -252,7 +251,7 @@ fn an_indexed_theme_keeps_ok_bright_err_and_dim_distinct() {
 fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
     let failed = TestState::Finished(TestOutcome::Failed {
         stage: TestStage::Connect,
-        message: "Unable to connect to sftp-local:\nConnection refused (os error 111)".to_string(),
+        message: "Unable to connect to sftp-local:\nConnection refused (os error 111)".into(),
     });
 
     assert!(text(&failed, 120).contains("Connection refused (os error 111)"));

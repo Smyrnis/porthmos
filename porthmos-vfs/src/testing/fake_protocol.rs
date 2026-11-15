@@ -189,7 +189,11 @@ impl Protocol for FakeProtocol {
         if let Some(expected) = &self.password
             && target.password.as_ref() != Some(expected)
         {
-            let question = Question::Password { username: target.username.clone(), name: target.name.clone() };
+            let question = Question::Password {
+                username: target.username.clone(),
+                name: target.name.clone(),
+                secret: crate::PASSWORD_LABEL,
+            };
             match prompter.ask(question).await {
                 None => {
                     return Err(ProtocolError::new(ErrorKind::Cancelled, anyhow::anyhow!("Connection cancelled")));

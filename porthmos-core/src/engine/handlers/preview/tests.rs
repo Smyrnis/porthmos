@@ -5,7 +5,7 @@ use porthmos_vfs::VfsPath;
 
 use crate::{
     engine::{
-        Command, Event, Location,
+        Command, Event, Internal, Location,
         testing::{TestEngine, test_engine},
     },
     preview::{Preview, PreviewContent},
@@ -31,6 +31,10 @@ async fn next_preview(t: &mut TestEngine) -> (u64, String, Result<Arc<Preview>, 
             return (request_id, name, result);
         }
     }
+}
+
+fn hint(t: &mut TestEngine, request_id: u64, location: Location, path: &str) {
+    t.engine.handle_command(Command::PreviewHint { request_id, location, path: VfsPath::from(path) });
 }
 
 fn text(content: &str) -> PreviewContent {
@@ -286,4 +290,183 @@ async fn a_read_that_stalls_midway_reports_the_stall_with_the_name() {
     assert_eq!((id, name.as_str()), (5, "slow.txt"));
     let message = result.unwrap_err();
     assert!(message.starts_with("Couldn't preview slow.txt") && message.contains("took too long"), "{message}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hint_reads_nothing_before_the_rest_delay() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1));
+
+    hint(&mut t, 1, Location::Session(session), "/srv/a.txt");
+    tokio::time::sleep(super::PREVIEW_REST / 2).await;
+
+    assert!(t.internal.try_recv().is_err());
+    assert!(preview_events(&t.drain()).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hint_previews_the_file_once_the_cursor_has_rested() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1));
+
+    hint(&mut t, 5, Location::Session(session), "/srv/a.txt");
+    t.settle().await;
+
+    let events = preview_events(&t.drain());
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!((events[0].0, events[0].1.as_str()), (5, "a.txt"));
+    assert_eq!(events[0].2.as_ref().unwrap().content, text("first"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn hints_in_quick_succession_preview_only_the_last_file() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1)).file("/srv/b.txt", b"second", Some(1));
+    remote.file("/srv/c.txt", b"third", Some(1));
+    let location = Location::Session(session);
+
+    hint(&mut t, 1, location, "/srv/a.txt");
+    hint(&mut t, 2, location, "/srv/b.txt");
+    hint(&mut t, 3, location, "/srv/c.txt");
+    t.settle().await;
+
+    let events = preview_events(&t.drain());
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, 3);
+    assert_eq!(events[0].2.as_ref().unwrap().content, text("third"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hint_drops_the_answer_of_a_preview_still_in_flight() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1)).file("/srv/b.txt", b"second", Some(1));
+    let location = Location::Session(session);
+
+    ask(&mut t, 1, location, "/srv/a.txt");
+    hint(&mut t, 2, location, "/srv/b.txt");
+    t.settle().await;
+
+    let events = preview_events(&t.drain());
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancel_preview_cancels_a_pending_hint() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1));
+
+    hint(&mut t, 1, Location::Session(session), "/srv/a.txt");
+    t.engine.handle_command(Command::CancelPreview);
+    t.settle().await;
+
+    assert!(preview_events(&t.drain()).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hint_for_a_closed_connection_reports_the_closed_message() {
+    let mut t = test_engine();
+
+    hint(&mut t, 3, Location::Session(99), "/srv/a.txt");
+    t.settle().await;
+
+    let events = preview_events(&t.drain());
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, 3);
+    assert!(events[0].2.as_ref().unwrap_err().contains("closed"), "{events:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_superseded_hint_never_comes_to_rest() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1)).file("/srv/b.txt", b"second", Some(1));
+    remote.file("/srv/c.txt", b"third", Some(1));
+    let location = Location::Session(session);
+
+    hint(&mut t, 1, location, "/srv/a.txt");
+    hint(&mut t, 2, location, "/srv/b.txt");
+    hint(&mut t, 3, location, "/srv/c.txt");
+    tokio::time::sleep(super::PREVIEW_REST * 2).await;
+
+    let rested: Vec<u64> = std::iter::from_fn(|| t.internal.try_recv().ok())
+        .filter_map(|internal| match internal {
+            Internal::PreviewRested { request_id, .. } => Some(request_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rested, [3]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rest_already_queued_when_the_preview_is_cancelled_starts_nothing() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1));
+
+    hint(&mut t, 1, Location::Session(session), "/srv/a.txt");
+    tokio::time::sleep(super::PREVIEW_REST * 2).await;
+    t.engine.handle_command(Command::CancelPreview);
+    let queued = t.internal.try_recv().unwrap();
+    t.engine.handle_internal(queued);
+
+    assert!(!t.engine.preview_busy);
+    t.settle().await;
+    assert!(preview_events(&t.drain()).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rest_already_queued_when_a_newer_hint_arrives_starts_nothing() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1)).file("/srv/b.txt", b"second", Some(1));
+    let location = Location::Session(session);
+
+    hint(&mut t, 1, location, "/srv/a.txt");
+    tokio::time::sleep(super::PREVIEW_REST * 2).await;
+    hint(&mut t, 2, location, "/srv/b.txt");
+    let stale = t.internal.try_recv().unwrap();
+    t.engine.handle_internal(stale);
+
+    assert!(!t.engine.preview_busy);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_explicit_preview_is_not_taken_over_by_a_rest_that_was_already_queued() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"first", Some(1)).file("/srv/b.txt", b"second", Some(1));
+    let location = Location::Session(session);
+
+    hint(&mut t, 1, location, "/srv/a.txt");
+    tokio::time::sleep(super::PREVIEW_REST * 2).await;
+    t.engine.handle_command(Command::CancelPreview);
+    ask(&mut t, 9, location, "/srv/b.txt");
+    t.settle().await;
+
+    let events = preview_events(&t.drain());
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, 9);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_hint_forgets_a_read_queued_behind_the_running_one() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/a.txt", b"x", Some(1)).hanging_stat("/srv/a.txt");
+    remote.file("/srv/b.txt", b"second", Some(1)).file("/srv/c.txt", b"third", Some(1));
+    let location = Location::Session(session);
+
+    ask(&mut t, 1, location, "/srv/a.txt");
+    ask(&mut t, 2, location, "/srv/b.txt");
+    assert!(t.engine.preview_next.is_some());
+
+    hint(&mut t, 3, location, "/srv/c.txt");
+
+    assert!(t.engine.preview_next.is_none());
 }

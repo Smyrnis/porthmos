@@ -233,3 +233,11 @@ fn growing_the_program_never_swallows_arguments_of_a_program_that_exists() {
         ["a", "b"]
     );
 }
+
+#[test]
+fn a_conflict_copy_is_stamped_in_the_zone_of_the_time_it_is_given() {
+    let athens = chrono::FixedOffset::east_opt(2 * 3600).unwrap();
+    let at = Utc.with_ymd_and_hms(2026, 10, 31, 15, 22, 19).unwrap().with_timezone(&athens);
+
+    assert_eq!(conflict_copy_name("b.txt", at), "b.conflict-20261031-172219.txt");
+}

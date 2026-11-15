@@ -1,4 +1,6 @@
 use super::super::{Engine, Event};
+use porthmos_vfs::VfsPath;
+
 use crate::{Severity, last_used::LastUsed};
 
 pub(crate) struct LastUsedLog {
@@ -18,9 +20,15 @@ impl Engine {
     }
 
     pub(crate) fn record_use(&mut self, name: &str) {
-        let now = (self.clock)();
+        let now = self.now();
         self.last_used.store.record(name, now);
         self.last_used_changed();
+    }
+
+    pub(crate) fn record_last_folder(&mut self, name: &str, folder: &VfsPath) {
+        if self.last_used.store.record_folder(name, folder) {
+            self.persist_last_used();
+        }
     }
 
     pub(crate) fn carry_last_used(&mut self, from: &str, to: &str) {

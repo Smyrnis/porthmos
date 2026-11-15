@@ -151,6 +151,18 @@ fn entry_with_options(options: &[(&str, &str)]) -> ConnectionEntry {
 }
 
 #[test]
+fn the_bucket_is_the_trimmed_bucket_option() {
+    assert_eq!(entry_with_options(&[("bucket", "  data ")]).bucket(), Some("data"));
+}
+
+#[test]
+fn there_is_no_bucket_when_the_option_is_missing_or_blank() {
+    assert_eq!(entry_with_options(&[]).bucket(), None);
+    assert_eq!(entry_with_options(&[("bucket", "")]).bucket(), None);
+    assert_eq!(entry_with_options(&[("bucket", "   ")]).bucket(), None);
+}
+
+#[test]
 fn the_start_path_is_the_profiles_remote_path() {
     assert_eq!(entry_with_options(&[("remote_path", "/var/www")]).start_path(), Some("/var/www"));
 }

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use porthmos_core::{
-    OptionKind, ProtocolInfo,
+    Message, OptionKind, ProtocolInfo,
     profiles::{ConnectionEntry, ConnectionSource},
 };
 use ratatui::{
@@ -27,7 +27,7 @@ pub struct DetailsContext<'a> {
     pub protocols: &'a [ProtocolInfo],
     pub connected: bool,
     pub lost: bool,
-    pub failure: Option<&'a str>,
+    pub failure: Option<&'a Message>,
     pub last_used: Option<DateTime<Utc>>,
     pub now: DateTime<Utc>,
 }
@@ -124,7 +124,10 @@ fn connection_header(
     entry: &ConnectionEntry, context: &DetailsContext<'_>, width: usize, theme: &Theme,
 ) -> Line<'static> {
     let right = if let Some(failure) = context.failure {
-        let cause = failure.lines().map(str::trim).rfind(|line| !line.is_empty()).unwrap_or("");
+        let cause = failure
+            .cause()
+            .and_then(|cause| cause.lines().map(str::trim).rfind(|line| !line.is_empty()))
+            .unwrap_or_else(|| failure.summary());
         let text = truncate_with_ellipsis(&printable(cause), width / 2);
         Some(Span::styled(format!("\u{2022} {text}"), theme.err_text()))
     } else if context.lost {

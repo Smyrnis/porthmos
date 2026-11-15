@@ -1,5 +1,6 @@
 pub mod advice;
 
+use porthmos_core::Message;
 use porthmos_core::transfer::{
     Direction,
     rows::{QueueRow, RowKind, RowState, percent_of},
@@ -20,6 +21,7 @@ use crate::{
     widgets::{
         frame::{accent_underline, hairline},
         history_view::printable,
+        paging::PageRows,
         text_fit::{pad_left, pad_right, truncate_with_ellipsis},
     },
 };
@@ -46,6 +48,7 @@ pub struct TransferView<'a> {
     pub speeds: &'a [Option<u64>],
     pub etas: &'a [Option<u64>],
     pub failed_time: Option<&'a str>,
+    pub page: &'a PageRows,
 }
 
 struct Columns {
@@ -214,8 +217,9 @@ fn bar_spans(row: &QueueRow, theme: &Theme) -> Vec<Span<'static>> {
     ]
 }
 
-fn error_part(message: &str) -> &str {
-    message.split_once('\n').map_or(message, |(_, error)| error)
+fn error_part(message: &str) -> String {
+    let message = Message::parse(message);
+    message.cause().unwrap_or_else(|| message.summary()).to_string()
 }
 
 fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: &Theme) -> Vec<Line<'static>> {
@@ -234,8 +238,8 @@ fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: 
         Span::styled(file, theme.text()),
         Span::styled(suffix, theme.muted()),
     ])];
-    lines.push(Line::from(Span::styled(truncate_with_ellipsis(&printable(error), width), theme.muted())));
-    if let Some(advice) = advice_for(error) {
+    lines.push(Line::from(Span::styled(truncate_with_ellipsis(&printable(&error), width), theme.muted())));
+    if let Some(advice) = advice_for(&error) {
         lines.push(Line::from(Span::styled(truncate_with_ellipsis(advice, width), theme.dim())));
     }
     lines
@@ -278,6 +282,7 @@ pub fn render_transfer_list(frame: &mut Frame, area: Rect, view: &TransferView<'
 
     let list_height = area.height - 2 - detail_height;
     if list_height > 0 {
+        view.page.remember(usize::from(list_height));
         let items: Vec<ListItem> = (0..view.rows.len())
             .map(|index| ListItem::new(row_line(view, index, index == cursor, &columns, theme)))
             .collect();

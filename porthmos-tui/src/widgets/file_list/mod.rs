@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local};
+use porthmos_core::size_text;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -71,6 +72,7 @@ pub fn render_file_list(frame: &mut Frame, area: Rect, panel: &PanelView, contex
     if body.height == 0 {
         return;
     }
+    panel.remember_page_rows(usize::from(body.height));
     let items: Vec<ListItem> = panel
         .rows()
         .iter()
@@ -120,7 +122,7 @@ fn row_line(
     let mut spans = vec![marker, Span::raw(" "), Span::styled(name, style)];
     if let Row::Entry(entry) = row {
         if columns.show_size {
-            let size = if entry.is_dir { String::new() } else { size_label(entry.size) };
+            let size = if entry.is_dir { String::new() } else { size_text(entry.size) };
             spans.push(Span::styled(format!(" {}", pad_left(&size, SIZE_WIDTH)), theme.dim()));
         }
         if columns.show_modified {
@@ -162,21 +164,7 @@ pub(crate) fn permissions_string(entry: &porthmos_core::Entry) -> Option<String>
     } else {
         '-'
     };
-    Some(format!("{kind}{}", permission_triplets(mode)))
-}
-
-pub fn size_label(bytes: u64) -> String {
-    if bytes < 1024 {
-        return format!("{bytes} B");
-    }
-    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while (value >= 1024.0 || (value * 10.0).round() / 10.0 >= 1000.0) && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1} {}", UNITS[unit])
+    Some(format!("{kind}{}", porthmos_core::permissions::symbolic(mode)))
 }
 
 pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
@@ -187,37 +175,7 @@ pub(crate) fn truncate_name(name: &str, max_width: usize) -> String {
 }
 
 pub fn format_size(size: u64, is_dir: bool) -> String {
-    if is_dir {
-        return "\u{2014}".to_string();
-    }
-    if size < 1024 {
-        return size.to_string();
-    }
-
-    const UNITS: [&str; 4] = ["K", "M", "G", "T"];
-    let mut value = size as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1}{}", UNITS[unit])
-}
-
-fn permission_triplets(mode: u32) -> String {
-    const BITS: [(u32, char); 9] = [
-        (0o400, 'r'),
-        (0o200, 'w'),
-        (0o100, 'x'),
-        (0o040, 'r'),
-        (0o020, 'w'),
-        (0o010, 'x'),
-        (0o004, 'r'),
-        (0o002, 'w'),
-        (0o001, 'x'),
-    ];
-
-    BITS.iter().map(|(bit, ch)| if mode & bit != 0 { *ch } else { '-' }).collect()
+    if is_dir { "\u{2014}".to_string() } else { size_text(size) }
 }
 
 #[cfg(test)]

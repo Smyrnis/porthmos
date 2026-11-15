@@ -1,0 +1,207 @@
+use iced::keyboard;
+use iced::widget::{Id, operation};
+use iced::{Size, Task, window};
+use porthmos_core::profiles::ConnectionSource;
+use porthmos_core::{Command, ConnectionState, Severity};
+
+use super::{App, Message};
+use crate::connections::{Manager, ManagerButtons, Screen};
+use crate::shortcuts::KeyPress;
+use crate::windows::{CONNECTIONS_WINDOW_SIZE, WindowKind};
+
+impl App {
+    pub fn manager_open(&self) -> bool {
+        self.connections_screen.is_some()
+    }
+
+    pub fn connections_window_size(&self) -> Size {
+        self.windows
+            .id_of(WindowKind::Connections)
+            .and_then(|id| self.windows.size_of(id))
+            .unwrap_or(CONNECTIONS_WINDOW_SIZE)
+    }
+
+    pub(in crate::app) fn reconcile_connections_window(&mut self) -> Task<Message> {
+        let wanted = self.connections_screen.is_some();
+        match (wanted, self.windows.id_of(WindowKind::Connections)) {
+            (true, None) => {
+                let mut opening = None;
+                self.windows.open(WindowKind::Connections, |settings| {
+                    let (id, task) = window::open(settings);
+                    opening = Some(task);
+                    id
+                });
+                opening.map_or_else(Task::none, |task| task.map(Message::WindowOpened))
+            }
+            (false, Some(id)) => {
+                self.windows.close(id);
+                window::close(id)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    pub(in crate::app) fn focus_new_window(&mut self, id: window::Id) -> Task<Message> {
+        match (self.windows.kind_of(id), &self.connections_screen) {
+            (Some(WindowKind::Connections), Some(Screen::List)) => operation::focus(App::filter_input_id()),
+            (Some(WindowKind::Search), _) => operation::focus(App::search_input_id()),
+            _ => Task::none(),
+        }
+    }
+
+    pub fn manager(&self) -> &Manager {
+        &self.manager
+    }
+
+    pub fn filter_input_id() -> Id {
+        Id::new("manager-filter")
+    }
+
+    pub fn manager_buttons(&self) -> ManagerButtons {
+        let buttons = self.manager.buttons();
+        let busy =
+            self.manager.selected_entry().is_some_and(|entry| self.connecting.as_deref() == Some(entry.name.as_str()));
+        ManagerButtons { connect: buttons.connect && !busy, ..buttons }
+    }
+
+    pub fn connect_label(&self) -> &'static str {
+        let open = self
+            .manager
+            .selected_entry()
+            .and_then(|entry| self.sessions.by_name(&entry.name))
+            .is_some_and(|session| session.healthy);
+        if open { "Switch to" } else { "Connect" }
+    }
+
+    pub fn link_state(&self, name: &str) -> ConnectionState {
+        self.connection_states.get(name).copied().unwrap_or(ConnectionState::Disconnected)
+    }
+
+    pub fn protocol_name(&self, id: &str) -> String {
+        self.core
+            .protocols()
+            .iter()
+            .find(|info| info.id == id)
+            .map_or_else(|| id.to_string(), |info| info.display_name.to_string())
+    }
+
+    pub(super) fn connect_profile(&mut self, name: &str) -> bool {
+        let known = self.manager.entries().iter().any(|entry| {
+            entry.name == name && matches!(entry.source, ConnectionSource::Profile | ConnectionSource::SshConfig)
+        });
+        if !known {
+            self.push_notice(Severity::Warning, "That connection no longer exists".to_string());
+            return false;
+        }
+        if let Some(session) = self.sessions.by_name(name) {
+            let (id, healthy) = (session.id, session.healthy);
+            if healthy {
+                self.sessions.activate(id);
+                return true;
+            }
+            self.core.send(Command::Disconnect { session: id });
+        }
+        self.core.send(Command::Connect { profile: name.to_string() });
+        true
+    }
+
+    pub(in crate::app) fn set_screen(&mut self, screen: Option<Screen>) {
+        if let Some(Screen::ImportReview(view)) = &self.connections_screen
+            && !matches!(screen, Some(Screen::ImportReview(_)))
+        {
+            self.core.send(Command::CancelImport { import_id: view.import_id() });
+        }
+        if !matches!(screen, Some(Screen::Form(_))) {
+            self.cancel_running_test();
+        }
+        if screen.is_none() {
+            self.manager.set_filter(String::new());
+        }
+        self.connections_screen = screen;
+    }
+
+    fn connect_selected(&mut self) {
+        if !self.manager_buttons().connect {
+            return;
+        }
+        let Some(name) = self.manager.selected_entry().map(|entry| entry.name.clone()) else {
+            return;
+        };
+        let switching = self.sessions.by_name(&name).is_some_and(|session| session.healthy);
+        if !self.connect_profile(&name) {
+            return;
+        }
+        if switching {
+            self.set_screen(None);
+        } else {
+            self.manager_connecting = Some(name);
+        }
+    }
+
+    pub(in crate::app) fn manager_connection_finished(&mut self, name: &str, connected: bool) {
+        if self.manager_connecting.as_deref() != Some(name) {
+            return;
+        }
+        self.manager_connecting = None;
+        if connected && matches!(self.connections_screen, Some(Screen::List)) {
+            self.set_screen(None);
+        }
+    }
+
+    pub(in crate::app) fn manager_message(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::ManagerToggled => {
+                if let Some(id) = self.windows.id_of(WindowKind::Connections) {
+                    return window::gain_focus(id);
+                }
+                self.set_screen(Some(Screen::List));
+                self.core.send(Command::ListProfiles);
+            }
+            Message::ManagerClosed => self.set_screen(None),
+            Message::ManagerFilterTyped(text) => self.manager.set_filter(text),
+            Message::ManagerRowPressed(row) => self.manager.select_row(row),
+            Message::ManagerRowActivated(row) => {
+                self.manager.select_row(row);
+                self.connect_selected();
+            }
+            Message::ManagerGroupToggled(path) => {
+                self.manager.toggle_group(&path);
+                self.remember_open_groups();
+            }
+            Message::ManagerConnect => self.connect_selected(),
+            _ => {}
+        }
+        Task::none()
+    }
+
+    pub(in crate::app) fn manager_key(&mut self, press: &KeyPress) {
+        use keyboard::Key;
+        use keyboard::key::Named;
+        if self.form_prompt_open() {
+            if press.key == Key::Named(Named::Escape) {
+                self.cancel_prompt();
+            }
+            return;
+        }
+        let on_list = matches!(self.connections_screen, Some(Screen::List));
+        match &press.key {
+            Key::Named(Named::Escape) if on_list => self.set_screen(None),
+            Key::Named(Named::Escape) => self.set_screen(Some(Screen::List)),
+            Key::Named(Named::Enter) => match self.connections_screen {
+                Some(Screen::List) => self.connect_selected(),
+                Some(Screen::ConfirmDelete { .. }) => self.set_screen(Some(Screen::List)),
+                _ => {}
+            },
+            Key::Named(Named::ArrowDown) if on_list => self.manager.move_selection(true),
+            Key::Named(Named::ArrowUp) if on_list => self.manager.move_selection(false),
+            _ => {}
+        }
+    }
+}
+
+mod editing;
+mod prompts;
+mod trial;
+
+#[cfg(test)]
+mod tests;

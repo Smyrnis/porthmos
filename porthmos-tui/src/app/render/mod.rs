@@ -1,3 +1,5 @@
+use porthmos_core::offer_summary;
+use porthmos_core::transfer::limit::speed_limit_note;
 use ratatui::{
     style::Modifier,
     text::{Line, Span},
@@ -5,9 +7,10 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use super::{
-    hints::{form_hints, help_sections, hints_for, search_hints},
+    hints::{form_hints, help_sections, hints_for, path_edit_hints, search_hints},
     *,
 };
+use crate::palette::REOPEN_LABEL;
 use crate::widgets::{
     connection_details, connection_form,
     frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
@@ -271,11 +274,13 @@ impl App {
             ConnectionStatus::Connecting(name) => {
                 (format!("Connecting to {}\u{2026}", printable(name)), self.theme.muted())
             }
-            ConnectionStatus::Failed(message) if self.sessions.is_empty() => (
-                format!("Connection failed: {}", printable(message.lines().next().unwrap_or(""))),
-                self.theme.err_text(),
-            ),
-            _ => return Line::default(),
+            ConnectionStatus::Failed(message) if self.sessions.is_empty() => {
+                (format!("Connection failed: {}", printable(message.summary())), self.theme.err_text())
+            }
+            _ => match speed_limit_note(self.transfers.speed_limit) {
+                Some(note) => (note, self.theme.muted()),
+                None => return Line::default(),
+            },
         };
         Line::styled(truncate_with_ellipsis(&text, budget), style)
     }
@@ -302,9 +307,13 @@ impl App {
                 active: local_active,
                 show_modified,
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
+                editing: self.editing_field(Location::Local),
                 now: &now,
             };
             panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
+            if let Some(listing) = self.path_listing(Location::Local) {
+                panel_view::render_candidates(frame, layout.local, listing, theme);
+            }
         }
 
         if !single || !local_active {
@@ -317,9 +326,13 @@ impl App {
                         active: !local_active,
                         show_modified,
                         switch_hint,
+                        editing: self.editing_field(Location::Session(session.id)),
                         now: &now,
                     };
                     panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
+                    if let Some(listing) = self.path_listing(Location::Session(session.id)) {
+                        panel_view::render_candidates(frame, layout.remote, listing, theme);
+                    }
                 }
                 _ => {
                     let context = PanelContext {
@@ -328,6 +341,7 @@ impl App {
                         active: !local_active,
                         show_modified,
                         switch_hint,
+                        editing: None,
                         now: &now,
                     };
                     let lines = self.remote_placeholder_lines();
@@ -359,32 +373,60 @@ impl App {
         let path = session.panel.path();
         let saved = self.connections.entries().iter().find(|entry| entry.name == session.name);
         match saved {
-            Some(entry) if entry.username.is_empty() => (entry.protocol.clone(), format!("{}:{path}", entry.host)),
-            Some(entry) => (entry.protocol.clone(), format!("{}@{}:{path}", entry.username, entry.host)),
+            Some(entry) => {
+                let host = match entry.bucket() {
+                    Some(bucket) => format!("{}/{bucket}", entry.host),
+                    None => entry.host.clone(),
+                };
+                let address = if entry.username.is_empty() { host } else { format!("{}@{host}", entry.username) };
+                (entry.protocol.clone(), format!("{address}:{path}"))
+            }
             None => ("remote".to_string(), format!("{}:{path}", session.name)),
         }
     }
 
-    fn remote_placeholder_lines(&self) -> Vec<String> {
+    pub(super) fn remote_placeholder_lines(&self) -> Vec<String> {
         if let ConnectionStatus::Connecting(name) = &self.connection_status {
             return vec![format!("connecting to {name}\u{2026}")];
         }
         let mut lines = vec!["not connected".to_string()];
+        if !self.reopen_offer.is_empty() {
+            lines.push(format!("last time: {}", printable(&offer_summary(&self.reopen_offer))));
+            if let Some(spec) = self.key_bindings.key_for(input::Scope::Global, Action::OpenPalette) {
+                lines.push(format!("press {}, then choose {REOPEN_LABEL}", input::format_key_spec(spec)));
+            }
+        }
+        let names = self.quick_connections();
+        let any = !names.is_empty();
+        for (index, name) in names.iter().enumerate() {
+            let number = u8::try_from(index + 1).unwrap_or(u8::MAX);
+            let bound = self.key_bindings.key_for(input::Scope::Files, Action::JumpToSession(number));
+            lines.push(match bound {
+                Some(spec) => format!("{}  {}", input::format_key_spec(spec), printable(name)),
+                None => printable(name).to_string(),
+            });
+        }
         if let Some(spec) = self.key_bindings.key_for(input::Scope::Files, Action::OpenConnections) {
-            lines.push(format!("press {} to connect", input::format_key_spec(spec)));
+            let key = input::format_key_spec(spec);
+            let hidden = self.quick_connections_hidden();
+            lines.push(match (any, hidden) {
+                (false, _) => format!("press {key} to add a connection"),
+                (true, 0) => format!("press {key} for all connections"),
+                (true, hidden) => format!("press {key} for {hidden} more"),
+            });
         }
         lines
     }
 
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
-        let name_set = |healthy: bool| -> std::collections::HashSet<&str> {
-            self.sessions
+        let name_set = |wanted: ConnectionState| -> std::collections::HashSet<&str> {
+            self.connection_states
                 .iter()
-                .filter(|session| session.healthy == healthy)
-                .map(|session| session.name.as_str())
+                .filter(|(_, state)| **state == wanted)
+                .map(|(name, _)| name.as_str())
                 .collect()
         };
-        let (connected_names, lost_names) = (name_set(true), name_set(false));
+        let (connected_names, lost_names) = (name_set(ConnectionState::Connected), name_set(ConnectionState::Lost));
         let context = connections_list::ConnectionsContext {
             connected: &connected_names,
             lost: &lost_names,
@@ -409,11 +451,10 @@ impl App {
             Some(porthmos_core::connections_tree::TreeRow::Group { count, .. }) => *count,
             _ => 0,
         };
-        let (session_health, failure) = match &selection {
-            Some(crate::widgets::connections_view::Selection::Connection(entry)) => (
-                self.sessions.by_name(&entry.name).map(|session| session.healthy),
-                self.last_failure.get(&entry.name).map(String::as_str),
-            ),
+        let (state, failure) = match &selection {
+            Some(crate::widgets::connections_view::Selection::Connection(entry)) => {
+                (self.connection_states.get(&entry.name).copied(), self.last_failure.get(&entry.name))
+            }
             _ => (None, None),
         };
         let last_used = match &selection {
@@ -424,8 +465,8 @@ impl App {
         };
         let context = connection_details::DetailsContext {
             protocols: self.core.protocols(),
-            connected: session_health == Some(true),
-            lost: session_health == Some(false),
+            connected: state == Some(ConnectionState::Connected),
+            lost: state == Some(ConnectionState::Lost),
             failure,
             last_used,
             now: self.clock.now().with_timezone(&chrono::Utc),
@@ -476,6 +517,7 @@ impl App {
             speeds: &speeds,
             etas: &etas,
             failed_time: failed_time.as_deref(),
+            page: &self.transfers_page_rows,
         };
         transfer_list::render_transfer_list(frame, area, &view, &self.theme);
     }
@@ -489,8 +531,16 @@ impl App {
     }
 
     fn render_search(&self, frame: &mut Frame, area: Rect) {
-        if let Some(session) = &self.search {
-            search_view::render_search(frame, area, &session.view, &self.theme);
+        let Some(session) = &self.search else {
+            return;
+        };
+        let (list_area, pane_area) = match self.search_preview {
+            true => search_view::split_for_pane(area),
+            false => (area, None),
+        };
+        search_view::render_search(frame, list_area, &session.view, &self.theme);
+        if let (Some(pane_area), Some(pane)) = (pane_area, session.view.pane.as_ref()) {
+            preview_view::render_preview_pane(frame, pane_area, pane, &self.theme);
         }
     }
 
@@ -499,8 +549,10 @@ impl App {
             frame.render_widget(Paragraph::new(printable(&text)).style(self.theme.muted()), area);
         } else if self.screen_form().is_some() {
             hint_bar(frame, area, &form_hints(), &self.theme);
+        } else if self.path_edit.is_some() {
+            hint_bar(frame, area, &path_edit_hints(), &self.theme);
         } else if self.screen == Screen::Search {
-            hint_bar(frame, area, &search_hints(), &self.theme);
+            hint_bar(frame, area, &search_hints(self.search_preview), &self.theme);
         } else {
             let mut hints = hints_for(self.screen, &self.key_bindings);
             if self.screen == Screen::Connections && !self.details_pane_visible() {
@@ -542,7 +594,7 @@ impl App {
     }
 }
 
-fn abbreviate_home(path: &VfsPath, home: Option<&VfsPath>) -> String {
+pub(super) fn abbreviate_home(path: &VfsPath, home: Option<&VfsPath>) -> String {
     let usable_home = home.filter(|home| !home.is_empty() && !home.is_root());
     match usable_home.and_then(|home| path.strip_prefix(home)) {
         Some(rest) if rest.is_empty() => "~".to_string(),

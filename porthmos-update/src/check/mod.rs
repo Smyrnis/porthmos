@@ -4,16 +4,14 @@ use chrono::{DateTime, Utc};
 use semver::Version;
 
 use crate::{
-    Artifact, Manifest, PublicKey, VerifyError,
+    Artifact, Manifest, Product, PublicKey, VerifyError,
     fetch::{FetchError, Fetcher},
-    keys, running_target, verify,
+    keys, manifest_url_for, running_target, verify,
 };
 
 const MANIFEST_LIMIT: usize = 262_144;
 const SIGNATURE_LIMIT: usize = 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-
-pub const DEFAULT_MANIFEST_URL: &str = "https://github.com/Smyrnis/porthmos/releases/latest/download/latest.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateInfo {
@@ -79,8 +77,8 @@ impl Checker {
         })
     }
 
-    pub fn release(user_agent: &str) -> anyhow::Result<Checker> {
-        Checker::new(DEFAULT_MANIFEST_URL, keys::trusted_keys(), running_target(), user_agent)
+    pub fn release(product: Product, running: &Version, user_agent: &str) -> anyhow::Result<Checker> {
+        Checker::new(&manifest_url_for(product, running), keys::trusted_keys(), running_target(), user_agent)
     }
 
     pub async fn check(&self, current: &Version) -> Result<Outcome, CheckError> {
@@ -105,6 +103,11 @@ impl Checker {
             notes: manifest.notes,
             artifact,
         }))
+    }
+
+    #[cfg(test)]
+    fn manifest_url(&self) -> &str {
+        &self.manifest_url
     }
 
     #[cfg(test)]

@@ -2,10 +2,14 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use super::*;
 use crate::update::{
-    Version,
+    AppIdentity, Product,
     record::UpdateRecord,
-    testing::{run_version, stage_on_disk, write_program},
+    testing::{run_version, stage_on_disk, stage_on_disk_for, staged_dir, write_program},
 };
+
+fn identity(product: Product, version: &str) -> AppIdentity {
+    AppIdentity::new(product, version)
+}
 
 const BUDGET: Duration = Duration::from_secs(5);
 
@@ -30,16 +34,22 @@ impl World {
     }
 
     fn apply(&self, mode: UpdateMode, budget: Duration) -> ApplyOutcome {
-        let current: Version = "0.3.0".parse().unwrap();
-        apply_with(&self.paths, mode, &self.executable(), Some(self.root.path()), &current, budget)
+        apply_with(
+            &self.paths,
+            mode,
+            &self.executable(),
+            Some(self.root.path()),
+            &identity(Product::Tui, "0.3.0"),
+            budget,
+        )
     }
 
     fn record(&self) -> UpdateRecord {
-        UpdateRecord::load(&self.paths).0
+        UpdateRecord::load(&self.paths, "tui").0
     }
 
     fn staged_files_exist(&self, version: &str) -> bool {
-        self.paths.update_dir().join(version).join("porthmos").exists()
+        staged_dir(&self.paths, Product::Tui).path().join(version).join("porthmos").exists()
     }
 }
 
@@ -85,9 +95,8 @@ fn a_package_managed_executable_is_left_alone() {
     let executable = home.join(".cargo").join("bin").join("porthmos");
     write_program(&executable, "0.3.0");
     world.stage("0.9.0");
-    let current: Version = "0.3.0".parse().unwrap();
-
-    let outcome = apply_with(&world.paths, UpdateMode::Auto, &executable, Some(&home), &current, BUDGET);
+    let outcome =
+        apply_with(&world.paths, UpdateMode::Auto, &executable, Some(&home), &identity(Product::Tui, "0.3.0"), BUDGET);
 
     assert_eq!(outcome, ApplyOutcome::Nothing);
     assert_eq!(run_version(&executable), "porthmos 0.3.0");
@@ -131,4 +140,47 @@ fn a_later_success_clears_the_remembered_failure() {
 
     assert!(matches!(outcome, ApplyOutcome::Installed { .. }), "{outcome:?}");
     assert_eq!(world.record().last_failure(), None);
+}
+
+#[test]
+fn a_staged_tui_update_is_not_installed_by_the_gui_and_stays_for_the_tui() {
+    let world = World::new();
+    let gui = world.root.path().join("bin").join("porthmos-gui");
+    write_program(&gui, "2026.4.0");
+    stage_on_disk_for(&world.paths, Product::Tui, "2026.5.0");
+
+    let outcome = apply_with(
+        &world.paths,
+        UpdateMode::Auto,
+        &gui,
+        Some(world.root.path()),
+        &identity(Product::Gui, "2026.4.0"),
+        BUDGET,
+    );
+
+    assert_eq!(outcome, ApplyOutcome::Nothing);
+    assert_eq!(run_version(&gui), "porthmos 2026.4.0");
+    assert!(
+        porthmos_update::find_staged(&staged_dir(&world.paths, Product::Tui), &"2026.4.0".parse().unwrap()).is_some()
+    );
+}
+
+#[test]
+fn a_staged_gui_update_is_installed_by_the_gui_with_its_own_failure_record() {
+    let world = World::new();
+    let gui = world.root.path().join("bin").join("porthmos-gui");
+    write_program(&gui, "2026.4.0");
+    stage_on_disk_for(&world.paths, Product::Gui, "2026.5.0");
+
+    let outcome = apply_with(
+        &world.paths,
+        UpdateMode::Auto,
+        &gui,
+        Some(world.root.path()),
+        &identity(Product::Gui, "2026.4.0"),
+        BUDGET,
+    );
+
+    assert_eq!(outcome, ApplyOutcome::Installed { version: "2026.5.0".to_string() });
+    assert_eq!(UpdateRecord::load(&world.paths, "tui").0.last_failure(), None);
 }

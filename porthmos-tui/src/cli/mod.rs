@@ -1,4 +1,8 @@
-use porthmos_core::{ApplyOutcome, HeadlessUpdate};
+use porthmos_core::{AppIdentity, HeadlessUpdate, Product};
+
+pub fn app_identity() -> AppIdentity {
+    AppIdentity::new(Product::Tui, env!("CARGO_PKG_VERSION"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Invocation {
@@ -63,22 +67,6 @@ pub fn describe_update(update: &HeadlessUpdate) -> String {
             "Porthmos {version} is available. This copy is managed ({reason}); update it with your package manager."
         ),
         HeadlessUpdate::Installed { version } => format!("Porthmos updated to {version}."),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExitLine {
-    Out(String),
-    Err(String),
-}
-
-pub fn install_message(outcome: &ApplyOutcome) -> Option<ExitLine> {
-    match outcome {
-        ApplyOutcome::Installed { version } => Some(ExitLine::Out(format!("Porthmos updated to {version}."))),
-        ApplyOutcome::Failed { version, message } => {
-            Some(ExitLine::Err(format!("porthmos: couldn't install the update to {version}: {message}")))
-        }
-        ApplyOutcome::Nothing => None,
     }
 }
 

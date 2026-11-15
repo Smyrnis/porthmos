@@ -20,6 +20,7 @@ use crate::{
         filter_line::{FilterLine, FilterLineState, render_filter_line},
         frame::{accent_underline, hairline},
         history_view::printable,
+        paging::{PageRows, Paged},
         text_fit::{pad_left, pad_right},
     },
 };
@@ -33,6 +34,7 @@ pub struct SyncView {
     filter: Option<String>,
     editing_filter: bool,
     cursor: usize,
+    page_rows: PageRows,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -42,6 +44,7 @@ pub struct Summary {
     pub upload_bytes: u64,
     pub downloads: usize,
     pub download_bytes: u64,
+    pub deletes: usize,
     pub skipped: usize,
 }
 
@@ -56,6 +59,8 @@ pub fn reason_text(reason: SyncReason) -> &'static str {
         SyncReason::SizeDiffers => "size differs",
         SyncReason::SizeDiffersTimeUnknown => "size differs, no time",
         SyncReason::KindMismatch => "file vs folder",
+        SyncReason::EmptyFolder => "new empty folder",
+        SyncReason::OnlyOnTarget => "only on the target",
     }
 }
 
@@ -115,6 +120,10 @@ impl SyncView {
 
     pub fn cursor(&self) -> usize {
         self.cursor
+    }
+
+    fn remember_page_rows(&self, rows: usize) {
+        self.page_rows.remember(rows);
     }
 
     fn current(&self) -> Option<usize> {
@@ -218,6 +227,7 @@ impl SyncView {
                     summary.downloads += 1;
                     summary.download_bytes += item.remote.map_or(0, |facts| facts.size);
                 }
+                SyncAction::Delete => summary.deletes += 1,
                 SyncAction::Skip => {}
             }
         }
@@ -290,6 +300,16 @@ impl FilterLine for SyncView {
     }
 }
 
+impl Paged for SyncView {
+    fn page_rows(&self) -> usize {
+        self.page_rows.get()
+    }
+
+    fn row_count(&self) -> usize {
+        self.visible.len()
+    }
+}
+
 fn moment(facts: Option<SyncFacts>) -> String {
     facts
         .and_then(|facts| facts.modified)
@@ -354,6 +374,7 @@ fn row_line(
     let arrow = match action {
         SyncAction::Upload => "\u{2191} ",
         SyncAction::Download => "\u{2193} ",
+        SyncAction::Delete => "\u{2715} ",
         SyncAction::Skip => "\u{b7} ",
     };
     let size = match action {
@@ -389,7 +410,7 @@ fn row_line(
 
 fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
     match (item.reason, ticked) {
-        (SyncReason::KindMismatch, _) => theme.err_text(),
+        (SyncReason::KindMismatch | SyncReason::OnlyOnTarget, _) => theme.err_text(),
         (_, true) => theme.text(),
         (SyncReason::TargetNewer | SyncReason::SameTimeDifferentSize | SyncReason::SizeDiffersTimeUnknown, false) => {
             theme.bright()
@@ -399,8 +420,9 @@ fn row_style(item: &SyncItem, ticked: bool, theme: &Theme) -> Style {
 }
 
 fn summary_text(summary: &Summary) -> String {
+    let deletes = if summary.deletes > 0 { format!(" \u{b7} \u{2715} {}", summary.deletes) } else { String::new() };
     format!(
-        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}) \u{b7} {} skipped",
+        "{} ticked \u{b7} \u{2191} {} ({}) \u{b7} \u{2193} {} ({}){deletes} \u{b7} {} skipped",
         summary.ticked,
         summary.uploads,
         format_size(summary.upload_bytes, false),
@@ -458,6 +480,7 @@ pub fn render_sync(frame: &mut Frame, area: Rect, view: &SyncView, theme: &Theme
         );
         return;
     }
+    view.remember_page_rows(usize::from(body.height));
     let cursor = view.cursor();
     let items: Vec<ListItem> = view
         .visible

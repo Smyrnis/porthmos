@@ -4,6 +4,7 @@ mod os_path;
 #[cfg(unix)]
 mod ownership;
 mod roots;
+mod search;
 mod space;
 
 use in_use::explain;
@@ -13,11 +14,15 @@ use std::{
     fs, io,
     io::SeekFrom,
     path::{Path, PathBuf},
+    sync::{Arc, atomic::AtomicBool},
     time::{Duration, UNIX_EPOCH},
 };
 
+#[cfg(windows)]
+use porthmos_vfs::walk_search;
 use porthmos_vfs::{
-    DirItem, Entry, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, VfsPath, Writer, async_trait,
+    DirItem, Entry, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, SearchEvent, SearchQuery,
+    SearchSender, VfsPath, Writer, async_trait,
 };
 use tokio::io::AsyncSeekExt;
 
@@ -115,6 +120,18 @@ impl FileSystem for LocalFs {
         true
     }
 
+    #[cfg(unix)]
+    async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<(), ProtocolError> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = mapped(path)?;
+        blocking(move || fs::set_permissions(&path, fs::Permissions::from_mode(mode))).await
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        cfg!(unix)
+    }
+
     async fn list(&self, dir: &VfsPath) -> Result<Vec<Entry>, ProtocolError> {
         #[cfg(windows)]
         if roots::lists_drives(dir) {
@@ -152,6 +169,28 @@ impl FileSystem for LocalFs {
             Ok(items)
         })
         .await
+    }
+
+    async fn search(&self, query: SearchQuery, tx: SearchSender, cancel: Arc<AtomicBool>) {
+        #[cfg(windows)]
+        if roots::lists_drives(&query.root) {
+            return walk_search(self, query, tx, cancel).await;
+        }
+        let root = match mapped(&query.root) {
+            Ok(root) => root,
+            Err(err) => {
+                let _ = tx.send(SearchEvent::Failed(err.to_string()));
+                return;
+            }
+        };
+        let SearchQuery { pattern, max_depth, max_results, .. } = query;
+        let failures = tx.clone();
+        let walk = tokio::task::spawn_blocking(move || {
+            search::search_tree(&root, &pattern, max_depth, max_results, &tx, &cancel)
+        });
+        if let Err(join_error) = walk.await {
+            let _ = failures.send(SearchEvent::Failed(join_error.to_string()));
+        }
     }
 
     async fn stat(&self, path: &VfsPath) -> Result<Metadata, ProtocolError> {

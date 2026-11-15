@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use porthmos_vfs::{FileSystem, OptionKind, Protocol, Target, VfsPath};
+use porthmos_vfs::{ErrorKind, FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
 
 use super::{
     super::{
@@ -10,7 +10,7 @@ use super::{
     profiles::{SecretOwner, profile_account, ssh_account},
 };
 use crate::{
-    Severity, connect_failure_message,
+    ConnectionState, Severity, connect_failure_message,
     profiles::{ConnectionEntry, ConnectionSource, PASSWORD_MARKER},
     secrets::Secrets,
     tasks::Scope,
@@ -59,6 +59,7 @@ async fn secured_target(entry: &ConnectionEntry, secret_keys: &[&'static str], s
 impl Engine {
     fn emit_connected(&self, session: u64, name: String, shell_available: bool) {
         let preserves_times = self.sessions.get(&session).is_some_and(|live| live.fs.can_set_modified());
+        self.publish_connection_state(&name, ConnectionState::Connected);
         self.emit(Event::Connected { session, name, shell_available });
         self.emit(Event::SessionCapabilities { session, preserves_times });
     }
@@ -101,6 +102,7 @@ impl Engine {
             return;
         };
 
+        self.publish_connection_state(&entry.name, ConnectionState::Connecting);
         self.emit(Event::Connecting { name: entry.name.clone() });
         self.connecting.insert(entry.name.clone());
         let secret_keys = secret_option_keys(protocol.as_ref(), &entry);
@@ -115,7 +117,9 @@ impl Engine {
                 Err(err) => {
                     tracing::debug!("{err:?}");
                     let message = connect_failure_message(&err, &entry.name, protocol.display_name());
-                    Internal::ConnectFailed { name: entry.name, message }
+                    let retryable =
+                        !matches!(err.kind(), ErrorKind::Cancelled | ErrorKind::Auth | ErrorKind::AuthRejected);
+                    Internal::ConnectFailed { name: entry.name, message, retryable }
                 }
             };
             let _ = internal.send(done);
@@ -127,6 +131,7 @@ impl Engine {
         typed: Option<TypedPassword>,
     ) {
         self.connecting.remove(&entry.name);
+        self.reconnect_succeeded(&entry.name);
         if let Some(typed) = typed {
             self.keep_typed_password(&entry, typed);
         }
@@ -143,6 +148,8 @@ impl Engine {
         }
         self.open_start_directory(session);
         self.start_health_probe(session);
+        self.remember_open_connections();
+        self.reopen_progressed(&self.sessions[&session].name.clone());
     }
 
     fn keep_typed_password(&mut self, entry: &ConnectionEntry, typed: TypedPassword) {
@@ -177,21 +184,30 @@ impl Engine {
             return;
         };
         self.stop_health_probe(session);
-        self.lost_sessions.remove(&session);
+        let was_lost = self.lost_sessions.remove(&session);
+        self.keep_folder_for_reconnect(session, &live.name, was_lost);
         self.history.remember_session(session, live.name.clone());
 
         let affected = self.transfers.fail_queued_for_session(session, "session disconnected")
             + self.cancel_session_transfers(session)
             + self.drop_conflict_reviews(|review| review.session_id == session);
         self.drop_sync_plans(|plan| plan.session == session);
+        self.stop_properties_of(session);
         self.finish_move_batches_of(session);
         if affected > 0 {
             let plural = if affected == 1 { "" } else { "s" };
             self.info(format!("{affected} transfer{plural} cancelled \u{2014} session disconnected"));
         }
 
+        self.remember_open_connections();
         self.info(format!("Disconnected from {}", live.name));
+        self.publish_connection_state(&live.name, ConnectionState::Disconnected);
         self.emit(Event::Disconnected { session, name: live.name });
+    }
+
+    pub(crate) fn prepare_local_shell(&mut self, directory: &VfsPath) {
+        let invocation = ShellInvocation::local(directory, &self.env);
+        self.emit(Event::LocalShellReady { invocation });
     }
 
     pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<VfsPath>) {

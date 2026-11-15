@@ -19,7 +19,7 @@ pub(crate) use report::Reporter;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    Paths, Severity,
+    ConnectionState, Message, Paths, Severity,
     config::{
         bookmarks::Bookmarks,
         settings::{EditSettings, TransferSettings},
@@ -51,6 +51,7 @@ pub(crate) enum TransferEvent {
     PlanCancelled { batch_id: u64, session_id: u64, direction: Direction },
     PartialsRemoved { session_id: u64 },
     TimesNotKept { id: u64 },
+    PermissionsNotKept { id: u64 },
     SourceRemoved { id: u64 },
     SourceRemovalFailed { id: u64, message: String },
     SourceRemovalCancelled { id: u64 },
@@ -70,14 +71,28 @@ pub(crate) enum Internal {
     },
     ConnectFailed {
         name: String,
-        message: String,
+        message: Message,
+        retryable: bool,
+    },
+    ReconnectDue {
+        name: String,
+        attempt: u32,
     },
     Transfer(TransferEvent),
     Edit(handlers::EditEvent),
+    ImportRead {
+        import_id: u64,
+        result: Result<crate::import::ImportPlan, crate::import::ImportError>,
+    },
     Preview {
         request_id: RequestId,
         name: String,
         result: Result<crate::preview::Preview, String>,
+    },
+    PreviewRested {
+        request_id: RequestId,
+        location: Location,
+        path: VfsPath,
     },
     KeyringProbed {
         available: bool,
@@ -85,6 +100,10 @@ pub(crate) enum Internal {
     SessionHealth {
         session: SessionId,
         healthy: bool,
+    },
+    FolderShown {
+        location: Location,
+        path: VfsPath,
     },
     KeyringDone(handlers::KeyringDone),
     PersistFailed {
@@ -153,15 +172,20 @@ pub(crate) struct Engine {
     tasks: Tasks,
     reporter: Reporter,
     clock: fn() -> chrono::DateTime<chrono::Utc>,
+    local_offset: fn() -> chrono::FixedOffset,
     pub(crate) finished: Option<tokio::sync::watch::Sender<bool>>,
     pub(crate) shutdown_grace: Duration,
     pub(crate) upload_grace: Duration,
     pub(crate) flush_grace: Duration,
     pub(crate) state_protected: bool,
+    pub(crate) state_write_warned: bool,
+    pub(crate) unfinished_protected: bool,
     pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
     sessions: BTreeMap<SessionId, LiveSession>,
     lost_sessions: std::collections::HashSet<SessionId>,
+    session_folders: HashMap<SessionId, VfsPath>,
+    resume_folders: HashMap<String, VfsPath>,
     next_session_id: SessionId,
     questions: PendingQuestions,
     transfers: TransferQueue,
@@ -178,9 +202,14 @@ pub(crate) struct Engine {
     transfers_dirty: bool,
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
+    reopen: handlers::ReopenState,
+    reconnect: handlers::ReconnectState,
     pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
+    properties_request: Option<RequestId>,
+    properties_location: Option<Location>,
     preview_busy: bool,
+    preview_hint: Option<RequestId>,
     preview_next: Option<(u64, Location, VfsPath)>,
     pub(crate) pause_stops: std::collections::HashSet<u64>,
     pub(crate) source_removals: std::collections::HashSet<u64>,
@@ -191,6 +220,7 @@ pub(crate) struct Engine {
     latest_keyring_job: HashMap<String, u64>,
     connecting: std::collections::HashSet<String>,
     sync: handlers::SyncState,
+    import: handlers::ImportState,
     #[cfg_attr(not(feature = "update"), allow(dead_code))]
     update: handlers::UpdateEngine,
 }
@@ -207,10 +237,14 @@ pub(crate) struct EngineParts {
     pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
     pub(crate) update: crate::config::UpdateSettings,
+    pub(crate) reopen: crate::config::ReopenMode,
+    pub(crate) reconnect: bool,
     pub(crate) update_record: crate::update::record::UpdateRecord,
     pub(crate) updater: Option<crate::update::SharedUpdater>,
     pub(crate) update_timing: crate::update::UpdateTiming,
     pub(crate) executable: Option<PathBuf>,
+    #[cfg(feature = "update")]
+    pub(crate) identity: crate::update::AppIdentity,
     pub(crate) publish_interval: Duration,
     pub(crate) persist_interval: Duration,
 }
@@ -244,15 +278,20 @@ impl Engine {
             tasks,
             reporter,
             clock: chrono::Utc::now,
+            local_offset: current_local_offset,
             finished: None,
             shutdown_grace: SHUTDOWN_GRACE,
             upload_grace: EDIT_UPLOAD_GRACE,
             flush_grace: PERSIST_FLUSH_GRACE,
             state_protected: false,
+            state_write_warned: false,
+            unfinished_protected: false,
             ui_state: crate::state::UiState::default(),
             writer,
             sessions: BTreeMap::new(),
             lost_sessions: std::collections::HashSet::new(),
+            session_folders: HashMap::new(),
+            resume_folders: HashMap::new(),
             next_session_id: 0,
             questions: PendingQuestions::default(),
             transfers: TransferQueue::new(),
@@ -269,9 +308,14 @@ impl Engine {
             transfers_dirty: false,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
+            reopen: handlers::ReopenState::new(parts.reopen),
+            reconnect: handlers::ReconnectState::new(parts.reconnect),
             speed_limit: crate::transfer::limit::SpeedLimit::new(),
             preview_request: None,
             preview_busy: false,
+            preview_hint: None,
+            properties_request: None,
+            properties_location: None,
             preview_next: None,
             pause_stops: std::collections::HashSet::new(),
             source_removals: std::collections::HashSet::new(),
@@ -282,12 +326,15 @@ impl Engine {
             latest_keyring_job: HashMap::new(),
             connecting: std::collections::HashSet::new(),
             sync: handlers::SyncState::default(),
+            import: handlers::ImportState::default(),
             update: handlers::UpdateEngine::new(
                 parts.update,
                 parts.update_record,
                 parts.updater,
                 parts.update_timing,
                 parts.executable,
+                #[cfg(feature = "update")]
+                parts.identity,
             ),
         }
     }
@@ -334,6 +381,7 @@ impl Engine {
     }
 
     async fn shutdown_work(&mut self, internal: &mut UnboundedReceiver<Internal>) {
+        self.save_unfinished_transfers();
         self.cancel_all_work();
         self.tasks.cancel_all();
         self.record_interrupted();
@@ -356,19 +404,44 @@ impl Engine {
     pub(crate) fn handle_command(&mut self, command: Command) {
         match command {
             Command::Connect { profile } => self.connect(&profile),
-            Command::Disconnect { session } => self.disconnect(session),
+            Command::ReopenConnections => self.reopen_connections(),
+            Command::SetReopenMode { mode } => self.set_reopen_mode(mode),
+            Command::SetReconnect { enabled } => self.set_reconnect(enabled),
+            Command::Disconnect { session } => {
+                self.stop_reconnecting_session(session);
+                self.disconnect(session);
+            }
             Command::TestConnection { test_id, original, draft } => self.test_connection(test_id, original, *draft),
             Command::CancelTest => self.cancel_test(),
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
+            Command::PrepareLocalShell { directory } => self.prepare_local_shell(&directory),
+            Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
+            Command::RememberOpenGroups { groups } => self.remember_open_groups(groups),
             Command::List { location, path } => self.list(location, path),
+            Command::Reveal { location, path } => self.reveal(location, path),
+            Command::Navigate { location, from, to } => self.navigate(location, &from, to),
+            Command::GoToPath { location, from, text } => self.go_to_path(location, from, text),
+            Command::CompletePath { location, from, text } => self.complete_path(location, from, text),
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),
             Command::Delete { location, paths } => self.delete(location, paths),
+            Command::SetPermissions { location, paths, mode } => self.set_permissions(location, paths, mode),
+            Command::CountContents { request_id, location, folders } => {
+                self.count_contents(request_id, location, folders);
+            }
+            Command::CancelCount => self.cancel_count(),
+            Command::Measure { request_id, location, paths } => self.measure(request_id, location, paths),
+            Command::Checksum { request_id, location, paths } => self.checksum(request_id, location, paths),
+            Command::CancelProperties { request_id } => self.cancel_properties(request_id),
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
             Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
             Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),
-            Command::Preview { request_id, location, path } => self.start_preview(request_id, location, path),
+            Command::Preview { request_id, location, path } => {
+                self.preview_hint = None;
+                self.start_preview(request_id, location, path);
+            }
+            Command::PreviewHint { request_id, location, path } => self.hint_preview(request_id, location, path),
             Command::CancelPreview => self.cancel_preview(),
             Command::ResolveConflicts { batch_id, answers } => self.resolve_conflicts(batch_id, answers),
             Command::CancelAllTransfers => self.cancel_all_copies(),
@@ -396,11 +469,15 @@ impl Engine {
             Command::EditFile { location, path } => self.edit_file(location, path),
             Command::FinishEdit { edit_id, exit } => self.finish_edit(edit_id, exit),
             Command::ResolveEdit { edit_id, choice } => self.resolve_edit(edit_id, choice),
+            Command::ShowEditDiff { edit_id } => self.show_edit_diff(edit_id),
             Command::StartSync { session, local_dir, remote_dir, options } => {
                 self.start_sync(session, local_dir, remote_dir, options)
             }
             Command::RunSync { sync_id, choices } => self.run_sync(sync_id, choices),
             Command::CancelSync { sync_id } => self.cancel_sync(sync_id),
+            Command::ReadImport { import_id, source, path } => self.read_import(import_id, source, path),
+            Command::RunImport { import_id, rows } => self.run_import(import_id, rows),
+            Command::CancelImport { import_id } => self.cancel_import(import_id),
             Command::Shutdown => {}
         }
         self.process_row_changes();
@@ -429,14 +506,24 @@ impl Engine {
     pub(crate) fn handle_internal(&mut self, done: Internal) {
         match done {
             Internal::Connected { entry, protocol, fs, typed } => self.finish_connect(entry, protocol, fs, typed),
-            Internal::ConnectFailed { name, message } => {
+            Internal::ReconnectDue { name, attempt } => self.reconnect_due(name, attempt),
+            Internal::ConnectFailed { name, message, retryable } => {
                 self.connecting.remove(&name);
-                self.connect_failed(name, message)
+                self.connect_failed(name.clone(), message);
+                self.reconnect_failed(&name, retryable);
+                self.reopen_progressed(&name);
             }
             Internal::Edit(event) => self.handle_edit_event(event),
+            Internal::ImportRead { import_id, result } => self.import_read_finished(import_id, result),
             Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
+            Internal::PreviewRested { request_id, location, path } => {
+                if self.preview_hint.take() == Some(request_id) {
+                    self.start_preview(request_id, location, path);
+                }
+            }
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
+            Internal::FolderShown { location, path } => self.remember_folder(location, path),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),
             Internal::PersistFailed { path, message, tag } => self.persist_failed(path, message, tag),
             Internal::TaskPanicked { name, scope, message } => self.recover_from_panic(name, scope, &message),
@@ -468,23 +555,33 @@ impl Engine {
         let _ = self.events.send(event);
     }
 
+    pub(crate) fn publish_connection_state(&self, name: &str, state: ConnectionState) {
+        self.emit(Event::ConnectionState { name: name.to_string(), state });
+    }
+
     #[track_caller]
-    pub(crate) fn connect_failed(&self, name: String, message: String) {
+    pub(crate) fn connect_failed(&self, name: String, message: impl Into<Message>) {
+        let message = message.into();
         let severity = if message == crate::CONNECTION_CANCELLED { Severity::Info } else { Severity::Error };
-        self.reporter.log(severity, &message);
+        self.reporter.log(severity, &message.to_string());
+        self.publish_connection_state(&name, ConnectionState::Disconnected);
         self.emit(Event::ConnectFailed { name, message });
     }
 
     #[track_caller]
-    pub(crate) fn profile_rejected(&self, message: impl Into<String>) {
+    pub(crate) fn profile_rejected(&self, field: Option<&'static str>, message: impl Into<String>) {
         let message = message.into();
         self.reporter.log(Severity::Warning, &message);
-        self.emit(Event::ProfileRejected { message });
+        self.emit(Event::ProfileRejected { field, message });
     }
 
     #[track_caller]
-    pub(crate) fn report(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn report(&self, severity: Severity, message: impl Into<Message>) {
         self.reporter.report(severity, message);
+    }
+
+    pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        (self.clock)()
     }
 
     pub(crate) fn persist_failed(&mut self, path: PathBuf, message: String, tag: u64) {
@@ -495,11 +592,11 @@ impl Engine {
         }
     }
 
-    pub(crate) fn announce(&self, severity: Severity, message: impl Into<String>) {
+    pub(crate) fn announce(&self, severity: Severity, message: impl Into<Message>) {
         self.reporter.show(severity, message);
     }
 
-    pub(crate) fn info(&self, message: impl Into<String>) {
+    pub(crate) fn info(&self, message: impl Into<Message>) {
         self.emit(Event::Notice { severity: Severity::Info, message: message.into() });
     }
 
@@ -529,7 +626,18 @@ impl Engine {
     }
 
     fn snapshot(&self) -> TransferSnapshot {
-        TransferSnapshot { speed_limit: self.speed_limit.get(), ..TransferSnapshot::of(&self.transfers, &self.scans()) }
+        let mut snapshot = TransferSnapshot {
+            speed_limit: self.speed_limit.get(),
+            ..TransferSnapshot::of(&self.transfers, &self.scans())
+        };
+        snapshot.connections = snapshot
+            .rows
+            .iter()
+            .filter_map(|row| row.session_id)
+            .filter(|session_id| !self.sessions.contains_key(session_id))
+            .map(|session_id| (session_id, self.session_name(session_id)))
+            .collect();
+        snapshot
     }
 
     fn publish_transfers(&mut self) {
@@ -573,3 +681,7 @@ pub(crate) mod testing;
 
 #[cfg(test)]
 mod tests;
+
+fn current_local_offset() -> chrono::FixedOffset {
+    *chrono::Local::now().offset()
+}

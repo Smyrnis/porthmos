@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
 use porthmos_vfs::VfsPath;
 
 use super::super::{Engine, Event};
@@ -39,6 +38,10 @@ impl HistoryLog {
     pub(crate) fn remember_session(&mut self, session_id: u64, name: String) {
         self.session_names.insert(session_id, name);
     }
+
+    pub(crate) fn skip_recording(&mut self, kind: RowKind) {
+        self.recorded.insert(kind);
+    }
 }
 
 fn common_directory<'a>(paths: impl Iterator<Item = &'a VfsPath>) -> VfsPath {
@@ -73,26 +76,26 @@ fn history_result(state: RowState) -> HistoryResult {
     }
 }
 
-fn new_entry(
-    finished_at: DateTime<Utc>, connection: String, direction: Direction, label: String, result: HistoryResult,
-) -> HistoryEntry {
-    HistoryEntry {
-        finished_at,
-        connection,
-        direction,
-        label,
-        local_path: String::new(),
-        remote_path: String::new(),
-        files_done: 0,
-        files_total: 0,
-        bytes: 0,
-        result,
-        failed_count: 0,
-        failed_files: Vec::new(),
-    }
-}
-
 impl Engine {
+    fn history_entry(
+        &self, connection: String, direction: Direction, label: String, result: HistoryResult,
+    ) -> HistoryEntry {
+        HistoryEntry {
+            finished_at: self.now(),
+            connection,
+            direction,
+            label,
+            local_path: String::new(),
+            remote_path: String::new(),
+            files_done: 0,
+            files_total: 0,
+            bytes: 0,
+            result,
+            failed_count: 0,
+            failed_files: Vec::new(),
+        }
+    }
+
     pub(crate) fn publish_history(&self) {
         self.emit(Event::History(self.history.store.newest_first()));
     }
@@ -180,10 +183,16 @@ impl Engine {
         for kind in kinds {
             match self.transfers.row(kind) {
                 None => {
+                    if let RowKind::Batch(batch_id) = kind {
+                        self.forget_pending_deletions(batch_id);
+                    }
                     self.history.recorded.remove(&kind);
                     self.history.counted.remove(&kind);
                 }
                 Some(row) if row.is_finished() => {
+                    if let RowKind::Batch(batch_id) = kind {
+                        self.finish_pending_deletions(batch_id, row.state == RowState::Done);
+                    }
                     if self.history.recorded.insert(kind) {
                         let entry = self.entry_for_row(&row);
                         self.log_failed_jobs(&row, &entry.connection);
@@ -247,14 +256,15 @@ impl Engine {
                 .sum(),
             failed_count: failed.len(),
             failed_files: failed.iter().take(MAX_FAILED_FILES).map(|job| job.display_name.clone()).collect(),
-            ..new_entry((self.clock)(), connection, row.direction, row.label.clone(), history_result(row.state))
+            ..self.history_entry(connection, row.direction, row.label.clone(), history_result(row.state))
         }
     }
 
     pub(crate) fn record_failed_scan(&mut self, session_id: u64, direction: Direction, label: String, message: &str) {
         let connection = self.session_name(session_id);
         tracing::error!(target: "porthmos::transfers", connection = %connection, file = %label, "{message}");
-        self.store_entry(new_entry((self.clock)(), connection, direction, label, HistoryResult::Failed));
+        let entry = self.history_entry(connection, direction, label, HistoryResult::Failed);
+        self.store_entry(entry);
         self.publish_history();
     }
 

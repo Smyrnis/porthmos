@@ -1,0 +1,123 @@
+use std::future::Future;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use anyhow::Result;
+use iced::Subscription;
+use iced::futures::StreamExt;
+use iced::futures::stream::unfold;
+use porthmos_core::{Core, CoreHandle, Environment, Event, Paths, UpdateMode, VfsPath, config, from_os_path};
+use tokio::sync::mpsc::UnboundedReceiver;
+
+use crate::settings_view::GuiSettings;
+use crate::shortcuts::Shortcuts;
+use crate::theme::ThemeSettings;
+
+pub const SHUTDOWN_BOUND: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+pub struct EventSource {
+    receiver: Arc<Mutex<Option<UnboundedReceiver<Event>>>>,
+}
+
+impl EventSource {
+    pub fn new(receiver: UnboundedReceiver<Event>) -> Self {
+        EventSource { receiver: Arc::new(Mutex::new(Some(receiver))) }
+    }
+
+    pub fn take(&self) -> Option<UnboundedReceiver<Event>> {
+        self.receiver.lock().unwrap().take()
+    }
+}
+
+impl Hash for EventSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        "porthmos-core-events".hash(state);
+    }
+}
+
+pub struct Started {
+    pub core: CoreHandle,
+    pub events: EventSource,
+    pub warnings: Vec<String>,
+    pub theme: ThemeSettings,
+    pub config_accent: Option<porthmos_core::theme::Rgb>,
+    pub shortcuts: Shortcuts,
+    pub settings: GuiSettings,
+    pub config_file: PathBuf,
+}
+
+pub fn update_mode_on_exit(paths: &Paths, started_with: UpdateMode) -> UpdateMode {
+    match config::load(paths) {
+        Ok((settings, warnings)) if warnings.is_empty() => settings.update.mode,
+        _ => started_with,
+    }
+}
+
+pub fn local_start(remembered: Option<VfsPath>, home: Option<PathBuf>, current: Option<PathBuf>) -> VfsPath {
+    remembered.or_else(|| home.or(current).map(|folder| from_os_path(&folder))).unwrap_or_else(VfsPath::root)
+}
+
+pub fn start(env: Environment, paths: Paths) -> Result<Started> {
+    paths.migrate_legacy_config();
+    let (settings, config_warnings) = config::load(&paths)?;
+    let (theme, mut theme_warnings) = ThemeSettings::from_frontend(&settings.frontend);
+    let (scheme, scheme_warnings) = porthmos_core::theme::file::load(&paths, theme.accent);
+    theme_warnings.extend(scheme_warnings);
+    let config_accent = theme.accent;
+    let theme = theme.with_scheme(scheme);
+    let (shortcuts, key_warnings) = Shortcuts::from_frontend(&settings.frontend);
+    let gui_settings = GuiSettings {
+        editor: settings.edit.editor.clone(),
+        terminal: settings.terminal.command.clone(),
+        auto_upload: settings.edit.auto_upload,
+        compare_limit_mib: settings.edit.compare_limit_mib,
+        update_mode: settings.update.mode,
+        search_preview: settings.search.preview,
+        reopen: settings.startup.reopen,
+        reconnect: settings.connection.reconnect,
+        theme_base: porthmos_core::theme::file::read_base(&paths.theme_file()),
+    };
+    let config_file = paths.config_file();
+    let mut warnings: Vec<String> = config_warnings.into_iter().map(|warning| warning.0).collect();
+    warnings.extend(theme_warnings);
+    warnings.extend(key_warnings);
+    let (core, receiver) = Core::builder()
+        .paths(paths)
+        .environment(env)
+        .settings(settings)
+        .release_updates(crate::cli::app_identity())
+        .start()?;
+    Ok(Started {
+        core,
+        events: EventSource::new(receiver),
+        warnings,
+        theme,
+        config_accent,
+        shortcuts,
+        settings: gui_settings,
+        config_file,
+    })
+}
+
+pub fn subscription(source: &EventSource) -> Subscription<Event> {
+    Subscription::run_with(source.clone(), |source| match source.take() {
+        Some(receiver) => {
+            unfold(receiver, |mut receiver| async move { receiver.recv().await.map(|event| (event, receiver)) }).boxed()
+        }
+        None => iced::futures::stream::empty().boxed(),
+    })
+}
+
+pub async fn bounded<F: Future>(future: F, limit: Duration) -> bool {
+    tokio::time::timeout(limit, future).await.is_ok()
+}
+
+pub async fn shut_down(core: CoreHandle, limit: Duration) {
+    let _ = bounded(async move { core.shutdown().await }, limit).await;
+}
+
+#[cfg(test)]
+mod tests;

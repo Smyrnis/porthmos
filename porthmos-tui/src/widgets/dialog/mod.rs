@@ -1,8 +1,11 @@
 pub mod confirm;
 pub mod conflict;
+pub mod diff;
 pub mod form;
+pub mod import;
 pub mod list;
 pub mod message;
+pub mod properties;
 pub mod text_input;
 
 pub use confirm::ConfirmDialog;
@@ -28,6 +31,9 @@ pub enum Dialog {
     Form(FormDialog),
     Conflict(ConflictDialog),
     Message(message::MessageDialog),
+    Diff(diff::DiffDialog),
+    Properties(properties::PropertiesDialog),
+    Import(import::ImportDialog),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -42,6 +48,9 @@ pub enum DialogOutcome {
     FormTest(Vec<(&'static str, String)>),
     FormChoiceChanged { key: &'static str },
     Resolved { resolution: Option<porthmos_core::transfer::conflicts::Resolution>, apply_to_rest: bool },
+    DiffChosen(diff::DiffChoice),
+    PropertiesChosen(properties::PropertiesChoice),
+    ImportChosen(import::ImportChoice),
 }
 
 impl std::fmt::Debug for DialogOutcome {
@@ -63,6 +72,9 @@ impl std::fmt::Debug for DialogOutcome {
                 .field("resolution", resolution)
                 .field("apply_to_rest", apply_to_rest)
                 .finish(),
+            DialogOutcome::DiffChosen(choice) => f.debug_tuple("DiffChosen").field(choice).finish(),
+            DialogOutcome::PropertiesChosen(choice) => f.debug_tuple("PropertiesChosen").field(choice).finish(),
+            DialogOutcome::ImportChosen(choice) => f.debug_tuple("ImportChosen").field(choice).finish(),
         }
     }
 }
@@ -103,6 +115,18 @@ impl Dialog {
                 message::MessageOutcome::Pending => DialogOutcome::Pending,
                 message::MessageOutcome::Closed => DialogOutcome::Cancelled,
             },
+            Dialog::Diff(dialog) => match dialog.handle_key(key) {
+                Some(choice) => DialogOutcome::DiffChosen(choice),
+                None => DialogOutcome::Pending,
+            },
+            Dialog::Properties(dialog) => match dialog.handle_key(key) {
+                properties::PropertiesChoice::Pending => DialogOutcome::Pending,
+                choice => DialogOutcome::PropertiesChosen(choice),
+            },
+            Dialog::Import(dialog) => match dialog.handle_key(key) {
+                import::ImportChoice::Pending => DialogOutcome::Pending,
+                choice => DialogOutcome::ImportChosen(choice),
+            },
         }
     }
 
@@ -115,6 +139,9 @@ impl Dialog {
             Dialog::Form(dialog) => form::render_form(frame, area, dialog, theme),
             Dialog::Conflict(dialog) => conflict::render_conflict(frame, area, dialog, theme),
             Dialog::Message(dialog) => message::render_message(frame, area, dialog, theme),
+            Dialog::Diff(dialog) => diff::render_diff(frame, area, dialog, theme),
+            Dialog::Properties(dialog) => properties::render_properties(frame, area, dialog, theme),
+            Dialog::Import(dialog) => import::render_import(frame, area, dialog, theme),
         }
     }
 }

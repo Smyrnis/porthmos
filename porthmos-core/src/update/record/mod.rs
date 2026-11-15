@@ -24,8 +24,8 @@ pub(crate) struct UpdateRecord {
 }
 
 impl UpdateRecord {
-    pub(crate) fn load(paths: &Paths) -> (UpdateRecord, Option<String>) {
-        let path = paths.update_state_file();
+    pub(crate) fn load(paths: &Paths, product_id: &str) -> (UpdateRecord, Option<String>) {
+        let path = paths.update_state_file(product_id);
         let mut record = UpdateRecord { path: path.clone(), file: RecordFile::default(), writable: true };
         match read_or_set_aside(&path, "update state", |text| {
             toml::from_str::<RecordFile>(text).map_err(|err| toml_problem(text, &err))

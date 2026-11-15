@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Porthmos doesn't work as it should
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: app
+    attributes:
+      label: App
+      options: ["Terminal app (porthmos)", "Window app (porthmos-gui)"]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `porthmos --version` or `porthmos-gui --version`
+      placeholder: porthmos 2026.5.0-dev.3
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows]
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol
+      multiple: true
+      options: [SFTP, SCP, FTP, FTPS, WebDAV, S3, "Local files only", "Not protocol related"]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to ...
+        2. Press ...
+  - type: textarea
+    id: log
+    attributes:
+      label: Log output
+      description: Remove host names, user names and anything else private.
+      render: text

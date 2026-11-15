@@ -56,6 +56,14 @@ pub trait FileSystem: Send + Sync {
         false
     }
 
+    async fn set_permissions(&self, _path: &VfsPath, _mode: u32) -> Result<(), ProtocolError> {
+        Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("this connection can't set permissions")))
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        false
+    }
+
     fn time_resolution(&self) -> u64 {
         2
     }

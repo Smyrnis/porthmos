@@ -408,3 +408,67 @@ fn many_simultaneous_location_checks_all_see_a_writable_folder() {
     );
     assert_eq!(world.bin_listing(), ["porthmos"]);
 }
+
+#[test]
+fn version_on_disk_reads_the_gui_version_line() {
+    let root = tempfile::tempdir().unwrap();
+    let program = root.path().join("porthmos-gui");
+    write_executable(&program, "#!/bin/sh\necho \"porthmos-gui 2026.5.0-dev.1\"\n", 0o755);
+
+    assert_eq!(version_on_disk(&program, "porthmos-gui"), Some(version("2026.5.0-dev.1")));
+}
+
+#[test]
+fn a_newer_version_reported_by_another_program_does_not_stop_the_install() {
+    for line in ["porthmos-gui 9.0.0", "other-tool 9.0.0", "9.0.0"] {
+        let world = World::new();
+        write_executable(&world.executable(), &format!("#!/bin/sh\necho \"{line}\"\n"), 0o755);
+        let staged = world.stage("0.5.0");
+
+        let result = install(&world.dir(), &staged, &world.executable(), BUDGET);
+
+        assert!(result.is_ok(), "{line}: {result:?}");
+        assert_eq!(world.run(&world.executable()), "porthmos 0.5.0", "{line}");
+    }
+}
+
+#[test]
+fn the_window_program_is_not_stopped_by_a_newer_terminal_line() {
+    let world = World::new();
+    let executable = world.root.path().join("bin").join("porthmos-gui");
+    write_executable(&executable, "#!/bin/sh\necho \"porthmos 9999.0.0\"\n", 0o755);
+    let folder = world.dir().path().join("2026.5.1");
+    fs::create_dir_all(&folder).unwrap();
+    let binary = folder.join("porthmos-gui");
+    write_executable(&binary, "#!/bin/sh\necho \"porthmos-gui 2026.5.1\"\n", 0o755);
+    let staged = Staged {
+        version: version("2026.5.1"),
+        binary: binary.clone(),
+        sha256: sha256_hex_of_file(&binary).unwrap(),
+        size: fs::metadata(&binary).unwrap().len(),
+    };
+    record_staged(&world.dir(), &staged).unwrap();
+
+    let result = install(&world.dir(), &staged, &executable, BUDGET);
+
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(world.run(&executable), "porthmos-gui 2026.5.1");
+}
+
+#[test]
+fn version_on_disk_accepts_only_the_expected_program_name() {
+    let root = tempfile::tempdir().unwrap();
+    let program = root.path().join("program");
+    for (line, expected, wanted) in [
+        ("porthmos 1.2.3", "porthmos", Some("1.2.3")),
+        ("porthmos-gui 1.2.3", "porthmos", None),
+        ("porthmos 1.2.3", "porthmos-gui", None),
+        ("xporthmos 1.2.3", "porthmos", None),
+        ("porthmos", "porthmos", None),
+        ("porthmos not-a-version", "porthmos", None),
+    ] {
+        write_executable(&program, &format!("#!/bin/sh\necho \"{line}\"\n"), 0o755);
+
+        assert_eq!(version_on_disk(&program, expected), wanted.map(version), "{line} for {expected}");
+    }
+}

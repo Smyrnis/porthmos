@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use porthmos_vfs::Environment;
 
 pub const MAX_EDIT_BYTES: u64 = 64 * 1024 * 1024;
@@ -150,7 +150,10 @@ pub fn printable(text: &str) -> String {
     text.chars().map(|character| if character.is_control() { '?' } else { character }).collect()
 }
 
-pub fn conflict_copy_name(name: &str, at: DateTime<Utc>) -> String {
+pub fn conflict_copy_name<Zone: chrono::TimeZone>(name: &str, at: DateTime<Zone>) -> String
+where
+    Zone::Offset: std::fmt::Display,
+{
     let stamp = at.format("%Y%m%d-%H%M%S");
     match name.rfind('.') {
         Some(index) if index > 0 => format!("{}.conflict-{stamp}{}", &name[..index], &name[index..]),

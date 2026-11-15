@@ -1,17 +1,21 @@
-use porthmos_core::Answer;
+use porthmos_core::{
+    Answer,
+    delete_prompt::{
+        THIS_COMPUTER,
+        count::{Contents, contents_line},
+        delete_summary,
+    },
+    names::entry_name_problem,
+    permissions::{mode_text, parse_mode},
+};
 
 use super::*;
+use crate::widgets::history_view::printable;
 
-fn name_problem(name: &str) -> Option<&'static str> {
-    if name.is_empty() {
-        Some("A name can't be empty")
-    } else if name == "." || name == ".." {
-        Some("A name can't be \".\" or \"..\"")
-    } else if name.contains('/') {
-        Some("A name can't contain \"/\"")
-    } else {
-        None
-    }
+fn prompt_text(summary: &[String], contents: Option<Contents>) -> String {
+    let mut lines = summary.to_vec();
+    lines.extend(contents.as_ref().map(contents_line));
+    lines.join("\n")
 }
 
 impl App {
@@ -44,6 +48,31 @@ impl App {
         self.pending_action = Some(PendingAction::Rename { location, from });
     }
 
+    pub(super) fn open_permissions_dialog(&mut self) {
+        if self.screen != Screen::Files {
+            return;
+        }
+
+        let Some(location) = self.active_location() else {
+            return;
+        };
+        let Some(panel) = self.panel(location) else {
+            return;
+        };
+        let (entries, paths) = (panel.target_entries(), panel.targets());
+        if paths.is_empty() {
+            return;
+        }
+        let current = entries.iter().find_map(|entry| entry.permissions).map(mode_text).unwrap_or_default();
+        let title = match paths.len() {
+            1 => "Permissions (octal)".to_string(),
+            count => format!("Permissions of {count} items (octal)"),
+        };
+
+        self.dialog = Some(Dialog::TextInput(TextInputDialog::new(title, current)));
+        self.pending_action = Some(PendingAction::Permissions { location, paths });
+    }
+
     pub(super) fn open_delete_dialog(&mut self) {
         if self.screen != Screen::Files {
             return;
@@ -52,28 +81,56 @@ impl App {
         let Some(location) = self.active_location() else {
             return;
         };
-        let Some(targets) = self.panel(location).map(PanelView::targets) else {
+        let Some(panel) = self.panel(location) else {
             return;
         };
+        let (entries, targets) = (panel.target_entries(), panel.targets());
         if targets.is_empty() {
             return;
         }
 
-        let message = if targets.len() == 1 {
-            let name = targets[0].file_name().and_then(|name| name.to_str()).unwrap_or("?");
-            format!("Delete \"{name}\"?")
-        } else {
-            format!("Delete {} selected items?", targets.len())
+        let place = match location {
+            Location::Local => THIS_COMPUTER.to_string(),
+            Location::Session(id) => self.sessions.by_id(id).map(|session| session.name.clone()).unwrap_or_default(),
         };
+        let summary = delete_summary(&entries, &place, printable);
+        let folders: Vec<VfsPath> =
+            entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
+        let count = if folders.is_empty() {
+            None
+        } else {
+            self.next_count_id += 1;
+            let request_id = self.next_count_id;
+            self.core.send(Command::CountContents { request_id, location, folders });
+            Some(DeleteCount { request_id, summary: summary.clone(), answered: false })
+        };
+        let message = prompt_text(&summary, count.as_ref().map(|_| Contents::Counting));
 
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(message)));
-        self.pending_action = Some(PendingAction::Delete { location, paths: targets });
+        self.pending_action = Some(PendingAction::Delete { location, paths: targets, count });
+    }
+
+    fn stop_counting(&self, count: Option<DeleteCount>) {
+        if count.is_some_and(|count| !count.answered) {
+            self.core.send(Command::CancelCount);
+        }
+    }
+
+    pub(super) fn apply_contents_counted(&mut self, request_id: RequestId, contents: Contents) {
+        let Some(PendingAction::Delete { count: Some(pending), .. }) = self.pending_action.as_mut() else {
+            return;
+        };
+        if pending.request_id != request_id || pending.answered {
+            return;
+        }
+        pending.answered = true;
+        let text = prompt_text(&pending.summary, Some(contents));
+        if let Some(Dialog::Confirm(dialog)) = self.dialog.as_mut() {
+            dialog.message = text;
+        }
     }
 
     fn create_directory(&mut self, name: &str) {
-        if self.refuse_bad_name(name) {
-            return;
-        }
         let Some(location) = self.active_location() else {
             return;
         };
@@ -85,21 +142,27 @@ impl App {
     }
 
     fn rename_entry(&mut self, location: Location, from: VfsPath, new_name: &str) {
-        if self.refuse_bad_name(new_name) {
-            return;
-        }
         let Some(to) = from.parent().map(|parent| parent.join(new_name)) else {
             return;
         };
         self.core.send(Command::Rename { location, from, to });
     }
 
-    fn refuse_bad_name(&mut self, name: &str) -> bool {
-        let Some(problem) = name_problem(name) else {
-            return false;
+    fn submitted_mode_problem(&self, text: &str) -> Option<String> {
+        match self.pending_action.as_ref()? {
+            PendingAction::Permissions { .. } => parse_mode(text).err(),
+            _ => None,
+        }
+    }
+
+    fn submitted_name_problem(&self, name: &str) -> Option<String> {
+        let (location, original) = match self.pending_action.as_ref()? {
+            PendingAction::Mkdir => (self.active_location()?, None),
+            PendingAction::Rename { location, from } => (*location, from.file_name().and_then(|name| name.to_str())),
+            _ => return None,
         };
-        self.notifications.push(Severity::Warning, problem);
-        true
+        let panel = self.panel(location);
+        entry_name_problem(name, original, |candidate| panel.is_some_and(|panel| panel.has_entry_named(candidate)))
     }
 
     pub(super) fn apply_dialog_key(&mut self, key: KeyEvent) {
@@ -127,13 +190,16 @@ impl App {
                     Some(PendingAction::EditUpload { edit_id } | PendingAction::EditConflict { edit_id }) => {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Cancel });
                     }
+                    Some(PendingAction::Delete { count, .. }) => self.stop_counting(count),
+                    Some(PendingAction::EditComparing { .. }) => self.ask_open_edit_question_again(),
                     _ => {}
                 }
             }
             DialogOutcome::Confirmed => {
                 self.dialog = None;
                 match self.pending_action.take() {
-                    Some(PendingAction::Delete { location, paths }) => {
+                    Some(PendingAction::Delete { location, paths, count }) => {
+                        self.stop_counting(count);
                         self.core.send(Command::Delete { location, paths })
                     }
                     Some(PendingAction::DeleteConnection { name }) => {
@@ -141,6 +207,7 @@ impl App {
                     }
                     Some(PendingAction::ClearHistory) => self.core.send(Command::ClearHistory),
                     Some(PendingAction::ConfirmQuit) => self.should_quit = true,
+                    Some(PendingAction::ConfirmSyncDelete { sync_id, choices }) => self.send_sync_run(sync_id, choices),
                     Some(PendingAction::EditUpload { edit_id }) => {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Upload })
                     }
@@ -152,16 +219,30 @@ impl App {
                     _ => {}
                 }
             }
+            DialogOutcome::Submitted(value)
+                if self.submitted_name_problem(&value).or_else(|| self.submitted_mode_problem(&value)).is_some() =>
+            {
+                let problem = self.submitted_name_problem(&value).or_else(|| self.submitted_mode_problem(&value));
+                if let Some(Dialog::TextInput(input)) = self.dialog.as_mut() {
+                    input.error = problem;
+                }
+            }
             DialogOutcome::Submitted(value) => {
                 self.dialog = None;
                 match self.pending_action.take() {
                     Some(PendingAction::Mkdir) => self.create_directory(&value),
                     Some(PendingAction::Rename { location, from }) => self.rename_entry(location, from, &value),
+                    Some(PendingAction::Permissions { location, paths }) => {
+                        if let Ok(mode) = parse_mode(&value) {
+                            self.core.send(Command::SetPermissions { location, paths, mode });
+                        }
+                    }
                     Some(PendingAction::AddBookmark) => self.add_bookmark(value),
                     Some(PendingAction::SpeedLimit) => self.apply_speed_limit(&value),
                     Some(PendingAction::SubmitPassword { .. })
                     | Some(PendingAction::SubmitTestPassword { .. })
                     | Some(PendingAction::Delete { .. })
+                    | Some(PendingAction::Properties { .. })
                     | Some(PendingAction::TrustHostKey { .. })
                     | Some(PendingAction::TrustCertificate { .. })
                     | Some(PendingAction::AddConnection)
@@ -174,8 +255,13 @@ impl App {
                     | Some(PendingAction::ClearHistory)
                     | Some(PendingAction::EditUpload { .. })
                     | Some(PendingAction::EditConflict { .. })
+                    | Some(PendingAction::EditComparing { .. })
+                    | Some(PendingAction::EditDiff { .. })
                     | Some(PendingAction::ConfirmQuit)
                     | Some(PendingAction::StartSync { .. })
+                    | Some(PendingAction::ConfirmSyncDelete { .. })
+                    | Some(PendingAction::ImportSource)
+                    | Some(PendingAction::Import { .. })
                     | None => {}
                 }
             }
@@ -193,6 +279,14 @@ impl App {
                     }
                 }
             }
+            DialogOutcome::DiffChosen(choice) => {
+                self.dialog = None;
+                if let Some(PendingAction::EditDiff { edit_id }) = self.pending_action.take() {
+                    self.answer_edit_diff(edit_id, choice);
+                }
+            }
+            DialogOutcome::PropertiesChosen(choice) => self.apply_properties_choice(choice),
+            DialogOutcome::ImportChosen(choice) => self.apply_import_choice(choice),
             DialogOutcome::Removed(index) => {
                 self.core.send(Command::RemoveBookmark { index });
                 if let Some(Dialog::List(list)) = self.dialog.as_mut() {
@@ -224,6 +318,7 @@ impl App {
                     let session = *session;
                     self.submit_sync_options(session, values);
                 }
+                Some(PendingAction::ImportSource) => self.submit_import_source(values),
                 _ => self.dialog = None,
             },
             DialogOutcome::FormTest(values) => self.start_connection_test(values),

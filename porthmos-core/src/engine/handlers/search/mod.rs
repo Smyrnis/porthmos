@@ -5,12 +5,12 @@ use porthmos_vfs::{SearchEvent, SearchQuery, VfsPath};
 use super::super::{Engine, Event, Location, Reporter};
 use crate::{Severity, tasks::Scope};
 
-pub(crate) const SEARCH_DEBOUNCE: Duration = Duration::from_millis(250);
+pub(crate) const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
 fn event_for(search_event: SearchEvent) -> Event {
     match search_event {
         SearchEvent::Found(entry) => Event::SearchFound(entry),
-        SearchEvent::Done { truncated } => Event::SearchDone { truncated },
+        SearchEvent::Done { truncated, incomplete } => Event::SearchDone { truncated, incomplete },
         SearchEvent::Failed(message) => Event::SearchFailed(message),
     }
 }

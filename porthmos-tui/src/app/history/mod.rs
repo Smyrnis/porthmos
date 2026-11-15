@@ -2,7 +2,7 @@ use chrono::Local;
 use porthmos_core::history::{HistoryEntry, HistoryResult};
 
 use super::*;
-use crate::widgets::{file_list::format_size, filter_line::FilterLine, history_view::printable};
+use crate::widgets::{file_list::format_size, filter_line::FilterLine, history_view::printable, paging::Paged};
 
 const DETAIL_NAMES: usize = 10;
 
@@ -63,6 +63,10 @@ impl App {
         match action {
             Action::Up => self.history.move_cursor(-1),
             Action::Down => self.history.move_cursor(1),
+            Action::PageUp => self.history.page_up(),
+            Action::PageDown => self.history.page_down(),
+            Action::First => self.history.cursor_to_first(),
+            Action::Last => self.history.cursor_to_last(),
             Action::Open => self.open_history_details(),
             _ => {}
         }

@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 enum Node {
-    File { data: Vec<u8>, modified: Option<u64> },
+    File { data: Vec<u8>, modified: Option<u64>, mode: Option<u32> },
     Dir,
     Symlink(VfsPath),
 }
@@ -23,7 +23,7 @@ enum Node {
 #[derive(Default)]
 struct Tree {
     nodes: BTreeMap<VfsPath, Node>,
-    failing_read_dirs: BTreeSet<VfsPath>,
+    failing_read_dirs: BTreeMap<VfsPath, ErrorKind>,
     failing_reads: BTreeSet<VfsPath>,
     unopenable: BTreeSet<VfsPath>,
     hanging_reads: BTreeMap<VfsPath, usize>,
@@ -37,6 +37,8 @@ struct Tree {
     hanging_stats: BTreeSet<VfsPath>,
     server_info: Option<String>,
     failing_shutdowns: BTreeSet<VfsPath>,
+    refused_permissions: BTreeSet<VfsPath>,
+    refused_deletes: BTreeSet<VfsPath>,
     written_sizes: Vec<(VfsPath, u64)>,
 }
 
@@ -75,8 +77,8 @@ impl Tree {
 
 fn metadata_of(node: &Node) -> Metadata {
     match node {
-        Node::File { data, modified } => {
-            Metadata { size: data.len() as u64, modified: *modified, kind: FileKind::File, permissions: None }
+        Node::File { data, modified, mode } => {
+            Metadata { size: data.len() as u64, modified: *modified, kind: FileKind::File, permissions: *mode }
         }
         Node::Dir => Metadata { size: 0, modified: None, kind: FileKind::Dir, permissions: None },
         Node::Symlink(_) => Metadata { size: 0, modified: None, kind: FileKind::Symlink, permissions: None },
@@ -97,9 +99,11 @@ pub struct FakeFs {
     resume_backoff: u64,
     home: VfsPath,
     time_support: bool,
+    permission_support: bool,
     time_resolution: u64,
     holds_connection: bool,
     name_rules: NameRules,
+    remove_dir_support: bool,
 }
 
 impl Default for FakeFs {
@@ -115,9 +119,11 @@ impl FakeFs {
             resume_backoff: 0,
             home: VfsPath::new("/home/user"),
             time_support: true,
+            permission_support: true,
             time_resolution: 2,
             holds_connection: false,
             name_rules: NameRules::Permissive,
+            remove_dir_support: true,
         };
         fs.dir("/home/user");
         fs
@@ -189,7 +195,42 @@ impl FakeFs {
         let path = path.into();
         let mut tree = self.tree.lock().unwrap();
         tree.insert_ancestors(&path);
-        tree.nodes.insert(path, Node::File { data: data.to_vec(), modified });
+        tree.nodes.insert(path, Node::File { data: data.to_vec(), modified, mode: None });
+        self
+    }
+
+    pub fn file_with_mode(&self, path: impl Into<VfsPath>, data: &[u8], modified: Option<u64>, mode: u32) -> &Self {
+        let path = path.into();
+        let mut tree = self.tree.lock().unwrap();
+        tree.insert_ancestors(&path);
+        tree.nodes.insert(path, Node::File { data: data.to_vec(), modified, mode: Some(mode) });
+        self
+    }
+
+    pub fn mode_of(&self, path: impl Into<VfsPath>) -> Option<u32> {
+        match self.tree.lock().unwrap().nodes.get(&path.into() as &VfsPath) {
+            Some(Node::File { mode, .. }) => *mode,
+            _ => None,
+        }
+    }
+
+    pub fn refuse_permissions(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().refused_permissions.insert(path.into());
+        self
+    }
+
+    pub fn refusing_delete(&self, path: impl Into<VfsPath>) -> &Self {
+        self.tree.lock().unwrap().refused_deletes.insert(path.into());
+        self
+    }
+
+    pub fn without_remove_dir(mut self) -> Self {
+        self.remove_dir_support = false;
+        self
+    }
+
+    pub fn with_permission_support(mut self, supported: bool) -> Self {
+        self.permission_support = supported;
         self
     }
 
@@ -202,7 +243,11 @@ impl FakeFs {
     }
 
     pub fn fail_read_dir(&self, path: impl Into<VfsPath>) -> &Self {
-        self.tree.lock().unwrap().failing_read_dirs.insert(path.into());
+        self.fail_read_dir_with(path, ErrorKind::PermissionDenied)
+    }
+
+    pub fn fail_read_dir_with(&self, path: impl Into<VfsPath>, kind: ErrorKind) -> &Self {
+        self.tree.lock().unwrap().failing_read_dirs.insert(path.into(), kind);
         self
     }
 
@@ -354,6 +399,30 @@ impl FileSystem for FakeFs {
         self.time_support
     }
 
+    async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<(), ProtocolError> {
+        if !self.permission_support {
+            return Err(ProtocolError::new(
+                ErrorKind::Unsupported,
+                anyhow::anyhow!("this connection can't set permissions"),
+            ));
+        }
+        let mut tree = self.tree.lock().unwrap();
+        if tree.refused_permissions.contains(path) {
+            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("permission change refused")));
+        }
+        match tree.nodes.get_mut(path) {
+            Some(Node::File { mode: stored, .. }) => {
+                *stored = Some(mode);
+                Ok(())
+            }
+            _ => Err(not_found(path)),
+        }
+    }
+
+    fn can_set_permissions(&self) -> bool {
+        self.permission_support
+    }
+
     fn name_rules(&self) -> NameRules {
         self.name_rules
     }
@@ -402,8 +471,8 @@ impl FileSystem for FakeFs {
 
     async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<DirItem>, ProtocolError> {
         let tree = self.tree.lock().unwrap();
-        if tree.failing_read_dirs.contains(dir) {
-            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("Permission denied")));
+        if let Some(kind) = tree.failing_read_dirs.get(dir) {
+            return Err(ProtocolError::new(*kind, anyhow::anyhow!("Directory listing failed")));
         }
         if !tree.is_dir(dir) {
             return Err(not_found(dir));
@@ -468,6 +537,9 @@ impl FileSystem for FakeFs {
     }
 
     async fn remove_dir(&self, path: &VfsPath) -> Result<(), ProtocolError> {
+        if !self.remove_dir_support {
+            return Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("remove_dir is not supported")));
+        }
         let mut tree = self.tree.lock().unwrap();
         match tree.nodes.get(path) {
             None => Err(not_found(path)),
@@ -486,6 +558,9 @@ impl FileSystem for FakeFs {
         let mut tree = self.tree.lock().unwrap();
         if !tree.nodes.contains_key(path) {
             return Err(not_found(path));
+        }
+        if tree.refused_deletes.contains(path) {
+            return Err(ProtocolError::new(ErrorKind::PermissionDenied, anyhow::anyhow!("{} can't be deleted", path)));
         }
         tree.nodes.retain(|candidate, _| !candidate.starts_with(path));
         Ok(())
@@ -551,7 +626,7 @@ impl FileSystem for FakeFs {
                 offset
             }
             _ => {
-                tree.nodes.insert(path.clone(), Node::File { data: Vec::new(), modified: None });
+                tree.nodes.insert(path.clone(), Node::File { data: Vec::new(), modified: None, mode: None });
                 0
             }
         };

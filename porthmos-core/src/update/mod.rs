@@ -4,18 +4,26 @@ pub mod backend;
 pub(crate) mod record;
 
 mod apply;
+mod exit_line;
 mod headless;
+#[cfg(feature = "update")]
+mod identity;
+#[cfg(feature = "update")]
+pub(crate) mod legacy;
 
 #[cfg(all(test, feature = "update", unix))]
 pub(crate) mod testing;
 
 pub use apply::{ApplyOutcome, apply_staged_update};
+pub use exit_line::ExitLine;
 pub use headless::{HeadlessUpdate, run_update};
 
 #[cfg(feature = "update")]
 pub use backend::{ReleaseUpdater, Updater};
 #[cfg(feature = "update")]
-pub use porthmos_update::{CheckError, Outcome, StageError, Staged, UpdateInfo, Version};
+pub use identity::AppIdentity;
+#[cfg(feature = "update")]
+pub use porthmos_update::{CheckError, Outcome, Product, StageError, Staged, UpdateInfo, Version};
 
 use std::time::Duration;
 
@@ -53,8 +61,3 @@ impl UpdateTiming {
 pub(crate) type SharedUpdater = std::sync::Arc<dyn Updater>;
 #[cfg(not(feature = "update"))]
 pub(crate) type SharedUpdater = std::convert::Infallible;
-
-#[cfg(feature = "update")]
-pub(crate) fn current_version() -> Version {
-    env!("CARGO_PKG_VERSION").parse().expect("the crate version is valid semver")
-}

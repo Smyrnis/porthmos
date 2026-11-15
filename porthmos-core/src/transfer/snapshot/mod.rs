@@ -26,6 +26,7 @@ pub struct TransferSnapshot {
     pub scanning: Vec<String>,
     pub awaiting_answers: usize,
     pub speed_limit: Option<u64>,
+    pub connections: BTreeMap<u64, String>,
 }
 
 impl TransferSnapshot {
@@ -59,6 +60,7 @@ impl TransferSnapshot {
                 .collect(),
             awaiting_answers: scans.iter().filter(|scan| scan.state == RowState::AwaitingAnswer).count(),
             speed_limit: None,
+            connections: BTreeMap::new(),
         }
     }
 }

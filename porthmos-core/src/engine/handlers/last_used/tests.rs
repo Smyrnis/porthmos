@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use porthmos_vfs::testing::{FakeFs, FakeProtocol};
 
 use crate::{
@@ -13,11 +13,11 @@ use crate::{
 };
 
 fn morning() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 22, 9, 0, 0).unwrap()
+    crate::engine::testing::utc(2026, 10, 22, 9, 0, 0)
 }
 
 fn evening() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 22, 18, 30, 0).unwrap()
+    crate::engine::testing::utc(2026, 10, 22, 18, 30, 0)
 }
 
 fn engine_with_profile(name: &str) -> TestEngine {
@@ -150,6 +150,7 @@ async fn reusing_an_open_session_keeps_the_time_of_the_connection_that_opened_it
 async fn reconnecting_after_a_disconnect_records_the_newer_time() {
     let mut t = engine_with_profile("srv");
     connect(&mut t, "srv").await;
+    t.settle().await;
     let session = *t.engine.sessions.keys().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session });
     t.drain();
@@ -463,6 +464,9 @@ async fn a_history_write_failure_is_not_blamed_on_the_last_used_file() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
+    if !porthmos_vfs::testing::read_only_folders_block_writes() {
+        return;
+    }
     let mut t = engine_with_profile("srv");
     t.engine.last_used.store = protected_store(&t);
     t.drain();

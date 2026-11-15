@@ -34,6 +34,13 @@ impl App {
         if request_id != self.next_preview_id {
             return;
         }
+        if self.screen == Screen::Search {
+            let pane = self.search.as_mut().and_then(|session| session.view.pane.as_mut());
+            if let Some(view) = pane.filter(|view| view.is_loading()) {
+                view.finish(result);
+            }
+            return;
+        }
         if let Some(view) = self.preview.as_mut().filter(|view| view.is_loading()) {
             view.finish(result);
         }

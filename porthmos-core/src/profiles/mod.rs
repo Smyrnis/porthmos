@@ -6,7 +6,7 @@ pub mod store;
 use std::{collections::HashSet, sync::Arc};
 
 use anyhow::Result;
-pub use draft::{ProfileDraft, SecretEdit};
+pub use draft::{DraftProblem, ProfileDraft, SecretEdit};
 pub use labels::Labels;
 use porthmos_vfs::{Environment, Protocol};
 pub use profile::{ConnectionEntry, ConnectionProfile, ConnectionSource, DEFAULT_PROTOCOL};

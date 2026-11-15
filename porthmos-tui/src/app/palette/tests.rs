@@ -839,3 +839,43 @@ fn choosing_check_for_updates_in_the_palette_sends_a_manual_check() {
     assert!(test.app.palette.is_none());
     assert_eq!(test.sent(), [Command::CheckForUpdate { manual: true }]);
 }
+
+fn offered(test: &mut TestApp, names: &[&str]) {
+    let names = names.iter().map(|name| name.to_string()).collect();
+    test.app.apply_core_event(Event::ReopenOffer { names });
+}
+
+#[test]
+fn reopening_is_not_listed_without_an_offer() {
+    let entries = on(Screen::Files).app.palette_entries();
+
+    assert!(!entries.iter().any(|entry| entry.target == Target::Reopen));
+}
+
+#[test]
+fn reopening_is_listed_with_the_connections_it_would_open() {
+    let mut test = on(Screen::Files);
+    offered(&mut test, &["prod", "nas"]);
+
+    let entries = test.app.palette_entries();
+
+    let entry = find(&entries, "Reopen last connections");
+    assert_eq!(entry.group, Group::Hosts);
+    assert_eq!(entry.target, Target::Reopen);
+    assert_eq!(entry.hint.as_deref(), Some("prod, nas"));
+}
+
+#[test]
+fn choosing_to_reopen_asks_core_once_withdraws_the_offer_and_shows_the_files() {
+    let mut test = on(Screen::Connections);
+    offered(&mut test, &["prod"]);
+    test.sent();
+
+    test.app.run_palette_target(Target::Reopen);
+    test.app.run_palette_target(Target::Reopen);
+
+    let reopen = test.sent().into_iter().filter(|command| matches!(command, Command::ReopenConnections)).count();
+    assert_eq!(reopen, 1);
+    assert!(test.app.palette_entries().iter().all(|entry| entry.target != Target::Reopen));
+    assert_eq!(test.app.screen, Screen::Files);
+}

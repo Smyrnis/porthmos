@@ -5,7 +5,7 @@ use crate::{
     transfer::conflicts::ConflictPolicy,
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PanelSettings {
     pub show_hidden: bool,
     pub sort: SortSpec,
@@ -15,12 +15,29 @@ pub struct PanelSettings {
 pub struct EditSettings {
     pub auto_upload: bool,
     pub editor: Option<String>,
+    pub compare_limit_mib: u64,
 }
+
+pub const DEFAULT_COMPARE_LIMIT_MIB: u64 = 1;
+pub const MIN_COMPARE_LIMIT_MIB: u64 = 1;
+pub const MAX_COMPARE_LIMIT_MIB: u64 = 64;
+const BYTES_PER_MIB: u64 = 1024 * 1024;
 
 impl Default for EditSettings {
     fn default() -> Self {
-        Self { auto_upload: true, editor: None }
+        Self { auto_upload: true, editor: None, compare_limit_mib: DEFAULT_COMPARE_LIMIT_MIB }
     }
+}
+
+impl EditSettings {
+    pub fn compare_limit_bytes(&self) -> u64 {
+        self.compare_limit_mib * BYTES_PER_MIB
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TerminalSettings {
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -47,6 +64,39 @@ impl Default for UpdateSettings {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchSettings {
+    pub preview: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReopenMode {
+    #[default]
+    Off,
+    Ask,
+    Auto,
+}
+
+impl ReopenMode {
+    pub fn id(self) -> &'static str {
+        match self {
+            ReopenMode::Off => "off",
+            ReopenMode::Ask => "ask",
+            ReopenMode::Auto => "auto",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConnectionSettings {
+    pub reconnect: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StartupSettings {
+    pub reopen: ReopenMode,
+}
+
 pub const MAX_PARALLEL_CAP: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +116,11 @@ pub struct Settings {
     pub panel: PanelSettings,
     pub transfers: TransferSettings,
     pub edit: EditSettings,
+    pub terminal: TerminalSettings,
     pub update: UpdateSettings,
+    pub search: SearchSettings,
+    pub startup: StartupSettings,
+    pub connection: ConnectionSettings,
     pub frontend: toml::Table,
 }
 
@@ -79,7 +133,15 @@ pub(crate) struct SettingsFile {
     #[serde(default)]
     pub edit: EditSettingsFile,
     #[serde(default)]
+    pub terminal: TerminalSettingsFile,
+    #[serde(default)]
     pub update: UpdateSettingsFile,
+    #[serde(default)]
+    pub search: SearchSettingsFile,
+    #[serde(default)]
+    pub startup: StartupSettingsFile,
+    #[serde(default)]
+    pub connection: ConnectionSettingsFile,
     #[serde(flatten)]
     pub frontend: toml::Table,
 }
@@ -88,6 +150,21 @@ pub(crate) struct SettingsFile {
 pub(crate) struct TransferSettingsFile {
     pub max_parallel: Option<i64>,
     pub on_conflict: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct SearchSettingsFile {
+    pub preview: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct ConnectionSettingsFile {
+    pub reconnect: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct StartupSettingsFile {
+    pub reopen: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -100,6 +177,12 @@ pub(crate) struct UpdateSettingsFile {
 pub(crate) struct EditSettingsFile {
     pub auto_upload: Option<bool>,
     pub editor: Option<String>,
+    pub compare_limit_mib: Option<i64>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct TerminalSettingsFile {
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -178,6 +261,27 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let compare_limit_mib = match file.edit.compare_limit_mib {
+        None => DEFAULT_COMPARE_LIMIT_MIB,
+        Some(mib) if (MIN_COMPARE_LIMIT_MIB as i64..=MAX_COMPARE_LIMIT_MIB as i64).contains(&mib) => mib as u64,
+        Some(_) => {
+            warnings.push(format!(
+                "edit.compare_limit_mib must be between {MIN_COMPARE_LIMIT_MIB} and {MAX_COMPARE_LIMIT_MIB}, using {DEFAULT_COMPARE_LIMIT_MIB}"
+            ));
+            DEFAULT_COMPARE_LIMIT_MIB
+        }
+    };
+
+    let reopen = match file.startup.reopen.as_deref() {
+        None | Some("off") => ReopenMode::Off,
+        Some("ask") => ReopenMode::Ask,
+        Some("auto") => ReopenMode::Auto,
+        Some(other) => {
+            warnings.push(format!("unknown startup.reopen \"{other}\", using \"off\""));
+            ReopenMode::Off
+        }
+    };
+
     (
         Settings {
             panel: PanelSettings { show_hidden, sort: SortSpec { key, order } },
@@ -185,8 +289,19 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             edit: EditSettings {
                 auto_upload: file.edit.auto_upload.unwrap_or(true),
                 editor: file.edit.editor.map(|editor| editor.trim().to_string()).filter(|editor| !editor.is_empty()),
+                compare_limit_mib,
+            },
+            terminal: TerminalSettings {
+                command: file
+                    .terminal
+                    .command
+                    .map(|command| command.trim().to_string())
+                    .filter(|command| !command.is_empty()),
             },
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
+            search: SearchSettings { preview: file.search.preview.unwrap_or(false) },
+            startup: StartupSettings { reopen },
+            connection: ConnectionSettings { reconnect: file.connection.reconnect.unwrap_or(false) },
             frontend: file.frontend,
         },
         warnings,

@@ -37,7 +37,7 @@ pub enum TestStage {
 pub enum TestOutcome {
     Connected(TestReport),
     NotTrusted(NotTrusted),
-    Failed { stage: TestStage, message: String },
+    Failed { stage: TestStage, message: crate::Message },
     TimedOut(TestStage),
     Cancelled,
 }

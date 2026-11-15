@@ -108,9 +108,9 @@ fn describe(state: &TestState, theme: &Theme) -> (&'static str, Style, Vec<Segme
             match failure_phrase(*stage) {
                 Some(phrase) => {
                     segments.push(Segment::fixed(phrase, theme.err_text()));
-                    segments.push(Segment::cuttable(clean(message), theme.text()));
+                    segments.push(Segment::cuttable(clean(&message.one_line()), theme.text()));
                 }
-                None => segments.push(Segment::cuttable(clean(message), theme.err_text())),
+                None => segments.push(Segment::cuttable(clean(&message.one_line()), theme.err_text())),
             }
             ("\u{25cf} ", theme.err_text(), segments)
         }

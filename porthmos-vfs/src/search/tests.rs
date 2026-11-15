@@ -39,13 +39,49 @@ fn glob_match_is_case_insensitive() {
     assert!(glob_match("EXACT.txt", "exact.TXT"));
 }
 
+#[test]
+fn compiled_glob_agrees_with_glob_match_on_ascii_and_unicode_names() {
+    let patterns = ["*", "", "*.log", "file?.txt", "ERROR*", "*a*b*c", "??", "stra\u{df}e*", "\u{130}*", "*\u{c4}*"];
+    let names = [
+        "error.log",
+        "ERROR.LOG",
+        "file1.txt",
+        "file12.txt",
+        "",
+        "ab",
+        "aXbYc",
+        "stra\u{df}e.txt",
+        "STRASSE.txt",
+        "\u{130}stanbul",
+        "i\u{307}stanbul",
+        "\u{e4}pfel",
+        "\u{c4}PFEL",
+        "no\u{eb}l",
+    ];
+    for pattern in patterns {
+        let glob = Glob::new(pattern);
+        for name in names {
+            assert_eq!(glob.matches(name), glob_match(pattern, name), "pattern {pattern:?} name {name:?}");
+        }
+    }
+}
+
+#[test]
+fn compiled_glob_matches_many_names_with_one_pattern() {
+    let glob = Glob::new("*.RS");
+    assert!(glob.matches("main.rs"));
+    assert!(glob.matches("LIB.Rs"));
+    assert!(!glob.matches("main.rs.bak"));
+    assert!(!glob.matches("rs"));
+}
+
 async fn drain(mut rx: mpsc::UnboundedReceiver<SearchEvent>) -> (Vec<Entry>, bool) {
     let mut found = Vec::new();
     let mut truncated = false;
     while let Some(event) = rx.recv().await {
         match event {
             SearchEvent::Found(entry) => found.push(entry),
-            SearchEvent::Done { truncated: t } => {
+            SearchEvent::Done { truncated: t, .. } => {
                 truncated = t;
                 break;
             }
@@ -166,4 +202,65 @@ async fn search_finds_names_that_look_like_windows_paths() {
     let mut paths: Vec<String> = found.iter().map(|entry| entry.path.to_string_lossy().into_owned()).collect();
     paths.sort();
     assert_eq!(paths, vec!["/root/a\\b.log", "/root/con.log", "/root/x:1.log"]);
+}
+
+async fn search_outcome(fs: &FakeFs, root: &str) -> (Vec<String>, bool) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    walk_search(
+        fs,
+        SearchQuery { root: VfsPath::new(root), pattern: "*.log".to_string(), max_depth: 16, max_results: 1000 },
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await;
+    let mut names = Vec::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            SearchEvent::Found(entry) => names.push(entry.name),
+            SearchEvent::Done { incomplete, .. } => return (names, incomplete),
+            SearchEvent::Failed(message) => panic!("search failed: {message}"),
+        }
+    }
+    panic!("no Done event");
+}
+
+#[tokio::test]
+async fn a_search_that_reads_every_folder_is_complete() {
+    let fs = FakeFs::new();
+    fs.file("/root/a.log", b"x", None).file("/root/sub/b.log", b"x", None);
+
+    let (_, incomplete) = search_outcome(&fs, "/root").await;
+
+    assert!(!incomplete);
+}
+
+#[tokio::test]
+async fn folders_that_cannot_be_listed_make_the_search_incomplete_but_the_rest_is_still_searched() {
+    let fs = FakeFs::new();
+    fs.file("/root/a.log", b"x", None).file("/root/ok/b.log", b"x", None);
+    fs.dir("/root/locked").fail_read_dir("/root/locked");
+    fs.dir("/root/ok/deep-locked").fail_read_dir("/root/ok/deep-locked");
+
+    let (mut names, incomplete) = search_outcome(&fs, "/root").await;
+
+    names.sort();
+    assert_eq!(names, ["a.log", "b.log"]);
+    assert!(incomplete);
+}
+
+#[tokio::test]
+async fn a_root_that_cannot_be_listed_still_fails_the_whole_search() {
+    let fs = FakeFs::new();
+    fs.dir("/root").fail_read_dir("/root");
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    walk_search(
+        &fs,
+        SearchQuery { root: VfsPath::new("/root"), pattern: "*".to_string(), max_depth: 16, max_results: 1000 },
+        tx,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await;
+
+    assert!(matches!(rx.recv().await, Some(SearchEvent::Failed(_))));
 }

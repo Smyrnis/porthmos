@@ -3,7 +3,7 @@ use std::time::Duration;
 use super::*;
 use crate::engine::{Command, testing::test_engine};
 use porthmos_lfs::from_os_path;
-use porthmos_vfs::VfsPath;
+use porthmos_vfs::{VfsPath, testing::FakeFs};
 
 #[tokio::test]
 async fn listing_the_local_side_sends_its_entries() {
@@ -47,7 +47,9 @@ async fn a_remote_listing_failure_names_the_folder() {
     t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/gone")) });
 
     match t.next_event().await {
-        Event::Notice { severity: Severity::Error, message } => assert!(message.starts_with("Unable to list /gone:\n")),
+        Event::Notice { severity: Severity::Error, message } => {
+            assert!(message.to_string().starts_with("Unable to list /gone:\n"))
+        }
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -136,7 +138,7 @@ async fn a_failed_remote_mkdir_says_what_failed() {
     });
 
     match t.next_event().await {
-        Event::Notice { message, .. } => assert!(message.starts_with("Unable to create directory:\n")),
+        Event::Notice { message, .. } => assert!(message.to_string().starts_with("Unable to create directory:\n")),
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -257,7 +259,7 @@ async fn deleting_stops_at_the_first_failure() {
     });
 
     match t.next_event().await {
-        Event::Notice { message, .. } => assert!(message.starts_with("Unable to delete:\n")),
+        Event::Notice { message, .. } => assert!(message.to_string().starts_with("Unable to delete:\n")),
         other => panic!("unexpected {other:?}"),
     }
     assert!(!remote.exists("/a"));
@@ -295,8 +297,8 @@ fn each_failure_is_logged_at_the_line_that_reported_it() {
     let reporter = Reporter::new(events);
 
     let logs = crate::engine::testing::capture_logs(|| {
-        send_failure(&reporter, "first".to_string(), &"cause");
-        send_failure(&reporter, "second".to_string(), &"cause");
+        send_failure(&reporter, "first".into(), &"cause");
+        send_failure(&reporter, "second".into(), &"cause");
     });
 
     let places: Vec<&str> =
@@ -412,4 +414,551 @@ async fn a_free_space_query_that_never_answers_gives_up() {
 fn a_rename_that_only_changes_the_case_is_not_a_collision() {
     assert!(differs_only_in_case(&VfsPath::new("/d/readme.md"), &VfsPath::new("/d/README.md")));
     assert!(!differs_only_in_case(&VfsPath::new("/d/readme.md"), &VfsPath::new("/d/other.md")));
+}
+
+#[tokio::test]
+async fn revealing_a_file_lists_its_folder_then_names_the_row_to_focus() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a.txt", b"", None);
+    remote.file("/data/b.txt", b"", None);
+    let location = Location::Session(session);
+
+    t.engine.handle_command(Command::Reveal { location, path: VfsPath::from("/data/b.txt") });
+
+    assert!(matches!(t.next_event().await, Event::Listed { path, .. } if path == VfsPath::from("/data")));
+    assert!(matches!(
+        t.next_event().await,
+        Event::Revealed { location: revealed, folder, name }
+            if revealed == location && folder == VfsPath::from("/data") && name == "b.txt"
+    ));
+}
+
+#[tokio::test]
+async fn revealing_a_folder_focuses_it_inside_its_parent() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/sub/x", b"", None);
+
+    t.engine.handle_command(Command::Reveal { location: Location::Session(session), path: VfsPath::from("/data/sub") });
+
+    assert!(matches!(t.next_event().await, Event::Listed { path, .. } if path == VfsPath::from("/data")));
+    assert!(matches!(t.next_event().await, Event::Revealed { name, .. } if name == "sub"));
+}
+
+#[tokio::test]
+async fn revealing_a_file_that_is_no_longer_there_only_lists_the_folder() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a.txt", b"", None);
+
+    t.engine
+        .handle_command(Command::Reveal { location: Location::Session(session), path: VfsPath::from("/data/gone") });
+    t.settle().await;
+
+    let events = t.drain();
+    assert!(events.iter().any(|event| matches!(event, Event::Listed { path, .. } if *path == VfsPath::from("/data"))));
+    assert!(!events.iter().any(|event| matches!(event, Event::Revealed { .. })));
+}
+
+#[tokio::test]
+async fn revealing_inside_a_folder_that_cannot_be_listed_reports_the_failure_and_reveals_nothing() {
+    let mut t = test_engine();
+    let (session, _remote) = t.add_session("srv");
+
+    t.engine
+        .handle_command(Command::Reveal { location: Location::Session(session), path: VfsPath::from("/gone/file") });
+    t.settle().await;
+
+    let events = t.drain();
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Error, .. })));
+    assert!(!events.iter().any(|event| matches!(event, Event::Revealed { .. })));
+}
+
+async fn navigated(from: &str, to: &str) -> Vec<Event> {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/data/a/b/deep.txt", b"", None);
+    remote.file("/data/other/x", b"", None);
+    remote.file("/data/top.txt", b"", None);
+
+    t.engine.handle_command(Command::Navigate {
+        location: Location::Session(session),
+        from: VfsPath::from(from),
+        to: VfsPath::from(to),
+    });
+    t.settle().await;
+    t.drain()
+}
+
+fn revealed_names(events: &[Event]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Revealed { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn listed_folders(events: &[Event]) -> Vec<VfsPath> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Listed { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn going_up_lists_the_parent_and_names_the_folder_just_left() {
+    let events = navigated("/data/a", "/data").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
+    assert_eq!(revealed_names(&events), vec!["a".to_string()]);
+}
+
+#[tokio::test]
+async fn going_up_several_levels_names_the_branch_you_came_out_of() {
+    let events = navigated("/data/a/b", "/data").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
+    assert_eq!(revealed_names(&events), vec!["a".to_string()]);
+}
+
+#[tokio::test]
+async fn going_into_a_folder_only_lists_it() {
+    let events = navigated("/data", "/data/a").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data/a")]);
+    assert!(revealed_names(&events).is_empty());
+}
+
+#[tokio::test]
+async fn going_sideways_only_lists_the_target() {
+    let events = navigated("/data/a", "/data/other").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data/other")]);
+    assert!(revealed_names(&events).is_empty());
+}
+
+#[tokio::test]
+async fn navigating_to_the_folder_already_shown_only_lists_it() {
+    let events = navigated("/data", "/data").await;
+
+    assert_eq!(listed_folders(&events), vec![VfsPath::from("/data")]);
+    assert!(revealed_names(&events).is_empty());
+}
+
+#[tokio::test]
+async fn a_remote_listing_failure_keeps_what_failed_apart_from_why() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    t.engine.handle_command(Command::List { location: Location::Session(session), path: Some(VfsPath::from("/gone")) });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => {
+            assert_eq!(message.summary(), "Unable to list /gone");
+            assert!(message.cause().is_some_and(|cause| !cause.is_empty()), "{message:?}");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_local_listing_failure_has_no_summary_to_separate() {
+    let mut t = test_engine();
+    let missing = t.dir.path().join("missing");
+
+    t.engine.handle_command(Command::List { location: Location::Local, path: Some(from_os_path(&missing)) });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Error, message } => assert_eq!(message.cause(), None),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+fn go_to_path(t: &mut crate::engine::testing::TestEngine, location: Location, from: VfsPath, text: &str) {
+    t.engine.handle_command(Command::GoToPath { location, from, text: text.to_string() });
+}
+
+fn listed_paths(events: &[Event]) -> Vec<VfsPath> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Listed { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn rejected(events: &[Event]) -> Vec<Location> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PathRejected { location } => Some(*location),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn go_to_path_lists_the_resolved_local_folder() {
+    let mut t = test_engine();
+    std::fs::create_dir(t.dir.path().join("sub")).unwrap();
+    let base = from_os_path(t.dir.path());
+
+    go_to_path(&mut t, Location::Local, base.clone(), "sub");
+    t.settle().await;
+
+    let events = t.drain();
+    assert_eq!(listed_paths(&events), vec![base.join(VfsPath::new("sub"))]);
+    assert!(rejected(&events).is_empty());
+}
+
+#[tokio::test]
+async fn go_to_path_expands_tilde_with_the_filesystem_home() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/home/user/docs");
+
+    go_to_path(&mut t, Location::Session(session), VfsPath::new("/srv"), "~/docs");
+    t.settle().await;
+
+    assert_eq!(listed_paths(&t.drain()), vec![VfsPath::new("/home/user/docs")]);
+}
+
+#[tokio::test]
+async fn go_to_path_resolves_dot_dot_against_the_given_folder() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/srv/a").dir("/srv/a/b").dir("/srv/c");
+
+    go_to_path(&mut t, Location::Session(session), VfsPath::new("/srv/a/b"), "../../c");
+    t.settle().await;
+
+    assert_eq!(listed_paths(&t.drain()), vec![VfsPath::new("/srv/c")]);
+}
+
+#[tokio::test]
+async fn a_missing_folder_sends_the_error_notice_and_path_rejected() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    let location = Location::Session(session);
+
+    go_to_path(&mut t, location, VfsPath::new("/srv"), "nowhere");
+    t.settle().await;
+
+    let events = t.drain();
+    assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: Severity::Error, .. })), "{events:?}");
+    assert_eq!(rejected(&events), vec![location]);
+    assert!(listed_paths(&events).is_empty());
+}
+
+#[tokio::test]
+async fn a_file_instead_of_a_folder_is_rejected() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file("/srv/file.txt", b"x", Some(1));
+    let location = Location::Session(session);
+
+    go_to_path(&mut t, location, VfsPath::new("/srv"), "file.txt");
+    t.settle().await;
+
+    let events = t.drain();
+    assert_eq!(rejected(&events), vec![location]);
+    assert!(listed_paths(&events).is_empty());
+}
+
+#[tokio::test]
+async fn blank_text_is_rejected_without_a_notice() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    let location = Location::Session(session);
+
+    go_to_path(&mut t, location, VfsPath::new("/srv"), "   ");
+    t.settle().await;
+
+    let events = t.drain();
+    assert_eq!(rejected(&events), vec![location]);
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { .. })), "{events:?}");
+}
+
+#[tokio::test]
+async fn a_closed_session_is_rejected() {
+    let mut t = test_engine();
+
+    go_to_path(&mut t, Location::Session(99), VfsPath::new("/srv"), "x");
+    t.settle().await;
+
+    assert_eq!(rejected(&t.drain()), vec![Location::Session(99)]);
+}
+
+fn complete_path(t: &mut crate::engine::testing::TestEngine, location: Location, from: VfsPath, text: &str) {
+    t.engine.handle_command(Command::CompletePath { location, from, text: text.to_string() });
+}
+
+fn completions(events: &[Event]) -> Vec<(String, crate::Completion)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PathCompleted { text, completion, .. } => Some((text.clone(), completion.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn completing_a_local_path_lists_matching_folders_and_leaves_the_panel_alone() {
+    let mut t = test_engine();
+    for name in ["sub", "subway"] {
+        std::fs::create_dir(t.dir.path().join(name)).unwrap();
+    }
+    std::fs::write(t.dir.path().join("file.txt"), b"x").unwrap();
+    let base = from_os_path(t.dir.path());
+
+    complete_path(&mut t, Location::Local, base, "su");
+    t.settle().await;
+
+    let events = t.drain();
+    let replies = completions(&events);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].0, "su");
+    assert_eq!(replies[0].1.candidates, ["sub", "subway"]);
+    assert_eq!(replies[0].1.completed, "sub");
+    assert!(listed_paths(&events).is_empty());
+}
+
+#[tokio::test]
+async fn completing_expands_tilde_with_the_filesystem_home() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/home/user/projects");
+
+    complete_path(&mut t, Location::Session(session), VfsPath::new("/srv"), "~/pro");
+    t.settle().await;
+
+    let replies = completions(&t.drain());
+    assert_eq!(replies[0].1.completed, "~/projects/");
+}
+
+#[tokio::test]
+async fn completing_resolves_dot_dot_segments() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/a").dir("/a/b").dir("/a/lib");
+
+    complete_path(&mut t, Location::Session(session), VfsPath::new("/a/b"), "../li");
+    t.settle().await;
+
+    let replies = completions(&t.drain());
+    assert_eq!(replies[0].1.candidates, ["lib"]);
+    assert_eq!(replies[0].1.completed, "../lib/");
+}
+
+#[tokio::test]
+async fn a_lone_tilde_completes_without_listing_anything() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    complete_path(&mut t, Location::Session(session), VfsPath::new("/srv"), "~");
+    t.settle().await;
+
+    let replies = completions(&t.drain());
+    assert_eq!(replies[0].1.completed, "~/");
+}
+
+#[tokio::test]
+async fn a_failing_listing_completes_nothing_and_raises_no_notice() {
+    let mut t = test_engine();
+    let base = from_os_path(t.dir.path());
+
+    complete_path(&mut t, Location::Local, base, "missing/x");
+    t.settle().await;
+
+    let events = t.drain();
+    let replies = completions(&events);
+    assert_eq!(replies.len(), 1);
+    assert!(replies[0].1.candidates.is_empty());
+    assert_eq!(replies[0].1.completed, "missing/x");
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { .. })), "{events:?}");
+}
+
+#[tokio::test]
+async fn completing_without_a_filesystem_replies_with_nothing() {
+    let mut t = test_engine();
+
+    complete_path(&mut t, Location::Session(99), VfsPath::new("/srv"), "x");
+    t.settle().await;
+
+    let events = t.drain();
+    let replies = completions(&events);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].1.completed, "x");
+    assert!(!events.iter().any(|event| matches!(event, Event::Notice { .. })), "{events:?}");
+}
+
+fn opened(events: &[Event]) -> Vec<Location> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PathOpened { location } => Some(*location),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn go_to_path_announces_the_opening_after_the_listing() {
+    let mut t = test_engine();
+    std::fs::create_dir(t.dir.path().join("sub")).unwrap();
+    let base = from_os_path(t.dir.path());
+
+    go_to_path(&mut t, Location::Local, base, "sub");
+    t.settle().await;
+
+    let events = t.drain();
+    let listed = events.iter().position(|event| matches!(event, Event::Listed { .. })).unwrap();
+    let announced = events.iter().position(|event| matches!(event, Event::PathOpened { .. })).unwrap();
+    assert!(listed < announced);
+    assert_eq!(opened(&events), vec![Location::Local]);
+}
+
+#[tokio::test]
+async fn a_rejected_path_is_never_announced_as_opened() {
+    let mut t = test_engine();
+    let base = from_os_path(t.dir.path());
+
+    go_to_path(&mut t, Location::Local, base, "nowhere");
+    t.settle().await;
+
+    assert!(opened(&t.drain()).is_empty());
+}
+
+#[tokio::test]
+async fn setting_permissions_changes_every_chosen_path_and_refreshes_the_listing() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file_with_mode("/a.txt", b"a", None, 0o644).file_with_mode("/b.txt", b"b", None, 0o600);
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt"), VfsPath::from("/b.txt")],
+        mode: 0o750,
+    });
+
+    assert!(
+        matches!(t.next_event().await, Event::LocationChanged { location: Location::Session(id) } if id == session)
+    );
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o750));
+    assert_eq!(remote.mode_of("/b.txt"), Some(0o750));
+}
+
+#[tokio::test]
+async fn setting_permissions_ignores_the_file_type_bits_of_the_mode() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.file_with_mode("/a.txt", b"a", None, 0o644);
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt")],
+        mode: 0o100755,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { .. }));
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o755));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn setting_permissions_on_the_local_side_changes_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut t = test_engine();
+    let path = t.dir.path().join("run.sh");
+    std::fs::write(&path, b"x").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Local,
+        paths: vec![from_os_path(&path)],
+        mode: 0o700,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o700);
+}
+
+#[tokio::test]
+async fn a_refused_change_is_reported_once_and_the_others_still_apply() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote
+        .file_with_mode("/a.txt", b"a", None, 0o644)
+        .file_with_mode("/locked.txt", b"b", None, 0o644)
+        .file_with_mode("/c.txt", b"c", None, 0o644)
+        .refuse_permissions("/locked.txt");
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt"), VfsPath::from("/locked.txt"), VfsPath::from("/c.txt")],
+        mode: 0o600,
+    });
+
+    let events = {
+        let first = t.next_event().await;
+        let second = t.next_event().await;
+        [first, second]
+    };
+    let notices: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "{events:?}");
+    assert!(notices[0].starts_with("Unable to change permissions of \"locked.txt\":\n"), "{}", notices[0]);
+    assert!(events.iter().any(|event| matches!(event, Event::LocationChanged { .. })), "{events:?}");
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o600));
+    assert_eq!(remote.mode_of("/locked.txt"), Some(0o644));
+    assert_eq!(remote.mode_of("/c.txt"), Some(0o600));
+}
+
+#[tokio::test]
+async fn a_connection_that_cannot_set_permissions_says_so_without_trying() {
+    let mut t = test_engine();
+    let remote = FakeFs::new().with_permission_support(false);
+    remote.file_with_mode("/a.txt", b"a", None, 0o644);
+    let session = t.add_session_with("flat", Arc::new(remote.clone()));
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/a.txt")],
+        mode: 0o600,
+    });
+
+    match t.next_event().await {
+        Event::Notice { severity: Severity::Warning, message } => {
+            assert_eq!(message, "flat can't change permissions");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(remote.mode_of("/a.txt"), Some(0o644));
+    assert!(t.drain().is_empty());
+}
+
+#[tokio::test]
+async fn setting_permissions_for_a_session_that_is_gone_does_nothing() {
+    let mut t = test_engine();
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(99),
+        paths: vec![VfsPath::from("/a.txt")],
+        mode: 0o600,
+    });
+
+    assert!(t.drain().is_empty());
 }

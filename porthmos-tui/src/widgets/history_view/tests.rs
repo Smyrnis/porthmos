@@ -220,7 +220,7 @@ fn a_row_shows_time_direction_item_connection_files_size_and_status() {
     assert!(row.contains("\u{2191} newest.txt"), "{row:?}");
     assert!(row.contains("prod"), "{row:?}");
     assert!(row.contains("1/2"), "{row:?}");
-    assert!(row.contains("2.0K"), "{row:?}");
+    assert!(row.contains("2.0 KB"), "{row:?}");
     assert!(row.trim_end().ends_with("done"), "{row:?}");
 }
 

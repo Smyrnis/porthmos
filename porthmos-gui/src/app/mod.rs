@@ -1,0 +1,2264 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use iced::widget::{Id, operation};
+use iced::{Point, Rectangle, Size, Subscription, Task, event, keyboard, mouse, window};
+use porthmos_core::delete_prompt::THIS_COMPUTER;
+use porthmos_core::delete_prompt::count::Contents;
+use porthmos_core::listing::{Row, SortKey};
+use porthmos_core::names::entry_name_problem;
+use porthmos_core::transfer::conflicts::Resolution;
+use porthmos_core::transfer::rows::RowKind;
+use porthmos_core::{
+    Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath, to_os_path,
+};
+use porthmos_core::{Completion, CompletionStep};
+
+use porthmos_core::config::bookmarks::Bookmark;
+use porthmos_core::config::settings::PanelSettings;
+use porthmos_core::sync::SyncOptions;
+
+pub use self::reopen::offer_label;
+pub use self::sync::SyncChoice;
+use crate::conflicts::ConflictQueue;
+use crate::connections::{Manager, MissingChoice, Screen};
+use crate::dialogs::{Dialog, Typed};
+use crate::drag::{
+    Drag, DragSource, Phase, Refusal, Release, Target, decide, decide_drop_in, dragged_entries, drop_in_refusal,
+    refusal,
+};
+use crate::entries::entries_from_paths;
+use crate::geometry::{Hit, ROW_HEIGHT, hit_test, list_viewport, scroll_to_show};
+use crate::menus::{ContextMenu, MenuItem, MenuTarget, MoreItem};
+use crate::modal::{DeleteCount, Modal, ModalQueue};
+use crate::native::{self, Attached, DesktopEvent, DesktopSource};
+use crate::navigation::PathEdit;
+use crate::pane::Pane;
+use crate::panel::{Modifiers, Panel};
+use crate::processes::{Launcher, ProcessEvent, ProcessSource};
+use crate::runtime::{self, EventSource};
+use crate::search::SearchState;
+use crate::sessions::Sessions;
+use crate::settings_view::{GuiSettings, SettingsState};
+use crate::shortcuts::{self, Action, KeyPress, Shortcuts};
+use crate::staging::{Job, Stage, Staging};
+use crate::sync_view::SyncView;
+use crate::theme::Palette;
+use crate::tools::Tool;
+use crate::transfers::{QueuePane, RowButton, TransferState, queue_height, transfer_command};
+use crate::update_view::UpdateView;
+use crate::view::toolbar::ToolbarState;
+use crate::windows::Windows;
+
+const PERMISSION_BITS: u32 = 0o777;
+const UNKNOWN_MODE: u32 = 0o644;
+const NOTICE_LIMIT: usize = 50;
+const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);
+const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const STAGING_TICK: Duration = Duration::from_secs(1);
+const NOTICE_TICK: Duration = Duration::from_secs(1);
+const STAGING_LINGER: Duration = if cfg!(target_os = "linux") { Duration::ZERO } else { Duration::from_secs(10 * 60) };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub severity: Severity,
+    pub message: porthmos_core::Message,
+    raised: Instant,
+}
+
+impl Notice {
+    fn expired(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.raised) >= self.severity.lifetime()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelSide {
+    Local,
+    Remote,
+}
+
+impl PanelSide {
+    pub fn other(self) -> PanelSide {
+        match self {
+            PanelSide::Local => PanelSide::Remote,
+            PanelSide::Remote => PanelSide::Local,
+        }
+    }
+
+    pub fn path_input_id(self) -> Id {
+        match self {
+            PanelSide::Local => Id::new("local-path-input"),
+            PanelSide::Remote => Id::new("remote-path-input"),
+        }
+    }
+
+    pub fn list_id(self) -> Id {
+        match self {
+            PanelSide::Local => Id::new("local-list"),
+            PanelSide::Remote => Id::new("remote-list"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Core(Event),
+    CloseRequested,
+    WindowCloseRequested(window::Id),
+    WindowKey(window::Id, KeyPress),
+    WindowSized(window::Id, Size),
+    WindowMoved(window::Id, Point),
+    FromWindow(window::Id, Box<Message>),
+    MainWindowOpened,
+    WindowOpened(window::Id),
+    ShutdownFinished,
+    ModifiersChanged(keyboard::Modifiers),
+    PanelClicked(PanelSide, usize),
+    ScrollChanged(PanelSide, f32),
+    HeaderClicked(PanelSide, SortKey),
+    TabClicked(usize),
+    TransferArrowPressed(PanelSide),
+    TabClosed(usize),
+    PanelDoubleClicked(PanelSide, usize),
+    KeyPressed(KeyPress),
+    ManagerToggled,
+    ManagerClosed,
+    ManagerFilterTyped(String),
+    ManagerRowPressed(usize),
+    ManagerRowActivated(usize),
+    ManagerGroupToggled(String),
+    ManagerConnect,
+    ManagerIgnored,
+    ManagerAddPressed,
+    ManagerEditPressed,
+    ManagerDeletePressed,
+    FormTextTyped(String, String),
+    FormSecretTyped(String, Typed),
+    FormSecretForgotten(String),
+    FormSecretRestored(String),
+    FormChoiceChanged(String, String),
+    FormToggled(String, bool),
+    FormSavePressed,
+    ScreenCancelled,
+    DeleteConfirmed,
+    LabelsGroupTyped(String),
+    LabelsTagsTyped(String),
+    LabelsForgetToggled(bool),
+    LabelsSavePressed,
+    MissingHostChosen(MissingChoice),
+    PasswordSaveToggled(bool),
+    PermissionToggled(u32, bool),
+    FormTestPressed,
+    FormTestCancelled,
+    TestPasswordTyped(Typed),
+    TestPasswordSubmitted,
+    TestPasswordCancelled,
+    ToolClosed,
+    ToolIgnored,
+    PreviewScrolled(f32),
+    ProcessFinished(ProcessEvent),
+    EditAnswered(porthmos_core::edit::EditChoice),
+    EditDoneEditing,
+    EditShowDiff,
+    EditDiffBack,
+    PropertiesCompute,
+    PropertiesExpectedTyped(String),
+    PropertiesCopyDigest(usize),
+    SearchTyped(String),
+    SearchRowPressed(usize),
+    SearchRowActivated(usize),
+    SearchOpenPressed,
+    SearchClosed,
+    BookmarkRowPressed(usize),
+    BookmarkRowActivated(usize),
+    BookmarkGoPressed,
+    BookmarkRemovePressed,
+    HistoryFilterTyped(String),
+    HistoryRowPressed(usize),
+    HistoryRowActivated(usize),
+    HistoryDetailsPressed,
+    HistoryClearPressed,
+    PaletteTyped(String),
+    PaletteRowPressed(usize),
+    PaletteRowActivated(usize),
+    UpdateBadgePressed,
+    SettingsChangePressed(Action),
+    SettingsResetPressed(Action),
+    SettingsEditorTyped(String),
+    SettingsEditorApplied,
+    SettingsTerminalTyped(String),
+    SettingsTerminalApplied,
+    SettingsAutoUploadToggled(bool),
+    SettingsCompareLimitTyped(String),
+    SettingsCompareLimitApplied,
+    SettingsSearchPreviewToggled(bool),
+    SearchPreviewScrolled(f32),
+    SettingsUpdateModeChosen(porthmos_core::UpdateMode),
+    SettingsReopenChosen(porthmos_core::ReopenMode),
+    SettingsReconnectToggled(bool),
+    SettingsThemeChosen(porthmos_core::theme::ThemeBase),
+    SettingsCategoryChosen(crate::settings_view::SettingsCategory),
+    ReopenPressed,
+    QuickConnectPressed(String),
+    SettingsClosed,
+    MoreMenuToggled,
+    RowRightPressed(PanelSide, usize),
+    BackgroundRightPressed(PanelSide),
+    MenuItemChosen(MenuItem),
+    ContextMenuDismissed,
+    PointerMoved(Point),
+    NavigateBack(PanelSide),
+    NavigateForward(PanelSide),
+    NavigateUp(PanelSide),
+    CrumbPressed(PanelSide, VfsPath),
+    PathEditStarted(PanelSide),
+    PathTyped(String),
+    PathCandidateChosen(String),
+    PathSubmitted,
+    MoreItemChosen(MoreItem),
+    DialogTyped(Typed),
+    ModalTyped(String),
+    ModalAccepted,
+    ModalDeclined,
+    SyncOptionChosen(SyncChoice),
+    ImportPressed,
+    ImportSourceChosen(porthmos_core::import::ImportSource),
+    ImportPathTyped(String),
+    ImportReadPressed,
+    ImportRowToggled(usize),
+    ImportTickNew,
+    ImportUntickAll,
+    ImportRunPressed,
+    ImportCancelled,
+    ImportScrolled(f32),
+    ImportBrowsePressed(bool),
+    ImportPathPicked(Option<std::path::PathBuf>),
+    SyncFilterTyped(String),
+    SyncRowPressed(usize),
+    SyncTickAllPressed,
+    SyncUntickAllPressed,
+    SyncFlipPressed,
+    SyncRunPressed,
+    SyncScrolled(f32),
+    ActionRequested(Action),
+    TerminalRequested(PanelSide),
+    QueueRowPressed(RowKind, RowButton),
+    QueueClearFinished,
+    QueueCancelAll,
+    QueueScrolled(f32),
+    SpeedLimitTyped(String),
+    SpeedLimitSubmitted,
+    ConflictAnswered(Option<Resolution>),
+    ConflictApplyToRestToggled,
+    RowPressed(PanelSide, usize),
+    CursorMoved(Point),
+    MouseReleased,
+    Desktop(DesktopEvent),
+    DesktopDropFlush,
+    NativeAttached(Option<Arc<Attached>>),
+    NativePoll,
+    WindowLeft,
+    StagingTick(Instant),
+    NoticeTick(Instant),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DragHint {
+    pub glyph: &'static str,
+    pub text: String,
+    pub refused: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Shown {
+    local: VfsPath,
+    session: Option<SessionId>,
+    remote: Option<VfsPath>,
+}
+
+pub struct App {
+    core: CoreHandle,
+    events: EventSource,
+    palette: Palette,
+    notices: Vec<Notice>,
+    closing: bool,
+    local: Pane,
+    sessions: Sessions,
+    connecting: Option<String>,
+    connection_states: std::collections::HashMap<String, ConnectionState>,
+    manager_connecting: Option<String>,
+    active: PanelSide,
+    modifiers: keyboard::Modifiers,
+    shortcuts: Shortcuts,
+    filtering: Option<PanelSide>,
+    filter_text: String,
+    window_size: Size,
+    windows: Windows,
+    window_memory_file: Option<PathBuf>,
+    reopen_offer: Vec<String>,
+    settings_state: Option<SettingsState>,
+    manager: Manager,
+    reveal: Option<String>,
+    keyring_available: bool,
+    keyring_waiting: bool,
+    save_choice: bool,
+    next_test_id: u64,
+    running_test: Option<u64>,
+    prompt_version: u64,
+    announced_orphans: std::collections::HashSet<String>,
+    connections_screen: Option<Screen>,
+    bookmarks: Vec<Bookmark>,
+    tool: Option<Tool>,
+    tool_scroll: f32,
+    search: Option<SearchState>,
+    search_scroll: f32,
+    search_preview_scroll: f32,
+    sync_view: SyncView,
+    tool_version: u64,
+    next_preview_id: u64,
+    next_count_id: u64,
+    next_import_id: u64,
+    next_properties_id: u64,
+    launcher: Launcher,
+    processes: ProcessSource,
+    jobs: std::collections::HashMap<u64, editing::JobRole>,
+    next_process_token: u64,
+    edits_busy: bool,
+    quit_confirmed: bool,
+    more_open: bool,
+    context_menu: Option<ContextMenu>,
+    path_edit: Option<PathEdit>,
+    modals: ModalQueue,
+    transfers: TransferState,
+    queue: QueuePane,
+    conflicts: ConflictQueue,
+    drag: Drag,
+    pending_click: Option<(PanelSide, usize)>,
+    desktop: DesktopSource,
+    desktop_sender: tokio::sync::mpsc::UnboundedSender<DesktopEvent>,
+    attached: Option<Arc<Attached>>,
+    pointer: Option<Point>,
+    desktop_hover: Option<usize>,
+    drop_buffer: Vec<PathBuf>,
+    drop_at: Option<Point>,
+    staging: Option<Job>,
+    staging_parent: PathBuf,
+    update: UpdateView,
+    gui_settings: GuiSettings,
+    config_file: Option<PathBuf>,
+    theme_accent: Option<porthmos_core::theme::Rgb>,
+    last_used: std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>>,
+}
+
+impl App {
+    pub fn new(
+        core: CoreHandle, events: EventSource, local_start: VfsPath, palette: Palette, shortcuts: Shortcuts,
+    ) -> App {
+        let local_panel = core.panel_settings(PanelKind::Local);
+        let open_groups = core.remembered_open_groups().to_vec();
+        let (desktop_sender, desktop) = native::channel();
+        let (process_sender, processes) = crate::processes::channel();
+        let mut app = App {
+            core,
+            events,
+            palette,
+            notices: Vec::new(),
+            closing: false,
+            local: Pane::new(local_start.clone()),
+            sessions: Sessions::default(),
+            connecting: None,
+            connection_states: std::collections::HashMap::new(),
+            manager_connecting: None,
+            active: PanelSide::Local,
+            modifiers: keyboard::Modifiers::empty(),
+            shortcuts,
+            filtering: None,
+            filter_text: String::new(),
+            window_size: Size::new(1100.0, 700.0),
+            windows: Windows::new(window::Id::unique(), Size::new(1100.0, 700.0)),
+            window_memory_file: None,
+            reopen_offer: Vec::new(),
+            settings_state: None,
+            manager: Manager::with_open_groups(open_groups),
+            reveal: None,
+            keyring_available: true,
+            keyring_waiting: false,
+            save_choice: false,
+            next_test_id: 1,
+            running_test: None,
+            prompt_version: 0,
+            announced_orphans: std::collections::HashSet::new(),
+            connections_screen: None,
+            bookmarks: Vec::new(),
+            tool: None,
+            tool_scroll: 0.0,
+            search: None,
+            search_scroll: 0.0,
+            search_preview_scroll: 0.0,
+            sync_view: SyncView::default(),
+            tool_version: 0,
+            next_preview_id: 1,
+            next_count_id: 0,
+            next_import_id: 0,
+            next_properties_id: 0,
+            launcher: Launcher::system(process_sender, std::env::temp_dir()),
+            processes,
+            jobs: std::collections::HashMap::new(),
+            next_process_token: 1,
+            edits_busy: false,
+            quit_confirmed: false,
+            more_open: false,
+            context_menu: None,
+            path_edit: None,
+            modals: ModalQueue::default(),
+            transfers: TransferState::default(),
+            queue: QueuePane::default(),
+            conflicts: ConflictQueue::default(),
+            drag: Drag::default(),
+            pending_click: None,
+            desktop,
+            desktop_sender,
+            attached: None,
+            pointer: None,
+            desktop_hover: None,
+            drop_buffer: Vec::new(),
+            drop_at: None,
+            staging: None,
+            staging_parent: std::env::temp_dir(),
+            update: UpdateView::new(porthmos_core::UpdateMode::Auto),
+            gui_settings: GuiSettings::default(),
+            config_file: None,
+            theme_accent: None,
+            last_used: Default::default(),
+        };
+        app.local.panel.apply(local_panel);
+        app.list(Location::Local, Some(local_start));
+        app
+    }
+
+    pub fn list(&mut self, location: Location, path: Option<VfsPath>) {
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        pane.expect(path.clone());
+        self.core.send(Command::List { location, path });
+    }
+
+    pub fn navigate(&mut self, location: Location, to: VfsPath) {
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        let from = pane.panel.path().clone();
+        pane.expect(Some(to.clone()));
+        self.core.send(Command::Navigate { location, from, to });
+    }
+
+    pub fn reveal(&mut self, location: Location, folder: VfsPath, path: VfsPath) {
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        pane.expect(Some(folder));
+        self.core.send(Command::Reveal { location, path });
+    }
+
+    pub fn local(&self) -> &Pane {
+        &self.local
+    }
+
+    pub fn sessions(&self) -> &Sessions {
+        &self.sessions
+    }
+
+    pub fn right_panel(&self) -> Option<&Panel> {
+        self.sessions.active().map(|session| &session.pane.panel)
+    }
+
+    pub fn scroll_offset(&self, side: PanelSide) -> f32 {
+        match side {
+            PanelSide::Local => self.local.scroll,
+            PanelSide::Remote => self.sessions.active().map_or(0.0, |session| session.pane.scroll),
+        }
+    }
+
+    pub fn active_side(&self) -> PanelSide {
+        self.active
+    }
+
+    pub fn dialog_input_id() -> Id {
+        Id::new("dialog-input")
+    }
+
+    pub fn context_menu(&self) -> Option<&ContextMenu> {
+        self.context_menu.as_ref()
+    }
+
+    pub fn has_other_panel(&self, side: PanelSide) -> bool {
+        self.panel_of(side.other()).is_some()
+    }
+
+    pub fn path_edit(&self) -> Option<&PathEdit> {
+        self.path_edit.as_ref()
+    }
+
+    fn pane_ref(&self, side: PanelSide) -> Option<&Pane> {
+        match side {
+            PanelSide::Local => Some(&self.local),
+            PanelSide::Remote => self.sessions.active().map(|session| &session.pane),
+        }
+    }
+
+    pub fn can_go_back(&self, side: PanelSide) -> bool {
+        self.pane_ref(side).is_some_and(|pane| pane.history.can_back())
+    }
+
+    pub fn can_go_forward(&self, side: PanelSide) -> bool {
+        self.pane_ref(side).is_some_and(|pane| pane.history.can_forward())
+    }
+
+    pub fn can_go_up(&self, side: PanelSide) -> bool {
+        self.panel_of(side).is_some_and(|panel| panel.path().parent().is_some())
+    }
+
+    pub fn more_open(&self) -> bool {
+        self.more_open
+    }
+
+    pub fn shortcuts(&self) -> &Shortcuts {
+        &self.shortcuts
+    }
+
+    pub fn hidden_shown(&self) -> bool {
+        self.panel_of(self.active).is_some_and(Panel::show_hidden)
+    }
+
+    pub fn transfer_possible(&self, from: PanelSide) -> bool {
+        let to = match from {
+            PanelSide::Local => PanelSide::Remote,
+            PanelSide::Remote => PanelSide::Local,
+        };
+        self.panel_of(to).is_some() && self.panel_of(from).is_some_and(|panel| !panel.target_entries().is_empty())
+    }
+
+    pub fn running_transfer_count(&self) -> usize {
+        self.transfers.rows().iter().filter(|row| !row.is_finished()).count()
+    }
+
+    pub fn toolbar_state(&self) -> ToolbarState {
+        let side = self.active;
+        let panel = self.panel_of(side);
+        let transfer = self.transfer_possible(side);
+        ToolbarState {
+            copy: transfer,
+            move_: transfer,
+            new_folder: panel.is_some(),
+            rename: panel.is_some_and(|panel| panel.cursor_entry().is_some()),
+            delete: panel.is_some_and(|panel| !panel.target_entries().is_empty()),
+            refresh: self.location_of(side).is_some(),
+            filter: true,
+            transfers: true,
+            local_terminal: self.terminal_possible_on(PanelSide::Local),
+            remote_terminal: self.terminal_possible_on(PanelSide::Remote),
+        }
+    }
+
+    pub fn modal(&self) -> Option<&Modal> {
+        self.modals.front()
+    }
+
+    #[cfg(test)]
+    pub fn dialog(&self) -> Option<&Dialog> {
+        match self.modals.front() {
+            Some(Modal::Question(dialog)) => Some(dialog),
+            _ => None,
+        }
+    }
+
+    pub fn transfers(&self) -> &TransferState {
+        &self.transfers
+    }
+
+    pub fn queue(&self) -> &QueuePane {
+        &self.queue
+    }
+
+    pub fn transfer_speed_limit(&self) -> Option<u64> {
+        self.transfers.speed_limit()
+    }
+
+    fn queue_extra(&self) -> f32 {
+        if self.queue.is_open() { queue_height(self.window_size.height) + 1.0 } else { 0.0 }
+    }
+
+    pub fn list_height(&self) -> f32 {
+        list_viewport(self.window_size.height - self.queue_extra())
+    }
+
+    pub fn window_size(&self) -> Size {
+        self.window_size
+    }
+
+    #[cfg(test)]
+    pub fn drag(&self) -> &Drag {
+        &self.drag
+    }
+
+    #[cfg(test)]
+    pub fn set_staging_parent(&mut self, parent: PathBuf) {
+        self.staging_parent = parent;
+    }
+
+    pub fn hint_anchor(&self) -> Option<Point> {
+        if let Some(point) = self.drag.pointer() {
+            return Some(point);
+        }
+        if self.drag.phase() != Phase::Staging {
+            return None;
+        }
+        let point = self.pointer?;
+        Some(Point::new(point.x.clamp(0.0, self.window_size.width), point.y.clamp(0.0, self.window_size.height)))
+    }
+
+    fn hit_at(&self, point: Point) -> Option<Hit> {
+        let remote_scroll = self.sessions.active().map_or(0.0, |session| session.pane.scroll);
+        let rows = (self.local.panel.rows().len(), self.right_panel().map_or(0, |panel| panel.rows().len()));
+        hit_test(self.window_size, point, (self.local.scroll, remote_scroll), rows, self.queue_extra())
+    }
+
+    pub fn drop_target(&self) -> Option<Hit> {
+        let point = self.drag.pointer().or_else(|| self.desktop_hover.and(self.pointer))?;
+        self.hit_at(point)
+    }
+
+    pub fn native_task(&self) -> Task<Message> {
+        let sender = self.desktop_sender.clone();
+        window::run(self.windows.main(), move |window| native::attach(window, sender).map(Arc::new))
+            .map(Message::NativeAttached)
+    }
+
+    fn target_of(&self, hit: Hit) -> Option<Target> {
+        let location = self.location_of(hit.side)?;
+        let panel = self.panel_of(hit.side)?;
+        let folder = match hit.row.and_then(|row| panel.rows().get(row)) {
+            Some(Row::Entry(entry)) if entry.is_dir => entry.path.clone(),
+            _ => panel.path().clone(),
+        };
+        Some(Target { side: hit.side, location, folder })
+    }
+
+    fn desktop_hint(&self, count: usize) -> Option<DragHint> {
+        let target = self.pointer.and_then(|at| self.hit_at(at)).map(|hit| self.target_of(hit));
+        if let Some(refused) = target.and_then(|target| drop_in_refusal(target.as_ref())) {
+            return Some(DragHint { glyph: "✕", text: refused.message().to_string(), refused: true });
+        }
+        let text = match count {
+            0 => "Upload files".to_string(),
+            1 => "Upload 1 item".to_string(),
+            count => format!("Upload {count} items"),
+        };
+        Some(DragHint { glyph: "+", text, refused: false })
+    }
+
+    pub fn drag_hint(&self) -> Option<DragHint> {
+        if let Some(count) = self.desktop_hover {
+            return self.desktop_hint(count);
+        }
+        if self.drag.phase() == Phase::Staging
+            && let Some(job) = self.staging.as_ref().filter(|job| job.stage == Stage::Preparing)
+        {
+            return Some(DragHint { glyph: "↓", text: job.label(self.transfers.snapshot()), refused: false });
+        }
+        let (source, at) = (self.drag.source()?, self.drag.pointer()?);
+        if let Some(hit) = self.hit_at(at)
+            && let Some(refused) = refusal(source, self.target_of(hit).as_ref())
+        {
+            return Some(DragHint { glyph: "✕", text: refused.message().to_string(), refused: true });
+        }
+        let (glyph, verb) = if self.modifiers.shift() { ("→", "Move") } else { ("+", "Copy") };
+        let count = source.entries.len();
+        let noun = if count == 1 { "item" } else { "items" };
+        Some(DragHint { glyph, text: format!("{verb} {count} {noun}"), refused: false })
+    }
+
+    pub fn transfer_summary(&self) -> Option<String> {
+        self.transfers.summary()
+    }
+
+    pub fn filter_editing_side(&self) -> Option<PanelSide> {
+        self.filtering
+    }
+
+    pub fn set_window_size(&mut self, size: Size) {
+        self.window_size = size;
+    }
+
+    pub fn connecting(&self) -> Option<&str> {
+        self.connecting.as_deref()
+    }
+
+    fn remember_panel(&mut self, side: PanelSide) {
+        let Some(pane) = self.pane_ref(side) else {
+            return;
+        };
+        let settings = PanelSettings { show_hidden: pane.panel.show_hidden(), sort: pane.panel.sort_spec() };
+        let kind = match side {
+            PanelSide::Local => PanelKind::Local,
+            PanelSide::Remote => PanelKind::Remote,
+        };
+        self.core.send(Command::RememberPanel { kind, settings });
+    }
+
+    fn side_mut(&mut self, side: PanelSide) -> Option<&mut Pane> {
+        match side {
+            PanelSide::Local => Some(&mut self.local),
+            PanelSide::Remote => self.sessions.active_mut().map(|session| &mut session.pane),
+        }
+    }
+
+    fn shown(&self) -> Shown {
+        Shown {
+            local: self.local.panel.path().clone(),
+            session: self.sessions.active().map(|session| session.id),
+            remote: self.right_panel().map(|panel| panel.path().clone()),
+        }
+    }
+
+    fn resync_scroll(&self, before: &Shown) -> Task<Message> {
+        let after = self.shown();
+        let mut tasks = Vec::new();
+        if before.local != after.local {
+            tasks.push(operation::scroll_to(
+                PanelSide::Local.list_id(),
+                operation::AbsoluteOffset { x: None, y: Some(self.local.scroll) },
+            ));
+        }
+        if (before.session, &before.remote) != (after.session, &after.remote)
+            && let Some(session) = self.sessions.active()
+        {
+            tasks.push(operation::scroll_to(
+                PanelSide::Remote.list_id(),
+                operation::AbsoluteOffset { x: None, y: Some(session.pane.scroll) },
+            ));
+        }
+        Task::batch(tasks)
+    }
+
+    fn reveal_focused(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        for side in [PanelSide::Local, PanelSide::Remote] {
+            if self.side_mut(side).is_some_and(Pane::take_reveal_request) {
+                tasks.push(self.reveal_cursor(side));
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    fn pane_mut(&mut self, location: Location) -> Option<&mut Pane> {
+        match location {
+            Location::Local => Some(&mut self.local),
+            Location::Session(id) => self.sessions.by_id_mut(id).map(|session| &mut session.pane),
+        }
+    }
+
+    pub fn palette(&self) -> &Palette {
+        &self.palette
+    }
+
+    pub fn notices(&self) -> &[Notice] {
+        &self.notices
+    }
+
+    pub fn is_closing(&self) -> bool {
+        self.closing
+    }
+
+    pub fn warn(&mut self, message: String) {
+        self.push_notice(Severity::Warning, message);
+    }
+
+    fn push_notice(&mut self, severity: Severity, message: impl Into<porthmos_core::Message>) {
+        self.notices.push(Notice { severity, message: message.into(), raised: Instant::now() });
+        if self.notices.len() > NOTICE_LIMIT {
+            self.notices.remove(0);
+        }
+    }
+
+    pub fn apply(&mut self, event: Event) {
+        match event {
+            Event::Notice { severity, message } => {
+                if severity == Severity::Error {
+                    self.import_read_failed(&message);
+                }
+                self.push_notice(severity, message)
+            }
+            Event::ConnectionState { name, state } => {
+                self.connection_states.insert(name, state);
+            }
+            Event::ReopenOffer { names } => self.reopen_offer = names,
+            Event::Connecting { name } => self.connecting = Some(name),
+            Event::Connected { session, name, shell_available } => {
+                self.connecting = None;
+                self.manager_connection_finished(&name, true);
+                self.notices.clear();
+                if !self.sessions.activate(session) {
+                    self.sessions.insert(session, name);
+                    let remote = self.core.panel_settings(PanelKind::Remote);
+                    if let Some(session) = self.sessions.active_mut() {
+                        session.pane.panel.apply(remote);
+                    }
+                }
+                self.sessions.set_shell_available(session, shell_available);
+            }
+            Event::ShellReady { invocation, .. } => self.shell_ready(invocation),
+            Event::ConnectFailed { name, message } => {
+                self.connecting = None;
+                self.manager_connection_finished(&name, false);
+                self.push_notice(Severity::Error, message);
+            }
+            Event::Disconnected { session, .. } => {
+                let staging_from_it =
+                    self.staging.as_ref().is_some_and(|job| job.session == session && job.stage == Stage::Preparing);
+                if staging_from_it {
+                    self.abort_staging();
+                }
+                self.sessions.remove(session);
+                if self.sessions.is_empty() {
+                    self.active = PanelSide::Local;
+                    if self.filtering == Some(PanelSide::Remote) {
+                        self.filtering = None;
+                    }
+                }
+            }
+            Event::SessionHealth { session, healthy } => {
+                if let Some(session) = self.sessions.by_id_mut(session) {
+                    session.healthy = healthy;
+                }
+            }
+            Event::SessionCapabilities { session, preserves_times } => {
+                if let Some(session) = self.sessions.by_id_mut(session) {
+                    session.preserves_times = preserves_times;
+                }
+            }
+            Event::Listed { location, path, entries } => {
+                let shown = self.pane_mut(location).is_some_and(|pane| pane.accept(path, entries));
+                if !shown {
+                    tracing::debug!("dropped a listing for {location:?}: its folder is not the one shown");
+                }
+            }
+            Event::FreeSpace { location, path, bytes } => {
+                if let Some(pane) = self.pane_mut(location) {
+                    pane.panel.set_free_space(path, bytes);
+                }
+            }
+            Event::Revealed { location, folder, name } => {
+                if let Some(pane) = self.pane_mut(location) {
+                    pane.reveal(&folder, &name);
+                }
+            }
+            Event::LocationChanged { location } => self.relist(location),
+            Event::PathCompleted { location, text, completion } => {
+                self.apply_path_completion(location, text, completion)
+            }
+            Event::PathOpened { location } | Event::PathRejected { location } => {
+                if let Some(pane) = self.pane_mut(location) {
+                    pane.finish_typed();
+                }
+            }
+            Event::Profiles(entries) => self.profiles_arrived(entries),
+            Event::LastUsed(times) => self.last_used = times,
+            Event::ProfileSaved => self.profile_saved(),
+            Event::KeyringStatus { available } => self.keyring_available = available,
+            Event::KeyringWaiting { waiting } => self.keyring_waiting = waiting,
+            Event::SaveChoice { save } => self.save_choice = save,
+            Event::TestFinished { test_id, outcome } => self.test_finished(test_id, outcome),
+            Event::TestQuestion { test_id, request_id, question } => self.test_question(test_id, request_id, question),
+            Event::ProfileRejected { message, .. } => self.profile_rejected(message),
+            Event::History(entries) => self.history_arrived(entries),
+            Event::Bookmarks(items) => self.bookmarks_arrived(items),
+            Event::SearchFound(entry) => self.search_found(entry),
+            Event::SearchDone { truncated, incomplete } => self.search_done(truncated, incomplete),
+            Event::SearchFailed(message) => self.search_failed(message),
+            Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
+            Event::ContentsCounted { request_id, contents } => self.contents_counted(request_id, contents),
+            Event::MeasureProgress { request_id, measured } => self.properties_progress(request_id, measured),
+            Event::Measured { request_id, result } => self.properties_measured(request_id, result),
+            Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
+                self.properties_checksum_progress(request_id, &path, bytes_done, bytes_total)
+            }
+            Event::Checksummed { request_id, path, result } => self.properties_checksummed(request_id, &path, result),
+            Event::LocalShellReady { invocation } => self.shell_ready(invocation),
+            Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
+            Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
+            Event::EditDiff { edit_id, result } => self.edit_diff_ready(edit_id, result),
+            Event::EditsBusy(busy) => self.edits_busy = busy,
+            Event::TransfersChanged(snapshot) => {
+                self.transfers.replace(snapshot);
+                self.queue.snapshot_changed(self.transfers.has_unfinished());
+                self.advance_staging();
+            }
+            Event::ConflictsFound { batch_id, files } => self.conflicts.found(batch_id, files),
+            Event::ConflictsWithdrawn { batch_ids } => {
+                if self.conflicts.withdraw(&batch_ids) && matches!(self.modals.front(), Some(Modal::Conflict { .. })) {
+                    self.modals.pop();
+                }
+            }
+            Event::Question { request_id, question } => {
+                let save = self.keyring_available.then_some(self.save_choice);
+                self.modals.push(Modal::Question(Dialog::from_question(request_id, question, save)));
+            }
+            Event::Update(state) => self.update_arrived(state),
+            Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
+            Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
+            Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
+            Event::ImportDone { added, skipped, .. } => self.import_done(added, skipped),
+        }
+    }
+
+    fn menus_allowed(&self) -> bool {
+        self.modals.is_empty()
+            && self.tool.is_none()
+            && self.filtering.is_none()
+            && !self.closing
+            && !self.drag.is_tracking()
+    }
+
+    fn show_menu(&mut self, side: PanelSide, target: MenuTarget) {
+        let at = self.pointer.unwrap_or(Point::ORIGIN);
+        self.context_menu = Some(ContextMenu { side, target, at });
+    }
+
+    fn menu_item_enabled(&self, menu: &ContextMenu, item: MenuItem) -> bool {
+        crate::menus::context_items(&menu.target, self.panel_of(menu.side.other()).is_some())
+            .into_iter()
+            .any(|(candidate, enabled)| candidate == item && enabled)
+    }
+
+    fn open_row_menu(&mut self, side: PanelSide, row: usize) {
+        if !self.menus_allowed() {
+            return;
+        }
+        let Some(panel) = self.panel_of(side) else {
+            return;
+        };
+        let parent_row = matches!(panel.rows().get(row), Some(Row::Parent));
+        let in_selection = matches!(
+            panel.rows().get(row),
+            Some(Row::Entry(entry)) if panel.selected_paths().contains(&entry.path)
+        );
+        if in_selection {
+            self.active = side;
+            if let Some(pane) = self.side_mut(side) {
+                pane.panel.set_cursor(row);
+            }
+        } else {
+            let _ = self.handle(Message::PanelClicked(side, row));
+        }
+        let count = self.panel_of(side).map_or(0, Panel::selection_count).max(1);
+        let file = !parent_row
+            && count == 1
+            && self.panel_of(side).and_then(Panel::cursor_entry).is_some_and(|entry| !entry.is_dir);
+        let target = MenuTarget::Entries { count: if parent_row { 1 } else { count }, only_parent: parent_row, file };
+        self.show_menu(side, target);
+    }
+
+    fn go_to(&mut self, side: PanelSide, path: VfsPath) {
+        if let Some(location) = self.location_of(side) {
+            self.navigate(location, path);
+        }
+    }
+
+    fn go_up(&mut self, side: PanelSide) {
+        if let Some(parent) = self.panel_of(side).and_then(|panel| panel.path().parent()) {
+            self.go_to(side, parent);
+        }
+    }
+
+    fn go_history(&mut self, side: PanelSide, back: bool) {
+        let Some(location) = self.location_of(side) else {
+            return;
+        };
+        let Some(pane) = self.side_mut(side) else {
+            return;
+        };
+        let current = pane.panel.path().clone();
+        let target = if back { pane.history.back(current) } else { pane.history.forward(current) };
+        if let Some(target) = target {
+            pane.expect_unrecorded(Some(target.clone()));
+            let from = pane.panel.path().clone();
+            self.core.send(Command::Navigate { location, from, to: target });
+        }
+    }
+
+    fn go_to_typed(&mut self, side: PanelSide, text: String) {
+        let Some(location) = self.location_of(side) else {
+            return;
+        };
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        let from = pane.panel.path().clone();
+        pane.expect_typed();
+        self.core.send(Command::GoToPath { location, from, text });
+    }
+
+    fn complete_path(&mut self) {
+        let Some((side, text)) =
+            self.path_edit.as_ref().filter(|edit| !edit.pending).map(|edit| (edit.side, edit.text.clone()))
+        else {
+            return;
+        };
+        let Some(location) = self.location_of(side) else {
+            return;
+        };
+        let Some(from) = self.pane_mut(location).map(|pane| pane.panel.path().clone()) else {
+            return;
+        };
+        if let Some(edit) = self.path_edit.as_mut() {
+            edit.pending = true;
+            edit.listing = None;
+        }
+        self.core.send(Command::CompletePath { location, from, text });
+    }
+
+    fn apply_path_completion(&mut self, location: Location, text: String, completion: Completion) {
+        let Some(side) = self.path_edit.as_ref().map(|edit| edit.side) else {
+            return;
+        };
+        let same_location = self.location_of(side) == Some(location);
+        let Some(edit) = self.path_edit.as_mut() else {
+            return;
+        };
+        edit.pending = false;
+        if !same_location || edit.text != text {
+            return;
+        }
+        match completion.step(&text) {
+            CompletionStep::Replace(completed) => {
+                edit.text = completed;
+                edit.listing = None;
+            }
+            CompletionStep::Show(_) => edit.listing = Some(completion),
+            CompletionStep::Nothing => {}
+        }
+    }
+
+    fn relist(&mut self, location: Location) {
+        let Some(pane) = self.pane_mut(location) else {
+            return;
+        };
+        let path = Some(pane.panel.path().clone());
+        self.core.send(Command::List { location, path });
+    }
+
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        let shown_before = self.modals.version();
+        let prompt_before = self.prompt_version;
+        let tool_before = self.tool_version;
+        let task = self.handle(message);
+        let task =
+            if std::mem::take(&mut self.quit_confirmed) { Task::batch([task, self.begin_close()]) } else { task };
+        let task = if self.tool_version == tool_before {
+            task
+        } else {
+            match self.tool_input_id() {
+                Some(id) => Task::batch([task, operation::focus(id)]),
+                None => task,
+            }
+        };
+        self.show_next_conflict();
+        let task = Task::batch([task, self.reconcile_connections_window()]);
+        let task = if self.prompt_version == prompt_before {
+            task
+        } else {
+            Task::batch([task, operation::focus(App::test_password_id())])
+        };
+        if self.modals.version() == shown_before {
+            return task;
+        }
+        let task = match self.modals.front() {
+            Some(Modal::Question(_)) => Task::batch([task, window::gain_focus(self.windows.main())]),
+            _ => task,
+        };
+        let focus = match self.modals.front() {
+            Some(Modal::Question(Dialog::Password { .. }) | Modal::NewFolder { .. }) => {
+                operation::focus(App::dialog_input_id())
+            }
+            Some(Modal::Rename { .. } | Modal::BookmarkName { .. }) => {
+                Task::batch([operation::focus(App::dialog_input_id()), operation::select_all(App::dialog_input_id())])
+            }
+            _ => return task,
+        };
+        Task::batch([task, focus])
+    }
+
+    fn handle(&mut self, message: Message) -> Task<Message> {
+        let before = self.shown();
+        match message {
+            Message::Core(event) => {
+                let search_closed = match &event {
+                    Event::Disconnected { session, .. } => self.close_search_on(Location::Session(*session)),
+                    _ => Task::none(),
+                };
+                let typed_before = self.path_edit.as_ref().map(|edit| edit.text.clone());
+                self.apply(event);
+                let cursor = match &self.path_edit {
+                    Some(edit) if typed_before.is_some_and(|text| text != edit.text) => {
+                        operation::move_cursor_to_end(edit.side.path_input_id())
+                    }
+                    _ => Task::none(),
+                };
+                return Task::batch([search_closed, self.reveal_focused(), self.resync_scroll(&before), cursor]);
+            }
+            Message::CloseRequested => return self.request_close(),
+            Message::WindowCloseRequested(id) => return self.window_close_requested(id),
+            Message::WindowKey(id, press) => return self.window_key(id, press),
+            Message::WindowSized(id, size) => self.window_sized(id, size),
+            Message::WindowMoved(id, position) => self.windows.set_position(id, position),
+            Message::FromWindow(id, inner) => {
+                if self.is_main(id) {
+                    return self.handle(*inner);
+                }
+            }
+            Message::MainWindowOpened => return self.native_task(),
+            Message::WindowOpened(id) => return self.focus_new_window(id),
+            Message::ShutdownFinished => return iced::exit(),
+            Message::ModifiersChanged(modifiers) => self.modifiers = modifiers,
+            Message::PanelClicked(side, row) => {
+                let modifiers = Modifiers { ctrl: self.modifiers.command(), shift: self.modifiers.shift() };
+                if let Some(pane) = self.side_mut(side) {
+                    pane.panel.click(row, modifiers);
+                    self.active = side;
+                }
+            }
+            Message::ScrollChanged(side, offset) => {
+                if let Some(pane) = self.side_mut(side) {
+                    pane.scroll = offset.max(0.0);
+                }
+            }
+            Message::HeaderClicked(side, key) => {
+                if let Some(pane) = self.side_mut(side) {
+                    pane.panel.sort_by(key);
+                }
+                self.remember_panel(side);
+            }
+            Message::TransferArrowPressed(from) => {
+                if self.transfer_possible(from) {
+                    self.copy_from(from, false);
+                }
+            }
+            Message::TabClosed(index) => {
+                if let Some(tab) = self.sessions.names().get(index) {
+                    self.core.send(Command::Disconnect { session: tab.id });
+                }
+            }
+            Message::TabClicked(index) => {
+                self.sessions.set_active(index);
+            }
+            Message::PanelDoubleClicked(side, row) => self.open_row(side, row),
+            Message::KeyPressed(press) => {
+                let reveal = self.press_key(press);
+                return Task::batch([reveal, self.resync_scroll(&before)]);
+            }
+            Message::MoreMenuToggled => self.more_open = !self.more_open,
+            Message::PointerMoved(point) => self.pointer = Some(point),
+            Message::RowRightPressed(side, row) => self.open_row_menu(side, row),
+            Message::BackgroundRightPressed(side) => {
+                if self.menus_allowed() && self.panel_of(side).is_some() {
+                    self.active = side;
+                    self.show_menu(side, MenuTarget::Background);
+                }
+            }
+            Message::ContextMenuDismissed => self.context_menu = None,
+            Message::MenuItemChosen(item) => {
+                let Some(menu) = self.context_menu.take() else {
+                    return Task::none();
+                };
+                if self.menus_allowed() && self.menu_item_enabled(&menu, item) {
+                    return self.perform(item.action());
+                }
+            }
+            Message::NavigateUp(side) => self.go_up(side),
+            Message::NavigateBack(side) => self.go_history(side, true),
+            Message::NavigateForward(side) => self.go_history(side, false),
+            Message::CrumbPressed(side, path) => self.go_to(side, path),
+            Message::PathEditStarted(side) => {
+                let Some(panel) = self.panel_of(side) else {
+                    return Task::none();
+                };
+                let text = match side {
+                    PanelSide::Local => to_os_path(panel.path()).display().to_string(),
+                    PanelSide::Remote => panel.path().to_string_lossy().into_owned(),
+                };
+                self.path_edit = Some(PathEdit { side, text, pending: false, listing: None });
+                return operation::focus(side.path_input_id());
+            }
+            Message::PathTyped(text) => {
+                if let Some(edit) = self.path_edit.as_mut() {
+                    edit.text = text;
+                    edit.listing = None;
+                }
+            }
+            Message::PathCandidateChosen(name) => {
+                let Some(edit) = self.path_edit.as_mut() else {
+                    return Task::none();
+                };
+                if let Some(listing) = edit.listing.take() {
+                    edit.text = listing.path_for(&name);
+                }
+                return operation::move_cursor_to_end(edit.side.path_input_id());
+            }
+            Message::PathSubmitted => {
+                if let Some(edit) = self.path_edit.take() {
+                    let text = edit.text.trim();
+                    if !text.is_empty() {
+                        self.go_to_typed(edit.side, text.to_string());
+                    }
+                }
+            }
+            Message::MoreItemChosen(item) => {
+                self.more_open = false;
+                if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
+                    let action = match item {
+                        MoreItem::Palette => Action::Palette,
+                        MoreItem::SelectAll => Action::SelectAll,
+                        MoreItem::ToggleHidden => Action::ToggleHidden,
+                        MoreItem::Preview => Action::Preview,
+                        MoreItem::Edit => Action::Edit,
+                        MoreItem::Search => Action::Search,
+                        MoreItem::Bookmarks => Action::Bookmarks,
+                        MoreItem::History => Action::History,
+                        MoreItem::Sync => Action::Sync,
+                        MoreItem::BookmarkHere => Action::BookmarkHere,
+                        MoreItem::CheckForUpdates => Action::CheckForUpdates,
+                    };
+                    return self.perform(action);
+                }
+            }
+            message @ (Message::SettingsChangePressed(_)
+            | Message::SettingsResetPressed(_)
+            | Message::SettingsEditorTyped(_)
+            | Message::SettingsEditorApplied
+            | Message::SettingsTerminalTyped(_)
+            | Message::SettingsTerminalApplied
+            | Message::SettingsAutoUploadToggled(_)
+            | Message::SettingsCompareLimitTyped(_)
+            | Message::SettingsCompareLimitApplied
+            | Message::SettingsSearchPreviewToggled(_)
+            | Message::SettingsClosed
+            | Message::SettingsUpdateModeChosen(_)
+            | Message::SettingsReopenChosen(_)
+            | Message::SettingsReconnectToggled(_)
+            | Message::SettingsThemeChosen(_)
+            | Message::SettingsCategoryChosen(_)) => return self.settings_message(message),
+            Message::ReopenPressed => self.reopen_pressed(),
+            Message::QuickConnectPressed(name) => self.quick_connect_pressed(&name),
+            message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
+                return self.palette_message(message);
+            }
+            message @ (Message::ManagerToggled
+            | Message::ManagerClosed
+            | Message::ManagerFilterTyped(_)
+            | Message::ManagerRowPressed(_)
+            | Message::ManagerRowActivated(_)
+            | Message::ManagerGroupToggled(_)
+            | Message::ManagerConnect) => return self.manager_message(message),
+            Message::ManagerIgnored | Message::ToolIgnored => {}
+            Message::UpdateBadgePressed => self.show_update_announcement(),
+            Message::ProcessFinished(event) => self.process_finished(event),
+            Message::EditAnswered(choice) => self.edit_answered(choice),
+            Message::EditShowDiff => self.edit_show_diff(),
+            Message::EditDiffBack => {
+                self.edit_diff_back();
+            }
+            Message::EditDoneEditing => self.answer_modal(true),
+            Message::PropertiesCompute => self.properties_compute(),
+            Message::PropertiesExpectedTyped(text) => self.properties_expected_typed(text),
+            Message::PropertiesCopyDigest(index) => return self.properties_copy_digest(index),
+            message @ (Message::SearchClosed
+            | Message::SearchTyped(_)
+            | Message::SearchRowPressed(_)
+            | Message::SearchRowActivated(_)
+            | Message::SearchOpenPressed
+            | Message::SearchPreviewScrolled(_)) => return self.search_message(message),
+            message @ (Message::ToolClosed
+            | Message::BookmarkRowPressed(_)
+            | Message::BookmarkRowActivated(_)
+            | Message::BookmarkGoPressed
+            | Message::BookmarkRemovePressed
+            | Message::HistoryFilterTyped(_)
+            | Message::HistoryRowPressed(_)
+            | Message::HistoryRowActivated(_)
+            | Message::HistoryDetailsPressed
+            | Message::HistoryClearPressed
+            | Message::PreviewScrolled(_)
+            | Message::SyncFilterTyped(_)
+            | Message::SyncRowPressed(_)
+            | Message::SyncTickAllPressed
+            | Message::SyncUntickAllPressed
+            | Message::SyncFlipPressed
+            | Message::SyncRunPressed
+            | Message::SyncScrolled(_)) => return self.tool_message(message),
+            Message::PermissionToggled(bit, on) => {
+                if let Some(Modal::Permissions { mode, .. }) = self.modals.front_mut() {
+                    if on {
+                        *mode |= bit;
+                    } else {
+                        *mode &= !bit;
+                    }
+                }
+            }
+            Message::PasswordSaveToggled(on) => {
+                if let Some(Modal::Question(Dialog::Password { save: Some(save), .. })) = self.modals.front_mut() {
+                    *save = on;
+                }
+            }
+            message @ (Message::ManagerAddPressed
+            | Message::ManagerEditPressed
+            | Message::ManagerDeletePressed
+            | Message::FormTextTyped(..)
+            | Message::FormSecretTyped(..)
+            | Message::FormSecretForgotten(_)
+            | Message::FormSecretRestored(_)
+            | Message::FormChoiceChanged(..)
+            | Message::FormToggled(..)
+            | Message::FormSavePressed
+            | Message::ScreenCancelled
+            | Message::DeleteConfirmed
+            | Message::LabelsGroupTyped(_)
+            | Message::LabelsTagsTyped(_)
+            | Message::LabelsForgetToggled(_)
+            | Message::LabelsSavePressed
+            | Message::MissingHostChosen(_)) => return self.editing_message(message),
+            message @ (Message::FormTestPressed
+            | Message::FormTestCancelled
+            | Message::TestPasswordTyped(_)
+            | Message::TestPasswordSubmitted
+            | Message::TestPasswordCancelled) => return self.trial_message(message),
+            Message::DialogTyped(typed) => {
+                if let Some(Modal::Question(Dialog::Password { text, .. })) = self.modals.front_mut() {
+                    *text = typed;
+                }
+            }
+            Message::ModalTyped(typed) => {
+                if let Some(
+                    Modal::NewFolder { text, error, .. }
+                    | Modal::Rename { text, error, .. }
+                    | Modal::BookmarkName { text, error, .. },
+                ) = self.modals.front_mut()
+                {
+                    *text = typed;
+                    *error = None;
+                }
+            }
+            Message::ModalAccepted => self.answer_modal(true),
+            Message::ModalDeclined => self.answer_modal(false),
+            Message::SyncOptionChosen(choice) => self.sync_option_chosen(choice),
+            Message::ImportPressed => return self.import_pressed(),
+            Message::ImportSourceChosen(source) => self.import_source_chosen(source),
+            Message::ImportPathTyped(text) => self.import_path_typed(text),
+            Message::ImportReadPressed => self.import_read_pressed(),
+            Message::ImportRowToggled(index) => self.import_row_toggled(index),
+            Message::ImportTickNew => self.import_tick_new(),
+            Message::ImportUntickAll => self.import_untick_all(),
+            Message::ImportRunPressed => self.import_run_pressed(),
+            Message::ImportCancelled => self.import_cancelled(),
+            Message::ImportScrolled(offset) => self.import_scrolled(offset),
+            Message::ImportBrowsePressed(folder) => return self.import_browse(folder),
+            Message::ImportPathPicked(picked) => self.import_path_picked(picked),
+            Message::QueueRowPressed(kind, button) => self.core.send(button.command(kind)),
+            Message::QueueClearFinished => self.core.send(Command::ClearFinished),
+            Message::QueueCancelAll => self.core.send(Command::CancelAllTransfers),
+            Message::QueueScrolled(offset) => self.queue.set_scroll(offset),
+            Message::SpeedLimitTyped(text) => self.queue.type_speed(text),
+            Message::SpeedLimitSubmitted => {
+                if let Some(bytes_per_second) = self.queue.submit_speed() {
+                    self.core.send(Command::SetSpeedLimit { bytes_per_second });
+                }
+            }
+            Message::ConflictAnswered(resolution) => self.answer_conflict(resolution),
+            Message::ConflictApplyToRestToggled => self.toggle_apply_to_rest(),
+            Message::RowPressed(side, row) => self.press_row(side, row),
+            Message::CursorMoved(point) => {
+                self.pointer = Some(point);
+                self.drag.moved(point);
+                if !Rectangle::with_size(self.window_size).contains(point) {
+                    self.leave_window();
+                }
+            }
+            Message::WindowLeft => self.leave_window(),
+            Message::NativePoll => self.poll_native(),
+            Message::NoticeTick(now) => self.notices.retain(|notice| !notice.expired(now)),
+            Message::StagingTick(now) => {
+                if let Some(job) = self.staging.as_mut() {
+                    job.tick(now);
+                }
+            }
+            Message::MouseReleased => {
+                let release = self.drag.release();
+                let pending = self.pending_click.take();
+                match (release, pending) {
+                    (Release::Click, Some((side, row))) => return self.handle(Message::PanelClicked(side, row)),
+                    (Release::Drop { source, at }, _) => self.finish_drop(source, at),
+                    (Release::Abandoned, _) => self.abort_staging(),
+                    _ => {}
+                }
+            }
+            Message::Desktop(event) => return self.desktop_event(event),
+            Message::DesktopDropFlush => self.flush_desktop_drop(),
+            Message::NativeAttached(attached) => self.attached = attached,
+            Message::ActionRequested(action) => {
+                if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
+                    return self.perform(action);
+                }
+            }
+            Message::TerminalRequested(side) => {
+                if self.modals.is_empty() && self.filtering.is_none() && !self.closing {
+                    self.request_terminal_on(side);
+                }
+            }
+        }
+        self.resync_scroll(&before)
+    }
+
+    fn place_name(&self, side: PanelSide) -> String {
+        match side {
+            PanelSide::Local => THIS_COMPUTER.to_string(),
+            PanelSide::Remote => self.sessions.active().map(|session| session.name.clone()).unwrap_or_default(),
+        }
+    }
+
+    fn panel_of(&self, side: PanelSide) -> Option<&Panel> {
+        match side {
+            PanelSide::Local => Some(&self.local.panel),
+            PanelSide::Remote => self.right_panel(),
+        }
+    }
+
+    fn prompt_problem(&self) -> Option<String> {
+        if let Some(Modal::BookmarkName { text, .. }) = self.modals.front() {
+            return text.trim().is_empty().then(|| "Enter a name".to_string());
+        }
+        let (side, text, original) = match self.modals.front()? {
+            Modal::NewFolder { side, text, .. } => (*side, text, None),
+            Modal::Rename { side, original, text, .. } => (*side, text, Some(original)),
+            _ => return None,
+        };
+        let panel = self.panel_of(side);
+        entry_name_problem(text, original.map(|original| original.name.as_str()), |name| {
+            panel.is_some_and(|panel| panel.has_entry_named(name))
+        })
+    }
+
+    fn press_row(&mut self, side: PanelSide, row: usize) {
+        if self.tool.is_some() {
+            return;
+        }
+        let plain = !self.modifiers.command() && !self.modifiers.shift();
+        let in_selection = self.panel_of(side).is_some_and(|panel| {
+            matches!(panel.rows().get(row), Some(Row::Entry(entry)) if panel.selected_paths().contains(&entry.path))
+        });
+        if plain && in_selection {
+            self.pending_click = Some((side, row));
+            self.active = side;
+        } else {
+            self.pending_click = None;
+            let _ = self.handle(Message::PanelClicked(side, row));
+        }
+        let entries = match (plain, self.panel_of(side)) {
+            (true, Some(panel)) => dragged_entries(panel, row),
+            _ => Vec::new(),
+        };
+        self.drag.press((!entries.is_empty()).then_some(DragSource { side, entries }));
+    }
+
+    fn leave_window(&mut self) {
+        let Some(attached) = self.attached.clone() else {
+            return;
+        };
+        let Some(source) = self.drag.leave() else {
+            return;
+        };
+        self.pending_click = None;
+        if source.side == PanelSide::Remote {
+            self.begin_staging(source);
+            return;
+        }
+        let paths = source.entries.iter().map(|entry| to_os_path(&entry.path)).collect();
+        match attached.start_drag(paths) {
+            Ok(()) => self.poll_native(),
+            Err(error) => {
+                self.drag.abandon();
+                self.push_notice(Severity::Warning, format!("Could not drag out of the window: {error}"));
+            }
+        }
+    }
+
+    fn poll_native(&mut self) {
+        let Some(attached) = self.attached.clone() else {
+            return;
+        };
+        for event in attached.poll() {
+            if self.drag.native_event(event) {
+                self.finish_native_drag();
+            }
+        }
+    }
+
+    fn finish_native_drag(&mut self) {
+        if self.staging.as_ref().is_some_and(|job| job.stage == Stage::Handed)
+            && let Some(job) = self.staging.take()
+        {
+            match STAGING_LINGER.is_zero() {
+                true => job.staging.remove(),
+                false => job.staging.remove_after(STAGING_LINGER),
+            }
+        }
+    }
+
+    fn begin_staging(&mut self, source: DragSource) {
+        let Some(Location::Session(session)) = self.location_of(source.side) else {
+            self.drag.abandon();
+            return;
+        };
+        let names = source.entries.iter().map(|entry| entry.name.clone()).collect();
+        let staging = match Staging::create(&self.staging_parent) {
+            Ok(staging) => staging.expecting(names),
+            Err(error) => {
+                self.drag.abandon();
+                self.push_notice(Severity::Warning, format!("Could not prepare files to drag out: {error}"));
+                return;
+            }
+        };
+        let mut staging = staging;
+        staging.remember(self.transfers.snapshot());
+        self.core.send(Command::Copy {
+            from: Location::Session(session),
+            entries: source.entries.clone(),
+            to: Location::Local,
+            dest_dir: staging.destination(),
+        });
+        self.staging = Some(Job::new(staging, session, &source.entries));
+    }
+
+    fn advance_staging(&mut self) {
+        let Some(job) = self.staging.as_mut() else {
+            return;
+        };
+        job.observe(self.transfers.snapshot());
+        match job.stage {
+            Stage::Preparing => {
+                if let Some(problem) = job.staging.failure(self.transfers.snapshot()) {
+                    self.abort_staging();
+                    self.push_notice(Severity::Warning, format!("Could not prepare files to drag out: {problem}"));
+                } else if job.staging.finished(self.transfers.snapshot(), job.seen_a_row) {
+                    self.hand_over_staged_files();
+                }
+            }
+            Stage::Aborting => self.wind_down_staging(),
+            Stage::Handed => {}
+        }
+    }
+
+    fn abort_staging(&mut self) {
+        self.drag.abandon();
+        if let Some(job) = self.staging.as_mut().filter(|job| job.stage == Stage::Preparing) {
+            job.stage = Stage::Aborting;
+            self.wind_down_staging();
+        }
+    }
+
+    fn wind_down_staging(&mut self) {
+        let Some(job) = self.staging.as_mut() else {
+            return;
+        };
+        let snapshot = self.transfers.snapshot();
+        job.observe(snapshot);
+        for kind in job.rows_to_cancel(snapshot) {
+            self.core.send(Command::CancelRow { kind });
+        }
+        if job.wound_down(snapshot)
+            && let Some(job) = self.staging.take()
+        {
+            job.staging.remove();
+        }
+    }
+
+    fn hand_over_staged_files(&mut self) {
+        let (Some(job), Some(attached)) = (self.staging.as_mut(), self.attached.clone()) else {
+            return;
+        };
+        match attached.start_drag(job.staging.paths()) {
+            Ok(()) => {
+                job.stage = Stage::Handed;
+                self.drag.staged();
+                self.poll_native();
+            }
+            Err(error) => {
+                self.drag.abandon();
+                if let Some(job) = self.staging.take() {
+                    job.staging.remove();
+                }
+                self.push_notice(Severity::Warning, format!("Could not drag out of the window: {error}"));
+            }
+        }
+    }
+
+    fn desktop_event(&mut self, event: DesktopEvent) -> Task<Message> {
+        match event {
+            DesktopEvent::Hover(paths) => self.desktop_hover = Some(self.desktop_hover.unwrap_or(0) + paths.len()),
+            DesktopEvent::Moved(point) => self.pointer = Some(point),
+            DesktopEvent::Left => self.desktop_hover = None,
+            DesktopEvent::Dropped { paths, at } => {
+                self.desktop_hover = None;
+                let first = self.drop_buffer.is_empty();
+                if first {
+                    self.drop_at = at;
+                }
+                self.drop_buffer.extend(paths);
+                if first {
+                    return Task::perform(async { tokio::time::sleep(DROP_BATCH_WINDOW).await }, |()| {
+                        Message::DesktopDropFlush
+                    });
+                }
+            }
+        }
+        Task::none()
+    }
+
+    fn flush_desktop_drop(&mut self) {
+        let paths = std::mem::take(&mut self.drop_buffer);
+        let at = self.drop_at.take().or(self.pointer);
+        if paths.is_empty() {
+            return;
+        }
+        let (entries, problems) = entries_from_paths(&paths);
+        for problem in problems {
+            self.push_notice(Severity::Warning, problem);
+        }
+        let hit = match at {
+            Some(point) => self.hit_at(point),
+            None => Some(Hit { side: PanelSide::Remote, row: None }),
+        };
+        let Some(hit) = hit else {
+            return;
+        };
+        let target = self.target_of(hit);
+        match decide_drop_in(&entries, target.as_ref()) {
+            Ok(command) => self.core.send(command),
+            Err(Refusal::NothingDragged) => {}
+            Err(refused) => self.push_notice(Severity::Warning, refused.message().to_string()),
+        }
+    }
+
+    fn finish_drop(&mut self, source: DragSource, at: Point) {
+        let Some(hit) = self.hit_at(at) else {
+            return;
+        };
+        let Some(from) = self.location_of(source.side) else {
+            return;
+        };
+        let target = self.target_of(hit);
+        match decide(&source, from, target.as_ref(), self.modifiers.shift()) {
+            Ok(command) => self.core.send(command),
+            Err(refused) => self.push_notice(Severity::Warning, refused.message().to_string()),
+        }
+    }
+
+    fn show_next_conflict(&mut self) {
+        if self.modals.is_empty()
+            && let Some(view) = self.conflicts.current()
+        {
+            self.modals.push(Modal::Conflict { view, apply_to_rest: false });
+        }
+    }
+
+    fn toggle_apply_to_rest(&mut self) {
+        if let Some(Modal::Conflict { apply_to_rest, .. }) = self.modals.front_mut() {
+            *apply_to_rest = !*apply_to_rest;
+        }
+    }
+
+    fn answer_conflict(&mut self, resolution: Option<Resolution>) {
+        let Some(Modal::Conflict { view, apply_to_rest }) = self.modals.front() else {
+            return;
+        };
+        if resolution == Some(Resolution::Resume) && !view.can_resume() {
+            return;
+        }
+        let apply_to_rest = *apply_to_rest;
+        self.modals.pop();
+        if let Some(command) = self.conflicts.answer(resolution, apply_to_rest) {
+            self.core.send(command);
+        }
+    }
+
+    fn conflict_key(&mut self, press: &KeyPress) {
+        use keyboard::Key;
+        let resolution = match &press.key {
+            Key::Named(keyboard::key::Named::Escape) => Some(None),
+            Key::Character(text) if !press.modifiers.control() && !press.modifiers.command() => {
+                match text.to_lowercase().as_str() {
+                    "o" => Some(Some(Resolution::Overwrite)),
+                    "s" => Some(Some(Resolution::Skip)),
+                    "r" => Some(Some(Resolution::Rename)),
+                    "u" => Some(Some(Resolution::Resume)),
+                    "a" => {
+                        self.toggle_apply_to_rest();
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if let Some(resolution) = resolution {
+            self.answer_conflict(resolution);
+        }
+    }
+
+    fn answer_modal(&mut self, accepted: bool) {
+        if matches!(self.modals.front(), Some(Modal::Conflict { .. })) {
+            if !accepted {
+                self.answer_conflict(None);
+            }
+            return;
+        }
+        if accepted && let Some(problem) = self.prompt_problem() {
+            if let Some(
+                Modal::NewFolder { error, .. } | Modal::Rename { error, .. } | Modal::BookmarkName { error, .. },
+            ) = self.modals.front_mut()
+            {
+                *error = Some(problem);
+            }
+            return;
+        }
+        if accepted && self.sync_options_rejected() {
+            return;
+        }
+        if !accepted && matches!(self.modals.front(), Some(Modal::EditWaiting { .. })) {
+            return;
+        }
+        if !accepted && (self.edit_diff_back() || self.properties_escape()) {
+            return;
+        }
+        let Some(modal) = self.modals.pop() else {
+            return;
+        };
+        match (accepted, modal) {
+            (accepted, Modal::Question(dialog)) => self.answer_question(accepted, dialog),
+            (_, Modal::Properties { request_id, .. }) => self.core.send(Command::CancelProperties { request_id }),
+            (accepted, Modal::EditQuestion { edit_id, kind, .. }) => {
+                self.resolve_edit_question(accepted, edit_id, kind)
+            }
+            (true, Modal::EditWaiting { edit_id, .. }) => self.finish_waiting_edit(edit_id),
+            (true, Modal::ConfirmQuit { .. }) => self.quit_confirmed = true,
+            (true, Modal::NewFolder { side, text, .. }) => {
+                let parent = self.panel_of(side).map(|panel| panel.path().clone());
+                if let (Some(location), Some(parent)) = (self.location_of(side), parent) {
+                    self.core.send(Command::CreateDir { location, path: parent.join(text.as_str()) });
+                }
+            }
+            (true, Modal::Rename { side, original, text, .. }) => {
+                if let (Some(location), Some(parent)) = (self.location_of(side), original.path.parent())
+                    && text != original.name
+                {
+                    self.core.send(Command::Rename { location, from: original.path, to: parent.join(text.as_str()) });
+                }
+            }
+            (true, Modal::Permissions { side, entries, mode }) => {
+                if let Some(location) = self.location_of(side) {
+                    let paths = entries.into_iter().map(|entry| entry.path).collect();
+                    self.core.send(Command::SetPermissions { location, paths, mode });
+                }
+            }
+            (true, Modal::BookmarkName { location, path, text, .. }) => {
+                self.core.send(Command::AddBookmark { label: text.trim().to_string(), location, path });
+            }
+            (true, Modal::ConfirmClearHistory) => self.core.send(Command::ClearHistory),
+            (true, Modal::SyncOptions { session, direction, by, subfolders, mirror, .. }) => {
+                self.start_sync(session, SyncOptions { direction, by, subfolders, mirror })
+            }
+            (true, Modal::ConfirmSyncDelete { sync_id, choices, .. }) => self.send_sync_run(sync_id, choices),
+            (true, Modal::ConfirmDelete { side, entries, count, .. }) => {
+                self.stop_counting(count);
+                if let Some(location) = self.location_of(side) {
+                    let paths = entries.into_iter().map(|entry| entry.path).collect();
+                    self.core.send(Command::Delete { location, paths });
+                }
+            }
+            (false, Modal::ConfirmDelete { count, .. }) => self.stop_counting(count),
+            (false, _) | (_, Modal::Conflict { .. } | Modal::Info { .. }) => {}
+        }
+    }
+
+    fn request_count(&mut self, side: PanelSide, entries: &[porthmos_core::Entry]) -> Option<DeleteCount> {
+        let folders: Vec<VfsPath> =
+            entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
+        let location = self.location_of(side).filter(|_| !folders.is_empty())?;
+        self.next_count_id += 1;
+        let request_id = self.next_count_id;
+        self.core.send(Command::CountContents { request_id, location, folders });
+        Some(DeleteCount { request_id, contents: Contents::Counting })
+    }
+
+    fn stop_counting(&self, count: Option<DeleteCount>) {
+        if count.is_some_and(|count| count.contents == Contents::Counting) {
+            self.core.send(Command::CancelCount);
+        }
+    }
+
+    fn contents_counted(&mut self, request_id: u64, contents: Contents) {
+        let pending = self.modals.iter_mut().find_map(|modal| match modal {
+            Modal::ConfirmDelete { count: Some(count), .. }
+                if count.request_id == request_id && count.contents == Contents::Counting =>
+            {
+                Some(count)
+            }
+            _ => None,
+        });
+        if let Some(count) = pending {
+            count.contents = contents;
+        }
+    }
+
+    fn answer_question(&mut self, accepted: bool, dialog: Dialog) {
+        let request_id = dialog.request_id();
+        let mut save = false;
+        let answer = match (accepted, dialog) {
+            (true, Dialog::Confirm { .. }) => Some(Answer::Confirmed),
+            (true, Dialog::Password { text, save: choice, .. }) => {
+                if let Some(chosen) = choice {
+                    save = chosen;
+                    self.remember_save_choice(chosen);
+                }
+                Some(Answer::Password(text.into_string()))
+            }
+            (false, _) => None,
+        };
+        self.core.send(Command::Answer { request_id, answer, save });
+    }
+
+    fn remember_save_choice(&mut self, save: bool) {
+        if save != self.save_choice {
+            self.save_choice = save;
+            self.core.send(Command::RememberSaveChoice { save });
+        }
+    }
+
+    fn location_of(&self, side: PanelSide) -> Option<Location> {
+        match side {
+            PanelSide::Local => Some(Location::Local),
+            PanelSide::Remote => self.sessions.active().map(|session| Location::Session(session.id)),
+        }
+    }
+
+    fn open_row(&mut self, side: PanelSide, row: usize) {
+        let Some(location) = self.location_of(side) else {
+            return;
+        };
+        let target = self.side_mut(side).and_then(|pane| pane.panel.open_target(row));
+        if let Some(path) = target {
+            self.navigate(location, path);
+        }
+    }
+
+    fn text_fields_are_shown(&self) -> bool {
+        !self.modals.is_empty() || self.queue.speed_text().is_some() || self.path_edit.is_some() || self.tool.is_some()
+    }
+
+    fn press_key(&mut self, press: KeyPress) -> Task<Message> {
+        if self.closing {
+            return Task::none();
+        }
+        if self.drag.is_tracking() {
+            if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                match (self.drag.phase(), &self.attached) {
+                    (Phase::Native, Some(attached)) => attached.cancel(),
+                    (Phase::Staging, _) => {
+                        self.drag.cancel();
+                        self.abort_staging();
+                        self.pending_click = None;
+                    }
+                    _ => {
+                        self.drag.cancel();
+                        self.pending_click = None;
+                    }
+                }
+            }
+            return Task::none();
+        }
+        if matches!(self.modals.front(), Some(Modal::Conflict { .. })) {
+            self.conflict_key(&press);
+            return Task::none();
+        }
+        if press.key == keyboard::Key::Named(keyboard::key::Named::Tab)
+            && self.path_edit.is_some()
+            && self.modals.is_empty()
+            && self.tool.is_none()
+        {
+            if !press.modifiers.shift() {
+                self.complete_path();
+            }
+            return Task::none();
+        }
+        if press.key == keyboard::Key::Named(keyboard::key::Named::Tab) && self.text_fields_are_shown() {
+            return if press.modifiers.shift() { operation::focus_previous() } else { operation::focus_next() };
+        }
+        if let Some(modal) = self.modals.front() {
+            let enter_accepts = matches!(
+                modal,
+                Modal::Info { .. } | Modal::EditQuestion { .. } | Modal::EditWaiting { .. } | Modal::SyncOptions { .. }
+            );
+            let enter_declines = modal.is_risky_to_accept();
+            match &press.key {
+                keyboard::Key::Named(keyboard::key::Named::Escape) => self.answer_modal(false),
+                keyboard::Key::Named(keyboard::key::Named::Enter) if enter_accepts => self.answer_modal(true),
+                keyboard::Key::Named(keyboard::key::Named::Enter) if enter_declines => self.answer_modal(false),
+                keyboard::Key::Named(keyboard::key::Named::ArrowRight | keyboard::key::Named::ArrowDown) => {
+                    self.cycle_sync_direction(true)
+                }
+                keyboard::Key::Named(keyboard::key::Named::ArrowLeft | keyboard::key::Named::ArrowUp) => {
+                    self.cycle_sync_direction(false)
+                }
+                _ => {}
+            }
+            return Task::none();
+        }
+        if self.queue.speed_text().is_some() {
+            if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                self.queue.cancel_speed();
+            }
+            return Task::none();
+        }
+        if self.path_edit.is_some() || self.more_open || self.context_menu.is_some() {
+            if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                match self.path_edit.as_mut().filter(|edit| edit.listing.is_some()) {
+                    Some(edit) => edit.listing = None,
+                    None => {
+                        self.path_edit = None;
+                        self.more_open = false;
+                        self.context_menu = None;
+                    }
+                }
+            }
+            return Task::none();
+        }
+        if self.tool.is_some() {
+            return self.tool_key(&press);
+        }
+        if let Some(side) = self.filtering {
+            self.type_filter(side, &press);
+            return Task::none();
+        }
+        let (key, modifiers) = shortcuts::effective(&press);
+        match self.shortcuts.action_for(&key, modifiers) {
+            Some(action) => self.perform(action),
+            None => Task::none(),
+        }
+    }
+
+    fn type_filter(&mut self, side: PanelSide, press: &KeyPress) {
+        use keyboard::Key;
+        use keyboard::key::Named;
+        match &press.key {
+            Key::Named(Named::Escape) => {
+                self.filter_text.clear();
+                self.filtering = None;
+            }
+            Key::Named(Named::Enter) => {
+                self.filtering = None;
+                return self.apply_filter(side);
+            }
+            Key::Named(Named::Backspace) => {
+                self.filter_text.pop();
+            }
+            _ => {
+                let held = press.modifiers.control() || press.modifiers.alt() || press.modifiers.logo();
+                match (&press.text, held) {
+                    (Some(text), false) => self.filter_text.extend(text.chars().filter(|c| !c.is_control())),
+                    _ => return,
+                }
+            }
+        }
+        self.apply_filter(side);
+    }
+
+    fn apply_filter(&mut self, side: PanelSide) {
+        let text = self.filter_text.clone();
+        if let Some(pane) = self.side_mut(side) {
+            pane.panel.set_filter(Some(&text).filter(|text| !text.is_empty()).map(String::as_str));
+        }
+    }
+
+    fn page_rows(&self) -> isize {
+        ((self.list_height() / ROW_HEIGHT) as isize - 1).max(1)
+    }
+
+    fn reveal_cursor(&mut self, side: PanelSide) -> Task<Message> {
+        let viewport = self.list_height();
+        let Some(pane) = self.side_mut(side) else {
+            return Task::none();
+        };
+        let target = scroll_to_show(pane.panel.cursor(), pane.scroll, viewport, ROW_HEIGHT);
+        if target == pane.scroll {
+            return Task::none();
+        }
+        pane.scroll = target;
+        operation::scroll_to(side.list_id(), operation::AbsoluteOffset { x: None, y: Some(target) })
+    }
+
+    fn copy_active(&mut self, moving: bool) {
+        self.copy_from(self.active, moving);
+    }
+
+    fn copy_from(&mut self, from_side: PanelSide, moving: bool) {
+        let to_side = match from_side {
+            PanelSide::Local => PanelSide::Remote,
+            PanelSide::Remote => PanelSide::Local,
+        };
+        let Some(dest_dir) = self.panel_of(to_side).map(|panel| panel.path().clone()) else {
+            self.push_notice(
+                Severity::Info,
+                "Connect to a server first: copy and move go between the two panels".to_string(),
+            );
+            return;
+        };
+        let entries = self.panel_of(from_side).map(Panel::target_entries).unwrap_or_default();
+        if entries.is_empty() {
+            return;
+        }
+        if let (Some(from), Some(to)) = (self.location_of(from_side), self.location_of(to_side)) {
+            self.core.send(transfer_command(moving, (from, entries), (to, dest_dir)));
+        }
+    }
+
+    fn perform(&mut self, action: Action) -> Task<Message> {
+        let side = self.active;
+        let page = self.page_rows();
+        match action {
+            Action::MoveUp | Action::MoveDown | Action::PageUp | Action::PageDown | Action::Home | Action::End => {
+                if let Some(pane) = self.side_mut(side) {
+                    match action {
+                        Action::MoveUp => pane.panel.move_cursor(-1),
+                        Action::MoveDown => pane.panel.move_cursor(1),
+                        Action::PageUp => pane.panel.move_cursor(-page),
+                        Action::PageDown => pane.panel.move_cursor(page),
+                        Action::Home => pane.panel.set_cursor(0),
+                        _ => pane.panel.set_cursor(usize::MAX),
+                    }
+                }
+                return self.reveal_cursor(side);
+            }
+            Action::Open => {
+                if let Some(pane) = self.side_mut(side) {
+                    let row = pane.panel.cursor();
+                    self.open_row(side, row);
+                }
+            }
+            Action::Parent => self.go_up(side),
+            Action::SwitchPanel => {
+                self.active = match (self.active, self.sessions.is_empty()) {
+                    (PanelSide::Local, false) => PanelSide::Remote,
+                    _ => PanelSide::Local,
+                };
+            }
+            Action::ToggleSelect => {
+                if let Some(pane) = self.side_mut(side) {
+                    let row = pane.panel.cursor();
+                    pane.panel.click(row, Modifiers { ctrl: true, shift: false });
+                }
+            }
+            Action::SelectAll => {
+                if let Some(pane) = self.side_mut(side) {
+                    pane.panel.select_all();
+                }
+            }
+            Action::ToggleHidden => {
+                if let Some(pane) = self.side_mut(side) {
+                    pane.panel.toggle_hidden();
+                }
+                self.remember_panel(side);
+            }
+            Action::CycleSort => {
+                if let Some(pane) = self.side_mut(side) {
+                    pane.panel.cycle_sort();
+                }
+                self.remember_panel(side);
+            }
+            Action::Refresh => {
+                if let Some(location) = self.location_of(side) {
+                    self.relist(location);
+                }
+            }
+            Action::StartFilter => {
+                if let Some(pane) = self.side_mut(side) {
+                    let current = pane.panel.filter().unwrap_or("").to_string();
+                    self.filter_text = current;
+                    self.filtering = Some(side);
+                }
+            }
+            Action::ClearFilter => {
+                self.filter_text.clear();
+                if let Some(pane) = self.side_mut(side) {
+                    pane.panel.set_filter(None);
+                }
+            }
+            Action::NewFolder => {
+                if self.panel_of(side).is_some() {
+                    self.modals.push(Modal::NewFolder { side, text: String::new(), error: None });
+                }
+            }
+            Action::Rename => {
+                let original = self.panel_of(side).and_then(Panel::cursor_entry);
+                if let Some(original) = original {
+                    let text = original.name.clone();
+                    self.modals.push(Modal::Rename { side, original, text, error: None });
+                }
+            }
+            Action::Permissions => {
+                let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
+                if !entries.is_empty() {
+                    let mode = entries
+                        .iter()
+                        .find_map(|entry| entry.permissions)
+                        .map_or(UNKNOWN_MODE, |mode| mode & PERMISSION_BITS);
+                    self.modals.push(Modal::Permissions { side, entries, mode });
+                }
+            }
+            Action::Properties => self.open_properties(side),
+            Action::Delete => {
+                let entries = self.panel_of(side).map(Panel::target_entries).unwrap_or_default();
+                if !entries.is_empty() {
+                    let place = self.place_name(side);
+                    let count = self.request_count(side, &entries);
+                    self.modals.push(Modal::ConfirmDelete { side, place, entries, count });
+                }
+            }
+            Action::Copy => self.copy_active(false),
+            Action::Move => self.copy_active(true),
+            Action::ToggleQueue => self.queue.toggle(self.transfers.has_unfinished()),
+            Action::Preview => self.open_preview(),
+            Action::Edit => self.start_edit(),
+            Action::Terminal => self.request_terminal(),
+            Action::Search => return self.open_search(),
+            Action::Bookmarks => self.open_bookmarks(),
+            Action::History => self.open_history(),
+            Action::Sync => self.request_sync(),
+            Action::Palette => self.open_palette(),
+            Action::Settings => return self.open_settings(),
+            Action::CheckForUpdates => self.check_for_updates(),
+            Action::BookmarkHere => self.open_bookmark_dialog(),
+            Action::NextTab => self.sessions.next(),
+            Action::PreviousTab => self.sessions.previous(),
+            Action::Quit => return self.handle(Message::CloseRequested),
+        }
+        Task::none()
+    }
+
+    fn pointer_subscription(&self) -> Subscription<Message> {
+        if !self.drag.is_tracking() && self.desktop_hover.is_none() {
+            return Subscription::none();
+        }
+        event::listen_with(|event, _, window| {
+            let message = match event {
+                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Message::CursorMoved(position),
+                iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Message::MouseReleased,
+                iced::Event::Mouse(mouse::Event::CursorLeft) => Message::WindowLeft,
+                _ => return None,
+            };
+            Some(Message::FromWindow(window, Box::new(message)))
+        })
+    }
+
+    fn native_subscription(&self) -> Subscription<Message> {
+        if self.drag.phase() == Phase::Native {
+            iced::time::every(NATIVE_POLL_INTERVAL).map(|_| Message::NativePoll)
+        } else {
+            Subscription::none()
+        }
+    }
+
+    fn staging_subscription(&self) -> Subscription<Message> {
+        if self.drag.phase() == Phase::Staging {
+            iced::time::every(STAGING_TICK).map(Message::StagingTick)
+        } else {
+            Subscription::none()
+        }
+    }
+
+    fn notice_subscription(&self) -> Subscription<Message> {
+        if self.notices.is_empty() {
+            Subscription::none()
+        } else {
+            iced::time::every(NOTICE_TICK).map(Message::NoticeTick)
+        }
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        Subscription::batch([
+            runtime::subscription(&self.events).map(Message::Core),
+            window::close_requests().map(Message::WindowCloseRequested),
+            event::listen_with(|event, status, window| match event {
+                iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                    Some(Message::ModifiersChanged(modifiers))
+                }
+                iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modified_key, modifiers, text, .. })
+                    if status == event::Status::Ignored
+                        || key == keyboard::Key::Named(keyboard::key::Named::Escape) =>
+                {
+                    let text = text.map(|text| text.to_string());
+                    Some(Message::WindowKey(window, KeyPress { key, modified_key, modifiers, text }))
+                }
+                _ => None,
+            }),
+            window::resize_events().map(|(id, size)| Message::WindowSized(id, size)),
+            event::listen_with(|event, _, window| match event {
+                iced::Event::Window(window::Event::Moved(position)) => Some(Message::WindowMoved(window, position)),
+                _ => None,
+            }),
+            self.pointer_subscription(),
+            self.native_subscription(),
+            self.staging_subscription(),
+            self.notice_subscription(),
+            self.desktop.subscription().map(Message::Desktop),
+            self.processes.subscription().map(Message::ProcessFinished),
+            event::listen_with(|event, _, window| {
+                let event = match event {
+                    iced::Event::Window(window::Event::FileHovered(path)) => DesktopEvent::Hover(vec![path]),
+                    iced::Event::Window(window::Event::FileDropped(path)) => {
+                        DesktopEvent::Dropped { paths: vec![path], at: None }
+                    }
+                    iced::Event::Window(window::Event::FilesHoveredLeft) => DesktopEvent::Left,
+                    _ => return None,
+                };
+                Some(Message::FromWindow(window, Box::new(Message::Desktop(event))))
+            }),
+        ])
+    }
+
+    #[cfg(test)]
+    pub fn pointer_position(&self) -> Option<Point> {
+        self.pointer
+    }
+}
+
+mod connections;
+mod editing;
+mod import;
+mod palette;
+mod preview;
+mod properties;
+mod quick_connect;
+mod quit;
+mod reopen;
+mod search_window;
+mod settings;
+mod sync;
+mod terminal;
+mod tools;
+mod update;
+mod window_events;
+
+#[cfg(test)]
+mod tests;

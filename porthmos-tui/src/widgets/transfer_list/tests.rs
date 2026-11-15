@@ -69,6 +69,7 @@ impl Fixture {
             speeds: &self.speeds,
             etas: &self.etas,
             failed_time: self.failed_time.as_deref(),
+            page: &PageRows::default(),
         };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|frame| render_transfer_list(frame, frame.area(), &view, &theme)).unwrap();
