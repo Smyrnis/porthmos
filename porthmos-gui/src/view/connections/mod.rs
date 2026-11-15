@@ -166,6 +166,7 @@ fn footer<'a>(app: &App) -> Element<'a, Message> {
         text_button("Add", Some(Message::ManagerAddPressed), Look::Normal, palette),
         text_button("Edit", buttons.edit.then_some(Message::ManagerEditPressed), Look::Normal, palette),
         text_button("Delete", buttons.delete.then_some(Message::ManagerDeletePressed), Look::Normal, palette),
+        text_button("Import\u{2026}", Some(Message::ImportPressed), Look::Normal, palette),
         space().width(Length::Fill),
         text_button("Close", Some(Message::ManagerClosed), Look::Normal, palette),
         text_button(app.connect_label(), buttons.connect.then_some(Message::ManagerConnect), Look::Primary, palette),

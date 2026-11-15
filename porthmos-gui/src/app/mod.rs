@@ -223,6 +223,18 @@ pub enum Message {
     ModalAccepted,
     ModalDeclined,
     SyncOptionChosen(SyncChoice),
+    ImportPressed,
+    ImportSourceChosen(porthmos_core::import::ImportSource),
+    ImportPathTyped(String),
+    ImportReadPressed,
+    ImportRowToggled(usize),
+    ImportTickNew,
+    ImportUntickAll,
+    ImportRunPressed,
+    ImportCancelled,
+    ImportScrolled(f32),
+    ImportBrowsePressed(bool),
+    ImportPathPicked(Option<std::path::PathBuf>),
     SyncFilterTyped(String),
     SyncRowPressed(usize),
     SyncTickAllPressed,
@@ -307,6 +319,7 @@ pub struct App {
     tool_version: u64,
     next_preview_id: u64,
     next_count_id: u64,
+    next_import_id: u64,
     next_properties_id: u64,
     launcher: Launcher,
     processes: ProcessSource,
@@ -388,6 +401,7 @@ impl App {
             tool_version: 0,
             next_preview_id: 1,
             next_count_id: 0,
+            next_import_id: 0,
             next_properties_id: 0,
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
             processes,
@@ -772,7 +786,12 @@ impl App {
 
     pub fn apply(&mut self, event: Event) {
         match event {
-            Event::Notice { severity, message } => self.push_notice(severity, message),
+            Event::Notice { severity, message } => {
+                if severity == Severity::Error {
+                    self.import_read_failed(&message);
+                }
+                self.push_notice(severity, message)
+            }
             Event::ConnectionState { name, state } => {
                 self.connection_states.insert(name, state);
             }
@@ -891,6 +910,8 @@ impl App {
             Event::Update(state) => self.update_arrived(state),
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
+            Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
+            Event::ImportDone { added, skipped, .. } => self.import_done(added, skipped),
         }
     }
 
@@ -1333,6 +1354,18 @@ impl App {
             Message::ModalAccepted => self.answer_modal(true),
             Message::ModalDeclined => self.answer_modal(false),
             Message::SyncOptionChosen(choice) => self.sync_option_chosen(choice),
+            Message::ImportPressed => return self.import_pressed(),
+            Message::ImportSourceChosen(source) => self.import_source_chosen(source),
+            Message::ImportPathTyped(text) => self.import_path_typed(text),
+            Message::ImportReadPressed => self.import_read_pressed(),
+            Message::ImportRowToggled(index) => self.import_row_toggled(index),
+            Message::ImportTickNew => self.import_tick_new(),
+            Message::ImportUntickAll => self.import_untick_all(),
+            Message::ImportRunPressed => self.import_run_pressed(),
+            Message::ImportCancelled => self.import_cancelled(),
+            Message::ImportScrolled(offset) => self.import_scrolled(offset),
+            Message::ImportBrowsePressed(folder) => return self.import_browse(folder),
+            Message::ImportPathPicked(picked) => self.import_path_picked(picked),
             Message::QueueRowPressed(kind, button) => self.core.send(button.command(kind)),
             Message::QueueClearFinished => self.core.send(Command::ClearFinished),
             Message::QueueCancelAll => self.core.send(Command::CancelAllTransfers),
@@ -2212,6 +2245,7 @@ impl App {
 
 mod connections;
 mod editing;
+mod import;
 mod palette;
 mod preview;
 mod properties;

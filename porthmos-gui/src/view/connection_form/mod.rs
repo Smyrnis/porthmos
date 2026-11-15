@@ -259,6 +259,21 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Screen::Form(state) => (state.title().to_string(), form_body(app, state), FORM_WIDTH, FORM_HEIGHT),
         Screen::Labels(labels) => (format!("Labels for {}", labels.name), labels_body(app, labels), SMALL_WIDTH, 260.0),
         Screen::ConfirmDelete { name } => ("Delete connection".to_string(), delete_body(app, name), SMALL_WIDTH, 150.0),
+        Screen::ImportSource(state) => (
+            "Import connections".to_string(),
+            (
+                super::import_source::body(state.source, &state.path, &state.error, state.waiting, palette),
+                super::import_source::buttons(state.waiting, palette),
+            ),
+            SMALL_WIDTH.max(super::import_source::WIDTH),
+            super::import_source::HEIGHT,
+        ),
+        Screen::ImportReview(view) => (
+            format!("Import from {}", view.source().label()),
+            (super::import_review::body(view, palette), super::import_review::buttons(view, palette)),
+            super::import_review::WIDTH,
+            super::import_review::HEIGHT,
+        ),
         Screen::MissingHost { name, shadowed } => {
             ("Labelled ssh host".to_string(), missing_body(app, name, *shadowed), SMALL_WIDTH, 300.0)
         }

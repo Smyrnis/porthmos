@@ -106,6 +106,11 @@ impl App {
     }
 
     pub(in crate::app) fn set_screen(&mut self, screen: Option<Screen>) {
+        if let Some(Screen::ImportReview(view)) = &self.connections_screen
+            && !matches!(screen, Some(Screen::ImportReview(_)))
+        {
+            self.core.send(Command::CancelImport { import_id: view.import_id() });
+        }
         if !matches!(screen, Some(Screen::Form(_))) {
             self.cancel_running_test();
         }

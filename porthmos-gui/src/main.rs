@@ -22,6 +22,7 @@ mod entries;
 mod geometry;
 mod history_view;
 mod icons;
+mod import_view;
 mod main_window;
 mod menus;
 mod modal;

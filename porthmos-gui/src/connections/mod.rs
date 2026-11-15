@@ -172,6 +172,8 @@ pub enum Screen {
     ConfirmDelete { name: String },
     Labels(LabelsState),
     MissingHost { name: String, shadowed: bool },
+    ImportSource(crate::import_view::ImportSourceState),
+    ImportReview(crate::import_view::ImportView),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
