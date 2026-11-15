@@ -635,7 +635,8 @@ fn a_typed_mode_is_sent_for_the_entry_under_the_cursor() {
         vec![Command::SetPermissions {
             location: Location::Local,
             paths: vec![VfsPath::from("/d/run.sh")],
-            mode: 0o755
+            mode: 0o755,
+            recursive: false
         }]
     );
 }
@@ -655,7 +656,7 @@ fn a_selection_gets_one_mode_for_all_of_it() {
 
     let mut sent = test.sent();
     assert_eq!(sent.len(), 1);
-    let Some(Command::SetPermissions { location, mut paths, mode }) = sent.pop() else {
+    let Some(Command::SetPermissions { location, mut paths, mode, recursive }) = sent.pop() else {
         panic!("expected SetPermissions")
     };
     paths.sort();
@@ -703,7 +704,8 @@ fn correcting_a_bad_mode_and_submitting_again_goes_through() {
         vec![Command::SetPermissions {
             location: Location::Local,
             paths: vec![VfsPath::from("/d/a.txt")],
-            mode: 0o700
+            mode: 0o700,
+            recursive: false
         }]
     );
 }
@@ -727,7 +729,8 @@ fn the_permissions_dialog_on_the_remote_panel_goes_to_that_session() {
         vec![Command::SetPermissions {
             location: Location::Session(session),
             paths: vec![VfsPath::from("/srv/page.html")],
-            mode: 0o664
+            mode: 0o664,
+            recursive: false
         }]
     );
 }
@@ -751,4 +754,21 @@ fn there_is_no_permissions_dialog_on_an_empty_folder() {
     test.app.apply_action(Action::Permissions);
 
     assert!(test.app.dialog.is_none());
+}
+
+#[test]
+fn a_mode_with_the_recursive_flag_is_sent_as_recursive() {
+    let mut test = app_with_a_folder();
+
+    submit_name(&mut test, Action::Permissions, "755 -R");
+
+    assert_eq!(
+        test.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::from("/d/proj")],
+            mode: 0o755,
+            recursive: true
+        }]
+    );
 }

@@ -400,7 +400,9 @@ impl Engine {
             Command::CreateDir { location, path } => self.create_dir(location, path),
             Command::Rename { location, from, to } => self.rename(location, from, to),
             Command::Delete { location, paths } => self.delete(location, paths),
-            Command::SetPermissions { location, paths, mode } => self.set_permissions(location, paths, mode),
+            Command::SetPermissions { location, paths, mode, recursive } => {
+                self.set_permissions(location, paths, mode, recursive)
+            }
             Command::CountContents { request_id, location, folders } => {
                 self.count_contents(request_id, location, folders);
             }

@@ -854,6 +854,7 @@ async fn setting_permissions_changes_every_chosen_path_and_refreshes_the_listing
         location: Location::Session(session),
         paths: vec![VfsPath::from("/a.txt"), VfsPath::from("/b.txt")],
         mode: 0o750,
+        recursive: false,
     });
 
     assert!(
@@ -873,6 +874,7 @@ async fn setting_permissions_ignores_the_file_type_bits_of_the_mode() {
         location: Location::Session(session),
         paths: vec![VfsPath::from("/a.txt")],
         mode: 0o100755,
+        recursive: false,
     });
 
     assert!(matches!(t.next_event().await, Event::LocationChanged { .. }));
@@ -892,6 +894,7 @@ async fn setting_permissions_on_the_local_side_changes_the_file() {
         location: Location::Local,
         paths: vec![from_os_path(&path)],
         mode: 0o700,
+        recursive: false,
     });
 
     assert!(matches!(t.next_event().await, Event::LocationChanged { location: Location::Local }));
@@ -912,6 +915,7 @@ async fn a_refused_change_is_reported_once_and_the_others_still_apply() {
         location: Location::Session(session),
         paths: vec![VfsPath::from("/a.txt"), VfsPath::from("/locked.txt"), VfsPath::from("/c.txt")],
         mode: 0o600,
+        recursive: false,
     });
 
     let events = {
@@ -945,6 +949,7 @@ async fn a_connection_that_cannot_set_permissions_says_so_without_trying() {
         location: Location::Session(session),
         paths: vec![VfsPath::from("/a.txt")],
         mode: 0o600,
+        recursive: false,
     });
 
     match t.next_event().await {
@@ -965,9 +970,82 @@ async fn setting_permissions_for_a_session_that_is_gone_does_nothing() {
         location: Location::Session(99),
         paths: vec![VfsPath::from("/a.txt")],
         mode: 0o600,
+        recursive: false,
     });
 
     assert!(t.drain().is_empty());
+}
+
+fn permission_tree(remote: &FakeFs) {
+    remote
+        .dir("/proj")
+        .file_with_mode("/proj/a.txt", b"a", None, 0o644)
+        .dir("/proj/sub")
+        .file_with_mode("/proj/sub/b.txt", b"b", None, 0o644)
+        .file_with_mode("/proj/sub/deeper/c.txt", b"c", None, 0o644);
+}
+
+#[tokio::test]
+async fn a_recursive_change_reaches_the_folder_and_everything_inside() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    permission_tree(&remote);
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/proj")],
+        mode: 0o750,
+        recursive: true,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { .. }));
+    for path in ["/proj", "/proj/a.txt", "/proj/sub", "/proj/sub/b.txt", "/proj/sub/deeper", "/proj/sub/deeper/c.txt"] {
+        assert_eq!(remote.mode_of(path), Some(0o750), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_change_that_is_not_recursive_leaves_what_is_inside_a_folder_alone() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    permission_tree(&remote);
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/proj")],
+        mode: 0o750,
+        recursive: false,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { .. }));
+    assert_eq!(remote.mode_of("/proj"), Some(0o750));
+    assert_eq!(remote.mode_of("/proj/a.txt"), Some(0o644));
+    assert_eq!(remote.mode_of("/proj/sub"), None);
+}
+
+#[tokio::test]
+async fn a_recursive_change_does_not_follow_or_change_links() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    permission_tree(&remote);
+    remote.file_with_mode("/outside.txt", b"o", None, 0o600).symlink("/proj/link", "/outside.txt");
+    remote
+        .dir("/elsewhere")
+        .file_with_mode("/elsewhere/e.txt", b"e", None, 0o600)
+        .symlink("/proj/dirlink", "/elsewhere");
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/proj")],
+        mode: 0o755,
+        recursive: true,
+    });
+
+    assert!(matches!(t.next_event().await, Event::LocationChanged { .. }));
+    assert_eq!(remote.mode_of("/outside.txt"), Some(0o600));
+    assert_eq!(remote.mode_of("/elsewhere/e.txt"), Some(0o600));
+    assert_eq!(remote.mode_of("/elsewhere"), None);
+    assert_eq!(remote.mode_of("/proj/a.txt"), Some(0o755));
 }
 
 #[tokio::test]

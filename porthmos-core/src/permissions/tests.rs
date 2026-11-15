@@ -1,4 +1,4 @@
-use super::{mode_text, parse_mode, symbolic};
+use super::{ModeRequest, mode_text, parse_mode, parse_mode_request, symbolic};
 
 #[test]
 fn three_and_four_octal_digits_are_a_mode() {
@@ -78,4 +78,37 @@ fn a_typed_mode_round_trips_through_the_text() {
     for text in ["000", "644", "755", "4755", "2775", "1777"] {
         assert_eq!(mode_text(parse_mode(text).unwrap()), text);
     }
+}
+
+#[test]
+fn a_mode_request_without_a_flag_is_not_recursive() {
+    assert_eq!(parse_mode_request("755"), Ok(ModeRequest { mode: 0o755, recursive: false }));
+}
+
+#[test]
+fn the_recursive_flag_may_come_before_or_after_the_mode() {
+    let expected = Ok(ModeRequest { mode: 0o640, recursive: true });
+    assert_eq!(parse_mode_request("640 -R"), expected);
+    assert_eq!(parse_mode_request("-R 640"), expected);
+    assert_eq!(parse_mode_request("  -r   640  "), expected);
+}
+
+#[test]
+fn a_flag_alone_or_repeated_or_unknown_is_refused() {
+    assert_eq!(parse_mode_request("-R"), Err("Type a mode such as 644 or 755".to_string()));
+    assert_eq!(parse_mode_request("-R -R 644"), Err("Use -R only once".to_string()));
+    assert_eq!(parse_mode_request("-x 644"), Err("The only option is -R (everything inside folders)".to_string()));
+}
+
+#[test]
+fn two_modes_are_refused() {
+    assert_eq!(
+        parse_mode_request("644 755"),
+        Err("Type one mode, and -R to include what is inside folders".to_string())
+    );
+}
+
+#[test]
+fn a_bad_mode_next_to_the_flag_keeps_its_own_message() {
+    assert_eq!(parse_mode_request("-R 899"), Err("A mode is made of the digits 0 to 7".to_string()));
 }

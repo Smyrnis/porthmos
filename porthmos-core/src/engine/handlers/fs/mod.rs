@@ -377,7 +377,7 @@ impl Engine {
         });
     }
 
-    pub(crate) fn set_permissions(&mut self, location: Location, paths: Vec<VfsPath>, mode: u32) {
+    pub(crate) fn set_permissions(&mut self, location: Location, paths: Vec<VfsPath>, mode: u32, recursive: bool) {
         let Some(fs) = self.filesystem_or_drop(location) else {
             return;
         };
@@ -394,6 +394,13 @@ impl Engine {
         self.tasks.spawn("set-permissions", scope_for(location), move |_| async move {
             let mut changed = false;
             let mut refused: Option<(VfsPath, ProtocolError)> = None;
+            let paths = if recursive {
+                let tree = crate::permission_tree::expand(fs.as_ref(), paths).await;
+                refused = tree.first_unreadable;
+                tree.paths.into_iter().rev().collect()
+            } else {
+                paths
+            };
             for path in paths {
                 match fs.set_permissions(&path, mode & PERMISSION_BITS).await {
                     Ok(()) => changed = true,

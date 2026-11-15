@@ -4289,7 +4289,8 @@ fn permissions_start_with_the_cursor_mode_and_send_the_chosen_one() {
         vec![Command::SetPermissions {
             location: Location::Local,
             paths: vec![VfsPath::new("/home/tester/a")],
-            mode: 0o755
+            mode: 0o755,
+            recursive: false
         }]
     );
 }
@@ -4351,7 +4352,8 @@ fn a_selection_gets_one_mode_for_every_entry() {
         vec![Command::SetPermissions {
             location: Location::Local,
             paths: vec![VfsPath::new("/home/tester/a"), VfsPath::new("/home/tester/b")],
-            mode: 0o604
+            mode: 0o604,
+            recursive: false
         }]
     );
 }
@@ -4378,7 +4380,8 @@ fn permissions_on_a_connection_go_to_that_session() {
         vec![Command::SetPermissions {
             location: Location::Session(1),
             paths: vec![VfsPath::new("/srv/page.html")],
-            mode: 0o664
+            mode: 0o664,
+            recursive: false
         }]
     );
 }
@@ -4416,4 +4419,49 @@ fn the_permissions_action_is_reachable_from_the_action_bar() {
     harness.press(Message::ActionRequested(crate::shortcuts::Action::Permissions));
 
     assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { .. }));
+}
+
+#[test]
+fn the_apply_inside_folders_box_is_off_until_ticked_and_then_sent() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(
+        &mut harness,
+        vec![porthmos_core::Entry { is_dir: true, ..entry_with_mode(&folder, "proj", 0o040755) }],
+    );
+    plain(&mut harness, Named::ArrowDown);
+    shift_p(&mut harness);
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { recursive: false, .. }));
+
+    harness.press(Message::PermissionsRecursiveToggled(true));
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { recursive: true, .. }));
+    harness.sent();
+    harness.press(Message::ModalAccepted);
+
+    assert_eq!(
+        harness.sent(),
+        vec![Command::SetPermissions {
+            location: Location::Local,
+            paths: vec![VfsPath::new("/home/tester/proj")],
+            mode: 0o755,
+            recursive: true
+        }]
+    );
+}
+
+#[test]
+fn ticking_apply_inside_folders_again_turns_it_off() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(
+        &mut harness,
+        vec![porthmos_core::Entry { is_dir: true, ..entry_with_mode(&folder, "proj", 0o040755) }],
+    );
+    plain(&mut harness, Named::ArrowDown);
+    shift_p(&mut harness);
+    harness.press(Message::PermissionsRecursiveToggled(true));
+
+    harness.press(Message::PermissionsRecursiveToggled(false));
+
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::Permissions { recursive: false, .. }));
 }

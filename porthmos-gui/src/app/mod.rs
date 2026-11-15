@@ -153,6 +153,7 @@ pub enum Message {
     MissingHostChosen(MissingChoice),
     PasswordSaveToggled(bool),
     PermissionToggled(u32, bool),
+    PermissionsRecursiveToggled(bool),
     FormTestPressed,
     FormTestCancelled,
     TestPasswordTyped(Typed),
@@ -1346,6 +1347,11 @@ impl App {
                 }
             }
             Message::PasswordSaveToggled(on) => {
+            Message::PermissionsRecursiveToggled(on) => {
+                if let Some(Modal::Permissions { recursive, .. }) = self.modals.front_mut() {
+                    *recursive = on;
+                }
+            }
                 if let Some(Modal::Question(Dialog::Password { save: Some(save), .. })) = self.modals.front_mut() {
                     *save = on;
                 }
@@ -1803,10 +1809,10 @@ impl App {
                     self.core.send(Command::Rename { location, from: original.path, to: parent.join(text.as_str()) });
                 }
             }
-            (true, Modal::Permissions { side, entries, mode }) => {
+            (true, Modal::Permissions { side, entries, mode, recursive }) => {
                 if let Some(location) = self.location_of(side) {
                     let paths = entries.into_iter().map(|entry| entry.path).collect();
-                    self.core.send(Command::SetPermissions { location, paths, mode });
+                    self.core.send(Command::SetPermissions { location, paths, mode, recursive });
                 }
             }
             (true, Modal::BookmarkName { location, path, text, .. }) => {
@@ -2160,7 +2166,7 @@ impl App {
                         .iter()
                         .find_map(|entry| entry.permissions)
                         .map_or(UNKNOWN_MODE, |mode| mode & PERMISSION_BITS);
-                    self.modals.push(Modal::Permissions { side, entries, mode });
+                    self.modals.push(Modal::Permissions { side, entries, mode, recursive: false });
                 }
             }
             Action::Properties => self.open_properties(side),

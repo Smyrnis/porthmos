@@ -45,7 +45,7 @@ pub enum Command {
     CreateDir { location: Location, path: VfsPath },
     Rename { location: Location, from: VfsPath, to: VfsPath },
     Delete { location: Location, paths: Vec<VfsPath> },
-    SetPermissions { location: Location, paths: Vec<VfsPath>, mode: u32 },
+    SetPermissions { location: Location, paths: Vec<VfsPath>, mode: u32, recursive: bool },
     CountContents { request_id: RequestId, location: Location, folders: Vec<VfsPath> },
     CancelCount,
     Measure { request_id: RequestId, location: Location, paths: Vec<VfsPath> },

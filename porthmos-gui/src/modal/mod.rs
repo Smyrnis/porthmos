@@ -49,6 +49,7 @@ pub enum Modal {
         side: PanelSide,
         entries: Vec<Entry>,
         mode: u32,
+        recursive: bool,
     },
     BookmarkName {
         location: Location,

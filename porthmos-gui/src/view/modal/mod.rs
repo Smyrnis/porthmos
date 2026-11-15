@@ -65,6 +65,18 @@ fn permissions_title(entries: &[porthmos_core::Entry]) -> String {
     }
 }
 
+fn permissions_body<'a>(mode: u32, recursive: bool, has_folder: bool, palette: &Palette) -> Element<'a, Message> {
+    let grid = permissions_grid(mode, palette);
+    if !has_folder {
+        return grid;
+    }
+    let inside = checkbox(recursive)
+        .label("Apply to everything inside folders")
+        .on_toggle(Message::PermissionsRecursiveToggled)
+        .style(crate::view::checkbox::style(palette));
+    column![grid, inside].spacing(12).into()
+}
+
 fn permissions_grid<'a>(mode: u32, palette: &Palette) -> Element<'a, Message> {
     let cell = |content: Element<'a, Message>| container(content).width(Length::Fixed(PERMISSION_CELL_WIDTH));
     let mut header = row![label(String::new(), palette.fg_dim).width(Length::Fixed(PERMISSION_LABEL_WIDTH))].spacing(8);
@@ -187,9 +199,11 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             body_text("Clear the whole transfer history?".to_string(), palette),
             cautious_buttons("Clear", "Cancel", palette),
         ),
-        Modal::Permissions { mode, entries, .. } => {
-            (permissions_title(entries), permissions_grid(*mode, palette), buttons("Apply", "Cancel", palette))
-        }
+        Modal::Permissions { mode, entries, recursive, .. } => (
+            permissions_title(entries),
+            permissions_body(*mode, *recursive, entries.iter().any(|entry| entry.is_dir), palette),
+            buttons("Apply", "Cancel", palette),
+        ),
         Modal::Properties { pane, .. } => {
             (pane.title.clone(), properties::body(pane, palette), properties::buttons(pane, palette))
         }

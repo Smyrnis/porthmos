@@ -23,6 +23,7 @@ enum Node {
 #[derive(Default)]
 struct Tree {
     nodes: BTreeMap<VfsPath, Node>,
+    folder_modes: BTreeMap<VfsPath, u32>,
     failing_read_dirs: BTreeMap<VfsPath, ErrorKind>,
     failing_reads: BTreeSet<VfsPath>,
     unopenable: BTreeSet<VfsPath>,
@@ -208,8 +209,11 @@ impl FakeFs {
     }
 
     pub fn mode_of(&self, path: impl Into<VfsPath>) -> Option<u32> {
-        match self.tree.lock().unwrap().nodes.get(&path.into() as &VfsPath) {
+        let path = path.into();
+        let tree = self.tree.lock().unwrap();
+        match tree.nodes.get(&path) {
             Some(Node::File { mode, .. }) => *mode,
+            Some(Node::Dir) => tree.folder_modes.get(&path).copied(),
             _ => None,
         }
     }
@@ -413,6 +417,10 @@ impl FileSystem for FakeFs {
         match tree.nodes.get_mut(path) {
             Some(Node::File { mode: stored, .. }) => {
                 *stored = Some(mode);
+                Ok(())
+            }
+            Some(Node::Dir) => {
+                tree.folder_modes.insert(path.clone(), mode);
                 Ok(())
             }
             _ => Err(not_found(path)),

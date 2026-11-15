@@ -6,7 +6,7 @@ use porthmos_core::{
         delete_summary,
     },
     names::entry_name_problem,
-    permissions::{mode_text, parse_mode},
+    permissions::{ModeRequest, mode_text, parse_mode_request},
 };
 
 use super::*;
@@ -150,7 +150,7 @@ impl App {
 
     fn submitted_mode_problem(&self, text: &str) -> Option<String> {
         match self.pending_action.as_ref()? {
-            PendingAction::Permissions { .. } => parse_mode(text).err(),
+            PendingAction::Permissions { .. } => parse_mode_request(text).err(),
             _ => None,
         }
     }
@@ -233,8 +233,8 @@ impl App {
                     Some(PendingAction::Mkdir) => self.create_directory(&value),
                     Some(PendingAction::Rename { location, from }) => self.rename_entry(location, from, &value),
                     Some(PendingAction::Permissions { location, paths }) => {
-                        if let Ok(mode) = parse_mode(&value) {
-                            self.core.send(Command::SetPermissions { location, paths, mode });
+                        if let Ok(ModeRequest { mode, recursive }) = parse_mode_request(&value) {
+                            self.core.send(Command::SetPermissions { location, paths, mode, recursive });
                         }
                     }
                     Some(PendingAction::AddBookmark) => self.add_bookmark(value),

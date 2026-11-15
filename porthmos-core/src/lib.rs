@@ -20,6 +20,7 @@ pub mod panel_memory;
 mod path_completion;
 mod path_text;
 pub mod paths;
+mod permission_tree;
 pub mod permissions;
 pub mod persist;
 pub mod preview;
