@@ -77,9 +77,9 @@ impl Engine {
         let batch_id = self.transfers.start_batch(display_name.clone());
         if moving {
             let roots = entries.iter().filter(|entry| entry.is_dir).map(|entry| entry.path.clone()).collect();
-            self.moves.insert(batch_id, MoveBatch { session_id, direction, roots });
+            self.work.moves.insert(batch_id, MoveBatch { session_id, direction, roots });
         }
-        self.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
+        self.work.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
 
         let internal = self.internal.clone();
         self.tasks.spawn("plan-copy", Scope::Planning(batch_id), move |cancel| async move {
@@ -149,7 +149,7 @@ impl Engine {
         drop(job);
 
         let internal = self.internal.clone();
-        let limit = self.speed_limit.clone();
+        let limit = self.work.speed_limit.clone();
         self.tasks.spawn("transfer", Scope::Transfer(id), move |cancel| async move {
             let progress = internal.clone();
             let result = transfer::execute_preserving(
@@ -212,10 +212,10 @@ impl Engine {
                     return;
                 }
                 if outcome == TransferOutcome::Completed && self.removes_source(id) {
-                    self.pause_stops.remove(&id);
+                    self.work.pause_stops.remove(&id);
                     return self.remove_moved_source(id);
                 }
-                self.pause_stops.remove(&id);
+                self.work.pause_stops.remove(&id);
                 if let Some(mut job) = self.transfers.get_mut(id) {
                     job.status = match outcome {
                         TransferOutcome::Completed => JobStatus::Completed,
@@ -242,7 +242,7 @@ impl Engine {
                     tracing::debug!("{message}");
                     return;
                 }
-                self.pause_stops.remove(&id);
+                self.work.pause_stops.remove(&id);
                 let known = self.transfers.get(id).is_some();
                 if cancelled && let Some(mut job) = self.transfers.get_mut(id) {
                     job.status = JobStatus::Cancelled;
@@ -279,6 +279,7 @@ impl Engine {
             }
             TransferEvent::PlanFailed { batch_id, message } => {
                 let scan = self
+                    .work
                     .planning
                     .iter()
                     .find(|scan| scan.batch_id == batch_id)
@@ -348,15 +349,15 @@ impl Engine {
             return;
         }
         let files: Vec<ConflictInfo> = conflicts.iter().map(|index| ConflictInfo::from(&plan.files[*index])).collect();
-        self.reviews.push_back(ConflictReview { batch_id, session_id, direction, plan });
+        self.work.reviews.push_back(ConflictReview { batch_id, session_id, direction, plan });
         self.emit(Event::ConflictsFound { batch_id, files });
     }
 
     pub(crate) fn resolve_conflicts(&mut self, batch_id: u64, answers: Option<Vec<Resolution>>) {
-        let Some(index) = self.reviews.iter().position(|review| review.batch_id == batch_id) else {
+        let Some(index) = self.work.reviews.iter().position(|review| review.batch_id == batch_id) else {
             return;
         };
-        let Some(review) = self.reviews.remove(index) else {
+        let Some(review) = self.work.reviews.remove(index) else {
             return;
         };
         match answers {
@@ -379,8 +380,8 @@ impl Engine {
 
     pub(crate) fn drop_conflict_reviews(&mut self, should_drop: impl Fn(&ConflictReview) -> bool) -> usize {
         let dropped: Vec<u64> =
-            self.reviews.iter().filter(|review| should_drop(review)).map(|review| review.batch_id).collect();
-        self.reviews.retain(|review| !should_drop(review));
+            self.work.reviews.iter().filter(|review| should_drop(review)).map(|review| review.batch_id).collect();
+        self.work.reviews.retain(|review| !should_drop(review));
         for batch_id in &dropped {
             self.forget_batch(*batch_id);
         }
@@ -406,7 +407,7 @@ impl Engine {
         let skipped_symlinks = plan.skipped_symlinks;
         let renamed = std::mem::take(&mut plan.renamed);
         let keeps_times = preserve_times || self.destination_can_set_modified(session_id, direction);
-        let moving = self.moves.contains_key(&batch_id);
+        let moving = self.work.moves.contains_key(&batch_id);
         let resolved = transfer::conflicts::resolve(plan, answers);
         let (files, kept_originals) = if moving {
             self.vet_move(session_id, resolved.files)
@@ -477,7 +478,7 @@ impl Engine {
     }
 
     pub(crate) fn clear_planning(&mut self, batch_id: u64) {
-        self.planning.retain(|scan| scan.batch_id != batch_id);
+        self.work.planning.retain(|scan| scan.batch_id != batch_id);
         self.tasks.forget(Scope::Planning(batch_id));
     }
 
@@ -523,12 +524,12 @@ impl Engine {
     }
 
     pub(crate) fn cancel_all_work(&mut self) {
-        let scans: Vec<u64> = self.planning.iter().map(|scan| scan.batch_id).collect();
+        let scans: Vec<u64> = self.work.planning.iter().map(|scan| scan.batch_id).collect();
         for batch_id in scans {
             self.tasks.cancel(Scope::Planning(batch_id));
         }
         let running: Vec<u64> = self.transfers.active_jobs().map(|job| job.id).collect();
-        self.pause_stops.clear();
+        self.work.pause_stops.clear();
         for id in running {
             self.tasks.cancel(Scope::Transfer(id));
         }
@@ -545,13 +546,13 @@ impl Engine {
 
     pub(crate) fn cancel_session_transfers(&mut self, session_id: u64) -> usize {
         let scans: Vec<u64> =
-            self.planning.iter().filter(|scan| scan.session_id == session_id).map(|scan| scan.batch_id).collect();
+            self.work.planning.iter().filter(|scan| scan.session_id == session_id).map(|scan| scan.batch_id).collect();
         for batch_id in &scans {
             self.tasks.cancel(Scope::Planning(*batch_id));
         }
         let active_ids = self.transfers.active_ids_for_session(session_id);
         for id in &active_ids {
-            self.pause_stops.remove(id);
+            self.work.pause_stops.remove(id);
             self.tasks.cancel(Scope::Transfer(*id));
         }
         scans.len() + active_ids.len()
@@ -559,7 +560,7 @@ impl Engine {
 
     pub(crate) fn cancel_row(&mut self, kind: RowKind) {
         if let RowKind::Scan(batch_id) = kind {
-            if self.planning.iter().any(|scan| scan.batch_id == batch_id) {
+            if self.work.planning.iter().any(|scan| scan.batch_id == batch_id) {
                 self.tasks.cancel(Scope::Planning(batch_id));
             }
             self.drop_conflict_reviews(|review| review.batch_id == batch_id);
@@ -581,7 +582,7 @@ impl Engine {
                     }
                 }
                 JobStatus::InProgress => {
-                    self.pause_stops.remove(id);
+                    self.work.pause_stops.remove(id);
                     self.tasks.cancel(Scope::Transfer(*id));
                 }
                 _ => {}
@@ -641,7 +642,7 @@ impl Engine {
                 Some(target) => {
                     if target != session_id {
                         self.transfers.rebind_session(id, target);
-                        if let Some(moving) = batch_id.and_then(|batch_id| self.moves.get_mut(&batch_id)) {
+                        if let Some(moving) = batch_id.and_then(|batch_id| self.work.moves.get_mut(&batch_id)) {
                             moving.session_id = target;
                         }
                     }

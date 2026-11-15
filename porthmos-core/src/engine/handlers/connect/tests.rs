@@ -363,7 +363,7 @@ fn disconnecting_a_session_counts_its_active_jobs_in_the_aggregated_notification
 fn disconnecting_a_session_counts_its_scans_in_the_aggregated_notification() {
     let mut t = test_engine();
     let (session, _) = t.add_session("test");
-    t.engine.planning.push(PlanningScan {
+    t.engine.work.planning.push(PlanningScan {
         batch_id: 0,
         session_id: session,
         direction: Direction::Upload,
@@ -410,7 +410,7 @@ fn disconnecting_drops_that_sessions_waiting_copies_and_counts_them() {
 
     t.engine.disconnect(session);
 
-    assert!(t.engine.reviews.is_empty());
+    assert!(t.engine.work.reviews.is_empty());
     let events = t.drain();
     assert!(
         events
@@ -455,7 +455,7 @@ async fn disconnecting_during_a_copy_cancels_it_and_late_results_do_not_bring_it
     assert!(messages.iter().any(|m| m == "1 transfer cancelled \u{2014} session disconnected"), "{messages:?}");
     assert!(t.engine.book.sessions.is_empty());
     assert_eq!(t.engine.transfers.jobs().count(), 0);
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.engine.snapshot().active.is_empty());
 }
 

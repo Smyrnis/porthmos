@@ -4,9 +4,10 @@ mod handlers;
 mod prompter;
 mod report;
 mod session_book;
+mod transfer_work;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, atomic::AtomicU64},
     time::{Duration, Instant},
@@ -187,30 +188,21 @@ pub(crate) struct Engine {
     book: SessionBook,
     questions: PendingQuestions,
     transfers: TransferQueue,
+    pub(crate) work: transfer_work::TransferWork,
     max_parallel: usize,
     on_conflict: ConflictPolicy,
-    planning: Vec<PlanningScan>,
-    moves: HashMap<u64, handlers::MoveBatch>,
-    reviews: VecDeque<ConflictReview>,
     search: SearchState,
     bookmarks: Bookmarks,
-    published: TransferSnapshot,
-    last_progress_publish: Option<Instant>,
-    publish_interval: Duration,
-    transfers_dirty: bool,
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
     reopen: handlers::ReopenState,
     reconnect: handlers::ReconnectState,
-    pub(crate) speed_limit: crate::transfer::limit::SpeedLimit,
     preview_request: Option<u64>,
     properties_request: Option<RequestId>,
     properties_location: Option<Location>,
     preview_busy: bool,
     preview_hint: Option<RequestId>,
     preview_next: Option<(u64, Location, VfsPath)>,
-    pub(crate) pause_stops: std::collections::HashSet<u64>,
-    pub(crate) source_removals: std::collections::HashSet<u64>,
     history: handlers::HistoryLog,
     edit: handlers::EditState,
     keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
@@ -288,30 +280,21 @@ impl Engine {
             book: SessionBook::default(),
             questions: PendingQuestions::default(),
             transfers: TransferQueue::new(),
+            work: transfer_work::TransferWork::new(parts.publish_interval),
             max_parallel: parts.transfers.max_parallel,
             on_conflict: parts.transfers.on_conflict,
-            planning: Vec::new(),
-            moves: HashMap::new(),
-            reviews: VecDeque::new(),
             search: SearchState { generation: Arc::new(AtomicU64::new(0)) },
             bookmarks: parts.bookmarks,
-            published: TransferSnapshot::default(),
-            last_progress_publish: None,
-            publish_interval: parts.publish_interval,
-            transfers_dirty: false,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
             reopen: handlers::ReopenState::new(parts.reopen),
             reconnect: handlers::ReconnectState::new(parts.reconnect),
-            speed_limit: crate::transfer::limit::SpeedLimit::new(),
             preview_request: None,
             preview_busy: false,
             preview_hint: None,
             properties_request: None,
             properties_location: None,
             preview_next: None,
-            pause_stops: std::collections::HashSet::new(),
-            source_removals: std::collections::HashSet::new(),
             history: handlers::HistoryLog::new(parts.history),
             edit: handlers::EditState::new(parts.edit),
             keyring_jobs: None,
@@ -345,7 +328,7 @@ impl Engine {
                 () = sleep_until_or_pending(flush_at) => self.publish_transfers(),
             }
         }
-        if self.transfers_dirty {
+        if self.work.transfers_dirty {
             self.publish_transfers();
         }
         self.shutdown_work(&mut internal).await;
@@ -485,7 +468,7 @@ impl Engine {
                 self.handle_transfer_event(TransferEvent::Failed { id, message: failed });
             }
             Scope::Planning(batch_id) if self.sync.is_scanning(batch_id) => self.sync_failed(batch_id, failed),
-            Scope::Planning(batch_id) if self.planning.iter().any(|scan| scan.batch_id == batch_id) => {
+            Scope::Planning(batch_id) if self.work.planning.iter().any(|scan| scan.batch_id == batch_id) => {
                 self.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: failed });
             }
             Scope::Edit(edit_id) if self.edit_in_progress(edit_id) => self.fail_edit(edit_id, &failed),
@@ -600,7 +583,8 @@ impl Engine {
     }
 
     fn scans(&self) -> Vec<ScanInfo<'_>> {
-        self.planning
+        self.work
+            .planning
             .iter()
             .map(|scan| ScanInfo {
                 batch_id: scan.batch_id,
@@ -608,7 +592,7 @@ impl Engine {
                 direction: scan.direction,
                 state: RowState::Scanning,
             })
-            .chain(self.reviews.iter().map(|review| ScanInfo {
+            .chain(self.work.reviews.iter().map(|review| ScanInfo {
                 batch_id: review.batch_id,
                 label: self.transfers.batch_label(review.batch_id).unwrap_or("copy"),
                 direction: review.direction,
@@ -619,7 +603,7 @@ impl Engine {
 
     fn snapshot(&self) -> TransferSnapshot {
         let mut snapshot = TransferSnapshot {
-            speed_limit: self.speed_limit.get(),
+            speed_limit: self.work.speed_limit.get(),
             ..TransferSnapshot::of(&self.transfers, &self.scans())
         };
         snapshot.connections = snapshot
@@ -634,30 +618,33 @@ impl Engine {
 
     fn publish_transfers(&mut self) {
         self.process_row_changes();
-        self.transfers_dirty = false;
-        self.last_progress_publish = Some(Instant::now());
+        self.work.transfers_dirty = false;
+        self.work.last_progress_publish = Some(Instant::now());
         let snapshot = self.snapshot();
-        if snapshot != self.published {
-            self.published = snapshot.clone();
+        if snapshot != self.work.published {
+            self.work.published = snapshot.clone();
             self.emit(Event::TransfersChanged(snapshot));
         }
     }
 
     fn request_publish(&mut self) {
-        let due = self.publish_interval.is_zero()
-            || self.last_progress_publish.is_none_or(|published_at| published_at.elapsed() >= self.publish_interval);
+        let due = self.work.publish_interval.is_zero()
+            || self
+                .work
+                .last_progress_publish
+                .is_none_or(|published_at| published_at.elapsed() >= self.work.publish_interval);
         if due {
             self.publish_transfers();
         } else {
-            self.transfers_dirty = true;
+            self.work.transfers_dirty = true;
         }
     }
 
     fn flush_deadline(&self) -> Option<Instant> {
-        if !self.transfers_dirty {
+        if !self.work.transfers_dirty {
             return None;
         }
-        self.last_progress_publish.map(|published_at| published_at + self.publish_interval)
+        self.work.last_progress_publish.map(|published_at| published_at + self.work.publish_interval)
     }
 }
 

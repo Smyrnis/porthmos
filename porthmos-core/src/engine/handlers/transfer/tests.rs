@@ -116,7 +116,7 @@ fn copying_a_directory_with_a_disconnected_session_fails_without_spawning() {
 
     t.engine.copy(Location::Local, vec![entry], Location::Session(7), VfsPath::from("/remote"));
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     let (severity, message) = t.first_notice().unwrap();
     assert_eq!(severity, Severity::Error);
     assert!(message.contains("disconnected"));
@@ -241,7 +241,7 @@ fn plan_ready_warns_once_about_skipped_symlinks() {
 fn plan_ready_fails_without_enqueueing_when_the_session_has_disconnected() {
     let mut t = test_engine();
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
-    t.engine.planning.push(planning_scan(batch_id, 1, "myfolder"));
+    t.engine.work.planning.push(planning_scan(batch_id, 1, "myfolder"));
 
     t.engine.handle_transfer_event(TransferEvent::PlanReady {
         batch_id,
@@ -250,7 +250,7 @@ fn plan_ready_fails_without_enqueueing_when_the_session_has_disconnected() {
         plan: plan(vec![planned("/local/a.txt", "/remote/a.txt", 10)]),
     });
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     let (severity, message) = t.first_notice().unwrap();
     assert_eq!(severity, Severity::Error);
     assert!(message.contains("disconnected"));
@@ -261,14 +261,14 @@ fn plan_ready_fails_without_enqueueing_when_the_session_has_disconnected() {
 fn plan_failed_clears_planning_and_shows_an_error() {
     let mut t = test_engine();
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
-    t.engine.planning.push(planning_scan(batch_id, 1, "myfolder"));
+    t.engine.work.planning.push(planning_scan(batch_id, 1, "myfolder"));
 
     t.engine.handle_transfer_event(TransferEvent::PlanFailed {
         batch_id,
         message: "Copy failed: permission denied".to_string(),
     });
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert_eq!(t.first_notice(), Some((Severity::Error, "Copy failed: permission denied".to_string())));
 }
 
@@ -277,11 +277,11 @@ fn plan_cancelled_clears_planning_and_shows_an_info_notification() {
     let mut t = test_engine();
     let (session_id, _) = t.add_session("test");
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
-    t.engine.planning.push(planning_scan(batch_id, session_id, "myfolder"));
+    t.engine.work.planning.push(planning_scan(batch_id, session_id, "myfolder"));
 
     t.engine.handle_transfer_event(TransferEvent::PlanCancelled { batch_id, session_id, direction: Direction::Upload });
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert_eq!(t.first_notice(), Some((Severity::Info, "Copy cancelled".to_string())));
     assert_eq!(t.engine.transfers.batch_progress(batch_id).total_files, 0);
 }
@@ -291,8 +291,8 @@ fn plan_cancelled_only_clears_its_own_scan() {
     let mut t = test_engine();
     let first = t.engine.transfers.start_batch("batch".to_string());
     let second = t.engine.transfers.start_batch("batch".to_string());
-    t.engine.planning.push(planning_scan(first, 1, "one"));
-    t.engine.planning.push(planning_scan(second, 1, "two"));
+    t.engine.work.planning.push(planning_scan(first, 1, "one"));
+    t.engine.work.planning.push(planning_scan(second, 1, "two"));
 
     t.engine.handle_transfer_event(TransferEvent::PlanCancelled {
         batch_id: first,
@@ -300,7 +300,7 @@ fn plan_cancelled_only_clears_its_own_scan() {
         direction: Direction::Upload,
     });
 
-    let remaining: Vec<u64> = t.engine.planning.iter().map(|scan| scan.batch_id).collect();
+    let remaining: Vec<u64> = t.engine.work.planning.iter().map(|scan| scan.batch_id).collect();
     assert_eq!(remaining, vec![second]);
 }
 
@@ -308,7 +308,7 @@ fn plan_cancelled_only_clears_its_own_scan() {
 fn plan_cancelled_for_a_disconnected_session_is_silent() {
     let mut t = test_engine();
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
-    t.engine.planning.push(planning_scan(batch_id, 1, "myfolder"));
+    t.engine.work.planning.push(planning_scan(batch_id, 1, "myfolder"));
 
     t.engine.handle_transfer_event(TransferEvent::PlanCancelled {
         batch_id,
@@ -316,27 +316,27 @@ fn plan_cancelled_for_a_disconnected_session_is_silent() {
         direction: Direction::Upload,
     });
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.first_notice().is_none());
 }
 
 #[test]
 fn cancel_all_copies_sets_every_scans_flag_and_leaves_them_tracked() {
     let mut t = test_engine();
-    t.engine.planning.push(planning_scan(0, 1, "one"));
-    t.engine.planning.push(planning_scan(1, 1, "two"));
+    t.engine.work.planning.push(planning_scan(0, 1, "one"));
+    t.engine.work.planning.push(planning_scan(1, 1, "two"));
 
     t.engine.cancel_all_copies();
 
-    let batches: Vec<u64> = t.engine.planning.iter().map(|scan| scan.batch_id).collect();
+    let batches: Vec<u64> = t.engine.work.planning.iter().map(|scan| scan.batch_id).collect();
     assert!(batches.into_iter().all(|batch| t.engine.tasks.take_cancelled(Scope::Planning(batch))));
-    assert_eq!(t.engine.planning.len(), 2);
+    assert_eq!(t.engine.work.planning.len(), 2);
 }
 
 #[test]
 fn cancel_all_copies_stops_scans_and_the_active_batch_together() {
     let mut t = test_engine();
-    t.engine.planning.push(planning_scan(100, 1, "scanning"));
+    t.engine.work.planning.push(planning_scan(100, 1, "scanning"));
     let batch_id = t.engine.transfers.start_batch("batch".to_string());
     let active = enqueue_job(&mut t, 1, "a.txt", Some(batch_id));
     let queued = enqueue_job(&mut t, 1, "b.txt", Some(batch_id));
@@ -355,7 +355,7 @@ fn cancel_all_copies_with_nothing_running_is_a_no_op() {
 
     t.engine.cancel_all_copies();
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.first_notice().is_none());
 }
 
@@ -410,7 +410,7 @@ fn cancel_session_transfers_flags_only_that_sessions_jobs_and_scans() {
     let mut t = test_engine();
     let mine = enqueue_job(&mut t, 1, "a.txt", None);
     mark_active(&mut t, mine);
-    t.engine.planning.push(planning_scan(7, 1, "mine"));
+    t.engine.work.planning.push(planning_scan(7, 1, "mine"));
 
     let flagged = t.engine.cancel_session_transfers(1);
 
@@ -424,7 +424,7 @@ fn cancel_session_transfers_leaves_other_sessions_alone() {
     let mut t = test_engine();
     let theirs = enqueue_job(&mut t, 2, "a.txt", None);
     mark_active(&mut t, theirs);
-    t.engine.planning.push(planning_scan(7, 2, "theirs"));
+    t.engine.work.planning.push(planning_scan(7, 2, "theirs"));
 
     let flagged = t.engine.cancel_session_transfers(1);
 
@@ -602,7 +602,7 @@ fn a_ready_plan_keeps_its_label_only_when_it_has_files() {
 #[test]
 fn progress_events_update_the_job_and_are_published_at_most_every_interval() {
     let mut t = test_engine();
-    t.engine.publish_interval = std::time::Duration::from_secs(30);
+    t.engine.work.publish_interval = std::time::Duration::from_secs(30);
     let job = enqueue_job(&mut t, 1, "a.txt", None);
     mark_active(&mut t, job);
     t.engine.publish_transfers();
@@ -783,8 +783,8 @@ fn cancel_on_a_batch_row_cancels_only_that_batch() {
 #[test]
 fn cancel_on_a_scan_row_flags_only_that_scan() {
     let mut t = test_engine();
-    t.engine.planning.push(planning_scan(1, 1, "one"));
-    t.engine.planning.push(planning_scan(2, 1, "two"));
+    t.engine.work.planning.push(planning_scan(1, 1, "one"));
+    t.engine.work.planning.push(planning_scan(2, 1, "two"));
 
     t.engine.cancel_row(RowKind::Scan(2));
 
@@ -800,7 +800,7 @@ fn cancel_on_a_waiting_copy_withdraws_its_prompt() {
 
     t.engine.cancel_row(RowKind::Scan(batch_id));
 
-    assert!(t.engine.reviews.is_empty());
+    assert!(t.engine.work.reviews.is_empty());
     assert!(
         t.drain()
             .iter()
@@ -962,7 +962,7 @@ async fn retry_leaves_the_queue_and_the_row_route_consistent_after_moving_sessio
 fn a_batch_that_was_a_move_says_so_in_its_failure_summary() {
     let mut t = test_engine();
     let batch = t.engine.transfers.start_batch("photos".to_string());
-    t.engine.moves.insert(batch, MoveBatch { session_id: 999, direction: Direction::Upload, roots: Vec::new() });
+    t.engine.work.moves.insert(batch, MoveBatch { session_id: 999, direction: Direction::Upload, roots: Vec::new() });
     let ids: Vec<u64> = (0..2).map(|n| enqueue_job(&mut t, 999, &format!("f{n}.txt"), Some(batch))).collect();
     for id in &ids {
         mark_active(&mut t, *id);
@@ -988,6 +988,7 @@ async fn retry_points_a_move_batch_at_the_reconnected_session() {
     let (old_session, _) = t.add_session("alpha");
     let batch = t.engine.transfers.start_batch("photos".to_string());
     t.engine
+        .work
         .moves
         .insert(batch, MoveBatch { session_id: old_session, direction: Direction::Upload, roots: Vec::new() });
     let failed = enqueue_job(&mut t, old_session, "a", Some(batch));
@@ -997,7 +998,7 @@ async fn retry_points_a_move_batch_at_the_reconnected_session() {
 
     t.engine.retry_row(RowKind::Batch(batch));
 
-    assert_eq!(t.engine.moves[&batch].session_id, new_session);
+    assert_eq!(t.engine.work.moves[&batch].session_id, new_session);
 }
 
 #[test]
@@ -1046,7 +1047,7 @@ fn clear_removes_only_finished_rows() {
 fn clear_keeps_a_scanning_copy() {
     let mut t = test_engine();
     let batch = t.engine.transfers.start_batch("photos".to_string());
-    t.engine.planning.push(planning_scan(batch, 1, "photos"));
+    t.engine.work.planning.push(planning_scan(batch, 1, "photos"));
     add_job(&mut t, "a", None, JobStatus::Completed);
 
     t.engine.clear_finished_rows();
@@ -1127,7 +1128,7 @@ async fn clearing_removes_a_cancelled_uploads_remote_partial_and_refreshes_that_
 #[test]
 fn clearing_a_scan_forgets_its_cancel_mark() {
     let mut t = test_engine();
-    t.engine.planning.push(planning_scan(3, 1, "scan"));
+    t.engine.work.planning.push(planning_scan(3, 1, "scan"));
     t.engine.tasks.cancel(Scope::Planning(3));
 
     t.engine.clear_planning(3);

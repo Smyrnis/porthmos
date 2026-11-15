@@ -20,7 +20,7 @@ impl Engine {
         self.ui_state.speed_limit = self.ui_state.speed_limit.filter(|rate| *rate > 0);
         self.emit(Event::SaveChoice { save });
         if self.ui_state.speed_limit.is_some() {
-            self.speed_limit.set(self.ui_state.speed_limit);
+            self.work.speed_limit.set(self.ui_state.speed_limit);
             self.publish_transfers();
         }
     }

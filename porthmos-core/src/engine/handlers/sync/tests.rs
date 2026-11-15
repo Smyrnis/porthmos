@@ -123,12 +123,12 @@ async fn the_scan_shows_as_a_scanning_row_until_it_finishes() {
     write_local(&t, "a.txt", b"x", 5);
     start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
 
-    assert_eq!(t.engine.planning.len(), 1);
-    assert!(t.engine.sync.scanning.contains(&t.engine.planning[0].batch_id));
+    assert_eq!(t.engine.work.planning.len(), 1);
+    assert!(t.engine.sync.scanning.contains(&t.engine.work.planning[0].batch_id));
 
     t.run_internal().await;
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.engine.sync.scanning.is_empty());
 }
 
@@ -154,7 +154,7 @@ async fn both_is_refused_when_the_remote_cannot_keep_times() {
 
     start(&mut t, session, options(SyncDirection::Both, SyncBy::Time));
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     let notices = t.notices();
     assert!(
         notices.iter().any(|(severity, message)| *severity == crate::Severity::Warning && message.contains("flat")),
@@ -181,7 +181,7 @@ async fn both_cannot_compare_by_size() {
 
     start(&mut t, session, options(SyncDirection::Both, SyncBy::Size));
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.notices().iter().any(|(_, message)| message.contains("size")));
 }
 
@@ -192,7 +192,7 @@ async fn an_unknown_session_is_a_warning() {
 
     start(&mut t, 999, options(SyncDirection::LocalToRemote, SyncBy::Time));
 
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(
         t.notices().iter().any(|(severity, message)| *severity == crate::Severity::Warning
             && message == "Sync failed: session disconnected")
@@ -218,7 +218,7 @@ async fn an_unreadable_folder_fails_the_scan_with_an_error_and_no_plan() {
     let events = t.drain();
     assert!(plan_of(events.clone()).is_none());
     assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Error, message } if message.to_string().contains("Sync failed"))));
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
 #[tokio::test]
@@ -227,7 +227,7 @@ async fn cancelling_a_scan_ends_it_without_a_plan() {
     let (session, _remote) = connect(&mut t, "prod");
     write_local(&t, "a.txt", b"x", 5);
     start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
-    let sync_id = t.engine.planning[0].batch_id;
+    let sync_id = t.engine.work.planning[0].batch_id;
     t.drain();
 
     t.engine.handle_command(Command::CancelSync { sync_id });
@@ -236,7 +236,7 @@ async fn cancelling_a_scan_ends_it_without_a_plan() {
     let events = t.drain();
     assert!(plan_of(events.clone()).is_none());
     assert!(events.iter().any(|event| matches!(event, Event::Notice { message, .. } if message == "Sync cancelled")));
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
     assert!(t.engine.sync.scanning.is_empty());
 }
 
@@ -245,7 +245,7 @@ async fn cancel_sync_ignores_a_batch_that_is_not_a_sync_scan() {
     let mut t = test_engine();
     let (session, _remote) = connect(&mut t, "prod");
     let batch = t.engine.transfers.start_batch("copy".to_string());
-    t.engine.planning.push(PlanningScan {
+    t.engine.work.planning.push(PlanningScan {
         batch_id: batch,
         session_id: session,
         direction: Direction::Upload,
@@ -324,7 +324,7 @@ async fn disconnecting_during_a_scan_cancels_it_quietly() {
     let events = t.drain();
     assert!(plan_of(events.clone()).is_none());
     assert!(!events.iter().any(|event| matches!(event, Event::Notice { message, .. } if message == "Sync cancelled")));
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
 #[cfg(unix)]
@@ -385,7 +385,7 @@ fn assert_ended_cancelled(t: &mut TestEngine) {
     assert!(plan_of(events.clone()).is_none());
     assert!(cancelled_notice(&events), "{events:?}");
     assert!(t.engine.sync.plans.is_empty());
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
 #[tokio::test]
@@ -393,7 +393,7 @@ async fn a_panicking_scan_is_a_sync_failure_not_a_failed_copy() {
     let mut t = test_engine();
     let (session, _remote) = connect(&mut t, "prod");
     start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
-    let sync_id = t.engine.planning[0].batch_id;
+    let sync_id = t.engine.work.planning[0].batch_id;
     t.drain();
 
     t.engine.handle_internal(Internal::TaskPanicked {
@@ -402,7 +402,7 @@ async fn a_panicking_scan_is_a_sync_failure_not_a_failed_copy() {
         message: "boom".to_string(),
     });
 
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty());
     assert!(t.engine.history.store.entries().is_empty());
     assert!(t.engine.transfers.batch_label(sync_id).is_none());
     let notices = t.notices();
@@ -429,7 +429,7 @@ async fn a_plan_that_arrives_after_its_session_disconnected_is_dropped_with_an_e
     assert!(plan_of(events.clone()).is_none());
     assert!(events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Error, message } if message == "Sync failed: session disconnected")));
     assert!(t.engine.sync.plans.is_empty());
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
 #[tokio::test]
@@ -438,7 +438,7 @@ async fn a_cancel_that_arrives_after_the_scan_finished_still_cancels_it() {
     let (session, _remote) = connect(&mut t, "prod");
     write_local(&t, "a.txt", b"x", 5);
     start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
-    let sync_id = t.engine.planning[0].batch_id;
+    let sync_id = t.engine.work.planning[0].batch_id;
     let done = finished_scan(&mut t).await;
     t.drain();
 
@@ -479,7 +479,7 @@ async fn a_disconnect_after_the_scan_finished_cancels_it_quietly() {
     assert!(plan_of(events.clone()).is_none());
     assert!(!cancelled_notice(&events));
     assert!(!events.iter().any(|event| matches!(event, Event::Notice { severity: crate::Severity::Error, .. })));
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty());
 }
 
 #[tokio::test]
@@ -488,7 +488,7 @@ async fn a_running_scan_is_cancelled_from_its_row() {
     let (session, _remote) = connect(&mut t, "prod");
     write_local(&t, "a.txt", b"x", 5);
     start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
-    let sync_id = t.engine.planning[0].batch_id;
+    let sync_id = t.engine.work.planning[0].batch_id;
     t.drain();
 
     t.engine.handle_command(Command::CancelRow { kind: RowKind::Scan(sync_id) });
@@ -528,7 +528,7 @@ async fn a_copy_scan_is_still_recorded_as_interrupted_at_shutdown() {
     let mut t = test_engine();
     let (session, _remote) = connect(&mut t, "prod");
     let batch = t.engine.transfers.start_batch("copy".to_string());
-    t.engine.planning.push(PlanningScan {
+    t.engine.work.planning.push(PlanningScan {
         batch_id: batch,
         session_id: session,
         direction: Direction::Upload,
@@ -650,7 +650,7 @@ async fn finish_transfers(t: &mut TestEngine) {
     for _ in 0..200 {
         let busy = t.engine.transfers.active_count() > 0
             || t.engine.transfers.queued_count() > 0
-            || !t.engine.planning.is_empty();
+            || !t.engine.work.planning.is_empty();
         if !busy {
             return;
         }
@@ -857,7 +857,7 @@ async fn an_unknown_or_used_plan_is_a_warning_and_changes_nothing() {
 
     let warnings: Vec<String> = t.notices().into_iter().map(|(_, message)| message).collect();
     assert_eq!(warnings, vec!["That sync plan is no longer available".to_string(); 2]);
-    assert!(t.engine.planning.is_empty());
+    assert!(t.engine.work.planning.is_empty());
 }
 
 #[tokio::test]
@@ -871,7 +871,7 @@ async fn running_with_nothing_chosen_says_so() {
     t.engine.handle_command(Command::RunSync { sync_id: plan.sync_id, choices: Vec::new() });
 
     assert!(t.notices().iter().any(|(_, message)| message == "Nothing to sync"));
-    assert!(t.engine.planning.is_empty() && t.engine.sync.plans.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.plans.is_empty());
 }
 
 #[tokio::test]
@@ -890,7 +890,7 @@ async fn a_session_that_vanished_before_running_is_an_error() {
             .iter()
             .any(|(severity, message)| *severity == crate::Severity::Error && message.contains("disconnected"))
     );
-    assert!(t.engine.planning.is_empty() && t.engine.sync.scanning.is_empty() && t.engine.sync.plans.is_empty());
+    assert!(t.engine.work.planning.is_empty() && t.engine.sync.scanning.is_empty() && t.engine.sync.plans.is_empty());
     assert!(t.engine.transfers.active_count() == 0 && t.engine.transfers.queued_count() == 0);
     assert!(t.engine.snapshot().rows.is_empty());
 }
@@ -963,7 +963,7 @@ async fn a_second_sync_right_after_the_first_finds_nothing_to_do() {
 }
 
 fn planning_batch(t: &TestEngine, direction: Direction) -> u64 {
-    t.engine.planning.iter().find(|scan| scan.direction == direction).expect("a planning row").batch_id
+    t.engine.work.planning.iter().find(|scan| scan.direction == direction).expect("a planning row").batch_id
 }
 
 #[tokio::test]
@@ -1018,7 +1018,7 @@ async fn a_panicking_folder_creation_fails_only_its_own_direction_and_writes_no_
         message: "boom".to_string(),
     });
 
-    assert_eq!(t.engine.planning.len(), 1);
+    assert_eq!(t.engine.work.planning.len(), 1);
     assert!(!t.engine.sync.scanning.contains(&upload));
     assert!(t.engine.history.store.entries().is_empty());
     assert!(t.engine.transfers.batch_label(upload).is_none());
@@ -1033,7 +1033,7 @@ async fn a_panicking_folder_creation_fails_only_its_own_direction_and_writes_no_
 
     assert_eq!(std::fs::read(t.dir.path().join("work/down.txt")).unwrap(), b"d");
     assert!(!remote.exists("/srv/up.txt"));
-    assert!(t.engine.sync.scanning.is_empty() && t.engine.planning.is_empty());
+    assert!(t.engine.sync.scanning.is_empty() && t.engine.work.planning.is_empty());
 }
 
 #[tokio::test]
@@ -1044,7 +1044,7 @@ async fn shutting_down_during_folder_creation_writes_no_history_for_that_row() {
     remote.file("/srv/down.txt", b"d", Some(20));
     let plan = scan(&mut t, session, options(SyncDirection::Both, SyncBy::Time)).await;
     t.engine.handle_command(Command::RunSync { sync_id: plan.sync_id, choices: ticked(&plan) });
-    assert_eq!(t.engine.planning.len(), 2);
+    assert_eq!(t.engine.work.planning.len(), 2);
 
     t.engine.record_interrupted();
 
@@ -1066,7 +1066,7 @@ async fn a_cancel_during_folder_creation_copies_nothing_and_writes_no_history() 
     assert!(!remote.exists("/srv/deep/up.txt"));
     assert!(cancelled_notice(&t.drain()));
     assert!(t.engine.history.store.entries().is_empty());
-    assert!(t.engine.sync.scanning.is_empty() && t.engine.planning.is_empty());
+    assert!(t.engine.sync.scanning.is_empty() && t.engine.work.planning.is_empty());
 }
 
 #[tokio::test]
@@ -1103,7 +1103,7 @@ async fn a_cancel_that_arrives_after_the_folders_were_made_still_cancels_the_bat
     assert!(!remote.exists("/srv/up.txt"));
     assert!(t.engine.transfers.active_count() == 0 && t.engine.transfers.queued_count() == 0);
     assert!(t.engine.history.store.entries().is_empty());
-    assert!(t.engine.sync.scanning.is_empty() && t.engine.planning.is_empty());
+    assert!(t.engine.sync.scanning.is_empty() && t.engine.work.planning.is_empty());
 }
 
 #[tokio::test]
@@ -1135,7 +1135,7 @@ fn assert_symlink_in_the_way_is_listed_but_untickable(plan: &SyncPlan) {
 fn nothing_was_queued(t: &TestEngine) -> bool {
     t.engine.transfers.active_count() == 0
         && t.engine.transfers.queued_count() == 0
-        && t.engine.planning.is_empty()
+        && t.engine.work.planning.is_empty()
         && t.engine.sync.scanning.is_empty()
 }
 

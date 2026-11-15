@@ -36,7 +36,7 @@ fn setting_a_limit_applies_it_publishes_it_and_remembers_it() {
 
     set(&mut t, Some(2_097_152));
 
-    assert_eq!(t.engine.speed_limit.get(), Some(2_097_152));
+    assert_eq!(t.engine.work.speed_limit.get(), Some(2_097_152));
     assert_eq!(limits(&t.drain()), [Some(2_097_152)]);
     assert_eq!(saved(&t).speed_limit, Some(2_097_152));
 }
@@ -49,7 +49,7 @@ fn turning_it_off_applies_publishes_and_forgets_it() {
 
     set(&mut t, None);
 
-    assert_eq!(t.engine.speed_limit.get(), None);
+    assert_eq!(t.engine.work.speed_limit.get(), None);
     assert_eq!(limits(&t.drain()), [None]);
     assert_eq!(saved(&t).speed_limit, None);
     assert!(!std::fs::read_to_string(t.engine.paths.state_file()).unwrap().contains("speed_limit"));
@@ -63,7 +63,7 @@ fn a_limit_of_zero_means_off() {
 
     set(&mut t, Some(0));
 
-    assert_eq!(t.engine.speed_limit.get(), None);
+    assert_eq!(t.engine.work.speed_limit.get(), None);
     assert_eq!(saved(&t).speed_limit, None);
 }
 
@@ -86,7 +86,7 @@ fn a_remembered_limit_is_applied_and_published_at_start() {
 
     t.engine.load_ui_state();
 
-    assert_eq!(t.engine.speed_limit.get(), Some(524_288));
+    assert_eq!(t.engine.work.speed_limit.get(), Some(524_288));
     assert_eq!(limits(&t.drain()), [Some(524_288)]);
 }
 
@@ -98,7 +98,7 @@ fn a_remembered_limit_of_zero_is_no_limit() {
 
     t.engine.load_ui_state();
 
-    assert_eq!(t.engine.speed_limit.get(), None);
+    assert_eq!(t.engine.work.speed_limit.get(), None);
     assert!(limits(&t.drain()).is_empty());
 }
 
@@ -145,7 +145,7 @@ fn a_protected_settings_file_still_gets_the_limit_for_this_run_but_is_not_writte
 
     set(&mut t, Some(1000));
 
-    assert_eq!(t.engine.speed_limit.get(), Some(1000));
+    assert_eq!(t.engine.work.speed_limit.get(), Some(1000));
     assert_eq!(std::fs::read_to_string(t.engine.paths.state_file()).unwrap(), "not toml [");
     let notices = t.notices();
     assert!(
@@ -164,7 +164,7 @@ fn a_settings_folder_that_cannot_be_written_warns_but_keeps_the_limit_for_this_r
 
     set(&mut t, Some(1000));
 
-    assert_eq!(t.engine.speed_limit.get(), Some(1000));
+    assert_eq!(t.engine.work.speed_limit.get(), Some(1000));
     let notices = t.notices();
     assert!(
         notices.iter().any(|(severity, message)| *severity == Severity::Warning && message.contains("speed limit")),
@@ -213,7 +213,7 @@ fn a_broken_settings_file_at_start_means_no_limit_and_a_warning_and_is_not_overw
 
     t.engine.load_ui_state();
 
-    assert_eq!(t.engine.speed_limit.get(), None);
+    assert_eq!(t.engine.work.speed_limit.get(), None);
     let notices = t.notices();
     assert!(
         notices

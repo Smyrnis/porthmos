@@ -116,11 +116,9 @@ impl Engine {
     }
 
     fn scan_session(&self, batch_id: u64) -> Option<u64> {
-        self.planning
-            .iter()
-            .find(|scan| scan.batch_id == batch_id)
-            .map(|scan| scan.session_id)
-            .or_else(|| self.reviews.iter().find(|review| review.batch_id == batch_id).map(|review| review.session_id))
+        self.work.planning.iter().find(|scan| scan.batch_id == batch_id).map(|scan| scan.session_id).or_else(|| {
+            self.work.reviews.iter().find(|review| review.batch_id == batch_id).map(|review| review.session_id)
+        })
     }
 
     pub(crate) fn store_entry(&mut self, entry: HistoryEntry) {

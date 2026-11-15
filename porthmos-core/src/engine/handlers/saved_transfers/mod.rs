@@ -93,7 +93,7 @@ impl Engine {
         self.process_row_changes();
         let connections: BTreeSet<String> = jobs.iter().map(|saved| saved.connection.clone()).collect();
         self.info(restored_notice(jobs.len(), &connections));
-        self.transfers_dirty = true;
+        self.work.transfers_dirty = true;
         self.publish_transfers();
     }
 

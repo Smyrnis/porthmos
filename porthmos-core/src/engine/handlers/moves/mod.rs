@@ -147,12 +147,12 @@ impl Engine {
     pub(crate) fn forget_batch(&mut self, batch_id: u64) {
         self.transfers.forget_batch_if_empty(batch_id);
         if self.transfers.batch_label(batch_id).is_none() {
-            self.moves.remove(&batch_id);
+            self.work.moves.remove(&batch_id);
         }
     }
 
     pub(crate) fn verb_of(&self, batch_id: u64) -> &'static str {
-        if self.moves.contains_key(&batch_id) { "Move" } else { "Copy" }
+        if self.work.moves.contains_key(&batch_id) { "Move" } else { "Copy" }
     }
 
     pub(crate) fn removes_source(&self, id: u64) -> bool {
@@ -168,7 +168,7 @@ impl Engine {
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
             return self.source_removal_failed(id, "the session disconnected".to_string());
         };
-        self.source_removals.insert(id);
+        self.work.source_removals.insert(id);
         let internal = self.internal.clone();
         self.tasks.spawn("remove-source", Scope::Transfer(id), move |cancel| async move {
             let event = if cancel.load(Ordering::Relaxed) {
@@ -187,8 +187,8 @@ impl Engine {
 
     pub(crate) fn source_removed(&mut self, id: u64) {
         self.tasks.forget(Scope::Transfer(id));
-        self.source_removals.remove(&id);
-        self.pause_stops.remove(&id);
+        self.work.source_removals.remove(&id);
+        self.work.pause_stops.remove(&id);
         if let Some(mut job) = self.transfers.get_mut(id) {
             job.status = JobStatus::Completed;
             job.paused = false;
@@ -198,7 +198,7 @@ impl Engine {
 
     pub(crate) fn source_removal_cancelled(&mut self, id: u64) {
         self.tasks.forget(Scope::Transfer(id));
-        self.source_removals.remove(&id);
+        self.work.source_removals.remove(&id);
         if self.requeue_stopped(id) {
             return;
         }
@@ -210,8 +210,8 @@ impl Engine {
 
     pub(crate) fn source_removal_failed(&mut self, id: u64, message: String) {
         self.tasks.forget(Scope::Transfer(id));
-        self.source_removals.remove(&id);
-        self.pause_stops.remove(&id);
+        self.work.source_removals.remove(&id);
+        self.work.pause_stops.remove(&id);
         let Some(mut job) = self.transfers.get_mut(id) else {
             return;
         };
@@ -253,7 +253,7 @@ impl Engine {
     }
 
     pub(crate) fn finish_move_batch(&mut self, batch_id: u64) {
-        let Some(batch) = self.moves.get(&batch_id) else {
+        let Some(batch) = self.work.moves.get(&batch_id) else {
             return;
         };
         if batch.roots.is_empty() {
@@ -287,7 +287,7 @@ impl Engine {
     }
 
     pub(crate) fn finish_all_move_batches(&mut self) {
-        let batches: Vec<u64> = self.moves.keys().copied().collect();
+        let batches: Vec<u64> = self.work.moves.keys().copied().collect();
         for batch_id in batches {
             self.finish_move_batch(batch_id);
         }
@@ -295,7 +295,7 @@ impl Engine {
 
     pub(crate) fn finish_move_batches_of(&mut self, session_id: u64) {
         let batches: Vec<u64> =
-            self.moves.iter().filter(|(_, batch)| batch.session_id == session_id).map(|(id, _)| *id).collect();
+            self.work.moves.iter().filter(|(_, batch)| batch.session_id == session_id).map(|(id, _)| *id).collect();
         for batch_id in batches {
             self.finish_move_batch(batch_id);
         }
@@ -303,7 +303,7 @@ impl Engine {
 
     pub(crate) fn forget_cleared_moves(&mut self) {
         let transfers = &self.transfers;
-        self.moves.retain(|batch_id, _| transfers.batch_label(*batch_id).is_some());
+        self.work.moves.retain(|batch_id, _| transfers.batch_label(*batch_id).is_some());
     }
 }
 

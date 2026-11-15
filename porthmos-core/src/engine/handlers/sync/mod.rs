@@ -225,7 +225,7 @@ impl Engine {
         };
         let display_name = format!("sync {}", local_dir);
         let batch_id = self.transfers.start_batch(display_name.clone());
-        self.planning.push(PlanningScan { batch_id, session_id, direction: Direction::Upload, display_name });
+        self.work.planning.push(PlanningScan { batch_id, session_id, direction: Direction::Upload, display_name });
         self.sync.scanning.insert(batch_id);
 
         let internal = self.internal.clone();
@@ -527,7 +527,7 @@ impl Engine {
         let display_name = format!("sync {arrow} {}", target_root);
         let batch_id = self.transfers.start_batch(display_name.clone());
         let session_id = plan.session;
-        self.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
+        self.work.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
         self.sync.scanning.insert(batch_id);
         let folders = missing_folders(&files, empty_folders, &target_root);
         let internal = self.internal.clone();
@@ -585,7 +585,7 @@ impl Engine {
     pub(crate) fn sync_cancelled(&mut self, batch_id: u64) {
         self.sync.scanning.remove(&batch_id);
         self.finish_pending_deletions(batch_id, false);
-        let session = self.planning.iter().find(|scan| scan.batch_id == batch_id).map(|scan| scan.session_id);
+        let session = self.work.planning.iter().find(|scan| scan.batch_id == batch_id).map(|scan| scan.session_id);
         self.clear_planning(batch_id);
         self.transfers.forget_batch_if_empty(batch_id);
         if session.is_some_and(|session| self.book.sessions.contains_key(&session)) {
