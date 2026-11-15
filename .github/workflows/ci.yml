@@ -128,6 +128,13 @@ jobs:
               if ($reported -ne "$program $version") { throw "the unpacked program reports '$reported'" }
             }
           }
+      - name: Windows installer
+        shell: pwsh
+        run: |
+          cargo build -p porthmos-gui
+          $version = (Select-String -Path porthmos-gui\Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          ./installer/build.ps1 -Exe target\debug\porthmos-gui.exe -Version $version -Out dist-installer
+          ./installer/check.ps1 -Setup "dist-installer\porthmos-gui-$version-setup.exe" -Version $version
       - name: Start OpenSSH Server
         shell: pwsh
         run: |

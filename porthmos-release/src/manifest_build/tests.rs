@@ -189,3 +189,18 @@ fn a_tui_manifest_is_not_confused_by_gui_archives() {
     assert_eq!(manifest.targets.len(), 1);
     assert_eq!(manifest.targets["x86_64-unknown-linux-gnu"].sha256, sha256_hex(b"tui"));
 }
+
+#[test]
+fn the_windows_installer_is_never_offered_to_the_updater() {
+    let version: Version = "2026.5.0".parse().unwrap();
+    let directory = artifacts(&[
+        ("porthmos-gui-2026.5.0-x86_64-pc-windows-msvc.zip", b"zip"),
+        ("porthmos-gui-2026.5.0-setup.exe", b"installer"),
+        ("porthmos-gui-setup.exe", b"installer"),
+    ]);
+
+    let manifest = build_manifest(Product::Gui, &version, released(), "notes", BASE, directory.path()).unwrap();
+
+    let targets: Vec<&str> = manifest.targets.keys().map(String::as_str).collect();
+    assert_eq!(targets, ["x86_64-pc-windows-msvc"]);
+}

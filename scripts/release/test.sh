@@ -199,6 +199,40 @@ for name, version in (("porthmos-tui", tui), ("porthmos-gui", gui)):
   ! grep -q '^version.workspace = true' "$ROOT/porthmos-gui/Cargo.toml"
 }
 
+test_the_windows_installer_installs_per_user_outside_package_manager_folders() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  [ -f "$script" ]
+  grep -q '^PrivilegesRequired=lowest$' "$script"
+  ! grep -q '^PrivilegesRequiredOverridesAllowed' "$script"
+  grep -Fq 'DefaultDirName={localappdata}\Programs\Porthmos' "$script"
+  ! grep -Eqi '\{(autopf|pf|pf32|pf64|commonpf)' "$script"
+  ! grep -Eqi 'program files|windowsapps|scoop|winget|chocolatey' "$script"
+}
+
+test_the_windows_installer_upgrades_in_place_and_cleans_what_the_updater_leaves() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  grep -Eq '^AppId=\{\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$' "$script"
+  grep -q '^CloseApplications=yes$' "$script"
+  grep -Fq 'Name: "{app}\*.old"' "$script"
+  grep -Fq 'Name: "{app}\.porthmos.*"' "$script"
+}
+
+test_the_windows_installer_leaves_the_machine_and_the_users_data_alone() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  ! grep -qi '^ChangesEnvironment=yes' "$script"
+  ! grep -qi '^ChangesAssociations=yes' "$script"
+  ! grep -q '^\[Registry\]' "$script"
+  ! grep -Eqi 'userappdata|{app}\\\.\.|connections\.toml|state\.toml' "$script"
+  grep -q '^#ifndef AppVersion$' "$script"
+}
+
+test_the_release_builds_the_installer_only_for_the_windows_window_app() {
+  local workflow="$ROOT/.github/workflows/release.yml"
+  grep -q 'installer/build.ps1' "$workflow"
+  grep -Eq "matrix.exe == '.exe' && needs.plan.outputs.product == 'gui'" "$workflow"
+  grep -q 'installer/check.ps1' "$ROOT/.github/workflows/ci.yml"
+}
+
 set +e
 for name in $(declare -F | awk '{print $3}' | grep '^test_'); do
   ( set -eu; "$name" ) > "$WORK/log-$name" 2>&1
