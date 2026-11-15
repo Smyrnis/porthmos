@@ -61,7 +61,7 @@ pub enum Command {
     ReorderRow { kind: RowKind, earlier: bool },
     RetryRow { kind: RowKind },
     ClearFinished,
-    Search { location: Location, root: VfsPath, pattern: String },
+    Search { request_id: RequestId, location: Location, root: VfsPath, pattern: String },
     CancelSearch,
     ListProfiles,
     SaveProfile { original: Option<String>, draft: Box<ProfileDraft> },

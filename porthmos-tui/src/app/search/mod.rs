@@ -1,3 +1,5 @@
+use porthmos_core::preview::PreviewSlot;
+
 use super::*;
 
 impl App {
@@ -18,7 +20,7 @@ impl App {
         let folder = self.panel(location).map(|panel| panel.path().to_string()).unwrap_or_default();
         let mut view = SearchView::new();
         view.scope = format!("{place} \u{b7} {folder}");
-        self.search = Some(SearchSession { view, location });
+        self.search = Some(SearchSession { view, location, request_id: 0 });
         self.screen = Screen::Search;
     }
 
@@ -50,7 +52,7 @@ impl App {
 
     fn cancel_search_preview(&mut self) {
         if self.search.as_ref().is_some_and(|session| session.view.pane.is_some()) {
-            self.core.send(Command::CancelPreview);
+            self.core.send(Command::CancelPreview { slot: PreviewSlot::Pane });
         }
     }
 
@@ -62,7 +64,7 @@ impl App {
         let location = session.location;
         match session.view.sync_pane(enabled) {
             PaneSync::Keep => {}
-            PaneSync::Cancel => self.core.send(Command::CancelPreview),
+            PaneSync::Cancel => self.core.send(Command::CancelPreview { slot: PreviewSlot::Pane }),
             PaneSync::Request { path } => {
                 self.next_preview_id += 1;
                 self.core.send(Command::PreviewHint { request_id: self.next_preview_id, location, path });
@@ -78,8 +80,11 @@ impl App {
         session.view.start();
         let pattern = session.view.pattern.clone();
         let location = session.location;
+        let request_id = self.next_search_id;
+        self.next_search_id += 1;
+        session.request_id = request_id;
         if had_pane {
-            self.core.send(Command::CancelPreview);
+            self.core.send(Command::CancelPreview { slot: PreviewSlot::Pane });
         }
         if pattern.is_empty() {
             self.core.send(Command::CancelSearch);
@@ -87,7 +92,7 @@ impl App {
         }
 
         let root = self.panel(location).map(|panel| panel.path().clone()).unwrap_or_default();
-        self.core.send(Command::Search { location, root, pattern: format!("*{pattern}*") });
+        self.core.send(Command::Search { request_id, location, root, pattern: format!("*{pattern}*") });
     }
 
     fn open_selected_search_result(&mut self) {

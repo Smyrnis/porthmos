@@ -240,7 +240,7 @@ fn health_news_for_a_session_that_is_gone_changes_nothing() {
 }
 
 fn found_event(index: usize) -> Event {
-    Event::SearchFound(entry(&VfsPath::new("/d"), &format!("hit{index}.log"), false))
+    Event::SearchFound { request_id: 0, entry: entry(&VfsPath::new("/d"), &format!("hit{index}.log"), false) }
 }
 
 fn shell_ready() -> Event {
@@ -293,7 +293,7 @@ fn a_shell_hand_over_is_returned_to_the_caller_and_later_events_wait() {
 
     assert!(matches!(special, Some(Event::ShellReady { .. })));
     assert_eq!(search_results(&test), 2);
-    assert!(matches!(rx.try_recv(), Ok(Event::SearchFound(_))));
+    assert!(matches!(rx.try_recv(), Ok(Event::SearchFound { .. })));
     assert!(rx.try_recv().is_err());
 }
 
@@ -309,7 +309,7 @@ fn a_local_shell_hand_over_is_returned_to_the_caller_and_later_events_wait() {
 
     assert!(matches!(special, Some(Event::LocalShellReady { .. })));
     assert_eq!(search_results(&test), 2);
-    assert!(matches!(rx.try_recv(), Ok(Event::SearchFound(_))));
+    assert!(matches!(rx.try_recv(), Ok(Event::SearchFound { .. })));
 }
 
 #[test]

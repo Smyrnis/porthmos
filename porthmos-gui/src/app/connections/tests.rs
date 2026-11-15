@@ -737,3 +737,47 @@ fn the_window_app_starts_with_the_groups_core_remembered() {
 
     assert_eq!(harness.app.manager().rows().len(), 2);
 }
+
+#[test]
+fn keys_in_the_connections_window_do_nothing_while_the_main_window_asks_a_question() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    harness.app.modals.push(crate::modal::Modal::Info { title: "Notice".to_string(), body: "x".to_string() });
+    let window = harness.connections_id().unwrap();
+    let escape = KeyPress {
+        key: Key::Named(Named::Escape),
+        modified_key: Key::Named(Named::Escape),
+        modifiers: Modifiers::empty(),
+        text: None,
+    };
+
+    harness.press(Message::WindowKey(window, escape));
+
+    assert!(harness.app.manager_open());
+}
+
+#[test]
+fn a_connection_that_fails_after_a_click_in_the_main_window_raises_the_main_window() {
+    let mut harness = Harness::new();
+
+    let units = harness
+        .app
+        .update(Message::Core(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() }))
+        .units();
+
+    assert_eq!(units, 1);
+}
+
+#[test]
+fn a_connection_started_from_the_connections_window_does_not_pull_the_main_window_forward() {
+    let mut harness = Harness::new();
+    open_manager(&mut harness);
+    harness.app.manager_connecting = Some("alpha".to_string());
+
+    let units = harness
+        .app
+        .update(Message::Core(Event::ConnectFailed { name: "alpha".to_string(), message: "refused".into() }))
+        .units();
+
+    assert_eq!(units, 0);
+}

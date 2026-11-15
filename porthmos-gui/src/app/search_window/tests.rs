@@ -1,5 +1,6 @@
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
+use porthmos_core::preview::PreviewSlot;
 use porthmos_core::{Command, Entry, Event, Location, VfsPath};
 
 use crate::menus::MoreItem;
@@ -51,8 +52,23 @@ fn search(harness: &mut Harness, text: &str) {
     harness.press(Message::SearchTyped(text.to_string()));
 }
 
+fn current_search(harness: &Harness) -> u64 {
+    harness.app.search_state().map_or(0, |state| state.request_id())
+}
+
 fn found(harness: &mut Harness, path: &str) {
-    harness.feed(Event::SearchFound(hit(path)));
+    let request_id = current_search(harness);
+    harness.feed(Event::SearchFound { request_id, entry: hit(path) });
+}
+
+fn search_done(harness: &mut Harness, truncated: bool, incomplete: bool) {
+    let request_id = current_search(harness);
+    harness.feed(Event::SearchDone { request_id, truncated, incomplete });
+}
+
+fn search_failed(harness: &mut Harness, message: &str) {
+    let request_id = current_search(harness);
+    harness.feed(Event::SearchFailed { request_id, message: message.into() });
 }
 
 fn search_state(harness: &Harness) -> &crate::search::SearchState {
@@ -104,7 +120,12 @@ fn typing_sends_a_wildcard_search_for_the_active_folder() {
 
     assert_eq!(
         harness.sent(),
-        vec![Command::Search { location: Location::Local, root: harness.start_folder(), pattern: "*abc*".to_string() }]
+        vec![Command::Search {
+            request_id: current_search(&harness),
+            location: Location::Local,
+            root: harness.start_folder(),
+            pattern: "*abc*".to_string()
+        }]
     );
 }
 
@@ -127,7 +148,12 @@ fn typing_goes_to_the_pattern_and_does_not_fire_panel_shortcuts() {
     assert!(harness.app.modal().is_none());
     assert_eq!(
         harness.sent(),
-        vec![Command::Search { location: Location::Local, root: harness.start_folder(), pattern: "*d*".to_string() }]
+        vec![Command::Search {
+            request_id: current_search(&harness),
+            location: Location::Local,
+            root: harness.start_folder(),
+            pattern: "*d*".to_string()
+        }]
     );
 }
 
@@ -255,12 +281,13 @@ fn a_blank_pattern_cancels_the_running_search() {
 fn late_search_events_after_closing_are_ignored() {
     let mut harness = Harness::new();
     open_search(&mut harness);
+    let request_id = current_search(&harness);
     search(&mut harness, "a");
     named(&mut harness, Named::Escape);
 
-    found(&mut harness, "/home/tester/a");
-    harness.feed(Event::SearchDone { truncated: true, incomplete: false });
-    harness.feed(Event::SearchFailed("late".to_string()));
+    harness.feed(Event::SearchFound { request_id, entry: hit("/home/tester/a") });
+    harness.feed(Event::SearchDone { request_id, truncated: true, incomplete: false });
+    harness.feed(Event::SearchFailed { request_id, message: "late".into() });
 
     assert!(harness.app.search_state().is_none());
 }
@@ -282,11 +309,11 @@ fn done_failed_and_truncated_events_reach_the_status_line() {
     let mut harness = Harness::new();
     open_search(&mut harness);
     search(&mut harness, "a");
-    harness.feed(Event::SearchDone { truncated: false, incomplete: false });
+    search_done(&mut harness, false, false);
     assert_eq!(search_state(&harness).status_text(), "Nothing found");
 
     search(&mut harness, "b");
-    harness.feed(Event::SearchFailed("boom".to_string()));
+    search_failed(&mut harness, "boom");
     assert_eq!(search_state(&harness).status_text(), "Search failed: boom");
 }
 
@@ -298,6 +325,7 @@ fn searching_a_remote_panel_lists_in_that_session() {
     search(&mut harness, "a");
     assert_eq!(
         harness.sent(),
+            request_id: current_search(&harness),
         vec![Command::Search {
             location: Location::Session(1),
             root: VfsPath::new("/srv"),
@@ -525,7 +553,7 @@ fn typing_a_new_pattern_cancels_the_preview_and_clears_the_pane() {
 
     search(&mut harness, "ab");
 
-    assert!(harness.sent().contains(&Command::CancelPreview));
+    assert!(harness.sent().contains(&Command::CancelPreview { slot: PreviewSlot::Pane }));
     assert!(search_state(&harness).preview().is_none());
 }
 
@@ -541,7 +569,7 @@ fn closing_the_search_cancels_a_running_preview() {
 
     let sent = harness.sent();
     assert!(sent.contains(&Command::CancelSearch), "{sent:?}");
-    assert!(sent.contains(&Command::CancelPreview), "{sent:?}");
+    assert!(sent.contains(&Command::CancelPreview { slot: PreviewSlot::Pane }), "{sent:?}");
 }
 
 #[test]
@@ -552,7 +580,7 @@ fn an_answer_for_the_current_request_fills_the_pane() {
     found(&mut harness, "/data/a.txt");
     let (request_id, _) = hints(harness.sent()).remove(0);
 
-    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("denied".to_string()) });
+    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("denied".into()) });
 
     assert!(matches!(
         search_state(&harness).preview(),
@@ -570,11 +598,7 @@ fn an_answer_for_a_file_the_selection_already_left_is_ignored() {
     let (old_id, _) = hints(harness.sent()).remove(0);
     named(&mut harness, Named::ArrowDown);
 
-    harness.feed(Event::PreviewReady {
-        request_id: old_id,
-        name: "a.txt".to_string(),
-        result: Err("stale".to_string()),
-    });
+    harness.feed(Event::PreviewReady { request_id: old_id, name: "a.txt".to_string(), result: Err("stale".into()) });
 
     assert!(matches!(
         search_state(&harness).preview(),
@@ -614,10 +638,11 @@ fn the_search_view_builds_for_every_state_of_the_pane() {
     });
     harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Ok(text) });
     drop(harness.app.view_of(harness.search_id().unwrap()));
-    harness.feed(Event::SearchFound(Entry { is_dir: true, ..hit("/data/sub") }));
+    let request_id = current_search(&harness);
+    harness.feed(Event::SearchFound { request_id, entry: Entry { is_dir: true, ..hit("/data/sub") } });
     named(&mut harness, Named::ArrowDown);
     drop(harness.app.view_of(harness.search_id().unwrap()));
-    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("denied".to_string()) });
+    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("denied".into()) });
     drop(harness.app.view_of(harness.search_id().unwrap()));
 }
 
@@ -747,7 +772,7 @@ fn preview_answers_after_the_window_closed_are_ignored() {
     let (request_id, _) = hints(harness.sent()).remove(0);
     named(&mut harness, Named::Escape);
 
-    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("late".to_string()) });
+    harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Err("late".into()) });
 
     assert!(harness.app.search_state().is_none());
 }
@@ -856,7 +881,7 @@ fn the_preview_tool_and_the_search_pane_keep_their_own_text() {
     harness.feed(Event::PreviewReady {
         request_id: search_request,
         name: "a.txt".to_string(),
-        result: Err("for the pane".to_string()),
+        result: Err("for the pane".into()),
     });
 
     assert!(matches!(harness.app.tool(), Some(crate::tools::Tool::Bookmarks(_))));
@@ -881,7 +906,7 @@ fn selected_search(harness: &mut Harness) {
 }
 
 #[test]
-fn no_hint_is_sent_while_the_preview_tool_is_open() {
+fn the_search_pane_keeps_hinting_while_the_preview_tool_is_open() {
     let mut harness = previewing_harness();
     open_search(&mut harness);
     search(&mut harness, "a");
@@ -889,12 +914,12 @@ fn no_hint_is_sent_while_the_preview_tool_is_open() {
 
     found(&mut harness, "/data/a.txt");
 
-    assert!(hints(harness.sent()).is_empty());
-    assert!(search_state(&harness).preview().is_none());
+    assert_eq!(hints(harness.sent()).len(), 1);
+    assert!(search_state(&harness).preview().is_some());
 }
 
 #[test]
-fn search_work_does_not_cancel_the_preview_tool() {
+fn search_work_cancels_only_the_pane_slot_never_the_preview_tool() {
     let mut harness = previewing_harness();
     selected_search(&mut harness);
     open_preview_tool(&mut harness);
@@ -902,21 +927,21 @@ fn search_work_does_not_cancel_the_preview_tool() {
     search(&mut harness, "b");
     named(&mut harness, Named::Escape);
 
-    assert!(!harness.sent().contains(&Command::CancelPreview));
+    let sent = harness.sent();
+    assert!(!sent.contains(&Command::CancelPreview { slot: PreviewSlot::Tool }), "{sent:?}");
+    assert!(sent.contains(&Command::CancelPreview { slot: PreviewSlot::Pane }), "{sent:?}");
 }
 
 #[test]
-fn opening_the_preview_tool_clears_the_pane_and_closing_it_hints_the_result_again() {
+fn opening_and_closing_the_preview_tool_leaves_the_search_pane_alone() {
     let mut harness = previewing_harness();
     selected_search(&mut harness);
 
     open_preview_tool(&mut harness);
-    assert!(search_state(&harness).preview().is_none());
+    assert!(search_state(&harness).preview().is_some());
     harness.app.close_tool();
 
-    let sent = hints(harness.sent());
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].1, VfsPath::new("/data/a.txt"));
+    assert!(hints(harness.sent()).is_empty());
     assert!(search_state(&harness).preview().is_some());
 }
 
@@ -940,7 +965,12 @@ fn a_character_that_reaches_the_window_unfocused_is_added_to_the_pattern_and_ref
     assert_eq!(units, 2);
     assert_eq!(
         harness.sent(),
-        vec![Command::Search { location: Location::Local, root: harness.start_folder(), pattern: "*abx*".to_string() }]
+        vec![Command::Search {
+            request_id: current_search(&harness),
+            location: Location::Local,
+            root: harness.start_folder(),
+            pattern: "*abx*".to_string()
+        }]
     );
 }
 
@@ -968,7 +998,7 @@ fn turning_the_search_preview_setting_off_clears_an_open_pane() {
 
     assert!(!search_state(&harness).preview_enabled());
     assert!(search_state(&harness).preview().is_none());
-    assert!(harness.sent().contains(&Command::CancelPreview));
+    assert!(harness.sent().contains(&Command::CancelPreview { slot: PreviewSlot::Pane }));
 }
 
 #[test]
@@ -1000,4 +1030,32 @@ fn searching_a_connection_names_that_connection_as_the_place() {
 
     assert_eq!(search_state(&harness).location(), Location::Session(4));
     assert_eq!(harness.app.search_place(), "prod");
+
+#[test]
+fn results_of_an_earlier_pattern_are_ignored_after_a_newer_search_started() {
+    let mut harness = Harness::new();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    let stale = current_search(&harness);
+    search(&mut harness, "ab");
+
+    harness.feed(Event::SearchFound { request_id: stale, entry: hit("/home/tester/old") });
+    harness.feed(Event::SearchDone { request_id: stale, truncated: false, incomplete: false });
+
+    assert!(search_state(&harness).results().is_empty());
+    assert_eq!(search_state(&harness).status(), &SearchStatus::Searching);
+}
+
+#[test]
+fn results_of_a_cancelled_search_do_not_land_in_the_cleared_list() {
+    let mut harness = Harness::new();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    let stale = current_search(&harness);
+    search(&mut harness, "");
+
+    harness.feed(Event::SearchFound { request_id: stale, entry: hit("/home/tester/old") });
+
+    assert!(search_state(&harness).results().is_empty());
+}
 }

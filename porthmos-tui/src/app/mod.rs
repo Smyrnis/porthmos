@@ -151,6 +151,7 @@ struct SearchSession {
     view: SearchView,
     location: Location,
 }
+    request_id: RequestId,
 
 struct ConflictPrompt {
     batch_id: u64,
@@ -172,6 +173,8 @@ pub struct App {
     preview: Option<crate::widgets::preview_view::PreviewView>,
     next_preview_id: RequestId,
     next_count_id: RequestId,
+    next_search_id: RequestId,
+    reported_connection: Option<SessionId>,
     next_properties_id: RequestId,
     import: import::ImportState,
     help_scroll: usize,
@@ -238,6 +241,8 @@ impl App {
             next_preview_id: 0,
             next_count_id: 0,
             next_properties_id: 0,
+            next_search_id: 1,
+            reported_connection: None,
             import: import::ImportState::default(),
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
@@ -503,22 +508,22 @@ impl App {
             Event::TransfersChanged(snapshot) => self.apply_transfer_snapshot(snapshot),
             Event::ConflictsFound { batch_id, files } => self.queue_conflict_prompt(batch_id, files),
             Event::ConflictsWithdrawn { batch_ids } => self.drop_conflict_prompts(&batch_ids),
-            Event::SearchFound(entry) => {
-                if let Some(search) = self.search.as_mut() {
+            Event::SearchFound { request_id, entry } => {
+                if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.push_result(entry);
                     self.sync_search_pane();
                 }
             }
-            Event::SearchDone { truncated, incomplete } => {
-                if let Some(search) = self.search.as_mut() {
+            Event::SearchDone { request_id, truncated, incomplete } => {
+                if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.finish(truncated);
                     if incomplete {
                         self.notifications.push(Severity::Warning, porthmos_core::SEARCH_INCOMPLETE_NOTE.to_string());
                     }
                 }
             }
-            Event::SearchFailed(message) => {
-                if let Some(search) = self.search.as_mut() {
+            Event::SearchFailed { request_id, message } => {
+                if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.finish(false);
                     self.notifications.push(Severity::Error, message.to_string());
                 }

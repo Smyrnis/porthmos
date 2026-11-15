@@ -2,21 +2,21 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use porthmos_vfs::{SearchEvent, SearchQuery, VfsPath};
 
-use super::super::{Engine, Event, Location, Reporter};
-use crate::{Severity, tasks::Scope};
+use super::super::{Engine, Event, Location, Reporter, RequestId};
+use crate::{Message, Severity, tasks::Scope};
 
 pub(crate) const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
-fn event_for(search_event: SearchEvent) -> Event {
+fn event_for(request_id: RequestId, search_event: SearchEvent) -> Event {
     match search_event {
-        SearchEvent::Found(entry) => Event::SearchFound(entry),
-        SearchEvent::Done { truncated, incomplete } => Event::SearchDone { truncated, incomplete },
-        SearchEvent::Failed(message) => Event::SearchFailed(message),
+        SearchEvent::Found(entry) => Event::SearchFound { request_id, entry },
+        SearchEvent::Done { truncated, incomplete } => Event::SearchDone { request_id, truncated, incomplete },
+        SearchEvent::Failed(message) => Event::SearchFailed { request_id, message: Message::parse(&message) },
     }
 }
 
 impl Engine {
-    pub(crate) fn search(&mut self, location: Location, root: VfsPath, pattern: String) {
+    pub(crate) fn search(&mut self, request_id: RequestId, location: Location, root: VfsPath, pattern: String) {
         self.tasks.cancel(Scope::Search);
         let generation = self.search.generation.fetch_add(1, Ordering::Relaxed) + 1;
         let current_generation = self.search.generation.clone();
@@ -37,7 +37,7 @@ impl Engine {
                     if let SearchEvent::Failed(message) = &search_event {
                         reporter.log(Severity::Error, message);
                     }
-                    let _ = events.send(event_for(search_event));
+                    let _ = events.send(event_for(request_id, search_event));
                 }
             };
             tokio::join!(fs.search(SearchQuery::new(root, pattern), tx, cancel), forward);

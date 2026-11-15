@@ -51,6 +51,10 @@ fn a_small_window_keeps_the_whole_list_and_has_no_pane() {
 }
 
 #[test]
-fn the_gap_between_list_and_preview_pane_holds_a_hairline_between_two_dialog_gaps() {
-    assert_eq!(PREVIEW_PANE_GAP, 2.0 * crate::view::spacing::DIALOG_GAP + 1.0);
+fn the_list_the_gap_and_the_pane_together_fill_the_results_area_exactly() {
+    let window = SEARCH_WINDOW_SIZE;
+
+    let pane = search_preview_pane_height(window, true).unwrap();
+
+    assert_eq!(search_list_height(window, true) + PREVIEW_PANE_GAP + pane, results_height(window));
 }

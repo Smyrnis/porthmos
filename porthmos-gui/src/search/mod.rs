@@ -46,6 +46,7 @@ pub struct SearchState {
     preview_enabled: bool,
     preview: Option<SearchPreview>,
     previewed: Option<VfsPath>,
+    request_id: u64,
 }
 
 pub fn result_parent(entry: &Entry) -> VfsPath {
@@ -64,7 +65,16 @@ impl SearchState {
             preview_enabled: false,
             preview: None,
             previewed: None,
+            request_id: 0,
         }
+    }
+
+    pub fn request_id(&self) -> u64 {
+        self.request_id
+    }
+
+    pub fn expect_request(&mut self, request_id: u64) {
+        self.request_id = request_id;
     }
 
     pub fn with_preview(mut self, enabled: bool) -> Self {

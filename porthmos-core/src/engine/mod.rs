@@ -420,7 +420,7 @@ impl Engine {
             Command::RetryRow { kind } => self.retry_row(kind),
             Command::ClearFinished => self.clear_finished_rows(),
             Command::CheckForUpdate { manual } => self.check_for_update(manual),
-            Command::Search { location, root, pattern } => self.search(location, root, pattern),
+            Command::Search { request_id, location, root, pattern } => self.search(request_id, location, root, pattern),
             Command::CancelSearch => self.cancel_search(),
             Command::ListProfiles => self.list_profiles(),
             Command::SaveProfile { original, draft } => self.save_profile(original, *draft),

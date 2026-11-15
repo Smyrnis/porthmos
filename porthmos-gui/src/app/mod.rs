@@ -323,6 +323,8 @@ pub struct App {
     next_properties_id: u64,
     launcher: Launcher,
     processes: ProcessSource,
+    next_search_id: u64,
+    reported_connection: Option<SessionId>,
     jobs: std::collections::HashMap<u64, editing::JobRole>,
     next_process_token: u64,
     edits_busy: bool,
@@ -406,6 +408,8 @@ impl App {
             launcher: Launcher::system(process_sender, std::env::temp_dir()),
             processes,
             jobs: std::collections::HashMap::new(),
+            next_search_id: 1,
+            reported_connection: None,
             next_process_token: 1,
             edits_busy: false,
             quit_confirmed: false,
@@ -1115,10 +1119,22 @@ impl App {
                 let cursor = match &self.path_edit {
                     Some(edit) if typed_before.is_some_and(|text| text != edit.text) => {
                         operation::move_cursor_to_end(edit.side.path_input_id())
+                let failure_raised = match &event {
+                    Event::ConnectFailed { name, .. } if self.manager_connecting.as_deref() != Some(name) => {
+                        window::gain_focus(self.windows.main())
                     }
                     _ => Task::none(),
                 };
-                return Task::batch([search_closed, self.reveal_focused(), self.resync_scroll(&before), cursor]);
+                    }
+                    _ => Task::none(),
+                };
+                return Task::batch([
+                    search_closed,
+                    failure_raised,
+                    self.reveal_focused(),
+                    self.resync_scroll(&before),
+                    cursor,
+                ]);
             }
             Message::CloseRequested => return self.request_close(),
             Message::WindowCloseRequested(id) => return self.window_close_requested(id),
