@@ -19,6 +19,10 @@ commit() {
   git_in "$dir" rev-parse HEAD
 }
 
+absent() {
+  if grep "$@"; then return 1; fi
+}
+
 make_repo() {
   local name=$1 origin="$WORK/$1-origin.git" clone="$WORK/$1"
   git init -q --bare -b main "$origin"
@@ -196,17 +200,17 @@ for name, version in (("porthmos-tui", tui), ("porthmos-gui", gui)):
     assert int(version.split(".")[0]) >= 2026, (name, version)
 '
   grep -Eq '^version = "[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?"$' "$ROOT/porthmos-gui/Cargo.toml"
-  ! grep -q '^version.workspace = true' "$ROOT/porthmos-gui/Cargo.toml"
+  absent -q '^version.workspace = true' "$ROOT/porthmos-gui/Cargo.toml"
 }
 
 test_the_windows_installer_installs_per_user_outside_package_manager_folders() {
   local script="$ROOT/installer/porthmos-gui.iss"
   [ -f "$script" ]
   grep -q '^PrivilegesRequired=lowest$' "$script"
-  ! grep -q '^PrivilegesRequiredOverridesAllowed' "$script"
+  absent -q '^PrivilegesRequiredOverridesAllowed' "$script"
   grep -Fq 'DefaultDirName={localappdata}\Programs\Porthmos' "$script"
-  ! grep -Eqi '\{(autopf|pf|pf32|pf64|commonpf)' "$script"
-  ! grep -Eqi 'program files|windowsapps|scoop|winget|chocolatey' "$script"
+  absent -Eqi '\{(autopf|pf|pf32|pf64|commonpf)' "$script"
+  absent -Eqi 'program files|windowsapps|scoop|winget|chocolatey' "$script"
 }
 
 test_the_windows_installer_upgrades_in_place_and_cleans_what_the_updater_leaves() {
@@ -219,10 +223,10 @@ test_the_windows_installer_upgrades_in_place_and_cleans_what_the_updater_leaves(
 
 test_the_windows_installer_leaves_the_machine_and_the_users_data_alone() {
   local script="$ROOT/installer/porthmos-gui.iss"
-  ! grep -qi '^ChangesEnvironment=yes' "$script"
-  ! grep -qi '^ChangesAssociations=yes' "$script"
-  ! grep -q '^\[Registry\]' "$script"
-  ! grep -Eqi 'userappdata|{app}\\\.\.|connections\.toml|state\.toml' "$script"
+  absent -qi '^ChangesEnvironment=yes' "$script"
+  absent -qi '^ChangesAssociations=yes' "$script"
+  absent -q '^\[Registry\]' "$script"
+  absent -Eqi 'userappdata|{app}\\\.\.|connections\.toml|state\.toml' "$script"
   grep -q '^#ifndef AppVersion$' "$script"
 }
 
