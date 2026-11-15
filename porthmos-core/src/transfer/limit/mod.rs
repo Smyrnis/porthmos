@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     sync::{
         Arc, Mutex,
@@ -110,9 +111,9 @@ pub fn parse_speed_limit(text: &str) -> Result<Option<u64>, String> {
     if matches!(lowered.as_str(), "" | "off" | "none" | "no") {
         return Ok(None);
     }
-    let invalid = || format!("\"{shown}\" isn't a speed; try 500k, 2M or off");
-    let too_small = || format!("\"{shown}\" is below the minimum; a limit must be at least 1 byte a second");
-    let too_large = || format!("\"{shown}\" is too large for a speed limit");
+    let invalid = || i18n::text_with("limit.invalid", &[("shown", shown)]);
+    let too_small = || i18n::text_with("limit.too_small", &[("shown", shown)]);
+    let too_large = || i18n::text_with("limit.too_large", &[("shown", shown)]);
 
     let rest = lowered.strip_suffix("/s").unwrap_or(&lowered).trim_end();
     let rest = rest.strip_suffix('b').unwrap_or(rest);
@@ -166,7 +167,7 @@ pub fn format_speed_limit(limit: Option<u64>) -> String {
 }
 
 pub fn speed_limit_note(limit: Option<u64>) -> Option<String> {
-    limit.map(|_| format!("speed limit {}", format_speed_limit(limit)))
+    limit.map(|_| i18n::text_with("limit.note", &[("limit", &format_speed_limit(limit))]))
 }
 
 #[cfg(test)]

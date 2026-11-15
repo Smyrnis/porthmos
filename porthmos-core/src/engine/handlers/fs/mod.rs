@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{sync::Arc, time::Duration};
 
 use porthmos_vfs::{FileSystem, ProtocolError, VfsPath};
@@ -63,7 +64,7 @@ async fn list_into(
         None => match fs.home().await {
             Ok(home) => home,
             Err(err) => {
-                send_failure(&reporter, failure_message(location, "Unable to list home directory", &err), &err);
+                send_failure(&reporter, failure_message(location, i18n::text("folders.unable_list_home"), &err), &err);
                 return false;
             }
         },
@@ -80,7 +81,11 @@ async fn list_into(
             true
         }
         Err(err) => {
-            send_failure(&reporter, failure_message(location, format!("Unable to list {}", path), &err), &err);
+            send_failure(
+                &reporter,
+                failure_message(location, i18n::text_with("folders.unable_list", &[("path", &path.to_string())]), &err),
+                &err,
+            );
             false
         }
     }
@@ -137,7 +142,7 @@ async fn list_start_into(
     let path = match resolve_start_directory(fs.as_ref(), &requested).await {
         Ok(path) => path,
         Err(err) => {
-            send_failure(&reporter, failure_message(location, "Unable to list home directory", &err), &err);
+            send_failure(&reporter, failure_message(location, i18n::text("folders.unable_list_home"), &err), &err);
             return;
         }
     };
@@ -148,7 +153,7 @@ async fn list_start_into(
             announce_free_space(fs.as_ref(), location, path, &events).await;
         }
         Err(err) => {
-            let context = format!("Unable to open {} on {name}, showing the home directory instead", path);
+            let context = i18n::text_with("folders.unable_open", &[("path", &path.to_string()), ("name", &name)]);
             reporter.report_cause(Severity::Warning, failure_report(context, &err), &err);
             list_into(fs, location, None, None, events, internal, reporter).await;
         }
@@ -239,7 +244,7 @@ impl Engine {
                     Err(err) => {
                         send_failure(
                             &reporter,
-                            failure_message(location, "Unable to find the home directory", &err),
+                            failure_message(location, i18n::text("folders.unable_find_home"), &err),
                             &err,
                         );
                         let _ = events.send(Event::PathRejected { location });
@@ -327,11 +332,16 @@ impl Engine {
                     let _ = events.send(Event::LocationChanged { location });
                 }
                 Err(err) if fs.stat(&path).await.is_ok() => {
-                    let shown = anyhow::anyhow!("{} already exists", quoted_name(&path));
-                    send_failure(&reporter, failure_message(location, "Unable to create directory", &shown), &err);
+                    let shown =
+                        anyhow::anyhow!(i18n::text_with("folders.already_exists", &[("name", &quoted_name(&path))]));
+                    send_failure(
+                        &reporter,
+                        failure_message(location, i18n::text("folders.unable_create"), &shown),
+                        &err,
+                    );
                 }
                 Err(err) => {
-                    send_failure(&reporter, failure_message(location, "Unable to create directory", &err), &err);
+                    send_failure(&reporter, failure_message(location, i18n::text("folders.unable_create"), &err), &err);
                 }
             }
         });
@@ -345,8 +355,8 @@ impl Engine {
         let reporter = self.reporter.clone();
         self.tasks.spawn("rename", scope_for(location), move |_| async move {
             if from != to && !differs_only_in_case(&from, &to) && fs.stat(&to).await.is_ok() {
-                let err = anyhow::anyhow!("{} already exists", quoted_name(&to));
-                send_failure(&reporter, failure_message(location, "Unable to rename", &err), &err);
+                let err = anyhow::anyhow!(i18n::text_with("folders.already_exists", &[("name", &quoted_name(&to))]));
+                send_failure(&reporter, failure_message(location, i18n::text("folders.unable_rename"), &err), &err);
                 return;
             }
             match fs.rename(&from, &to).await {
@@ -354,7 +364,7 @@ impl Engine {
                     let _ = events.send(Event::LocationChanged { location });
                 }
                 Err(err) => {
-                    send_failure(&reporter, failure_message(location, "Unable to rename", &err), &err);
+                    send_failure(&reporter, failure_message(location, i18n::text("folders.unable_rename"), &err), &err);
                 }
             }
         });
@@ -369,7 +379,7 @@ impl Engine {
         self.tasks.spawn("delete", scope_for(location), move |_| async move {
             for path in paths {
                 if let Err(err) = fs.delete(&path).await {
-                    send_failure(&reporter, failure_message(location, "Unable to delete", &err), &err);
+                    send_failure(&reporter, failure_message(location, i18n::text("folders.unable_delete"), &err), &err);
                     return;
                 }
             }
@@ -383,10 +393,10 @@ impl Engine {
         };
         if !fs.can_set_permissions() {
             let subject = match location {
-                Location::Local => crate::delete_prompt::THIS_COMPUTER.to_string(),
+                Location::Local => crate::delete_prompt::this_computer(),
                 Location::Session(session) => self.session_name(session),
             };
-            self.report(Severity::Warning, format!("{subject} can't change permissions"));
+            self.report(Severity::Warning, i18n::text_with("permissions.cannot_change", &[("subject", &subject)]));
             return;
         }
         let events = self.events.clone();
@@ -409,7 +419,7 @@ impl Engine {
                 }
             }
             if let Some((path, err)) = refused {
-                let context = format!("Unable to change permissions of {}", quoted_name(&path));
+                let context = i18n::text_with("permissions.unable", &[("name", &quoted_name(&path))]);
                 send_failure(&reporter, failure_message(location, context, &err), &err);
             }
             if changed {

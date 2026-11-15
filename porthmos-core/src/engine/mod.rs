@@ -6,6 +6,7 @@ mod report;
 mod session_book;
 mod transfer_work;
 
+use crate::i18n;
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -460,7 +461,7 @@ impl Engine {
 
     fn recover_from_panic(&mut self, name: &'static str, scope: Scope, message: &str) {
         tracing::error!(target: "porthmos::tasks", task = name, "{message}");
-        let failed = format!("A background task failed: {name}");
+        let failed = i18n::text_with("engine.task_failed", &[("name", name)]);
         match scope {
             Scope::Transfer(id) if self.transfers.get(id).is_some_and(|job| job.status == JobStatus::InProgress) => {
                 self.handle_transfer_event(TransferEvent::Failed { id, message: failed });
@@ -535,7 +536,7 @@ impl Engine {
     #[track_caller]
     pub(crate) fn connect_failed(&self, name: String, message: impl Into<Message>) {
         let message = message.into();
-        let severity = if message == crate::CONNECTION_CANCELLED { Severity::Info } else { Severity::Error };
+        let severity = if message == crate::connection_cancelled() { Severity::Info } else { Severity::Error };
         self.reporter.log(severity, &message.to_string());
         self.publish_connection_state(&name, ConnectionState::Disconnected);
         self.emit(Event::ConnectFailed { name, message });

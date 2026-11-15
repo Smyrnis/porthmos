@@ -45,7 +45,7 @@ pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings
 pub use connection_state::ConnectionState;
 pub use engine::{Command, Event, Location, RequestId, SessionId};
 pub use error::{
-    CONNECTION_CANCELLED, SEARCH_INCOMPLETE_NOTE, Severity, connect_failure_message, failure_report, user_message,
+    Severity, connect_failure_message, connection_cancelled, failure_report, search_incomplete_note, user_message,
 };
 pub use message::Message;
 pub use panel_memory::PanelKind;

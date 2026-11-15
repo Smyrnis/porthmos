@@ -56,9 +56,24 @@ fn errors_read_as_short_messages() {
     assert_eq!(ImportError::TooLarge.to_string(), "The file is larger than 8 MiB");
     assert_eq!(ImportError::Unreadable("no such file".into()).to_string(), "Can't read the file: no such file");
     assert_eq!(
-        ImportError::WrongFormat("not a FileZilla site manager file").to_string(),
-        "not a FileZilla site manager file"
+        ImportError::WrongFormat("import.not_filezilla").to_string(),
+        "This is not a FileZilla site manager file"
     );
+}
+
+#[test]
+fn every_wrong_format_message_exists_in_the_language_file() {
+    for key in [
+        "import.not_filezilla",
+        "import.not_winscp",
+        "import.not_utf8",
+        "import.too_many_files",
+        "import.no_sessions",
+        "import.not_reg",
+        "import.not_text_reg",
+    ] {
+        assert_ne!(ImportError::WrongFormat(key).to_string(), key);
+    }
 }
 
 #[test]

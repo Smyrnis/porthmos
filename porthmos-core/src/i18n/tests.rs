@@ -127,3 +127,149 @@ fn a_value_that_looks_like_a_placeholder_is_never_filled_in_again() {
 fn an_unknown_placeholder_is_left_as_it_is() {
     assert_eq!(fill("a %{missing} b", &[("other", "x")]), "a %{missing} b");
 }
+
+#[test]
+fn english_and_greek_are_offered_under_their_own_names() {
+    let languages = available_languages();
+
+    assert_eq!(languages.iter().map(|language| language.code).collect::<Vec<_>>(), ["en", "el"]);
+    assert_eq!(languages[0].name, "English");
+    assert_eq!(languages[1].name, "Ελληνικά");
+}
+
+#[test]
+fn only_the_offered_languages_are_available() {
+    assert!(is_available("en"));
+    assert!(is_available("el"));
+    assert!(!is_available("klingon"));
+    assert!(!is_available(""));
+}
+
+#[test]
+fn a_chosen_language_wins_over_the_environment() {
+    assert_eq!(chosen_language(Some("el"), Some("en_US.UTF-8")), "el");
+    assert_eq!(chosen_language(Some("en"), Some("el_GR")), "en");
+}
+
+#[test]
+fn without_a_choice_the_environment_decides() {
+    assert_eq!(chosen_language(None, Some("el_GR.UTF-8")), "el");
+    assert_eq!(chosen_language(None, None), "en");
+}
+
+#[test]
+fn a_choice_that_is_not_offered_is_ignored() {
+    assert_eq!(chosen_language(Some("klingon"), Some("el_GR")), "el");
+}
+
+#[test]
+fn an_environment_language_that_is_not_offered_means_english() {
+    assert_eq!(chosen_language(None, Some("de_DE.UTF-8")), "en");
+}
+
+fn flatten_locale(file: &str) -> Vec<(String, String)> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("locales").join(file);
+    let contents = std::fs::read_to_string(&path).expect("the locale file");
+    let mut stack: Vec<String> = Vec::new();
+    let mut entries = Vec::new();
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        let depth = (line.len() - line.trim_start().len()) / 2;
+        let (name, value) = line.trim().split_once(':').expect("a key line");
+        stack.truncate(depth);
+        let value = value.trim();
+        if value.is_empty() {
+            stack.push(name.to_string());
+        } else if name != "_version" {
+            let unquoted = value.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')).expect("a quoted value");
+            entries.push((format!("{}.{name}", stack.join(".")), unquoted.replace("\\\"", "\"")));
+        }
+    }
+    entries
+}
+
+fn placeholders(value: &str) -> Vec<String> {
+    let mut found: Vec<String> = value
+        .match_indices("%{")
+        .filter_map(|(offset, _)| {
+            value[offset + 2..].find('}').map(|end| value[offset + 2..offset + 2 + end].to_string())
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn every_language_file_has_exactly_the_keys_of_the_english_one() {
+    let english = flatten_locale("en.yml");
+    let english_keys: Vec<&String> = english.iter().map(|(key, _)| key).collect();
+    for language in available_languages().iter().filter(|language| language.code != "en") {
+        let translated = flatten_locale(&format!("{}.yml", language.code));
+        let translated_keys: Vec<&String> = translated.iter().map(|(key, _)| key).collect();
+        for key in &english_keys {
+            assert!(translated_keys.contains(key), "{} lacks {key}", language.code);
+        }
+        for key in &translated_keys {
+            assert!(english_keys.contains(key), "{} has {key}, which en.yml does not", language.code);
+        }
+    }
+}
+
+#[test]
+fn every_translation_keeps_the_placeholders_of_the_english_text() {
+    let english = flatten_locale("en.yml");
+    for language in available_languages().iter().filter(|language| language.code != "en") {
+        for (key, value) in flatten_locale(&format!("{}.yml", language.code)) {
+            let original = &english.iter().find(|(name, _)| *name == key).expect("a matching key").1;
+            assert_eq!(placeholders(&value), placeholders(original), "{} {key}", language.code);
+        }
+    }
+}
+
+#[test]
+fn a_greek_key_gives_greek_text() {
+    assert_eq!(text_in("el", "folders.compare.needs_server"), "Συνδεθείτε σε διακομιστή για να συγκρίνετε φακέλους");
+}
+
+#[test]
+fn a_plural_can_carry_more_values_than_its_count() {
+    assert_eq!(
+        plural_with_in("en", "transfers.restored", 2, &[("names", "alpha or beta")]),
+        "2 transfers from last time are in the transfers list. Connect to alpha or beta and retry them to continue."
+    );
+    assert_eq!(
+        plural_with_in("en", "transfers.restored", 1, &[("names", "alpha")]),
+        "1 transfer from last time is in the transfers list. Connect to alpha and retry it to continue."
+    );
+}
+
+#[test]
+fn a_label_key_is_the_english_text_with_its_letters_and_digits_joined_by_underscores() {
+    assert_eq!(label_key("Host"), "label.Host");
+    assert_eq!(label_key("host"), "label.host");
+    assert_eq!(label_key("Private key (optional)"), "label.Private_key_optional_");
+    assert_eq!(label_key("  S3 region / endpoint  "), "label.S3_region_endpoint_");
+    assert_eq!(label_key("Search"), "label.Search");
+    assert_eq!(label_key("Search\u{2026}"), "label.Search_");
+}
+
+#[test]
+fn a_label_without_a_translation_stays_english() {
+    assert_eq!(label_in("el", "Not in the file at all"), "Not in the file at all");
+    assert_eq!(label_in("en", "Not in the file at all"), "Not in the file at all");
+}
+
+#[test]
+fn a_label_with_a_translation_comes_back_translated() {
+    assert_eq!(label_in("el", "Host"), "Διακομιστής");
+}
+
+#[test]
+fn text_or_gives_the_fallback_for_a_key_that_is_not_in_the_file() {
+    assert_eq!(text_or_in("en", "no.such.key", "plain words"), "plain words");
+    assert_eq!(text_or_in("el", "no.such.key", "plain words"), "plain words");
+}
+
+#[test]
+fn text_or_gives_the_translation_for_a_key_that_is_in_the_file() {
+    assert_eq!(text_or_in("en", "common.cancel", "ignored"), "Cancel");
+}

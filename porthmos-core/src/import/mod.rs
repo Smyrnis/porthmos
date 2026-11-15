@@ -48,19 +48,21 @@ impl ImportSource {
         }
     }
 
-    pub fn hint(self) -> &'static str {
-        match self {
-            ImportSource::FileZilla => "FileZilla: the sitemanager.xml file. Passwords are not imported.",
-            ImportSource::WinScp => "WinSCP: the WinSCP.ini file. Passwords are not imported.",
-            ImportSource::Putty => "PuTTY: the sessions folder, or a .reg export. Passwords are not imported.",
-        }
+    pub fn hint(self) -> String {
+        let key = match self {
+            ImportSource::FileZilla => "import.hint.filezilla",
+            ImportSource::WinScp => "import.hint.winscp",
+            ImportSource::Putty => "import.hint.putty",
+        };
+        i18n::text(key)
     }
 
-    pub fn missing_path_message(self) -> &'static str {
-        match self {
-            ImportSource::Putty => "Enter the path of the sessions folder or .reg file",
-            ImportSource::FileZilla | ImportSource::WinScp => "Enter the path of the file",
-        }
+    pub fn missing_path_message(self) -> String {
+        let key = match self {
+            ImportSource::Putty => "import.path_putty",
+            ImportSource::FileZilla | ImportSource::WinScp => "import.path_file",
+        };
+        i18n::text(key)
     }
 }
 
@@ -114,9 +116,9 @@ impl ImportRow {
     pub fn status(&self) -> Option<String> {
         match &self.verdict {
             Verdict::New => None,
-            Verdict::Exists => Some("already exists".to_string()),
+            Verdict::Exists => Some(i18n::text("import.exists")),
             Verdict::Unsupported(reason) => Some(reason.clone()),
-            Verdict::Invalid(reason) => Some(format!("can't import: {reason}")),
+            Verdict::Invalid(reason) => Some(i18n::text_with("import.cannot", &[("reason", reason)])),
         }
     }
 
@@ -142,9 +144,12 @@ pub enum ImportError {
 impl fmt::Display for ImportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ImportError::TooLarge => write!(f, "The file is larger than {} MiB", MAX_INPUT_BYTES / (1024 * 1024)),
-            ImportError::Unreadable(cause) => write!(f, "Can't read the file: {cause}"),
-            ImportError::WrongFormat(message) => f.write_str(message),
+            ImportError::TooLarge => f.write_str(&i18n::text_with(
+                "import.too_large",
+                &[("limit", &(MAX_INPUT_BYTES / (1024 * 1024)).to_string())],
+            )),
+            ImportError::Unreadable(cause) => f.write_str(&i18n::text_with("import.unreadable", &[("cause", cause)])),
+            ImportError::WrongFormat(key) => f.write_str(&i18n::text(key)),
         }
     }
 }

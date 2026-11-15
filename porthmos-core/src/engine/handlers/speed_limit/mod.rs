@@ -5,7 +5,7 @@ impl Engine {
         let limit = bytes_per_second.filter(|rate| *rate > 0);
         self.work.speed_limit.set(limit);
         self.ui_state.speed_limit = limit;
-        self.remember_ui_state("speed limit");
+        self.remember_ui_state("remember.what.speed_limit");
         self.publish_transfers();
     }
 }

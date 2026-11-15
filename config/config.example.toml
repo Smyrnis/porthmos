@@ -2,6 +2,13 @@
 # Copy this file to ~/.config/porthmos/config.toml
 # (or $XDG_CONFIG_HOME/porthmos/config.toml). Every value below is the default.
 
+[general]
+# Language of the menus, dialogs and messages: "auto" follows PORTHMOS_LANG,
+# LC_ALL or LANG; "en" (English) or "el" (Greek) chooses one. The window app
+# also has this in Settings and applies it at once; the terminal app reads it
+# when it starts.
+language = "auto"
+
 [panel]
 # Show dotfiles when a folder is opened.
 show_hidden = false

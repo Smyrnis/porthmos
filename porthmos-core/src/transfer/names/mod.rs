@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::collections::{HashMap, HashSet};
 
 use porthmos_vfs::{NameRules, VfsPath};
@@ -90,10 +91,11 @@ pub(crate) fn dedupe_names(files: &mut [PlannedFile], folders: &[VfsPath], rules
 
 pub fn renamed_notice(renamed: &[Renamed]) -> String {
     let count = renamed.len();
-    let plural = if count == 1 { "" } else { "s" };
-    let example =
-        renamed.first().map(|renamed| format!(", e.g. \"{}\" to \"{}\"", renamed.from, renamed.to)).unwrap_or_default();
-    format!("Renamed {count} name{plural} the destination can't store{example}")
+    let example = renamed
+        .first()
+        .map(|renamed| i18n::text_with("transfer.renamed_example", &[("from", &renamed.from), ("to", &renamed.to)]))
+        .unwrap_or_default();
+    i18n::plural_with("transfer.renamed", count, &[("example", &example)])
 }
 
 #[cfg(test)]

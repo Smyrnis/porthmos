@@ -13,5 +13,5 @@ pub mod snapshot;
 pub use execute::{Executed, TransferOutcome, execute as run, execute_preserving};
 pub use job::{Direction, JobStatus, TransferJob};
 pub use queue::{RowChange, TransferQueue};
-pub use quit::QUIT_WITH_TRANSFERS_TEXT;
+pub use quit::quit_with_transfers_text;
 pub use snapshot::{ActiveJob, TransferSnapshot};

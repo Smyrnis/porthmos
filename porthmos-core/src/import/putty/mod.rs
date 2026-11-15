@@ -1,9 +1,10 @@
+use crate::i18n;
 use std::collections::BTreeMap;
 
 use super::{Candidate, ImportError, ImportRow, Verdict, clean, escape};
 
-const NOT_REG: &str = "This is not a PuTTY .reg export";
-const NOT_TEXT: &str = "This is not a text .reg export";
+const NOT_REG: &str = "import.not_reg";
+const NOT_TEXT: &str = "import.not_text_reg";
 const SESSIONS_KEY: &str = "hkey_current_user\\software\\simontatham\\putty\\sessions";
 const DEFAULT_SETTINGS: &str = "Default Settings";
 const PPK_NOTE: &str = "key is in PuTTY format, convert it first";
@@ -39,20 +40,21 @@ fn invalid(reason: &str) -> Verdict {
     Verdict::Invalid(reason.to_string())
 }
 
-fn kind_of(protocol: &str) -> &'static str {
-    match protocol {
+fn unsupported_kind(protocol: &str) -> String {
+    let kind = match protocol {
         "telnet" => "Telnet",
         "raw" => "Raw",
         "rlogin" => "Rlogin",
         "serial" => "Serial",
-        _ => "This kind of",
-    }
+        _ => return i18n::text("import.other_kind_unsupported"),
+    };
+    i18n::text_with("import.kind_unsupported", &[("kind", kind)])
 }
 
 fn candidate(name: &str, fields: &Fields) -> Result<Candidate, Verdict> {
     let protocol = fields.protocol.as_deref().map(|text| text.trim().to_lowercase()).filter(|text| !text.is_empty());
     if let Some(protocol) = protocol.as_deref().filter(|protocol| *protocol != "ssh") {
-        return Err(unsupported(&format!("{} sessions are not supported", kind_of(protocol))));
+        return Err(unsupported(&unsupported_kind(protocol)));
     }
 
     let raw_host = fields.host.as_deref().unwrap_or_default();

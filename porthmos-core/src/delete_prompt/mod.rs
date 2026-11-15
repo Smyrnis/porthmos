@@ -5,7 +5,9 @@ use crate::i18n;
 pub mod count;
 
 pub const MAX_LISTED_NAMES: usize = 5;
-pub const THIS_COMPUTER: &str = "this computer";
+pub fn this_computer() -> String {
+    i18n::text("place.this_computer")
+}
 
 pub fn delete_summary(entries: &[Entry], place: &str, show: impl Fn(&str) -> String) -> Vec<String> {
     match entries {

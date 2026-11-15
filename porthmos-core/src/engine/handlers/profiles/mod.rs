@@ -1,5 +1,6 @@
 mod keyring;
 
+use crate::i18n;
 use keyring::SecretChanges;
 pub(crate) use keyring::{KeyringDone, KeyringJob, SecretOwner, profile_account, ssh_account};
 use porthmos_vfs::{ConnectionForm, OptionKind};
@@ -37,7 +38,10 @@ impl Engine {
             (Some(protocol), _) => protocol.connection_form(),
             (None, Some(entry)) => ConnectionForm::standard(entry.port),
             (None, None) => {
-                self.profile_rejected(Some("protocol"), format!("No \"{}\" protocol is available", draft.protocol));
+                self.profile_rejected(
+                    Some("protocol"),
+                    i18n::text_with("profiles.no_protocol", &[("protocol", &draft.protocol)]),
+                );
                 return;
             }
         };
@@ -55,7 +59,7 @@ impl Engine {
                     .iter()
                     .any(|saved| saved.name == profile.name && Some(&saved.name) != original.as_ref()) =>
             {
-                self.profile_rejected(Some("name"), format!("A connection named \"{}\" already exists", profile.name));
+                self.profile_rejected(Some("name"), i18n::text_with("profiles.name_taken", &[("name", &profile.name)]));
                 return;
             }
             Ok(_) => {}
@@ -105,7 +109,7 @@ impl Engine {
         match self.is_ssh_host(name) {
             Ok(true) => {}
             Ok(false) => {
-                self.profile_rejected(None, format!("{name} is not in ~/.ssh/config"));
+                self.profile_rejected(None, i18n::text_with("profiles.not_in_ssh_config", &[("name", name)]));
                 return;
             }
             Err(err) => return self.report(Severity::Error, format!("{err:#}")),
@@ -137,7 +141,7 @@ impl Engine {
                     Err(err) => self.report(Severity::Error, format!("{err:#}")),
                 }
             }
-            Ok(false) => self.report(Severity::Error, format!("{to} is not in ~/.ssh/config")),
+            Ok(false) => self.report(Severity::Error, i18n::text_with("profiles.not_in_ssh_config", &[("name", &to)])),
             Err(err) => self.report(Severity::Error, format!("{err:#}")),
         }
         self.list_profiles();

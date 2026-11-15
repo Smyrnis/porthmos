@@ -469,3 +469,86 @@ fn a_snapshot_is_not_changed_by_later_entries() {
     assert_eq!(snapshot.len(), 1);
     assert_eq!(snapshot[0].label, "a");
 }
+
+fn entry_for_details() -> HistoryEntry {
+    let mut entry = sample("photos", HistoryResult::Done);
+    entry.connection = "alpha".to_string();
+    entry.local_path = String::new();
+    entry.remote_path = String::new();
+    entry.failed_files.clear();
+    entry
+}
+
+#[test]
+fn the_details_title_names_the_transfer() {
+    let (title, _) = details(&entry_for_details(), "2026-01-02 03:04:05", "1.0 KiB");
+
+    assert_eq!(title, "Transfer: photos");
+}
+
+#[test]
+fn the_details_name_when_it_finished_the_connection_and_the_result() {
+    let mut entry = entry_for_details();
+    entry.direction = Direction::Upload;
+    entry.files_done = 2;
+    entry.files_total = 3;
+
+    let (_, body) = details(&entry, "2026-01-02 03:04:05", "1.0 KiB");
+
+    assert_eq!(
+        body,
+        "Finished:   2026-01-02 03:04:05\nConnection: alpha (Upload)\nResult:     done, 2 of 3 files, 1.0 KiB"
+    );
+}
+
+#[test]
+fn a_partly_failed_result_says_how_many_failed() {
+    let mut entry = entry_for_details();
+    entry.result = HistoryResult::PartlyFailed { failed: 4 };
+
+    let (_, body) = details(&entry, "when", "size");
+
+    assert!(body.contains("Result:     partly failed (4 failed), "), "{body}");
+    assert!(body.ends_with("The reasons are in porthmos.log."), "{body}");
+}
+
+#[test]
+fn the_details_list_ten_failed_files_and_count_the_rest() {
+    let mut entry = entry_for_details();
+    entry.result = HistoryResult::Failed;
+    entry.failed_files = (0..12).map(|number| format!("file{number}")).collect();
+    entry.failed_count = 12;
+
+    let (_, body) = details(&entry, "when", "size");
+
+    assert!(body.contains("Failed files:\n- file0\n"), "{body}");
+    assert!(body.contains("- file9\nand 2 more\u{2026}\n"), "{body}");
+    assert!(!body.contains("file10"), "{body}");
+}
+
+#[test]
+fn the_details_leave_out_empty_paths_and_make_names_printable() {
+    let mut entry = entry_for_details();
+    entry.local_path = "/tmp/a\nb".to_string();
+
+    let (_, body) = details(&entry, "when", "size");
+
+    assert!(body.contains("Local:      /tmp/a?b"), "{body}");
+    assert!(!body.contains("Remote:"), "{body}");
+}
+
+#[test]
+fn the_direction_and_result_words_exist_in_the_language_file() {
+    for key in ["history.direction.upload", "history.direction.download"] {
+        assert_ne!(crate::i18n::text(key), key);
+    }
+    for result in [
+        HistoryResult::Done,
+        HistoryResult::PartlyFailed { failed: 1 },
+        HistoryResult::Failed,
+        HistoryResult::Cancelled,
+        HistoryResult::Interrupted,
+    ] {
+        assert!(!result.text().starts_with("history."), "{result:?}");
+    }
+}

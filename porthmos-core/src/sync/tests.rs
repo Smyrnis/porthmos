@@ -821,3 +821,23 @@ fn dropping_unstorable_source_names_leaves_the_target_alone_under_case_sensitive
 
     assert_eq!(keys(&onto), ["A:B.TXT"]);
 }
+
+#[test]
+fn every_reason_reads_as_a_short_english_phrase() {
+    let phrases = [
+        (SyncReason::OnlyLocal, "new locally"),
+        (SyncReason::OnlyRemote, "new on remote"),
+        (SyncReason::LocalNewer, "local is newer"),
+        (SyncReason::RemoteNewer, "remote is newer"),
+        (SyncReason::TargetNewer, "target is newer"),
+        (SyncReason::SameTimeDifferentSize, "same time, other size"),
+        (SyncReason::SizeDiffers, "size differs"),
+        (SyncReason::SizeDiffersTimeUnknown, "size differs, no time"),
+        (SyncReason::KindMismatch, "file vs folder"),
+        (SyncReason::EmptyFolder, "new empty folder"),
+        (SyncReason::OnlyOnTarget, "only on the target"),
+    ];
+    for (reason, phrase) in phrases {
+        assert_eq!(reason.text(), phrase);
+    }
+}

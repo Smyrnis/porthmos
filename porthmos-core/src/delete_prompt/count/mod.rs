@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use porthmos_vfs::{ErrorKind, FileKind, FileSystem, ProtocolError, VfsPath};
@@ -70,38 +71,42 @@ pub(crate) fn grouped(number: u64) -> String {
     groups.join(",")
 }
 
-pub(crate) fn counted(number: u64, singular: &str, plural: &str) -> Option<String> {
-    match number {
-        0 => None,
-        1 => Some(format!("1 {singular}")),
-        _ => Some(format!("{} {plural}", grouped(number))),
+pub(crate) fn counted(number: u64, key: &str) -> Option<String> {
+    if number == 0 {
+        return None;
+    }
+    let form = if number == 1 { "one" } else { "other" };
+    Some(i18n::text_with(&format!("{key}.{form}"), &[("count", &grouped(number))]))
+}
+
+pub(crate) fn joined_and(parts: Vec<String>) -> String {
+    match parts.as_slice() {
+        [first, second] => i18n::text_with("common.and", &[("first", first), ("second", second)]),
+        _ => parts.join(", "),
     }
 }
 
 pub fn contents_line(contents: &Contents) -> String {
     let count = match contents {
-        Contents::Counting => return "Counting what is inside\u{2026}".to_string(),
-        Contents::Unavailable => return "Couldn't count what is inside.".to_string(),
+        Contents::Counting => return i18n::text("contents.counting"),
+        Contents::Unavailable => return i18n::text("contents.unavailable"),
         Contents::Counted(count) => count,
     };
     if count.capped {
-        return format!("Inside: more than {} items.", grouped(COUNT_LIMIT));
+        return i18n::text_with("contents.capped", &[("count", &grouped(COUNT_LIMIT))]);
     }
-    let parts: Vec<String> = [counted(count.files, "file", "files"), counted(count.folders, "folder", "folders")]
-        .into_iter()
-        .flatten()
-        .collect();
-    let mut text = String::from("Inside: ");
-    match (parts.is_empty(), count.unreadable > 0) {
-        (true, true) => text.push_str("nothing found"),
-        (true, false) => text.push_str("nothing"),
-        (false, true) => text.push_str(&format!("at least {}", parts.join(" and "))),
-        (false, false) => text.push_str(&parts.join(" and ")),
-    }
+    let parts: Vec<String> =
+        [counted(count.files, "count.files"), counted(count.folders, "count.folders")].into_iter().flatten().collect();
+    let what = joined_and(parts.clone());
+    let mut text = match (parts.is_empty(), count.unreadable > 0) {
+        (true, true) => i18n::text("contents.nothing_found"),
+        (true, false) => i18n::text("contents.nothing"),
+        (false, true) => i18n::text_with("contents.at_least", &[("what", &what)]),
+        (false, false) => i18n::text_with("contents.some", &[("what", &what)]),
+    };
     match count.unreadable {
         0 => text.push('.'),
-        1 => text.push_str("; 1 folder could not be read."),
-        more => text.push_str(&format!("; {more} folders could not be read.")),
+        more => text.push_str(&i18n::plural("contents.unreadable", more as usize)),
     }
     text
 }

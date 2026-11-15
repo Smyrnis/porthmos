@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::{BTreeMap, HashMap},
     rc::Rc,
@@ -7,7 +8,7 @@ use roxmltree::{Document, Node, NodeId, ParsingOptions};
 
 use super::{Candidate, ImportError, ImportRow, Verdict, clean};
 
-const NOT_FILEZILLA: &str = "This is not a FileZilla site manager file";
+const NOT_FILEZILLA: &str = "import.not_filezilla";
 const NODES_LIMIT: u32 = 2_000_000;
 const MAX_FOLDER_DEPTH: usize = 32;
 const LAST_PROTOCOL: i32 = 24;
@@ -90,10 +91,10 @@ fn map_protocol(number: i32) -> Result<(&'static str, Option<&'static str>), Ver
         7 => Ok(("s3", None)),
         9 => Ok(("webdav", Some("https"))),
         19 => Ok(("webdav", Some("http"))),
-        2 => Err(unsupported("HTTP sites are not supported")),
-        5 => Err(unsupported("HTTPS sites are not supported")),
-        8 => Err(unsupported("Storj is not supported")),
-        _ => Err(unsupported("this storage service is not supported")),
+        2 => Err(unsupported(&i18n::text("import.filezilla.http"))),
+        5 => Err(unsupported(&i18n::text("import.filezilla.https"))),
+        8 => Err(unsupported(&i18n::text("import.filezilla.storj"))),
+        _ => Err(unsupported(&i18n::text("import.filezilla.storage"))),
     }
 }
 
@@ -156,7 +157,7 @@ fn candidate(server: Node<'_, '_>, display_name: &str, folders: &[&str]) -> Resu
 
     let logon = child_text(server, "Logontype").and_then(|text| text.parse::<i32>().ok()).unwrap_or(1);
     if logon == PROFILE_LOGON || logon == DEFAULT_CREDENTIALS_LOGON {
-        return Err(unsupported("login with an AWS profile or default credentials is not supported"));
+        return Err(unsupported(&i18n::text("import.filezilla.aws")));
     }
     let username = if logon == ANONYMOUS_LOGON {
         if protocol != "ftp" {

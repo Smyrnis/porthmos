@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::sync::Arc;
 
 use porthmos_vfs::{ErrorKind, FileSystem, OptionKind, Protocol, ShellInvocation, Target, VfsPath};
@@ -88,16 +89,19 @@ impl Engine {
         let entry = entries.iter().filter(named).find(|entry| !entry.source.is_orphan_labels()).cloned();
         let Some(entry) = entry else {
             if entries.iter().filter(named).any(|entry| entry.source == ConnectionSource::MissingSshHost) {
-                self.connect_failed(profile.to_string(), format!("{profile} is no longer in ~/.ssh/config"));
+                self.connect_failed(
+                    profile.to_string(),
+                    i18n::text_with("connection.no_longer_in_ssh_config", &[("name", profile)]),
+                );
                 return;
             }
-            self.connect_failed(profile.to_string(), format!("No saved connection named \"{profile}\""));
+            self.connect_failed(profile.to_string(), i18n::text_with("connection.not_saved", &[("name", profile)]));
             return;
         };
         let Some(protocol) = self.protocols.iter().find(|protocol| protocol.id() == entry.protocol).cloned() else {
             self.connect_failed(
                 entry.name.clone(),
-                format!("No \"{}\" protocol is available for {}", entry.protocol, entry.name),
+                i18n::text_with("connection.protocol_missing", &[("protocol", &entry.protocol), ("name", &entry.name)]),
             );
             return;
         };
@@ -187,19 +191,18 @@ impl Engine {
         self.keep_folder_for_reconnect(session, &live.name, was_lost);
         self.history.remember_session(session, live.name.clone());
 
-        let affected = self.transfers.fail_queued_for_session(session, "session disconnected")
+        let affected = self.transfers.fail_queued_for_session(session, &i18n::text("common.session_disconnected"))
             + self.cancel_session_transfers(session)
             + self.drop_conflict_reviews(|review| review.session_id == session);
         self.drop_sync_plans(|plan| plan.session == session);
         self.stop_properties_of(session);
         self.finish_move_batches_of(session);
         if affected > 0 {
-            let plural = if affected == 1 { "" } else { "s" };
-            self.info(format!("{affected} transfer{plural} cancelled \u{2014} session disconnected"));
+            self.info(i18n::plural("connection.transfers_cancelled", affected));
         }
 
         self.remember_open_connections();
-        self.info(format!("Disconnected from {}", live.name));
+        self.info(i18n::text_with("connection.disconnected", &[("name", &live.name)]));
         self.publish_connection_state(&live.name, ConnectionState::Disconnected);
         self.emit(Event::Disconnected { session, name: live.name });
     }
@@ -211,7 +214,7 @@ impl Engine {
 
     pub(crate) fn prepare_shell(&mut self, session: SessionId, directory: Option<VfsPath>) {
         let Some(live) = self.book.sessions.get(&session) else {
-            self.report(Severity::Warning, "Connect to a server first");
+            self.report(Severity::Warning, i18n::text("connection.connect_first"));
             return;
         };
         let Some(target) = self.shell_target(session) else {
@@ -225,7 +228,7 @@ impl Engine {
                 };
                 self.emit(Event::ShellReady { session, invocation });
             }
-            None => self.report(Severity::Warning, "This connection doesn't support a terminal session"),
+            None => self.report(Severity::Warning, i18n::text("connection.no_terminal")),
         }
     }
 }

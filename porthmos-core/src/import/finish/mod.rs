@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{collections::HashSet, sync::Arc};
 
 use porthmos_vfs::{OptionKind, Protocol};
@@ -51,17 +52,19 @@ fn checked(mut row: ImportRow, protocols: &[Arc<dyn Protocol>]) -> ImportRow {
         return row;
     };
     let Some(protocol) = protocols.iter().find(|protocol| protocol.id() == candidate.protocol) else {
-        row.verdict =
-            Verdict::Unsupported(format!("{} is not available in this build", candidate.protocol.to_uppercase()));
+        row.verdict = Verdict::Unsupported(i18n::text_with(
+            "import.not_in_build",
+            &[("protocol", &candidate.protocol.to_uppercase())],
+        ));
         return row;
     };
     if let Some(field) = longest_field_over_its_limit(&candidate) {
-        invalid(&mut row, format!("{field} is too long"));
+        invalid(&mut row, i18n::text_with("import.field_too_long", &[("field", &field)]));
         return row;
     }
     let form = protocol.connection_form();
     if form.username.required && candidate.username.is_empty() {
-        invalid(&mut row, "no username".to_string());
+        invalid(&mut row, i18n::text("import.no_username"));
         return row;
     }
     candidate
@@ -73,10 +76,10 @@ fn checked(mut row: ImportRow, protocols: &[Arc<dyn Protocol>]) -> ImportRow {
         };
         let problem = match &field.kind {
             OptionKind::Choice { choices, .. } if !choices.iter().any(|choice| choice.value == value) => {
-                Some(format!("{} must be one of the offered choices", field.label))
+                Some(i18n::text_with("import.choice_invalid", &[("field", field.label)]))
             }
             OptionKind::Toggle { .. } if value != "true" && value != "false" => {
-                Some(format!("{} must be on or off", field.label))
+                Some(i18n::text_with("import.toggle_invalid", &[("field", field.label)]))
             }
             _ => None,
         };

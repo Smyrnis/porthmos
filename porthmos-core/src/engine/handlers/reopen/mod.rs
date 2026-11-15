@@ -46,7 +46,7 @@ impl Engine {
             return;
         }
         self.ui_state.reopen = names;
-        self.save_quietly("open connections");
+        self.save_quietly("remember.what.open_connections");
     }
 
     pub(crate) fn remember_active_connection(&mut self, session: Option<SessionId>) {
@@ -63,7 +63,7 @@ impl Engine {
             return;
         }
         self.ui_state.reopen_active = name;
-        self.save_quietly("active connection");
+        self.save_quietly("remember.what.active_connection");
     }
 
     pub(crate) fn offer_reopen(&mut self) {

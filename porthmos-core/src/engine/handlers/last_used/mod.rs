@@ -1,4 +1,5 @@
 use super::super::{Engine, Event};
+use crate::i18n;
 use porthmos_vfs::VfsPath;
 
 use crate::{Severity, last_used::LastUsed};
@@ -78,7 +79,7 @@ impl Engine {
             return;
         }
         self.last_used.write_warned = true;
-        self.report(Severity::Warning, format!("Couldn't save last-used times: {message}"));
+        self.report(Severity::Warning, i18n::text_with("last_used.save_failed", &[("cause", &message)]));
     }
 }
 

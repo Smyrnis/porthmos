@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::path::PathBuf;
 
 use super::super::Engine;
@@ -72,7 +73,7 @@ impl Engine {
 
     pub(crate) fn check_for_update(&mut self, manual: bool) {
         if manual {
-            self.report(crate::Severity::Warning, "This build can't check for updates");
+            self.report(crate::Severity::Warning, i18n::text("update.cannot_check"));
         }
     }
 }
@@ -97,7 +98,7 @@ impl Engine {
 
     fn report_earlier_install_failure(&mut self) {
         let Some(failure) = self.update.record.last_failure().map(str::to_string) else { return };
-        self.report(Severity::Warning, format!("Couldn't install the update: {failure}"));
+        self.report(Severity::Warning, i18n::text_with("update.install_failed", &[("cause", &failure)]));
         self.update.record.set_last_failure(None);
         self.persist_update_record();
     }
@@ -158,19 +159,19 @@ impl Engine {
     fn begin_update_check(&mut self, manual: bool) {
         if self.update.settings.mode == UpdateMode::Off {
             if manual {
-                self.report(Severity::Warning, "Update checks are turned off in config.toml");
+                self.report(Severity::Warning, i18n::text("update.off"));
             }
             return;
         }
         let Some(updater) = self.update.updater.clone() else {
             if manual {
-                self.report(Severity::Warning, "Update checks aren't available here");
+                self.report(Severity::Warning, i18n::text("update.unavailable"));
             }
             return;
         };
         if self.update.busy {
             if manual {
-                self.info("An update check is already running");
+                self.info(i18n::text("update.already_running"));
             } else {
                 let delay = self.update.timing.startup_delay;
                 self.schedule_update_timer(delay);
@@ -193,7 +194,10 @@ impl Engine {
                 self.remember_update_check();
                 self.update.busy = false;
                 if manual {
-                    self.info(format!("Porthmos is up to date ({})", self.update.identity.version));
+                    self.info(i18n::text_with(
+                        "update.up_to_date",
+                        &[("version", &self.update.identity.version.to_string())],
+                    ));
                 }
                 self.schedule_after_check(manual, true);
             }
@@ -205,7 +209,10 @@ impl Engine {
                 self.remember_update_check();
                 self.update.busy = false;
                 if manual {
-                    self.report(Severity::Warning, format!("Version {version} has no build for {target}"));
+                    self.report(
+                        Severity::Warning,
+                        i18n::text_with("update.no_build", &[("version", &version.to_string()), ("target", &target)]),
+                    );
                 }
                 self.schedule_after_check(manual, true);
             }
@@ -224,7 +231,7 @@ impl Engine {
         let manual = self.update.running_manual;
         self.update.busy = false;
         if manual {
-            self.report(Severity::Error, "The update check failed unexpectedly");
+            self.report(Severity::Error, i18n::text("update.failed_unexpectedly"));
         }
         self.schedule_after_check(manual, false);
     }
@@ -345,7 +352,7 @@ impl Engine {
             return;
         }
         self.update.write_warned = true;
-        self.report(Severity::Warning, format!("Couldn't save the update state: {message}"));
+        self.report(Severity::Warning, i18n::text_with("update.state_save_failed", &[("cause", &message)]));
     }
 }
 

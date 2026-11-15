@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use super::super::{Engine, Event, Internal};
@@ -10,7 +11,6 @@ use crate::{
 };
 
 const READ_FAILED: &str = "Couldn't read the connections to import";
-const NOT_IN_THE_LIST: &str = "that row is not in the list";
 
 #[derive(Default)]
 pub(crate) struct ImportState {
@@ -105,25 +105,28 @@ impl Engine {
         {
             skipped += added;
             added = 0;
-            first_reason.get_or_insert(format!("couldn't save the connections: {err:#}"));
+            first_reason.get_or_insert(i18n::text_with("import.save_failed", &[("cause", &format!("{err:#}"))]));
         }
         self.emit(Event::ImportDone { import_id, added, skipped });
         self.list_profiles();
         if let Some(reason) = first_reason {
-            self.report(Severity::Warning, format!("Skipped {skipped}: {reason}"));
+            self.report(
+                Severity::Warning,
+                i18n::text_with("import.skipped_reason", &[("skipped", &skipped.to_string()), ("reason", &reason)]),
+            );
         }
     }
 
     fn import_row_profile(
         plan: &ImportPlan, index: u32, taken: &mut HashSet<String>,
     ) -> Result<ConnectionProfile, String> {
-        let row = plan.rows.get(index as usize).ok_or_else(|| NOT_IN_THE_LIST.to_string())?;
+        let row = plan.rows.get(index as usize).ok_or_else(|| i18n::text("import.not_in_list"))?;
         let candidate = match (&row.verdict, &row.candidate) {
             (Verdict::New, Some(candidate)) => candidate,
-            _ => return Err(format!("\"{}\" can't be imported", row.name)),
+            _ => return Err(i18n::text_with("import.cannot_import", &[("name", &row.name)])),
         };
         if !taken.insert(candidate.name.clone()) {
-            return Err(format!("\"{}\" already exists", candidate.name));
+            return Err(i18n::text_with("import.already_exists", &[("name", &candidate.name)]));
         }
         Ok(ConnectionProfile {
             name: candidate.name.clone(),

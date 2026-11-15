@@ -27,6 +27,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
         connection: ConnectionSettingsFile::default(),
+        general: GeneralSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -49,6 +50,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
         connection: ConnectionSettingsFile::default(),
+        general: GeneralSettingsFile::default(),
     };
 
     let (settings, warnings) = settings_from_file(file);
@@ -499,4 +501,47 @@ fn settings_from_file_accepts_every_sort_key_by_its_label() {
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(settings.panel.sort.key, key);
     }
+}
+
+#[test]
+fn the_language_is_automatic_by_default() {
+    let (settings, warnings) = parsed("");
+
+    assert!(warnings.is_empty());
+    assert_eq!(settings.language, None);
+    assert_eq!(Settings::default().language, None);
+}
+
+#[test]
+fn a_known_language_is_read_from_the_general_table() {
+    let (settings, warnings) = parsed("[general]\nlanguage = \"el\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(settings.language.as_deref(), Some("el"));
+}
+
+#[test]
+fn auto_and_blank_mean_the_language_of_the_environment() {
+    for text in ["auto", "", "  AUTO "] {
+        let (settings, warnings) = parsed(&format!("[general]\nlanguage = \"{text}\"\n"));
+
+        assert!(warnings.is_empty(), "{text:?}: {warnings:?}");
+        assert_eq!(settings.language, None, "{text:?}");
+    }
+}
+
+#[test]
+fn an_unknown_language_warns_and_stays_automatic() {
+    let (settings, warnings) = parsed("[general]\nlanguage = \"klingon\"\n");
+
+    assert_eq!(settings.language, None);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("general.language") && warnings[0].contains("klingon"), "{warnings:?}");
+}
+
+#[test]
+fn the_general_table_does_not_leak_into_the_frontend_settings() {
+    let (settings, _) = parsed("[general]\nlanguage = \"el\"\n");
+
+    assert!(!settings.frontend.contains_key("general"));
 }

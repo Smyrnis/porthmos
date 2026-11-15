@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{collections::HashMap, time::Duration};
 
 use super::super::{Engine, Internal, SessionId};
@@ -46,7 +47,7 @@ impl Engine {
     fn schedule_reconnect(&mut self, name: String, attempt: u32) {
         let Some(delay) = RETRY_DELAYS.get(attempt as usize).copied() else {
             self.reconnect.forget(&name);
-            self.report(Severity::Warning, format!("{name}: could not reconnect \u{2014} connect again by hand"));
+            self.report(Severity::Warning, i18n::text_with("reconnect.gave_up", &[("name", &name)]));
             return;
         };
         self.reconnect.attempts.insert(name.clone(), attempt);
@@ -81,7 +82,7 @@ impl Engine {
             self.reconnect.forget(&name);
             return;
         }
-        self.info(format!("Reconnecting to {name}"));
+        self.info(i18n::text_with("reconnect.trying", &[("name", &name)]));
         self.connect(&name);
         if !self.book.connecting.contains(&name) {
             self.reconnect.forget(&name);
@@ -90,7 +91,7 @@ impl Engine {
 
     pub(crate) fn reconnect_succeeded(&mut self, name: &str) {
         if self.reconnect.forget(name) {
-            self.info(format!("{name}: reconnected"));
+            self.info(i18n::text_with("reconnect.done", &[("name", name)]));
         }
     }
 

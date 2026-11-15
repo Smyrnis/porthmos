@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -45,8 +46,8 @@ impl Engine {
             (Location::Local, Location::Session(session_id)) => (session_id, Direction::Upload),
             (Location::Session(session_id), Location::Local) => (session_id, Direction::Download),
             _ => {
-                let gerund = if moving { "Moving" } else { "Copying" };
-                self.report(Severity::Warning, format!("{gerund} between two remote sessions isn't supported yet"));
+                let key = if moving { "transfer.between_remotes.move" } else { "transfer.between_remotes.copy" };
+                self.report(Severity::Warning, i18n::text(key));
                 return;
             }
         };
@@ -61,18 +62,18 @@ impl Engine {
     fn start_copy_plan(
         &mut self, session_id: u64, direction: Direction, entries: Vec<Entry>, dest_dir: VfsPath, moving: bool,
     ) {
-        let verb = if moving { "Move" } else { "Copy" };
+        let kind = if moving { "move" } else { "copy" };
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
-            self.report(Severity::Error, format!("{verb} failed: session disconnected"));
+            self.report(Severity::Error, i18n::text(&format!("transfer.disconnected.{kind}")));
             return;
         };
 
         let mut display_name = match entries.as_slice() {
             [entry] => entry.name.clone(),
-            _ => format!("{} items", entries.len()),
+            _ => i18n::plural("common.items", entries.len()),
         };
         if moving {
-            display_name.push_str(" (move)");
+            display_name = i18n::text_with("transfer.move_suffix", &[("name", &display_name)]);
         }
         let batch_id = self.transfers.start_batch(display_name.clone());
         if moving {
@@ -100,7 +101,10 @@ impl Engine {
                 Ok((PlanOutcome::Cancelled, _)) => TransferEvent::PlanCancelled { batch_id, session_id, direction },
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    TransferEvent::PlanFailed { batch_id, message: user_message(format!("{verb} failed"), &err) }
+                    TransferEvent::PlanFailed {
+                        batch_id,
+                        message: user_message(i18n::text(&format!("transfer.plan_failed.{kind}")), &err),
+                    }
                 }
             };
             let _ = internal.send(Internal::Transfer(event));
@@ -131,9 +135,9 @@ impl Engine {
 
         let Some((source, destination)) = self.filesystems_for(session_id, job.direction) else {
             if let Some(mut job) = self.transfers.get_mut(id) {
-                job.status = JobStatus::Failed("session disconnected".to_string());
+                job.status = JobStatus::Failed(i18n::text("common.session_disconnected"));
             }
-            self.report(Severity::Error, format!("Transfer failed: {display_name} \u{2014} session disconnected"));
+            self.report(Severity::Error, i18n::text_with("transfer.job_disconnected", &[("name", &display_name)]));
             self.refresh_transfer_destination(id);
             return;
         };
@@ -181,7 +185,7 @@ impl Engine {
                     tracing::debug!("{err:?}");
                     TransferEvent::Failed {
                         id,
-                        message: user_message(format!("Transfer failed: {display_name}"), &err),
+                        message: user_message(i18n::text_with("transfer.job_failed", &[("name", &display_name)]), &err),
                     }
                 }
             };
@@ -194,7 +198,7 @@ impl Engine {
         let batch_id = job.batch_id?;
         let connection = match job.direction {
             Direction::Upload => self.session_name(job.session_id),
-            Direction::Download => crate::delete_prompt::THIS_COMPUTER.to_string(),
+            Direction::Download => crate::delete_prompt::this_computer(),
         };
         Some((batch_id, connection))
     }
@@ -270,7 +274,10 @@ impl Engine {
                 self.clear_planning(batch_id);
 
                 if !self.book.sessions.contains_key(&session_id) {
-                    self.report(Severity::Error, format!("{} failed: session disconnected", self.verb_of(batch_id)));
+                    self.report(
+                        Severity::Error,
+                        i18n::text(&format!("transfer.disconnected.{}", self.verb_of(batch_id))),
+                    );
                     self.forget_batch(batch_id);
                     return;
                 }
@@ -318,7 +325,10 @@ impl Engine {
                     return;
                 };
                 if self.transfers.flag_unkept_permissions(batch_id) {
-                    self.report(Severity::Warning, format!("Couldn't keep the file permissions on {connection}"));
+                    self.report(
+                        Severity::Warning,
+                        i18n::text_with("transfer.permissions_not_kept", &[("place", &connection)]),
+                    );
                 }
             }
             TransferEvent::PartialsRemoved { session_id } => self.refresh_destination(session_id, Direction::Upload),
@@ -327,7 +337,7 @@ impl Engine {
                 let verb = self.verb_of(batch_id);
                 self.forget_batch(batch_id);
                 if self.book.sessions.contains_key(&session_id) {
-                    self.info(format!("{verb} cancelled"));
+                    self.info(i18n::text(&format!("transfer.cancelled.{verb}")));
                 }
                 self.refresh_destination(session_id, direction);
             }
@@ -372,7 +382,7 @@ impl Engine {
             None => {
                 let verb = self.verb_of(review.batch_id);
                 self.forget_batch(review.batch_id);
-                self.info(format!("{verb} cancelled"));
+                self.info(i18n::text(&format!("transfer.cancelled.{verb}")));
                 self.refresh_destination(review.session_id, review.direction);
             }
         }
@@ -451,27 +461,19 @@ impl Engine {
             }
         }
         if skipped_symlinks > 0 {
-            let plural = if skipped_symlinks == 1 { "" } else { "s" };
-            self.report(Severity::Warning, format!("Skipped {skipped_symlinks} symlink{plural}"));
+            self.report(Severity::Warning, i18n::plural("transfer.skipped_symlinks", skipped_symlinks));
         }
         if !renamed.is_empty() {
             self.report(Severity::Warning, transfer::names::renamed_notice(&renamed));
         }
         if resolved.skipped > 0 {
-            let plural = if resolved.skipped == 1 { "" } else { "s" };
-            self.info(format!("Skipped {} existing file{plural}", resolved.skipped));
+            self.info(i18n::plural("transfer.skipped_existing", resolved.skipped));
         }
         if resolved.skipped_partials > 0 {
-            let plural = if resolved.skipped_partials == 1 { "" } else { "s" };
-            self.info(format!("Skipped {} partly copied file{plural}", resolved.skipped_partials));
+            self.info(i18n::plural("transfer.skipped_partial", resolved.skipped_partials));
         }
         if resolved.blocked_by_folder > 0 {
-            let reason = if resolved.blocked_by_folder == 1 {
-                "file because a folder with the same name exists"
-            } else {
-                "files because folders with the same names exist"
-            };
-            self.report(Severity::Warning, format!("Skipped {} {reason}", resolved.blocked_by_folder));
+            self.report(Severity::Warning, i18n::plural("transfer.skipped_blocked", resolved.blocked_by_folder));
         }
         self.forget_batch(batch_id);
         self.fill_transfer_slots();
@@ -618,11 +620,14 @@ impl Engine {
         let cause = failure.message.rsplit_once('\n').map_or(failure.message.as_str(), |(_, cause)| cause);
         self.announce(
             Severity::Error,
-            format!(
-                "{} of {} failed: {failed} of {} files \u{2014} {cause} (see Ctrl+T)",
-                self.verb_of(batch_id),
-                row.label,
-                row.files_total
+            i18n::text_with(
+                &format!("transfer.batch_failed.{}", self.verb_of(batch_id)),
+                &[
+                    ("label", &row.label),
+                    ("failed", &failed.to_string()),
+                    ("total", &row.files_total.to_string()),
+                    ("cause", cause),
+                ],
             ),
         );
     }
@@ -657,7 +662,7 @@ impl Engine {
             }
         }
         for name in reconnect {
-            self.report(Severity::Warning, format!("Can't retry: reconnect to {name} first"));
+            self.report(Severity::Warning, i18n::text_with("transfer.retry_reconnect", &[("name", &name)]));
         }
         if self.transfers.retry_jobs(&ready) > 0 {
             self.fill_transfer_slots();

@@ -1,6 +1,6 @@
 use porthmos_vfs::VfsPath;
 
-use super::{INTERRUPTED_REASON, SavedJob, load, render, unfinished};
+use super::{SavedJob, interrupted_reason, load, render, unfinished};
 use crate::{
     Paths,
     persist::Loaded,
@@ -173,5 +173,5 @@ fn a_file_with_unknown_extra_fields_still_loads() {
 
 #[test]
 fn the_reason_shown_for_a_restored_job_names_the_cause() {
-    assert_eq!(INTERRUPTED_REASON, "Porthmos was closed before this finished");
+    assert_eq!(interrupted_reason(), "Porthmos was closed before this finished");
 }

@@ -1277,7 +1277,7 @@ async fn a_sync_skips_a_download_that_would_overwrite_a_file_differing_only_in_c
         })
         .collect();
     assert!(
-        warnings.iter().any(|message| message.contains("Skipped 1 name that differ only in letter case")),
+        warnings.iter().any(|message| message.contains("Skipped 1 name that differs only in letter case")),
         "{warnings:?}"
     );
     assert_eq!(std::fs::read(t.dir.path().join("work/README.md")).unwrap(), b"mine");

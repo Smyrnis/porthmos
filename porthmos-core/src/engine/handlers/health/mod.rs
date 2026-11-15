@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -56,10 +57,10 @@ impl Engine {
         if healthy {
             self.book.lost_sessions.remove(&session);
             self.stop_reconnecting(&name);
-            self.info(format!("{name}: connection restored"));
+            self.info(i18n::text_with("connection.restored", &[("name", &name)]));
         } else {
             self.book.lost_sessions.insert(session);
-            self.report(Severity::Warning, format!("{name}: connection lost"));
+            self.report(Severity::Warning, i18n::text_with("connection.lost", &[("name", &name)]));
             self.begin_reconnect(name.clone());
         }
         let state = if healthy { ConnectionState::Connected } else { ConnectionState::Lost };

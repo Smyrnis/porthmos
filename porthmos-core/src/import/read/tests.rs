@@ -96,10 +96,7 @@ fn a_utf16_file_is_not_a_utf8_text_file() {
     let mut bytes = vec![0xFF, 0xFE];
     bytes.extend(FILEZILLA.encode_utf16().flat_map(u16::to_le_bytes));
     fs::write(&path, bytes).unwrap();
-    assert_eq!(
-        plan(ImportSource::FileZilla, &path, &HashSet::new()),
-        Err(ImportError::WrongFormat("This is not a UTF-8 text file"))
-    );
+    assert_eq!(plan(ImportSource::FileZilla, &path, &HashSet::new()), Err(ImportError::WrongFormat("import.not_utf8")));
 }
 
 #[test]
@@ -146,7 +143,7 @@ fn an_empty_putty_folder_says_there_are_no_sessions() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(
         plan(ImportSource::Putty, dir.path(), &HashSet::new()),
-        Err(ImportError::WrongFormat("There are no PuTTY sessions in this folder"))
+        Err(ImportError::WrongFormat("import.no_sessions"))
     );
 }
 

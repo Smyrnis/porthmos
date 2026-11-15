@@ -197,3 +197,10 @@ fn equal_sizes_break_ties_in_natural_order() {
 fn non_ascii_names_with_numbers_do_not_panic_and_order_by_value() {
     assert_eq!(sorted_names(&["é10", "é9", "ü2"], BY_NAME), ["é9", "é10", "ü2"]);
 }
+
+#[test]
+fn every_sort_key_has_a_displayed_name_in_the_language_file() {
+    for key in SortKey::ALL {
+        assert_eq!(key.text(), key.label());
+    }
+}

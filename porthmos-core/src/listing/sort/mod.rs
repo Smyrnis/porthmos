@@ -22,6 +22,15 @@ impl SortKey {
         }
     }
 
+    pub fn text(self) -> String {
+        crate::i18n::text(match self {
+            SortKey::Name => "sort.name",
+            SortKey::Size => "sort.size",
+            SortKey::Modified => "sort.modified",
+            SortKey::Type => "sort.type",
+        })
+    }
+
     pub fn parse(text: &str) -> Option<SortKey> {
         SortKey::ALL.into_iter().find(|key| key.label() == text)
     }

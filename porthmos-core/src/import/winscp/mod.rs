@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{Candidate, ImportError, ImportRow, Verdict, clean, escape};
 
-const NOT_WINSCP: &str = "This file has no WinSCP sites";
+const NOT_WINSCP: &str = "import.not_winscp";
 const SESSIONS_PREFIX: &str = "Sessions\\";
 const DEFAULT_SETTINGS: &str = "Default Settings";
 const PPK_NOTE: &str = "key is in PuTTY format, convert it first";

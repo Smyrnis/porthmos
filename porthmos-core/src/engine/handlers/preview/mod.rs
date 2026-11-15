@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{sync::Arc, time::Duration};
 
 use porthmos_vfs::{FileSystem, VfsPath};
@@ -50,7 +51,7 @@ impl Engine {
         let name = name_of(path);
         self.emit(Event::PreviewReady {
             request_id,
-            result: Err(Message::new(format!("Couldn't preview {name}: the connection was closed"))),
+            result: Err(Message::new(i18n::text_with("preview.closed", &[("name", &name)]))),
             name,
         });
     }
@@ -64,7 +65,7 @@ impl Engine {
                 Ok(preview) => Ok(preview),
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    Err(failure_report(format!("Couldn't preview {name}"), &err))
+                    Err(failure_report(i18n::text_with("preview.failed", &[("name", &name)]), &err))
                 }
             };
             let _ = internal.send(Internal::Preview { slot, request_id, name, result });

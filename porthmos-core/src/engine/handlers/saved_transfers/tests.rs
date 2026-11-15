@@ -11,7 +11,7 @@ use crate::{
     transfer::{
         Direction, JobStatus,
         rows::{RowKind, RowState},
-        saved::{INTERRUPTED_REASON, SavedJob, load, render},
+        saved::{SavedJob, interrupted_reason, load, render},
     },
 };
 
@@ -117,7 +117,7 @@ async fn restoring_brings_every_saved_job_back_as_an_interrupted_one() {
     let jobs = all_jobs(&t);
     assert_eq!(jobs.len(), 2);
     for job in &jobs {
-        assert_eq!(job.status, JobStatus::Failed(INTERRUPTED_REASON.to_string()));
+        assert_eq!(job.status, JobStatus::Failed(interrupted_reason()));
         assert!(job.resume);
         assert!(job.attempts >= 1);
     }
@@ -252,7 +252,10 @@ async fn restoring_publishes_the_rows_to_the_front_ends() {
         .expect("a transfers snapshot");
     assert_eq!(snapshot.rows.len(), 1);
     assert_eq!(snapshot.rows[0].state, RowState::Failed);
-    assert_eq!(snapshot.rows[0].failure.as_ref().map(|failure| failure.message.as_str()), Some(INTERRUPTED_REASON));
+    assert_eq!(
+        snapshot.rows[0].failure.as_ref().map(|failure| failure.message.as_str()),
+        Some(interrupted_reason().as_str())
+    );
 }
 
 #[tokio::test]
@@ -389,7 +392,7 @@ async fn a_restored_job_nobody_touched_is_saved_again_with_its_reason() {
 
     let saved = saved_on_disk(&t);
     assert_eq!(saved.len(), 2);
-    assert_eq!(saved[0].failure.as_deref(), Some(INTERRUPTED_REASON));
+    assert_eq!(saved[0].failure.as_deref(), Some(interrupted_reason().as_str()));
     assert_eq!(saved[1].failure.as_deref(), Some("permission denied"));
     assert!(saved.iter().all(|job| job.connection == "srv"));
 }

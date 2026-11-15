@@ -1,6 +1,7 @@
 use super::Measured;
+use crate::i18n;
 use crate::{
-    delete_prompt::count::{counted, grouped},
+    delete_prompt::count::{counted, grouped, joined_and},
     size_text::size_text,
 };
 
@@ -10,37 +11,35 @@ pub fn size_line(bytes: u64) -> String {
     if bytes < PLAIN_BYTES_LIMIT {
         return format!("{bytes} B");
     }
-    format!("{} ({} bytes)", size_text(bytes), grouped(bytes))
+    i18n::text_with("properties.size_detail", &[("size", &size_text(bytes)), ("bytes", &grouped(bytes))])
 }
 
 pub fn contents_line(measured: &Measured) -> String {
-    let parts: Vec<String> = [counted(measured.files, "file", "files"), counted(measured.folders, "folder", "folders")]
+    let parts: Vec<String> = [counted(measured.files, "count.files"), counted(measured.folders, "count.folders")]
         .into_iter()
         .flatten()
         .collect();
-    if parts.is_empty() { "nothing inside".to_string() } else { parts.join(", ") }
+    if parts.is_empty() { i18n::text("properties.nothing_inside") } else { parts.join(", ") }
 }
 
 pub fn skipped_line(measured: &Measured) -> Option<String> {
-    let parts: Vec<String> = [
-        counted(measured.symlinks, "link not followed", "links not followed"),
-        counted(measured.unreadable, "folder not readable", "folders not readable"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let parts: Vec<String> =
+        [counted(measured.symlinks, "count.links_skipped"), counted(measured.unreadable, "count.folders_unreadable")]
+            .into_iter()
+            .flatten()
+            .collect();
     if parts.is_empty() { None } else { Some(parts.join(", ")) }
 }
 
 pub fn progress_line(measured: &Measured) -> String {
-    let parts: Vec<String> = [counted(measured.files, "file", "files"), counted(measured.folders, "folder", "folders")]
+    let parts: Vec<String> = [counted(measured.files, "count.files"), counted(measured.folders, "count.folders")]
         .into_iter()
         .flatten()
         .collect();
     if parts.is_empty() {
-        "measuring\u{2026}".to_string()
+        i18n::text("properties.measuring")
     } else {
-        format!("measuring\u{2026} {} so far", parts.join(" and "))
+        i18n::text_with("properties.measuring_so_far", &[("what", &joined_and(parts))])
     }
 }
 

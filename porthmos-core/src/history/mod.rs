@@ -9,7 +9,7 @@ use porthmos_vfs::glob_match;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Paths,
+    Paths, i18n,
     persist::{Loaded, read_or_set_aside, toml_problem},
     transfer::Direction,
 };
@@ -28,15 +28,74 @@ pub enum HistoryResult {
 }
 
 impl HistoryResult {
-    pub fn text(&self) -> &'static str {
+    pub fn text(&self) -> String {
+        let key = match self {
+            HistoryResult::Done => "history.result.done",
+            HistoryResult::PartlyFailed { .. } => "history.result.partly_failed",
+            HistoryResult::Failed => "history.result.failed",
+            HistoryResult::Cancelled => "history.result.cancelled",
+            HistoryResult::Interrupted => "history.result.interrupted",
+        };
+        i18n::text(key)
+    }
+
+    pub fn detailed_text(&self) -> String {
         match self {
-            HistoryResult::Done => "done",
-            HistoryResult::PartlyFailed { .. } => "partly failed",
-            HistoryResult::Failed => "failed",
-            HistoryResult::Cancelled => "cancelled",
-            HistoryResult::Interrupted => "interrupted",
+            HistoryResult::PartlyFailed { failed } => {
+                i18n::text_with("history.result.partly_failed_count", &[("failed", &failed.to_string())])
+            }
+            other => other.text(),
         }
     }
+}
+
+pub fn direction_text(direction: Direction) -> String {
+    match direction {
+        Direction::Upload => i18n::text("history.direction.upload"),
+        Direction::Download => i18n::text("history.direction.download"),
+    }
+}
+
+const DETAIL_NAMES: usize = 10;
+
+pub fn details(entry: &HistoryEntry, finished: &str, size: &str) -> (String, String) {
+    let printable = crate::edit::printable;
+    let mut lines = vec![
+        i18n::text_with("history.details.finished", &[("value", finished)]),
+        i18n::text_with(
+            "history.details.connection",
+            &[("name", &printable(&entry.connection)), ("direction", &direction_text(entry.direction))],
+        ),
+        i18n::text_with(
+            "history.details.result",
+            &[
+                ("result", &entry.result.detailed_text()),
+                ("done", &entry.files_done.to_string()),
+                ("total", &entry.files_total.to_string()),
+                ("size", size),
+            ],
+        ),
+    ];
+    if !entry.local_path.is_empty() {
+        lines.push(i18n::text_with("history.details.local", &[("path", &printable(&entry.local_path))]));
+    }
+    if !entry.remote_path.is_empty() {
+        lines.push(i18n::text_with("history.details.remote", &[("path", &printable(&entry.remote_path))]));
+    }
+    if !entry.failed_files.is_empty() {
+        lines.push(i18n::text("history.details.failed_files"));
+        lines.extend(entry.failed_files.iter().take(DETAIL_NAMES).map(|name| format!("- {}", printable(name))));
+        let shown = entry.failed_files.len().min(DETAIL_NAMES);
+        let hidden = entry.failed_count.max(entry.failed_files.len()).saturating_sub(shown);
+        if hidden > 0 {
+            lines.push(i18n::text_with("history.details.more", &[("count", &hidden.to_string())]));
+        }
+    }
+    let failed = matches!(entry.result, HistoryResult::Failed | HistoryResult::PartlyFailed { .. });
+    if failed || !entry.failed_files.is_empty() {
+        lines.push(i18n::text("history.details.log"));
+    }
+    (i18n::text_with("history.details.title", &[("label", &printable(&entry.label))]), lines.join("\n"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,12 +207,13 @@ pub fn matches(entry: &HistoryEntry, filter: &str) -> bool {
     if filter.is_empty() {
         return true;
     }
+    let result = entry.result.text();
     let fields = [
         entry.connection.as_str(),
         entry.label.as_str(),
         entry.local_path.as_str(),
         entry.remote_path.as_str(),
-        entry.result.text(),
+        result.as_str(),
     ];
     if filter.contains(['*', '?']) {
         fields.iter().any(|field| glob_match(filter, field))

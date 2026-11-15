@@ -121,6 +121,7 @@ pub struct Settings {
     pub search: SearchSettings,
     pub startup: StartupSettings,
     pub connection: ConnectionSettings,
+    pub language: Option<String>,
     pub frontend: toml::Table,
 }
 
@@ -142,8 +143,15 @@ pub(crate) struct SettingsFile {
     pub startup: StartupSettingsFile,
     #[serde(default)]
     pub connection: ConnectionSettingsFile,
+    #[serde(default)]
+    pub general: GeneralSettingsFile,
     #[serde(flatten)]
     pub frontend: toml::Table,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct GeneralSettingsFile {
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -281,6 +289,16 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let language = match file.general.language.as_deref() {
+        None => None,
+        Some(setting) if crate::i18n::is_automatic(setting) => None,
+        Some(setting) if crate::i18n::is_available(setting.trim()) => Some(setting.trim().to_string()),
+        Some(other) => {
+            warnings.push(format!("unknown general.language \"{other}\", using the language of the system"));
+            None
+        }
+    };
+
     (
         Settings {
             panel: PanelSettings { show_hidden, sort: SortSpec { key, order } },
@@ -301,6 +319,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             search: SearchSettings { preview: file.search.preview.unwrap_or(false) },
             startup: StartupSettings { reopen },
             connection: ConnectionSettings { reconnect: file.connection.reconnect.unwrap_or(false) },
+            language,
             frontend: file.frontend,
         },
         warnings,

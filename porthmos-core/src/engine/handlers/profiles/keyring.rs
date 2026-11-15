@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{collections::BTreeMap, future::Future, pin::Pin};
 
 use tokio::sync::mpsc::unbounded_channel;
@@ -52,11 +53,11 @@ pub(crate) fn ssh_account(alias: &str) -> String {
 }
 
 pub(crate) fn save_failed(name: &str, err: impl std::fmt::Display) -> String {
-    format!("Couldn't save the password for {name} in the system keyring: {err}")
+    i18n::text_with("keyring.save_failed", &[("name", name), ("cause", &err.to_string())])
 }
 
 fn remove_failed(name: &str, err: impl std::fmt::Display) -> String {
-    format!("Couldn't remove the password for {name} from the system keyring: {err}")
+    i18n::text_with("keyring.remove_failed", &[("name", name), ("cause", &err.to_string())])
 }
 
 pub(crate) struct SecretChanges {

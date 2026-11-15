@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{collections::BTreeMap, fmt};
 
 use porthmos_vfs::{ConnectionForm, OptionKind};
@@ -89,7 +90,7 @@ impl PartialEq<String> for DraftProblem {
 
 fn required(value: &str, field: &'static str, label: &str, is_required: bool) -> Result<(), DraftProblem> {
     if is_required && value.is_empty() {
-        Err(DraftProblem::new(field, format!("{label} can't be empty")))
+        Err(DraftProblem::new(field, i18n::text_with("draft.empty", &[("label", label)])))
     } else {
         Ok(())
     }
@@ -165,11 +166,14 @@ impl ProfileDraft {
                     let labels: Vec<&str> = choices.iter().map(|choice| choice.label).collect();
                     return Err(DraftProblem::new(
                         field.key,
-                        format!("{} must be one of: {}", field.label, labels.join(", ")),
+                        i18n::text_with("draft.choice", &[("label", field.label), ("choices", &labels.join(", "))]),
                     ));
                 }
                 OptionKind::Toggle { .. } if value != "true" && value != "false" => {
-                    return Err(DraftProblem::new(field.key, format!("{} must be on or off", field.label)));
+                    return Err(DraftProblem::new(
+                        field.key,
+                        i18n::text_with("draft.toggle", &[("label", field.label)]),
+                    ));
                 }
                 _ => {}
             }
@@ -200,7 +204,7 @@ impl ProfileDraft {
         }
         match port.parse::<u16>() {
             Ok(port) if port != 0 => Ok(port),
-            _ => Err(DraftProblem::new("port", format!("{} must be a number from 1-65535", form.port.label))),
+            _ => Err(DraftProblem::new("port", i18n::text_with("draft.port", &[("label", form.port.label)]))),
         }
     }
 }

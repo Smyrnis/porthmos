@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::collections::{HashMap, HashSet};
 
 use porthmos_vfs::VfsPath;
@@ -154,10 +155,10 @@ impl Engine {
 
     fn report_history_failure(&mut self, message: String, clearing: bool) {
         if clearing {
-            self.report(Severity::Warning, format!("Couldn't clear transfer history: {message}"));
+            self.report(Severity::Warning, i18n::text_with("history.clear_failed", &[("cause", &message)]));
         } else if !self.history.write_warned {
             self.history.write_warned = true;
-            self.report(Severity::Warning, format!("Couldn't save transfer history: {message}"));
+            self.report(Severity::Warning, i18n::text_with("history.save_failed", &[("cause", &message)]));
         } else {
             tracing::debug!("{message}");
         }

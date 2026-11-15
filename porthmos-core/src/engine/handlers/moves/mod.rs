@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::{HashMap, HashSet},
     net::IpAddr,
@@ -31,10 +32,12 @@ pub(crate) async fn remove_copied_source(
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
         Err(err) => return Err(err.to_string()),
     };
-    let copy =
-        destination.stat(destination_path).await.map_err(|err| format!("the copy couldn't be checked ({err})"))?;
+    let copy = destination
+        .stat(destination_path)
+        .await
+        .map_err(|err| i18n::text_with("moves.copy_unchecked", &[("cause", &err.to_string())]))?;
     if copy.is_dir() || copy.size != original.size {
-        return Err("the copy at the destination doesn't match the original".to_string());
+        return Err(i18n::text("moves.copy_mismatch"));
     }
     source.remove_file(source_path).await.map_err(|err| err.to_string())
 }
@@ -125,20 +128,13 @@ impl Engine {
             (Vec::new(), files)
         };
         if !onto_themselves.is_empty() {
-            let plural = if onto_themselves.len() == 1 { "" } else { "s" };
-            self.report(
-                Severity::Warning,
-                format!("Skipped {} file{plural} that would be moved onto itself", onto_themselves.len()),
-            );
+            self.report(Severity::Warning, i18n::plural("moves.onto_itself", onto_themselves.len()));
         }
         let colliding = case_collisions(&files);
         if !colliding.is_empty() {
             self.report(
                 Severity::Warning,
-                format!(
-                    "Kept the originals of {} files whose names differ only by case; the destination may treat them as one file",
-                    colliding.len()
-                ),
+                i18n::text_with("moves.case_collision", &[("count", &colliding.len().to_string())]),
             );
         }
         (files, colliding)
@@ -152,7 +148,7 @@ impl Engine {
     }
 
     pub(crate) fn verb_of(&self, batch_id: u64) -> &'static str {
-        if self.work.moves.contains_key(&batch_id) { "Move" } else { "Copy" }
+        if self.work.moves.contains_key(&batch_id) { "move" } else { "copy" }
     }
 
     pub(crate) fn removes_source(&self, id: u64) -> bool {
@@ -166,7 +162,7 @@ impl Engine {
         let (session_id, direction) = (job.session_id, job.direction);
         let (source_path, destination_path) = job.source_and_destination();
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
-            return self.source_removal_failed(id, "the session disconnected".to_string());
+            return self.source_removal_failed(id, i18n::text("moves.session_gone"));
         };
         self.work.source_removals.insert(id);
         let internal = self.internal.clone();
@@ -217,9 +213,12 @@ impl Engine {
         };
         job.paused = false;
         let name = job.display_name.clone();
-        job.status = JobStatus::Failed(format!("copied, but the original couldn't be removed: {message}"));
+        job.status = JobStatus::Failed(i18n::text_with("moves.original_kept_status", &[("cause", &message)]));
         drop(job);
-        self.announce(Severity::Error, format!("Copied {name}, but couldn't remove the original: {message}"));
+        self.announce(
+            Severity::Error,
+            i18n::text_with("moves.original_kept_notice", &[("name", &name), ("cause", &message)]),
+        );
         self.moved_job_settled(id);
     }
 

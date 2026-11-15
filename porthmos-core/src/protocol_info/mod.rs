@@ -1,5 +1,7 @@
 use porthmos_vfs::{ConnectionForm, Protocol};
 
+use crate::i18n;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolInfo {
     pub id: &'static str,
@@ -18,6 +20,14 @@ impl ProtocolInfo {
             limits_note: protocol.limits_note(),
             form: protocol.connection_form(),
         }
+    }
+
+    pub fn description_text(&self) -> String {
+        i18n::text_or(&format!("protocol.{}.description", self.id), self.description)
+    }
+
+    pub fn limits_note_text(&self) -> Option<String> {
+        self.limits_note.map(|note| i18n::text_or(&format!("protocol.{}.limits_note", self.id), note))
     }
 }
 

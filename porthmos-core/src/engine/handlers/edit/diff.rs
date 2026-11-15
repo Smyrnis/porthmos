@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     path::PathBuf,
     sync::{
@@ -21,7 +22,6 @@ use crate::{
 
 const READ_CHUNK: usize = 64 * 1024;
 const CANCEL_POLL: std::time::Duration = std::time::Duration::from_millis(100);
-const CANCELLED: &str = "Comparison cancelled";
 
 pub(super) enum Loaded {
     Whole(Vec<u8>),
@@ -61,7 +61,7 @@ struct Comparison {
 async fn compare(job: Comparison, cancel: Arc<AtomicBool>) -> Result<DiffOutcome, Message> {
     let Comparison { fs, remote, local_copy, name, limit } = job;
     let failed = |err: &dyn std::fmt::Display| -> Result<DiffOutcome, Message> {
-        Err(failure_report(format!("Comparison failed: {}", printable(&name)), err))
+        Err(failure_report(i18n::text_with("edit.compare_failed", &[("name", &printable(&name))]), err))
     };
     let metadata = match fs.stat(&remote).await {
         Ok(metadata) => metadata,
@@ -85,7 +85,7 @@ async fn compare(job: Comparison, cancel: Arc<AtomicBool>) -> Result<DiffOutcome
     let remote_bytes = match read_capped(&mut reader, limit, &cancel).await {
         Ok(Loaded::Whole(bytes)) => bytes,
         Ok(Loaded::TooLarge) => return Ok(DiffOutcome::TooLarge { limit }),
-        Ok(Loaded::Cancelled) => return Err(Message::new(CANCELLED)),
+        Ok(Loaded::Cancelled) => return Err(Message::new(i18n::text("edit.compare_cancelled"))),
         Err(err) => return failed(&err),
     };
     let mine = match tokio::fs::read(&local_copy).await {
@@ -111,7 +111,10 @@ impl Engine {
         };
         let (location, remote, name) = (session.location, session.remote_path.clone(), session.name.clone());
         let Some(fs) = self.fs_for(location) else {
-            let message = failure_report(format!("Comparison failed: {}", printable(&name)), &"session disconnected");
+            let message = failure_report(
+                i18n::text_with("edit.compare_failed", &[("name", &printable(&name))]),
+                &i18n::text("common.session_disconnected"),
+            );
             self.emit(Event::EditDiff { edit_id, result: Err(message) });
             return;
         };

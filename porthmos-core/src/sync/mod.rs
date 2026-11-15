@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use porthmos_vfs::{NameRules, VfsPath};
@@ -26,12 +27,12 @@ pub struct SyncOptions {
 }
 
 impl SyncOptions {
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), String> {
         if self.direction == SyncDirection::Both && self.by == SyncBy::Size {
-            return Err("Comparing by size can't decide a direction, so it can't be used with Both");
+            return Err(i18n::text("sync.size_both"));
         }
         if self.mirror && self.direction == SyncDirection::Both {
-            return Err("Mirror needs a direction: choose local to remote or remote to local");
+            return Err(i18n::text("sync.mirror_needs_direction"));
         }
         Ok(())
     }
@@ -58,6 +59,24 @@ pub enum SyncReason {
     KindMismatch,
     EmptyFolder,
     OnlyOnTarget,
+}
+
+impl SyncReason {
+    pub fn text(self) -> String {
+        crate::i18n::text(match self {
+            SyncReason::OnlyLocal => "sync.reason.only_local",
+            SyncReason::OnlyRemote => "sync.reason.only_remote",
+            SyncReason::LocalNewer => "sync.reason.local_newer",
+            SyncReason::RemoteNewer => "sync.reason.remote_newer",
+            SyncReason::TargetNewer => "sync.reason.target_newer",
+            SyncReason::SameTimeDifferentSize => "sync.reason.same_time_other_size",
+            SyncReason::SizeDiffers => "sync.reason.size_differs",
+            SyncReason::SizeDiffersTimeUnknown => "sync.reason.size_differs_no_time",
+            SyncReason::KindMismatch => "sync.reason.kind_mismatch",
+            SyncReason::EmptyFolder => "sync.reason.empty_folder",
+            SyncReason::OnlyOnTarget => "sync.reason.only_on_target",
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,15 +168,14 @@ impl SyncPlan {
 }
 
 pub fn mirror_delete_prompt(files: usize, folders: usize, place: &str) -> String {
-    let counted = |count: usize, word: &str| {
-        if count == 1 { format!("{count} {word}") } else { format!("{count} {word}s") }
-    };
+    let files_text = i18n::plural("count.files", files);
+    let folders_text = i18n::plural("count.empty_folders", folders);
     let what = match (files, folders) {
-        (files, 0) => counted(files, "file"),
-        (0, folders) => counted(folders, "empty folder"),
-        (files, folders) => format!("{} and {}", counted(files, "file"), counted(folders, "empty folder")),
+        (_, 0) => files_text,
+        (0, _) => folders_text,
+        _ => i18n::text_with("common.and", &[("first", &files_text), ("second", &folders_text)]),
     };
-    format!("Delete {what} from {place}? Folders left empty are removed too. This can't be undone.")
+    i18n::text_with("sync.mirror_prompt", &[("what", &what), ("place", place)])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

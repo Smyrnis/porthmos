@@ -606,7 +606,7 @@ fn a_cancelled_connection_is_not_logged_as_an_error() {
     let logs = crate::engine::testing::capture_logs(|| {
         t.engine.handle_internal(Internal::ConnectFailed {
             name: "prod".to_string(),
-            message: crate::CONNECTION_CANCELLED.into(),
+            message: crate::connection_cancelled().into(),
             retryable: false,
         });
     });

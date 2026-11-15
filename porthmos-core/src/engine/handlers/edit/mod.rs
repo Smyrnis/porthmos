@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -96,7 +97,7 @@ impl EditState {
 }
 
 fn editor_failure(message: &str) -> String {
-    format!("Couldn't start the editor ({message}). Set $EDITOR or [edit] editor")
+    i18n::text_with("edit.editor_failed", &[("cause", message)])
 }
 
 fn remove_dir(dir: &Path) {
@@ -108,19 +109,21 @@ async fn prepare(
     cancel: Arc<AtomicBool>,
 ) -> Prepared {
     let shown = printable(&name);
-    let failed = |err: &dyn std::fmt::Display| Prepared::Failed(user_message(format!("Edit failed: {shown}"), err));
+    let failed = |err: &dyn std::fmt::Display| {
+        Prepared::Failed(user_message(i18n::text_with("edit.failed", &[("name", &shown)]), err))
+    };
     let before = match fs.stat(&remote).await {
         Ok(metadata) => metadata,
         Err(err) => return failed(&err),
     };
     if before.is_dir() {
-        return Prepared::Failed("Can't edit a folder".to_string());
+        return Prepared::Failed(i18n::text("edit.is_folder"));
     }
     if before.size > MAX_EDIT_BYTES {
-        return Prepared::Failed(format!("{shown} is too large to edit (limit 64 MiB)"));
+        return Prepared::Failed(i18n::text_with("edit.too_large", &[("name", &shown)]));
     }
     if let Err(err) = create_private_dir(&dir) {
-        return Prepared::Failed(format!("Couldn't create a temporary folder for editing: {err}"));
+        return Prepared::Failed(i18n::text_with("edit.temp_dir_failed", &[("cause", &err.to_string())]));
     }
     let file = dir.join(local.name_rules().sanitize(&name));
     match transfer::run(fs.as_ref(), &remote, local.as_ref(), &from_os_path(&file), &cancel, false, |_| {}).await {
@@ -182,7 +185,7 @@ async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSyst
     let UploadJob { edit_id, remote, file, baseline, name, mode, at } = job;
     let failed = |err: &dyn std::fmt::Display| EditEvent::Uploaded {
         edit_id,
-        result: Err(user_message(format!("Upload failed: {}", printable(&name)), err)),
+        result: Err(user_message(i18n::text_with("edit.upload_failed", &[("name", &printable(&name))]), err)),
     };
     if mode == UploadMode::Checked {
         let changed = match fs.stat(&remote).await {
@@ -199,7 +202,7 @@ async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSyst
         UploadMode::Checked | UploadMode::Forced => remote,
     };
     if mode == UploadMode::Copy && fs.stat(&target).await.is_ok() {
-        return failed(&format!("{} already exists", target));
+        return failed(&i18n::text_with("edit.already_exists", &[("name", &target.to_string())]));
     }
     match write_in_place(fs.as_ref(), local.as_ref(), &file, &target).await {
         Ok(()) => EditEvent::Uploaded {
@@ -257,7 +260,7 @@ impl Engine {
             }
         };
         if os_path.is_dir() {
-            self.report(Severity::Warning, "Can't edit a folder");
+            self.report(Severity::Warning, i18n::text("edit.is_folder"));
             return;
         }
         let edit_id = self.new_edit_session(Location::Local, path.clone(), editor.clone());
@@ -269,7 +272,7 @@ impl Engine {
 
     fn edit_remote_file(&mut self, session_id: u64, path: VfsPath, editor: EditorCommand) {
         let Some(fs) = self.fs_for(Location::Session(session_id)) else {
-            self.report(Severity::Error, "Edit failed: session disconnected");
+            self.report(Severity::Error, i18n::text("edit.session_gone"));
             return;
         };
         let edit_id = self.new_edit_session(Location::Session(session_id), path.clone(), editor);
@@ -277,7 +280,7 @@ impl Engine {
         let dir = self.paths.edit_dir().join(format!("{}-{edit_id}", self.now().timestamp_millis()));
         let local = self.local_fs.clone();
         let internal = self.internal.clone();
-        self.info(format!("Downloading {} to edit\u{2026}", printable(&name)));
+        self.info(i18n::text_with("edit.downloading", &[("name", &printable(&name))]));
         self.tasks.spawn("edit-download", Scope::Edit(edit_id), move |cancel| async move {
             let result = prepare(fs, local, path, dir, name, cancel).await;
             let _ = internal.send(Internal::Edit(EditEvent::Prepared { edit_id, result }));
@@ -321,7 +324,7 @@ impl Engine {
                 if self.tasks.take_cancelled(Scope::Edit(edit_id)) {
                     self.edit.sessions.remove(&edit_id);
                     remove_dir(&temp.dir);
-                    self.info("Edit cancelled");
+                    self.info(i18n::text("edit.cancelled"));
                     return;
                 }
                 let Some(session) = self.edit.sessions.get_mut(&edit_id) else {
@@ -337,7 +340,7 @@ impl Engine {
             Prepared::Cancelled => {
                 self.tasks.forget(Scope::Edit(edit_id));
                 self.edit.sessions.remove(&edit_id);
-                self.info("Edit cancelled");
+                self.info(i18n::text("edit.cancelled"));
             }
             Prepared::Failed(message) => {
                 self.tasks.forget(Scope::Edit(edit_id));
@@ -363,7 +366,7 @@ impl Engine {
             }
             (Location::Local, EditorExit::Status(code)) => {
                 self.drop_edit(edit_id);
-                self.report(Severity::Warning, format!("Editor exited with status {code}"));
+                self.report(Severity::Warning, i18n::text_with("edit.editor_status", &[("code", &code.to_string())]));
                 self.emit(Event::LocationChanged { location: Location::Local });
             }
             (Location::Local, EditorExit::Success) => {
@@ -382,7 +385,7 @@ impl Engine {
         session.saving = true;
         let (Some(temp), Some(baseline)) = (session.temp.clone(), session.baseline) else {
             self.drop_edit(edit_id);
-            self.report(Severity::Error, "Edit failed: the temporary copy is missing");
+            self.report(Severity::Error, i18n::text("edit.temp_missing"));
             return;
         };
         let internal = self.internal.clone();
@@ -403,21 +406,23 @@ impl Engine {
         };
         let name = printable(&session.name);
         match (result, aborted) {
-            (Err(message), _) => {
-                self.keep_edit(edit_id, Severity::Error, &format!("Couldn't read the edited copy of {name}: {message}"))
-            }
+            (Err(message), _) => self.keep_edit(
+                edit_id,
+                Severity::Error,
+                &i18n::text_with("edit.read_failed", &[("name", &name), ("cause", &message)]),
+            ),
             (Ok(false), None) => {
                 self.drop_edit(edit_id);
-                self.info(format!("No changes to {name}"));
+                self.info(i18n::text_with("edit.no_changes", &[("name", &name)]));
             }
             (Ok(false), Some(code)) => {
                 self.drop_edit(edit_id);
-                self.report(Severity::Warning, format!("Editor exited with status {code}; nothing was uploaded"));
+                self.report(Severity::Warning, i18n::text_with("edit.not_uploaded", &[("code", &code.to_string())]));
             }
             (Ok(true), Some(code)) => self.keep_edit(
                 edit_id,
                 Severity::Warning,
-                &format!("Editor exited with status {code}; nothing was uploaded"),
+                &i18n::text_with("edit.not_uploaded", &[("code", &code.to_string())]),
             ),
             (Ok(true), None) if self.edit.settings.auto_upload => self.start_upload(edit_id, UploadMode::Checked),
             (Ok(true), None) => self.ask_edit(edit_id, EditQuestionKind::Upload),
@@ -442,7 +447,10 @@ impl Engine {
         match session.temp {
             Some(temp) => self.report(
                 severity,
-                format!("{reason}; your changes are kept in {}", printable(&temp.file.display().to_string())),
+                i18n::text_with(
+                    "edit.changes_kept",
+                    &[("reason", &reason), ("path", &printable(&temp.file.display().to_string()))],
+                ),
             ),
             None => self.report(severity, reason),
         }
@@ -479,7 +487,7 @@ impl Engine {
             (EditQuestionKind::Conflict, EditChoice::Upload) => self.start_upload(edit_id, UploadMode::Forced),
             (EditQuestionKind::Conflict, EditChoice::KeepCopy) => self.start_upload(edit_id, UploadMode::Copy),
             (_, EditChoice::Cancel) | (EditQuestionKind::Upload, EditChoice::KeepCopy) => {
-                self.keep_edit(edit_id, Severity::Warning, "Edit cancelled")
+                self.keep_edit(edit_id, Severity::Warning, &i18n::text("edit.cancelled"))
             }
         }
     }
@@ -497,7 +505,7 @@ impl Engine {
             self.keep_edit(
                 edit_id,
                 Severity::Error,
-                &format!("Upload failed: session disconnected ({})", printable(&name)),
+                &i18n::text_with("edit.upload_gone", &[("name", &printable(&name))]),
             );
             return;
         };
@@ -526,7 +534,7 @@ impl Engine {
             Ok(name) => {
                 self.drop_edit(edit_id);
                 self.emit(Event::LocationChanged { location });
-                self.info(format!("Uploaded {}", printable(&name)));
+                self.info(i18n::text_with("edit.uploaded", &[("name", &printable(&name))]));
             }
             Err(message) => self.keep_edit(edit_id, Severity::Error, &message),
         }

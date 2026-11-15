@@ -7,7 +7,9 @@ use crate::{
     persist::{Loaded, read_or_set_aside, toml_problem},
 };
 
-pub const INTERRUPTED_REASON: &str = "Porthmos was closed before this finished";
+pub fn interrupted_reason() -> String {
+    crate::i18n::text("transfer.interrupted")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedJob {

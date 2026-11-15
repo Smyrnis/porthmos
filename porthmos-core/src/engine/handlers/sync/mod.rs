@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     sync::{
@@ -11,7 +12,7 @@ use porthmos_vfs::{ErrorKind, FileKind, FileSystem, ProtocolError, VfsPath};
 use super::super::{Engine, Event, Internal, PlanningScan, TransferEvent};
 use crate::{
     Location, Severity,
-    delete_prompt::THIS_COMPUTER,
+    delete_prompt::this_computer,
     sync::{self, SyncAction, SyncDirection, SyncItem, SyncOptions, SyncPlan, SyncReason, scan::scan_both},
     tasks::Scope,
     transfer::{
@@ -24,7 +25,6 @@ use crate::{
 };
 
 const NAMED_UNREADABLE_FOLDERS: usize = 3;
-const DELETIONS_SKIPPED: &str = "Deletions skipped because the copies did not all finish";
 
 struct DeletionReport {
     files: usize,
@@ -33,19 +33,21 @@ struct DeletionReport {
     failure: Option<(VfsPath, ProtocolError)>,
 }
 
-fn plural(count: usize, word: &str) -> String {
-    if count == 1 { format!("{count} {word}") } else { format!("{count} {word}s") }
-}
-
 fn deleted_summary(report: &DeletionReport, place: &str) -> Option<String> {
     let mut parts = Vec::new();
     if report.files > 0 {
-        parts.push(plural(report.files, "file"));
+        parts.push(i18n::plural("count.files", report.files));
     }
     if report.folders > 0 {
-        parts.push(plural(report.folders, "folder"));
+        parts.push(i18n::plural("count.folders", report.folders));
     }
-    (!parts.is_empty()).then(|| format!("Deleted {} from {place}", parts.join(" and ")))
+    let what = match parts.as_slice() {
+        [] => return None,
+        [only] => only.clone(),
+        [first, second] => i18n::text_with("common.and", &[("first", first), ("second", second)]),
+        _ => parts.join(", "),
+    };
+    Some(i18n::plural_with("sync.deleted", report.files + report.folders, &[("what", &what), ("place", place)]))
 }
 
 async fn is_target_only(source_fs: &dyn FileSystem, source_root: &VfsPath, relative: &VfsPath) -> bool {
@@ -113,11 +115,15 @@ async fn delete_mirrored(pending: &PendingDeletion) -> DeletionReport {
 }
 
 fn unreadable_folders_notice(folders: &[VfsPath]) -> String {
-    let plural = if folders.len() == 1 { "" } else { "s" };
     let named: Vec<String> = folders.iter().take(NAMED_UNREADABLE_FOLDERS).map(|folder| folder.to_string()).collect();
     let more = folders.len().saturating_sub(NAMED_UNREADABLE_FOLDERS);
-    let tail = if more > 0 { format!(" and {more} more") } else { String::new() };
-    format!("Skipped {} unreadable folder{plural}: {}{tail}", folders.len(), named.join(", "))
+    let tail = if more > 0 {
+        format!(" {}", i18n::text_with("common.and_more", &[("count", &more.to_string())]))
+    } else {
+        String::new()
+    };
+    let names = format!("{}{tail}", named.join(", "));
+    i18n::plural_with("sync.unreadable", folders.len(), &[("names", &names)])
 }
 
 pub(crate) struct PendingDeletion {
@@ -207,13 +213,13 @@ impl Engine {
             return;
         }
         let Some(live) = self.book.sessions.get(&session_id) else {
-            self.report(Severity::Warning, "Sync failed: session disconnected");
+            self.report(Severity::Warning, i18n::text("sync.session_gone"));
             return;
         };
         let (remote, name) = (live.fs.clone(), live.name.clone());
         let local = self.local_fs.clone();
         if options.direction == SyncDirection::Both && !(local.can_set_modified() && remote.can_set_modified()) {
-            self.report(Severity::Warning, format!("Both can't be used with {name}: it can't keep modification times"));
+            self.report(Severity::Warning, i18n::text_with("sync.both_unsupported", &[("name", &name)]));
             return;
         }
         let (local_rules, remote_rules) = (local.name_rules(), remote.name_rules());
@@ -223,7 +229,7 @@ impl Engine {
             SyncDirection::RemoteToLocal => local.can_set_modified(),
             SyncDirection::Both => true,
         };
-        let display_name = format!("sync {}", local_dir);
+        let display_name = i18n::text_with("sync.title_local", &[("path", &local_dir.to_string())]);
         let batch_id = self.transfers.start_batch(display_name.clone());
         self.work.planning.push(PlanningScan { batch_id, session_id, direction: Direction::Upload, display_name });
         self.sync.scanning.insert(batch_id);
@@ -293,7 +299,7 @@ impl Engine {
                 Ok(None) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    TransferEvent::SyncFailed { batch_id, message: user_message("Sync failed", &err) }
+                    TransferEvent::SyncFailed { batch_id, message: user_message(i18n::text("sync.failed"), &err) }
                 }
             };
             let _ = internal.send(Internal::Transfer(event));
@@ -309,39 +315,27 @@ impl Engine {
         self.clear_planning(batch_id);
         self.transfers.forget_batch_if_empty(batch_id);
         if !self.book.sessions.contains_key(&plan.session) {
-            self.report(Severity::Error, "Sync failed: session disconnected");
+            self.report(Severity::Error, i18n::text("sync.session_gone"));
             return;
         }
         if plan.skipped_symlinks > 0 {
-            let plural = if plan.skipped_symlinks == 1 { "" } else { "s" };
-            self.report(Severity::Warning, format!("Skipped {} symlink{plural}", plan.skipped_symlinks));
+            self.report(Severity::Warning, i18n::plural("transfer.skipped_symlinks", plan.skipped_symlinks));
         }
         if plan.unstorable > 0 {
-            let plural = if plan.unstorable == 1 { "" } else { "s" };
-            self.report(
-                Severity::Warning,
-                format!("Skipped {} name{plural} the destination can't store", plan.unstorable),
-            );
+            self.report(Severity::Warning, i18n::plural("sync.unstorable", plan.unstorable));
         }
         if plan.case_clashes > 0 {
-            let plural = if plan.case_clashes == 1 { "" } else { "s" };
-            self.report(
-                Severity::Warning,
-                format!(
-                    "Skipped {} name{plural} that differ only in letter case from a file on the other side",
-                    plan.case_clashes
-                ),
-            );
+            self.report(Severity::Warning, i18n::plural("sync.case_clash", plan.case_clashes));
         }
         if !plan.unreadable_folders.is_empty() {
             self.report(Severity::Warning, unreadable_folders_notice(&plan.unreadable_folders));
         }
         if plan.mirror_skipped_empty_source {
-            self.report(Severity::Warning, "Mirror skipped: the source folder is empty");
+            self.report(Severity::Warning, i18n::text("sync.mirror_skipped"));
         }
         if plan.items.is_empty() {
             if !plan.mirror_skipped_empty_source {
-                self.info("Folders are in sync");
+                self.info(i18n::text("sync.in_sync"));
             }
             return;
         }
@@ -352,11 +346,11 @@ impl Engine {
 
     pub(crate) fn run_sync(&mut self, sync_id: u64, choices: Vec<(u32, SyncAction)>) {
         let Some(plan) = self.sync.plans.remove(&sync_id) else {
-            self.report(Severity::Warning, "That sync plan is no longer available");
+            self.report(Severity::Warning, i18n::text("sync.plan_gone"));
             return;
         };
         if !self.book.sessions.contains_key(&plan.session) {
-            self.report(Severity::Error, "Sync failed: session disconnected");
+            self.report(Severity::Error, i18n::text("sync.session_gone"));
             return;
         }
         let mut uploads = Vec::new();
@@ -410,8 +404,7 @@ impl Engine {
             }
         }
         if refused > 0 {
-            let (plural, verb) = if refused == 1 { ("", "doesn't") } else { ("s", "don't") };
-            self.report(Severity::Warning, format!("Ignored {refused} sync choice{plural} that {verb} apply"));
+            self.report(Severity::Warning, i18n::plural("sync.ignored_choices", refused));
         }
         let nothing_chosen = uploads.is_empty()
             && downloads.is_empty()
@@ -420,7 +413,7 @@ impl Engine {
             && delete_files.is_empty()
             && delete_folders.is_empty();
         if nothing_chosen {
-            self.info("Nothing to sync");
+            self.info(i18n::text("sync.nothing"));
             return;
         }
         let pending = self.pending_deletion(&plan, delete_files, delete_folders);
@@ -449,7 +442,7 @@ impl Engine {
         let (location, place, target_fs, source_fs, target_root, source_root) = match plan.options.direction {
             SyncDirection::RemoteToLocal => (
                 Location::Local,
-                THIS_COMPUTER.to_string(),
+                this_computer(),
                 self.local_fs.clone(),
                 live.fs.clone(),
                 plan.local_root.clone(),
@@ -480,7 +473,10 @@ impl Engine {
                 Some((path, err)) => {
                     let message = match pending.location {
                         Location::Local => crate::Message::new(format!("{path}: {err}")),
-                        Location::Session(_) => crate::failure_report(format!("Unable to delete {path}"), err),
+                        Location::Session(_) => crate::failure_report(
+                            i18n::text_with("sync.unable_delete", &[("path", &path.to_string())]),
+                            err,
+                        ),
                     };
                     reporter.report_cause(Severity::Error, message, err);
                 }
@@ -489,10 +485,7 @@ impl Engine {
                         reporter.report(Severity::Info, text);
                     }
                     if report.changed > 0 {
-                        reporter.report(
-                            Severity::Warning,
-                            format!("Left {} alone: it changed since the review", plural(report.changed, "file")),
-                        );
+                        reporter.report(Severity::Warning, i18n::plural("sync.left_alone", report.changed));
                     }
                 }
             }
@@ -511,7 +504,7 @@ impl Engine {
         if copies_clean {
             self.run_deletions(pending);
         } else {
-            self.report(Severity::Warning, DELETIONS_SKIPPED);
+            self.report(Severity::Warning, i18n::text("sync.deletions_skipped"));
         }
     }
 
@@ -524,7 +517,8 @@ impl Engine {
             Direction::Download => (self.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
         };
         let rules = target_fs.name_rules();
-        let display_name = format!("sync {arrow} {}", target_root);
+        let display_name =
+            i18n::text_with("sync.title_arrow", &[("arrow", &arrow.to_string()), ("path", &target_root.to_string())]);
         let batch_id = self.transfers.start_batch(display_name.clone());
         let session_id = plan.session;
         self.work.planning.push(PlanningScan { batch_id, session_id, direction, display_name });
@@ -548,7 +542,7 @@ impl Engine {
                 Ok(false) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    TransferEvent::SyncFailed { batch_id, message: user_message("Sync failed", &err) }
+                    TransferEvent::SyncFailed { batch_id, message: user_message(i18n::text("sync.failed"), &err) }
                 }
             };
             let _ = internal.send(Internal::Transfer(event));
@@ -571,7 +565,7 @@ impl Engine {
         if !self.book.sessions.contains_key(&session_id) {
             self.sync.pending_deletions.remove(&batch_id);
             self.transfers.forget_batch_if_empty(batch_id);
-            self.report(Severity::Error, "Sync failed: session disconnected");
+            self.report(Severity::Error, i18n::text("sync.session_gone"));
             return;
         }
         let questions = crate::transfer::conflicts::conflict_indices(&plan).len();
@@ -589,7 +583,7 @@ impl Engine {
         self.clear_planning(batch_id);
         self.transfers.forget_batch_if_empty(batch_id);
         if session.is_some_and(|session| self.book.sessions.contains_key(&session)) {
-            self.info("Sync cancelled");
+            self.info(i18n::text("sync.cancelled"));
         }
     }
 

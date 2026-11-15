@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::time::Duration;
 
 use similar::{Algorithm, ChangeTag, TextDiffConfig};
@@ -31,7 +32,7 @@ impl DiffLine {
             DiffKind::Removed => format!("- {}", self.text),
             DiffKind::Added => format!("+ {}", self.text),
             DiffKind::Skipped(1) => "\u{2026} 1 unchanged line \u{2026}".to_string(),
-            DiffKind::Skipped(count) => format!("\u{2026} {count} unchanged lines \u{2026}"),
+            DiffKind::Skipped(count) => i18n::text_with("diff.skipped", &[("count", &count.to_string())]),
         }
     }
 }
@@ -51,15 +52,14 @@ impl DiffOutcome {
     pub fn note(&self) -> Option<String> {
         let sentence = match self {
             DiffOutcome::Changes(_) => return None,
-            DiffOutcome::OnlyLineEndings => "Only line endings differ.".to_string(),
-            DiffOutcome::Identical => "The server's file is now the same as yours.".to_string(),
-            DiffOutcome::NotText => "Not a text file, so no comparison is shown.".to_string(),
-            DiffOutcome::TooLarge { limit } => format!(
-                "Too large to compare (over {} MiB). The limit is [edit] compare_limit_mib.",
-                limit / BYTES_PER_MIB
-            ),
-            DiffOutcome::TooManyChanges => "Too many changes to show.".to_string(),
-            DiffOutcome::RemoteGone => "The file no longer exists on the server.".to_string(),
+            DiffOutcome::OnlyLineEndings => i18n::text("diff.only_line_endings"),
+            DiffOutcome::Identical => i18n::text("diff.identical"),
+            DiffOutcome::NotText => i18n::text("diff.not_text"),
+            DiffOutcome::TooLarge { limit } => {
+                i18n::text_with("diff.too_large", &[("limit", &(limit / BYTES_PER_MIB).to_string())])
+            }
+            DiffOutcome::TooManyChanges => i18n::text("diff.too_many"),
+            DiffOutcome::RemoteGone => i18n::text("diff.remote_gone"),
         };
         Some(sentence)
     }

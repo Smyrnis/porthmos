@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::HashSet,
     fs::{self, File},
@@ -16,15 +17,15 @@ use super::{
 const MAX_SESSION_FILES: usize = 10_000;
 const MAX_SESSION_FILE_BYTES: usize = 64 * 1024;
 const MAX_FOLDER_ENTRIES: usize = 100_000;
-const NOT_UTF8: &str = "This is not a UTF-8 text file";
-const TOO_MANY_FILES: &str = "This folder has too many files to be PuTTY sessions";
-const NO_SESSIONS: &str = "There are no PuTTY sessions in this folder";
+const NOT_UTF8: &str = "import.not_utf8";
+const TOO_MANY_FILES: &str = "import.too_many_files";
+const NO_SESSIONS: &str = "import.no_sessions";
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 fn unreadable(error: io::Error) -> ImportError {
     let cause = match error.kind() {
-        io::ErrorKind::NotFound => "no such file or folder".to_string(),
-        io::ErrorKind::PermissionDenied => "permission denied".to_string(),
+        io::ErrorKind::NotFound => i18n::text("import.no_such_path"),
+        io::ErrorKind::PermissionDenied => i18n::text("import.permission_denied"),
         _ => error.to_string(),
     };
     ImportError::Unreadable(cause)
@@ -33,7 +34,7 @@ fn unreadable(error: io::Error) -> ImportError {
 fn read_limited(path: &Path, limit: usize) -> Result<Vec<u8>, ImportError> {
     let metadata = fs::metadata(path).map_err(unreadable)?;
     if !metadata.is_file() {
-        return Err(ImportError::Unreadable("it is not a file".to_string()));
+        return Err(ImportError::Unreadable(i18n::text("import.not_a_file")));
     }
     if metadata.len() > limit as u64 {
         return Err(ImportError::TooLarge);
@@ -79,11 +80,11 @@ fn read_putty_folder(folder: &Path) -> Result<Vec<ImportRow>, ImportError> {
                 rows.extend(putty::parse_session(&file_name, &String::from_utf8_lossy(&bytes)));
             }
             Err(_) => {
-                let name = clean::name(&escape::decode(&file_name)).unwrap_or_else(|| "(unnamed)".to_string());
+                let name = clean::name(&escape::decode(&file_name)).unwrap_or_else(|| i18n::text("import.unnamed"));
                 rows.push(ImportRow {
                     name,
                     candidate: None,
-                    verdict: Verdict::Invalid("could not be read".to_string()),
+                    verdict: Verdict::Invalid(i18n::text("import.could_not_read")),
                 });
             }
         }

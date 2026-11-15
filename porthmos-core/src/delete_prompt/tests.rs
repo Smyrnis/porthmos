@@ -1,6 +1,6 @@
 use porthmos_vfs::Entry;
 
-use super::{MAX_LISTED_NAMES, THIS_COMPUTER, delete_summary};
+use super::{MAX_LISTED_NAMES, delete_summary, this_computer};
 
 fn summary(entries: &[Entry], place: &str) -> Vec<String> {
     delete_summary(entries, place, str::to_string)
@@ -21,7 +21,7 @@ fn one_file_is_named_with_the_place_it_goes_from() {
 
 #[test]
 fn the_same_name_on_this_computer_says_so() {
-    assert_eq!(summary(&[file("big.bin")], THIS_COMPUTER), ["Delete \"big.bin\" from this computer?"]);
+    assert_eq!(summary(&[file("big.bin")], &this_computer()), ["Delete \"big.bin\" from this computer?"]);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn several_files_give_a_count_the_names_and_the_place() {
 #[test]
 fn folders_among_several_items_are_marked_and_explained() {
     assert_eq!(
-        summary(&[folder("docs"), file("a")], THIS_COMPUTER),
+        summary(&[folder("docs"), file("a")], &this_computer()),
         ["Delete 2 items from this computer?", "docs/", "a", "Folders are deleted with everything inside them."]
     );
 }

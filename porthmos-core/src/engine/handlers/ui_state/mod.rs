@@ -1,4 +1,5 @@
 use super::super::{Engine, Event};
+use crate::i18n;
 use porthmos_vfs::VfsPath;
 
 use crate::{
@@ -29,7 +30,7 @@ impl Engine {
         if !self.state_protected {
             self.ui_state.save_passwords_in_keyring = save;
         }
-        self.remember_ui_state("keyring choice");
+        self.remember_ui_state("remember.what.keyring_choice");
     }
 
     pub(crate) fn remember_local_folder(&mut self, folder: &VfsPath) {
@@ -38,7 +39,7 @@ impl Engine {
             return;
         }
         self.ui_state.local_folder = Some(text.into_owned());
-        self.save_quietly("local folder");
+        self.save_quietly("remember.what.local_folder");
     }
 
     pub(crate) fn remember_panel(&mut self, kind: PanelKind, settings: &PanelSettings) {
@@ -51,7 +52,7 @@ impl Engine {
             return;
         }
         *slot = memory;
-        self.save_quietly("panel settings");
+        self.save_quietly("remember.what.panel_settings");
     }
 
     pub(crate) fn remember_open_groups(&mut self, mut groups: Vec<String>) {
@@ -61,7 +62,7 @@ impl Engine {
             return;
         }
         self.ui_state.open_groups = groups;
-        self.save_quietly("open connection groups");
+        self.save_quietly("remember.what.open_groups");
     }
 
     pub(crate) fn save_quietly(&mut self, what: &str) {
@@ -76,19 +77,22 @@ impl Engine {
             return;
         }
         self.state_write_warned = true;
-        self.report(Severity::Warning, format!("Couldn't remember the {what}: {err}"));
+        self.report(
+            Severity::Warning,
+            i18n::text_with("remember.failed", &[("what", &i18n::text(what)), ("cause", &err.to_string())]),
+        );
     }
 
     pub(crate) fn remember_ui_state(&mut self, what: &str) {
         if self.state_protected {
-            self.report(
-                Severity::Warning,
-                format!("Couldn't remember the {what}: the saved settings file is protected"),
-            );
+            self.report(Severity::Warning, i18n::text_with("remember.protected", &[("what", &i18n::text(what))]));
             return;
         }
         if let Err(err) = state::save(&self.paths, &self.ui_state) {
-            self.report(Severity::Warning, format!("Couldn't remember the {what}: {err}"));
+            self.report(
+                Severity::Warning,
+                i18n::text_with("remember.failed", &[("what", &i18n::text(what)), ("cause", &err.to_string())]),
+            );
         }
     }
 }

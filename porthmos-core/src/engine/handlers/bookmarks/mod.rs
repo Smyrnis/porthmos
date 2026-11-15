@@ -1,3 +1,4 @@
+use crate::i18n;
 use porthmos_vfs::VfsPath;
 
 use super::super::{Engine, Event, Location};
@@ -16,10 +17,7 @@ impl Engine {
     fn refuse_protected_bookmarks(&self) -> bool {
         let protected = self.bookmarks.is_protected();
         if protected {
-            self.report(
-                Severity::Error,
-                "Bookmarks can't be changed: bookmarks.toml could not be read or set aside, so it was left alone",
-            );
+            self.report(Severity::Error, i18n::text("bookmarks.protected"));
         }
         protected
     }
@@ -34,7 +32,7 @@ impl Engine {
             Location::Session(id) => match self.book.sessions.get(&id) {
                 Some(session) => Some(session.name.clone()),
                 None => {
-                    self.report(Severity::Warning, "Connect to a remote server first");
+                    self.report(Severity::Warning, i18n::text("bookmarks.connect_first"));
                     return;
                 }
             },
@@ -45,7 +43,7 @@ impl Engine {
         }
         let bookmark = Bookmark { label, path, host };
         if self.bookmarks.iter().any(|existing| *existing == bookmark) {
-            self.info(format!("Already bookmarked as \"{}\"", bookmark.label));
+            self.info(i18n::text_with("bookmarks.already", &[("label", &bookmark.label)]));
             return;
         }
         self.bookmarks.add(bookmark);
@@ -59,7 +57,7 @@ impl Engine {
         }
         if let Some(removed) = self.bookmarks.remove(index) {
             self.save_bookmarks();
-            self.info(format!("Removed bookmark \"{}\"", removed.label));
+            self.info(i18n::text_with("bookmarks.removed", &[("label", &removed.label)]));
             self.publish_bookmarks();
         }
     }

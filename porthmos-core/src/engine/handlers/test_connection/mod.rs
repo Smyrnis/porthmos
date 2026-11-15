@@ -1,5 +1,6 @@
 mod prompter;
 
+use crate::i18n;
 use std::{
     future::Future,
     sync::{
@@ -152,7 +153,7 @@ impl Engine {
             });
         };
         let Some(protocol) = self.protocols.iter().find(|protocol| protocol.id() == draft.protocol).cloned() else {
-            return reject(format!("No \"{}\" protocol is available", draft.protocol));
+            return reject(i18n::text_with("profiles.no_protocol", &[("protocol", &draft.protocol)]));
         };
         let preserve_from: Option<ConnectionEntry> = original
             .as_ref()

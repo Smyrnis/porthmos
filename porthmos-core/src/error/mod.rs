@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{fmt::Display, time::Duration};
 
 use porthmos_vfs::{ErrorKind, ProtocolError};
@@ -29,18 +30,24 @@ pub fn failure_report(context: impl AsRef<str>, err: &dyn Display) -> Message {
     Message::with_cause(context.as_ref(), err)
 }
 
-pub const CONNECTION_CANCELLED: &str = "Connection cancelled";
-pub const SEARCH_INCOMPLETE_NOTE: &str = "Some folders could not be read, so results may be missing";
+pub fn connection_cancelled() -> String {
+    i18n::text("connection.cancelled")
+}
+
+pub fn search_incomplete_note() -> String {
+    i18n::text("search.incomplete")
+}
 
 pub fn connect_failure_message(error: &ProtocolError, name: &str, protocol_display: &str) -> Message {
     match error.kind() {
-        ErrorKind::Auth => failure_report(format!("Authentication error for {name}"), error),
-        ErrorKind::AuthRejected => Message::new(format!("Authentication failed for {name}")),
-        ErrorKind::SessionStart => {
-            failure_report(format!("Connected to {name} but failed to start {protocol_display}"), error)
-        }
-        ErrorKind::Cancelled => Message::new(CONNECTION_CANCELLED),
-        _ => failure_report(format!("Unable to connect to {name}"), error),
+        ErrorKind::Auth => failure_report(i18n::text_with("connection.auth_error", &[("name", name)]), error),
+        ErrorKind::AuthRejected => Message::new(i18n::text_with("connection.auth_failed", &[("name", name)])),
+        ErrorKind::SessionStart => failure_report(
+            i18n::text_with("connection.session_start", &[("name", name), ("protocol", protocol_display)]),
+            error,
+        ),
+        ErrorKind::Cancelled => Message::new(connection_cancelled()),
+        _ => failure_report(i18n::text_with("connection.unable", &[("name", name)]), error),
     }
 }
 

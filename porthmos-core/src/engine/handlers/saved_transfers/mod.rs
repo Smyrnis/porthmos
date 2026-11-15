@@ -1,3 +1,4 @@
+use crate::i18n;
 use std::{
     collections::{BTreeSet, HashMap},
     time::Duration,
@@ -13,7 +14,7 @@ use crate::{
     persist::{Loaded, write_atomic},
     transfer::{
         JobStatus,
-        saved::{INTERRUPTED_REASON, SavedJob, SavedMove, load, load_moves, render_with_moves, unfinished},
+        saved::{SavedJob, SavedMove, load, load_moves, render_with_moves, unfinished},
     },
 };
 
@@ -34,19 +35,13 @@ fn joined_with_or(names: &BTreeSet<String>) -> String {
     match names.as_slice() {
         [] => String::new(),
         [only] => (*only).to_string(),
-        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+        [rest @ .., last] => i18n::text_with("common.or", &[("rest", &rest.join(", ")), ("last", last)]),
     }
 }
 
 fn restored_notice(count: usize, connections: &BTreeSet<String>) -> String {
     let names = joined_with_or(connections);
-    if count == 1 {
-        format!("1 transfer from last time is in the transfers list. Connect to {names} and retry it to continue.")
-    } else {
-        format!(
-            "{count} transfers from last time are in the transfers list. Connect to {names} and retry them to continue."
-        )
-    }
+    i18n::plural_with("transfers.restored", count, &[("names", &names)])
 }
 
 impl Engine {
@@ -85,7 +80,7 @@ impl Engine {
         let written =
             render_with_moves(&jobs, &moves).and_then(|text| write_atomic(&path, text.as_bytes(), SAVED_FILE_MODE));
         if let Err(err) = written {
-            self.report(Severity::Warning, format!("Couldn't save the unfinished transfers: {err:#}"));
+            self.report(Severity::Warning, i18n::text_with("transfers.save_failed", &[("cause", &format!("{err:#}"))]));
         }
     }
 
@@ -179,7 +174,8 @@ impl Engine {
         let Some(mut job) = self.transfers.get_mut(id) else {
             return;
         };
-        job.status = JobStatus::Failed(saved.failure.clone().unwrap_or_else(|| INTERRUPTED_REASON.to_string()));
+        job.status =
+            JobStatus::Failed(saved.failure.clone().unwrap_or_else(crate::transfer::saved::interrupted_reason));
         job.attempts = 1;
         job.resume = true;
         job.transferred_bytes = saved.transferred_bytes;
