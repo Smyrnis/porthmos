@@ -323,7 +323,7 @@ fn a_failed_comparison_reports_the_error_and_asks_the_question_again() {
     show_differences(&mut test);
     test.sent();
 
-    test.app.apply_core_event(Event::EditDiff { edit_id: 4, result: Err("Comparison failed: app.conf".to_string()) });
+    test.app.apply_core_event(Event::EditDiff { edit_id: 4, result: Err("Comparison failed: app.conf".into()) });
 
     assert!(matches!(test.app.dialog, Some(Dialog::List(_))));
     assert!(test.notification().is_some_and(|text| text.contains("Comparison failed")));

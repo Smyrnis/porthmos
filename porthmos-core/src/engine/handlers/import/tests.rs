@@ -83,8 +83,8 @@ async fn read_import_of_a_missing_file_reports_an_error_and_no_plan() {
     t.run_internal().await;
     let events = t.drain();
     assert!(plan_of(events.clone()).is_none());
-    let notice = events.iter().find_map(|event| match event {
-        Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
+    let failure = events.iter().find_map(|event| match event {
+        Event::ImportReadFailed { import_id, message } => Some((*import_id, message.to_string())),
         _ => None,
     });
     assert!(notice.expect("an error notice").contains("no such file or folder"));

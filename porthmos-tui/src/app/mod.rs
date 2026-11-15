@@ -520,7 +520,7 @@ impl App {
             Event::SearchFailed(message) => {
                 if let Some(search) = self.search.as_mut() {
                     search.view.finish(false);
-                    self.notifications.push(Severity::Error, message);
+                    self.notifications.push(Severity::Error, message.to_string());
                 }
             }
             Event::PathRejected { location } => self.reject_path_edit(location),
@@ -530,16 +530,24 @@ impl App {
             Event::History(entries) => self.history.replace(entries),
             Event::EditReady { .. } => {}
             Event::EditsBusy(busy) => self.edits_busy = busy,
-            Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
+            Event::PreviewReady { request_id, result, .. } => {
+                self.apply_preview_ready(request_id, result.map_err(|message| message.to_string()))
+            }
             Event::ContentsCounted { request_id, contents } => self.apply_contents_counted(request_id, contents),
             Event::MeasureProgress { request_id, measured } => self.apply_measure_progress(request_id, measured),
-            Event::Measured { request_id, result } => self.apply_measured(request_id, result),
+            Event::Measured { request_id, result } => {
+                self.apply_measured(request_id, result.map_err(|message| message.to_string()))
+            }
             Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
                 self.apply_checksum_progress(request_id, &path, bytes_done, bytes_total)
             }
-            Event::Checksummed { request_id, path, result } => self.apply_checksummed(request_id, &path, result),
+            Event::Checksummed { request_id, path, result } => {
+                self.apply_checksummed(request_id, &path, result.map_err(|message| message.to_string()))
+            }
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
-            Event::EditDiff { edit_id, result } => self.apply_edit_diff(edit_id, result),
+            Event::EditDiff { edit_id, result } => {
+                self.apply_edit_diff(edit_id, result.map_err(|message| message.to_string()))
+            }
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)
             }

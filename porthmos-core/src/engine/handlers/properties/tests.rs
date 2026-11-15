@@ -21,7 +21,7 @@ fn measured(bytes: u64, files: u64, folders: u64) -> Measured {
 async fn next_measured(t: &mut TestEngine) -> (RequestId, Result<Measured, String>) {
     loop {
         if let Event::Measured { request_id, result } = t.next_event().await {
-            return (request_id, result);
+            return (request_id, result.map_err(|message| message.to_string()));
         }
     }
 }
@@ -29,7 +29,7 @@ async fn next_measured(t: &mut TestEngine) -> (RequestId, Result<Measured, Strin
 async fn next_checksummed(t: &mut TestEngine) -> (RequestId, VfsPath, Result<Digest, String>) {
     loop {
         if let Event::Checksummed { request_id, path, result } = t.next_event().await {
-            return (request_id, path, result);
+            return (request_id, path, result.map_err(|message| message.to_string()));
         }
     }
 }

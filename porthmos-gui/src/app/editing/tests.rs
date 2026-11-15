@@ -508,7 +508,7 @@ fn a_failed_reply_becomes_a_failed_pane_with_the_message() {
     conflict(&mut harness, 3);
     harness.press(Message::EditShowDiff);
 
-    harness.feed(Event::EditDiff { edit_id: 3, result: Err("Comparison failed: a.txt".to_string()) });
+    harness.feed(Event::EditDiff { edit_id: 3, result: Err("Comparison failed: a.txt".into()) });
 
     assert_eq!(pane(&harness), DiffPane::Failed("Comparison failed: a.txt".to_string()));
 }
@@ -518,7 +518,7 @@ fn after_a_failure_show_differences_can_be_tried_again() {
     let mut harness = local_harness();
     conflict(&mut harness, 3);
     harness.press(Message::EditShowDiff);
-    harness.feed(Event::EditDiff { edit_id: 3, result: Err("no".to_string()) });
+    harness.feed(Event::EditDiff { edit_id: 3, result: Err("no".into()) });
     harness.sent();
 
     harness.press(Message::EditShowDiff);

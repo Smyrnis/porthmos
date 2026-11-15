@@ -25,7 +25,7 @@ pub enum Scope {
     Measure,
     Checksum,
     Import,
-    Preview,
+    Preview(crate::preview::PreviewSlot),
     PreviewHint,
     Background,
     Test,

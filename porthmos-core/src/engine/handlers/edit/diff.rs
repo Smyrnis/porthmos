@@ -11,11 +11,12 @@ use tokio::io::AsyncReadExt;
 
 use super::{EditEvent, Engine};
 use crate::{
+    Message,
     diff::{DiffOutcome, compute},
     edit::{EditQuestionKind, printable},
     engine::{Event, Internal},
+    failure_report,
     tasks::Scope,
-    user_message,
 };
 
 const READ_CHUNK: usize = 64 * 1024;
@@ -57,10 +58,10 @@ struct Comparison {
     limit: u64,
 }
 
-async fn compare(job: Comparison, cancel: Arc<AtomicBool>) -> Result<DiffOutcome, String> {
+async fn compare(job: Comparison, cancel: Arc<AtomicBool>) -> Result<DiffOutcome, Message> {
     let Comparison { fs, remote, local_copy, name, limit } = job;
-    let failed = |err: &dyn std::fmt::Display| -> Result<DiffOutcome, String> {
-        Err(user_message(format!("Comparison failed: {}", printable(&name)), err))
+    let failed = |err: &dyn std::fmt::Display| -> Result<DiffOutcome, Message> {
+        Err(failure_report(format!("Comparison failed: {}", printable(&name)), err))
     };
     let metadata = match fs.stat(&remote).await {
         Ok(metadata) => metadata,
@@ -84,7 +85,7 @@ async fn compare(job: Comparison, cancel: Arc<AtomicBool>) -> Result<DiffOutcome
     let remote_bytes = match read_capped(&mut reader, limit, &cancel).await {
         Ok(Loaded::Whole(bytes)) => bytes,
         Ok(Loaded::TooLarge) => return Ok(DiffOutcome::TooLarge { limit }),
-        Ok(Loaded::Cancelled) => return Err(CANCELLED.to_string()),
+        Ok(Loaded::Cancelled) => return Err(Message::new(CANCELLED)),
         Err(err) => return failed(&err),
     };
     let mine = match tokio::fs::read(&local_copy).await {
@@ -110,7 +111,7 @@ impl Engine {
         };
         let (location, remote, name) = (session.location, session.remote_path.clone(), session.name.clone());
         let Some(fs) = self.fs_for(location) else {
-            let message = user_message(format!("Comparison failed: {}", printable(&name)), &"session disconnected");
+            let message = failure_report(format!("Comparison failed: {}", printable(&name)), &"session disconnected");
             self.emit(Event::EditDiff { edit_id, result: Err(message) });
             return;
         };
@@ -129,7 +130,7 @@ impl Engine {
         }
     }
 
-    pub(super) fn finish_diff(&mut self, edit_id: u64, result: Result<DiffOutcome, String>) {
+    pub(super) fn finish_diff(&mut self, edit_id: u64, result: Result<DiffOutcome, Message>) {
         let Some(session) = self.edit.sessions.get_mut(&edit_id) else {
             return;
         };

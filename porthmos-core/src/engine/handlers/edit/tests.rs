@@ -975,7 +975,9 @@ fn diff_replies(events: &[Event]) -> Vec<(u64, Result<std::sync::Arc<crate::diff
     events
         .iter()
         .filter_map(|event| match event {
-            Event::EditDiff { edit_id, result } => Some((*edit_id, result.clone())),
+            Event::EditDiff { edit_id, result } => {
+                Some((*edit_id, result.clone().map_err(|message| message.to_string())))
+            }
             _ => None,
         })
         .collect()

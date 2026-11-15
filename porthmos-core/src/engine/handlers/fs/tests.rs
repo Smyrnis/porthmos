@@ -969,3 +969,34 @@ async fn setting_permissions_for_a_session_that_is_gone_does_nothing() {
 
     assert!(t.drain().is_empty());
 }
+
+#[tokio::test]
+async fn an_unreadable_folder_inside_a_recursive_change_is_reported_once_and_the_rest_still_changes() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    permission_tree(&remote);
+    remote.fail_read_dir("/proj/sub");
+
+    t.engine.handle_command(Command::SetPermissions {
+        location: Location::Session(session),
+        paths: vec![VfsPath::from("/proj")],
+        mode: 0o750,
+        recursive: true,
+    });
+
+    let first = t.next_event().await;
+    let second = t.next_event().await;
+    let notices: Vec<String> = [&first, &second]
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Notice { severity: Severity::Error, message } => Some(message.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "{first:?} {second:?}");
+    assert!(notices[0].contains("\"sub\""), "{}", notices[0]);
+    assert_eq!(remote.mode_of("/proj"), Some(0o750));
+    assert_eq!(remote.mode_of("/proj/a.txt"), Some(0o750));
+    assert_eq!(remote.mode_of("/proj/sub"), Some(0o750));
+    assert_eq!(remote.mode_of("/proj/sub/b.txt"), Some(0o644));
+}

@@ -11,7 +11,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::super::{Engine, Event, Internal, Location};
 use crate::{
-    Severity,
+    Message, Severity,
     config::settings::EditSettings,
     diff::DiffOutcome,
     edit::{
@@ -71,7 +71,7 @@ pub(crate) enum EditEvent {
     Prepared { edit_id: u64, result: Prepared },
     Inspected { edit_id: u64, result: Result<bool, String>, aborted: Option<i32> },
     Conflict { edit_id: u64 },
-    Diffed { edit_id: u64, result: Result<DiffOutcome, String> },
+    Diffed { edit_id: u64, result: Result<DiffOutcome, Message> },
     Uploaded { edit_id: u64, result: Result<String, String> },
 }
 

@@ -32,6 +32,7 @@ pub(crate) use history::HistoryLog;
 pub(crate) use import::ImportState;
 pub(crate) use last_used::LastUsedLog;
 pub(crate) use moves::{MoveBatch, without_symlinks};
+pub(crate) use preview::PreviewSlots;
 #[cfg(test)]
 pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};

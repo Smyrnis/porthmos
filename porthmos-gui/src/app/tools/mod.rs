@@ -3,6 +3,7 @@ use iced::keyboard;
 use iced::widget::{Id, operation};
 use porthmos_core::config::bookmarks::Bookmark;
 use porthmos_core::history::HistoryEntry;
+use porthmos_core::preview::PreviewSlot;
 use porthmos_core::{Command, Location, Severity};
 
 use super::{App, Message, PanelSide};
@@ -48,13 +49,9 @@ impl App {
 
     pub(in crate::app) fn open_tool(&mut self, tool: Tool) {
         self.close_tool();
-        let preview = matches!(tool, Tool::Preview(_));
         self.tool = Some(tool);
         self.tool_scroll = 0.0;
         self.tool_version += 1;
-        if preview {
-            self.search_preview_interrupted();
-        }
     }
 
     pub(in crate::app) fn open_bookmarks(&mut self) {
@@ -89,9 +86,8 @@ impl App {
         match self.tool.take() {
             Some(Tool::Preview(state)) => {
                 if state.is_loading() {
-                    self.core.send(Command::CancelPreview);
+                    self.core.send(Command::CancelPreview { slot: PreviewSlot::Tool });
                 }
-                self.search_preview_resumed();
             }
             Some(Tool::Sync) => self.cancel_sync_review(),
             _ => {}

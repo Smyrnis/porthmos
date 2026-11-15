@@ -28,6 +28,7 @@ use crate::{
         settings::{EditSettings, TransferSettings},
     },
     history::History,
+    preview::PreviewSlot,
     profiles::ConnectionEntry,
     secrets::Secrets,
     tasks::{Scope, Tasks},
@@ -88,9 +89,10 @@ pub(crate) enum Internal {
         result: Result<crate::import::ImportPlan, crate::import::ImportError>,
     },
     Preview {
+        slot: crate::preview::PreviewSlot,
         request_id: RequestId,
         name: String,
-        result: Result<crate::preview::Preview, String>,
+        result: Result<crate::preview::Preview, Message>,
     },
     PreviewRested {
         request_id: RequestId,
@@ -197,12 +199,9 @@ pub(crate) struct Engine {
     last_used: handlers::LastUsedLog,
     reopen: handlers::ReopenState,
     reconnect: handlers::ReconnectState,
-    preview_request: Option<u64>,
+    previews: handlers::PreviewSlots,
     properties_request: Option<RequestId>,
     properties_location: Option<Location>,
-    preview_busy: bool,
-    preview_hint: Option<RequestId>,
-    preview_next: Option<(u64, Location, VfsPath)>,
     history: handlers::HistoryLog,
     edit: handlers::EditState,
     keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
@@ -289,12 +288,9 @@ impl Engine {
             last_used: handlers::LastUsedLog::new(parts.last_used),
             reopen: handlers::ReopenState::new(parts.reopen),
             reconnect: handlers::ReconnectState::new(parts.reconnect),
-            preview_request: None,
-            preview_busy: false,
-            preview_hint: None,
+            previews: handlers::PreviewSlots::default(),
             properties_request: None,
             properties_location: None,
-            preview_next: None,
             history: handlers::HistoryLog::new(parts.history),
             edit: handlers::EditState::new(parts.edit),
             keyring_jobs: None,
@@ -412,12 +408,9 @@ impl Engine {
             Command::Copy { from, entries, to, dest_dir } => self.copy(from, entries, to, dest_dir),
             Command::Move { from, entries, to, dest_dir } => self.move_entries(from, entries, to, dest_dir),
             Command::SetSpeedLimit { bytes_per_second } => self.set_speed_limit(bytes_per_second),
-            Command::Preview { request_id, location, path } => {
-                self.preview_hint = None;
-                self.start_preview(request_id, location, path);
-            }
+            Command::Preview { request_id, location, path } => self.preview_now(request_id, location, path),
             Command::PreviewHint { request_id, location, path } => self.hint_preview(request_id, location, path),
-            Command::CancelPreview => self.cancel_preview(),
+            Command::CancelPreview { slot } => self.cancel_preview(slot),
             Command::ResolveConflicts { batch_id, answers } => self.resolve_conflicts(batch_id, answers),
             Command::CancelAllTransfers => self.cancel_all_copies(),
             Command::CancelRow { kind } => self.cancel_row(kind),
@@ -490,10 +483,10 @@ impl Engine {
             }
             Internal::Edit(event) => self.handle_edit_event(event),
             Internal::ImportRead { import_id, result } => self.import_read_finished(import_id, result),
-            Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
+            Internal::Preview { slot, request_id, name, result } => self.finish_preview(slot, request_id, name, result),
             Internal::PreviewRested { request_id, location, path } => {
-                if self.preview_hint.take() == Some(request_id) {
-                    self.start_preview(request_id, location, path);
+                if self.previews.pane.hint.take() == Some(request_id) {
+                    self.start_preview(PreviewSlot::Pane, request_id, location, path);
                 }
             }
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),

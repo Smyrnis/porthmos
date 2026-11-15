@@ -22,7 +22,7 @@ fn changes() -> Arc<DiffOutcome> {
     ]))
 }
 
-fn with_reply(result: Option<Result<Arc<DiffOutcome>, String>>) -> Harness {
+fn with_reply(result: Option<Result<Arc<DiffOutcome>, porthmos_core::Message>>) -> Harness {
     let mut harness = conflict_harness();
     if let Some(result) = result {
         harness.press(Message::EditShowDiff);
@@ -40,7 +40,7 @@ fn the_conflict_question_renders_in_every_diff_state() {
         comparing,
         with_reply(Some(Ok(changes()))),
         with_reply(Some(Ok(Arc::new(DiffOutcome::RemoteGone)))),
-        with_reply(Some(Err("Comparison failed: a.txt".to_string()))),
+        with_reply(Some(Err("Comparison failed: a.txt".into()))),
     ];
 
     for harness in harnesses {

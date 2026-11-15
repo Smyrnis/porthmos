@@ -8,9 +8,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::super::{Engine, Event, Location, RequestId, SessionId};
 use crate::{
+    Message, failure_report,
     properties::{Digest, digest::sha256, measure::measure},
     tasks::Scope,
-    user_message,
 };
 
 const MEASURE_FAILED: &str = "Could not measure the selection";
@@ -20,13 +20,13 @@ const SESSION_GONE: &str = "session disconnected";
 
 async fn checksum_one(
     fs: &dyn FileSystem, request_id: RequestId, path: &VfsPath, events: &UnboundedSender<Event>, cancel: &AtomicBool,
-) -> Option<Result<Digest, String>> {
+) -> Option<Result<Digest, Message>> {
     let metadata = match fs.stat(path).await {
         Ok(metadata) => metadata,
-        Err(err) => return Some(Err(user_message(CHECKSUM_FAILED, &err))),
+        Err(err) => return Some(Err(failure_report(CHECKSUM_FAILED, &err))),
     };
     if metadata.is_dir() {
-        return Some(Err(NOT_A_FILE.to_string()));
+        return Some(Err(Message::new(NOT_A_FILE)));
     }
     let bytes_total = metadata.size;
     let mut progress = |bytes_done: u64| {
@@ -37,7 +37,7 @@ async fn checksum_one(
     match sha256(fs, path, cancel, &mut progress).await {
         Ok(Some(digest)) => Some(Ok(digest)),
         Ok(None) => None,
-        Err(err) => Some(Err(user_message(CHECKSUM_FAILED, &err))),
+        Err(err) => Some(Err(failure_report(CHECKSUM_FAILED, &err))),
     }
 }
 
@@ -70,7 +70,7 @@ impl Engine {
         self.tasks.cancel(Scope::Measure);
         self.tasks.forget(Scope::Measure);
         let Some(fs) = self.fs_for(location) else {
-            let result = Err(user_message(MEASURE_FAILED, &SESSION_GONE));
+            let result = Err(failure_report(MEASURE_FAILED, &SESSION_GONE));
             self.emit(Event::Measured { request_id, result });
             return;
         };
@@ -84,7 +84,7 @@ impl Engine {
             let result = match measure(fs.as_ref(), &paths, &cancel, &mut progress).await {
                 Ok(Some(measured)) => Ok(measured),
                 Ok(None) => return,
-                Err(err) => Err(user_message(MEASURE_FAILED, &err)),
+                Err(err) => Err(failure_report(MEASURE_FAILED, &err)),
             };
             if !cancel.load(Ordering::Relaxed) {
                 let _ = events.send(Event::Measured { request_id, result });
@@ -98,7 +98,7 @@ impl Engine {
         self.tasks.forget(Scope::Checksum);
         let Some(fs) = self.fs_for(location) else {
             for path in paths {
-                let result = Err(user_message(CHECKSUM_FAILED, &SESSION_GONE));
+                let result = Err(failure_report(CHECKSUM_FAILED, &SESSION_GONE));
                 self.emit(Event::Checksummed { request_id, path, result });
             }
             return;

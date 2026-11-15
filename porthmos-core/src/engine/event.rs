@@ -62,7 +62,7 @@ pub enum Event {
     History(Vec<HistoryEntry>),
     EditReady { edit_id: u64, file: PathBuf, editor: EditorCommand },
     EditQuestion { edit_id: u64, name: String, kind: EditQuestionKind },
-    EditDiff { edit_id: u64, result: Result<Arc<DiffOutcome>, String> },
+    EditDiff { edit_id: u64, result: Result<Arc<DiffOutcome>, Message> },
     EditsBusy(bool),
     ContentsCounted { request_id: RequestId, contents: Contents },
     MeasureProgress { request_id: RequestId, measured: Measured },
