@@ -15,11 +15,23 @@ pub struct PanelSettings {
 pub struct EditSettings {
     pub auto_upload: bool,
     pub editor: Option<String>,
+    pub compare_limit_mib: u64,
 }
+
+pub const DEFAULT_COMPARE_LIMIT_MIB: u64 = 1;
+pub const MIN_COMPARE_LIMIT_MIB: u64 = 1;
+pub const MAX_COMPARE_LIMIT_MIB: u64 = 64;
+const BYTES_PER_MIB: u64 = 1024 * 1024;
 
 impl Default for EditSettings {
     fn default() -> Self {
-        Self { auto_upload: true, editor: None }
+        Self { auto_upload: true, editor: None, compare_limit_mib: DEFAULT_COMPARE_LIMIT_MIB }
+    }
+}
+
+impl EditSettings {
+    pub fn compare_limit_bytes(&self) -> u64 {
+        self.compare_limit_mib * BYTES_PER_MIB
     }
 }
 
@@ -165,6 +177,7 @@ pub(crate) struct UpdateSettingsFile {
 pub(crate) struct EditSettingsFile {
     pub auto_upload: Option<bool>,
     pub editor: Option<String>,
+    pub compare_limit_mib: Option<i64>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -248,6 +261,17 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let compare_limit_mib = match file.edit.compare_limit_mib {
+        None => DEFAULT_COMPARE_LIMIT_MIB,
+        Some(mib) if (MIN_COMPARE_LIMIT_MIB as i64..=MAX_COMPARE_LIMIT_MIB as i64).contains(&mib) => mib as u64,
+        Some(_) => {
+            warnings.push(format!(
+                "edit.compare_limit_mib must be between {MIN_COMPARE_LIMIT_MIB} and {MAX_COMPARE_LIMIT_MIB}, using {DEFAULT_COMPARE_LIMIT_MIB}"
+            ));
+            DEFAULT_COMPARE_LIMIT_MIB
+        }
+    };
+
     let reopen = match file.startup.reopen.as_deref() {
         None | Some("off") => ReopenMode::Off,
         Some("ask") => ReopenMode::Ask,
@@ -265,6 +289,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             edit: EditSettings {
                 auto_upload: file.edit.auto_upload.unwrap_or(true),
                 editor: file.edit.editor.map(|editor| editor.trim().to_string()).filter(|editor| !editor.is_empty()),
+                compare_limit_mib,
             },
             terminal: TerminalSettings {
                 command: file

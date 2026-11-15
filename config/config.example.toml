@@ -22,6 +22,9 @@ on_conflict = "ask"
 # Porthmos asks first. A remote file that changed while you edited is always
 # asked about.
 auto_upload = true
+# The largest file, per side and in MiB (1 to 64), that "Show differences" in
+# the conflict question will compare. Bigger files are not compared.
+compare_limit_mib = 1
 # Editor command; empty means $VISUAL, then $EDITOR, then "vi" ("notepad.exe"
 # on Windows). The editor must wait until you close the file ("code --wait",
 # not "code"). On Windows a program installed as a .cmd shim is found by its
