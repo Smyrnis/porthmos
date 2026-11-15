@@ -27,12 +27,13 @@ different screens. The tables below are the defaults.
 | `Ctrl+R` | Refresh |
 | `Ctrl+C` | Cancel the active transfer |
 | `Ctrl+H` | Toggle hidden files |
-| `Ctrl+S` | Cycle sort order |
+| `Ctrl+S` | Cycle sort order: name, size, modified, type, each ascending then descending |
 | `Ctrl+D` / `Ctrl+B` | Bookmark here / open bookmarks |
 | `Ctrl+F` | Search |
 | `Ctrl+T` / `Ctrl+Y` | Transfers / history |
 | `Ctrl+U` | Sync |
-| `Ctrl+P` | Command palette |
+| `=` | Compare the two folders: marks what differs in both panels (press again to turn off) |
+| `Ctrl+P` | Command palette (`>` actions only, `@` hosts only, `#` files) |
 | `Ctrl+N` | Next connection |
 
 **Files**
@@ -48,6 +49,8 @@ different screens. The tables below are the defaults.
 | `n` / `F7` | New folder |
 | `d` / `F8` | Delete |
 | `r` / `F2` | Rename |
+| `P` | Permissions: an octal mode, `755 -R` to include what is inside folders |
+| `i` | Properties: size and SHA-256 checksum |
 | `e` / `F3` | Edit |
 | `p` | Preview |
 | `t` | Transfers |
@@ -57,7 +60,13 @@ different screens. The tables below are the defaults.
 on, `PageUp` / `PageDown` scroll the preview instead of the list.
 
 **Connections:** `n` / `F6` add, `e` / `F2` edit, `x` / `F8` disconnect,
-`Delete` delete the saved connection.
+`Delete` delete the saved connection, `o` reopen the last connections (when
+`[startup] reopen` offers them). Importing connections has no default key; use
+"Import connections" in the command palette, and `Ctrl+T` completes the path in
+its form.
+
+**Sync review:** `↑` `↓` move, `Space` tick or untick a row, `a` tick all, `n`
+tick none, `f` flip the direction of the row under the cursor (where either way is possible), `/` filter, `Enter` run what is ticked.
 
 **Transfers:** `p` pause, `r` retry, `x` / `F8` remove, `c` clear finished,
 `K` / `J` move a row up or down, `Ctrl+L` speed limit.
@@ -84,7 +93,7 @@ path, click the empty part of a panel's path bar. The defaults are below. On mac
 | `Space` | Select or deselect |
 | `Cmd/Ctrl+A` | Select all |
 | `Ctrl+H` | Show or hide hidden files |
-| `Ctrl+S` | Change sort order |
+| `Ctrl+S` | Change sort order: name, size, modified, type, each ascending then descending |
 | `Ctrl+R` | Refresh |
 | `/` | Filter files |
 | `Esc` | Clear the filter |
@@ -93,6 +102,8 @@ path, click the empty part of a panel's path bar. The defaults are below. On mac
 | `F6` | Move to the other panel |
 | `F7` | New folder |
 | `F2` | Rename |
+| `Shift+P` | Permissions |
+| `Alt+Enter` | Properties: size and SHA-256 checksum |
 | `Delete` / `F8` | Delete |
 | `e` / `F3` | Edit |
 | `p` | Preview |
@@ -102,7 +113,8 @@ path, click the empty part of a panel's path bar. The defaults are below. On mac
 | `Ctrl+B` / `Ctrl+D` | Bookmarks / bookmark this folder |
 | `Ctrl+Y` | Transfer history |
 | `Ctrl+U` | Synchronize |
-| `Ctrl+P` | Command palette |
+| `=` | Compare the two folders and mark the differences (press again to turn off) |
+| `Ctrl+P` | Command palette (`>` actions only, `@` hosts only, `#` files) |
 | `Ctrl+,` | Settings |
 | `Cmd/Ctrl+Q` | Quit |
 
