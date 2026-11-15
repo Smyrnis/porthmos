@@ -1,0 +1,14 @@
+_version: 1
+folders:
+  compare:
+    identical: "Comparing folders: they are identical"
+    differences:
+      one: "Comparing folders: %{count} difference"
+      other: "Comparing folders: %{count} differences"
+    needs_server: "Connect to a server to compare folders"
+delete:
+  folder: "Delete the folder \"%{name}\" and everything inside it from %{place}?"
+  file: "Delete \"%{name}\" from %{place}?"
+  many: "Delete %{count} items from %{place}?"
+  more: "and %{count} more"
+  folder_note: "Folders are deleted with everything inside them."

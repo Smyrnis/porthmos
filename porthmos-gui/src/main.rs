@@ -55,6 +55,7 @@ fn main() -> Result<()> {
     if let Some(code) = porthmos_ssh::askpass::run_if_requested() {
         std::process::exit(code);
     }
+    porthmos_core::i18n::use_environment_language();
     match cli::interpret(std::env::args().skip(1)) {
         cli::Invocation::Run => run_window(),
         cli::Invocation::Print(text) => {
