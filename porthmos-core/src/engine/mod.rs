@@ -185,6 +185,7 @@ pub(crate) struct Engine {
     pub(crate) state_protected: bool,
     pub(crate) state_write_warned: bool,
     pub(crate) unfinished_protected: bool,
+    unfinished_saves: handlers::UnfinishedSaves,
     pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
     book: SessionBook,
@@ -274,6 +275,7 @@ impl Engine {
             state_protected: false,
             state_write_warned: false,
             unfinished_protected: false,
+            unfinished_saves: handlers::UnfinishedSaves::default(),
             ui_state: crate::state::UiState::default(),
             writer,
             book: SessionBook::default(),
@@ -621,6 +623,7 @@ impl Engine {
         }
     }
 
+        self.save_unfinished_when_changed();
     fn request_publish(&mut self) {
         let due = self.work.publish_interval.is_zero()
             || self

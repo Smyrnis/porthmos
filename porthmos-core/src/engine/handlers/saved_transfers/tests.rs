@@ -498,3 +498,263 @@ async fn clearing_a_restored_upload_leaves_a_remote_part_file_alone_when_that_co
 
     assert!(other.exists("/remote/big.iso.part"));
 }
+
+fn ready_to_save(t: &mut TestEngine) {
+    t.engine.restore_unfinished_transfers();
+    t.drain();
+}
+
+#[tokio::test]
+async fn a_new_unfinished_job_reaches_the_disk_when_it_is_published() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+
+    enqueue_upload(&mut t, session, "queued.bin", None);
+    t.engine.publish_transfers();
+    t.engine.writer.flush().await;
+
+    let saved = saved_on_disk(&t);
+    assert_eq!(saved.iter().map(|job| job.display_name.as_str()).collect::<Vec<_>>(), ["queued.bin"]);
+}
+
+#[tokio::test]
+async fn the_file_goes_away_when_the_last_unfinished_job_finishes() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+    let id = enqueue_upload(&mut t, session, "queued.bin", None);
+    t.engine.publish_transfers();
+    assert!(t.engine.paths.unfinished_transfers_file().exists());
+
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Completed;
+    t.engine.publish_transfers();
+
+    assert!(!t.engine.paths.unfinished_transfers_file().exists());
+}
+
+#[tokio::test]
+async fn a_job_that_fails_is_saved_with_its_failure() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+    let id = enqueue_upload(&mut t, session, "queued.bin", None);
+    t.engine.publish_transfers();
+
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed("Permission denied".to_string());
+    t.engine.publish_transfers();
+
+    assert_eq!(saved_on_disk(&t)[0].failure.as_deref(), Some("Permission denied"));
+}
+
+#[tokio::test]
+async fn nothing_is_written_before_the_last_runs_list_has_been_restored() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    write_saved(&t, &[saved_job("srv", "old.bin", Direction::Upload)]);
+
+    enqueue_upload(&mut t, session, "new.bin", None);
+    t.engine.publish_transfers();
+
+    let saved = saved_on_disk(&t);
+    assert_eq!(saved.iter().map(|job| job.display_name.as_str()).collect::<Vec<_>>(), ["old.bin"]);
+}
+
+#[tokio::test]
+async fn a_protected_file_is_never_overwritten_by_a_publish() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+    t.engine.unfinished_protected = true;
+
+    enqueue_upload(&mut t, session, "queued.bin", None);
+    t.engine.publish_transfers();
+
+    assert!(!t.engine.paths.unfinished_transfers_file().exists());
+}
+
+#[tokio::test]
+async fn progress_alone_does_not_rewrite_the_file_on_every_publish() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+    let id = enqueue_upload(&mut t, session, "big.bin", None);
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::InProgress;
+    t.engine.publish_transfers();
+
+    t.engine.transfers.get_mut(id).unwrap().transferred_bytes = 40;
+    t.engine.publish_transfers();
+
+    assert_eq!(saved_on_disk(&t)[0].transferred_bytes, 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn progress_is_saved_after_a_while_so_a_crash_resumes_near_where_it_stopped() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+    let id = enqueue_upload(&mut t, session, "big.bin", None);
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::InProgress;
+    t.engine.publish_transfers();
+
+    t.engine.transfers.get_mut(id).unwrap().transferred_bytes = 40;
+    tokio::time::sleep(super::UNFINISHED_PROGRESS_SAVE + std::time::Duration::from_secs(1)).await;
+    t.engine.publish_transfers();
+
+    assert_eq!(saved_on_disk(&t)[0].transferred_bytes, 40);
+}
+
+#[tokio::test]
+async fn restoring_the_list_makes_saving_possible_even_when_nothing_was_saved() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+
+    t.engine.restore_unfinished_transfers();
+    enqueue_upload(&mut t, session, "queued.bin", None);
+    t.engine.publish_transfers();
+
+    assert_eq!(saved_on_disk(&t).len(), 1);
+}
+
+fn move_batch(session_id: u64, direction: Direction, roots: &[&str]) -> crate::engine::handlers::MoveBatch {
+    crate::engine::handlers::MoveBatch {
+        session_id,
+        direction,
+        roots: roots.iter().map(|root| VfsPath::new(root)).collect(),
+    }
+}
+
+fn saved_moves_on_disk(t: &TestEngine) -> Vec<crate::transfer::saved::SavedMove> {
+    crate::transfer::saved::load_moves(&t.engine.paths)
+}
+
+#[tokio::test]
+async fn the_folders_a_move_should_clean_up_are_saved_with_the_unfinished_jobs() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    let batch = t.engine.transfers.start_batch("photos".to_string());
+    enqueue_upload(&mut t, session, "a.bin", Some(batch));
+    t.engine.work.moves.insert(batch, move_batch(session, Direction::Upload, &["/local/photos"]));
+
+    t.engine.save_unfinished_transfers();
+
+    let moves = saved_moves_on_disk(&t);
+    assert_eq!(moves.len(), 1);
+    assert_eq!(moves[0].connection, "srv");
+    assert_eq!(moves[0].direction, Direction::Upload);
+    assert_eq!(moves[0].roots, ["/local/photos"]);
+    assert_eq!(moves[0].batch, saved_on_disk(&t)[0].batch.unwrap());
+}
+
+#[tokio::test]
+async fn a_move_with_nothing_left_to_do_is_not_saved() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    let finished = t.engine.transfers.start_batch("done".to_string());
+    let done = enqueue_upload(&mut t, session, "d.bin", Some(finished));
+    t.engine.transfers.get_mut(done).unwrap().status = JobStatus::Completed;
+    t.engine.work.moves.insert(finished, move_batch(session, Direction::Upload, &["/local/done"]));
+    let open = t.engine.transfers.start_batch("open".to_string());
+    enqueue_upload(&mut t, session, "o.bin", Some(open));
+
+    t.engine.save_unfinished_transfers();
+
+    assert!(saved_moves_on_disk(&t).is_empty());
+}
+
+#[tokio::test]
+async fn a_batch_without_folders_to_clean_is_not_saved_as_a_move() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    let batch = t.engine.transfers.start_batch("files".to_string());
+    enqueue_upload(&mut t, session, "a.bin", Some(batch));
+    t.engine.work.moves.insert(batch, move_batch(session, Direction::Upload, &[]));
+
+    t.engine.save_unfinished_transfers();
+
+    assert!(saved_moves_on_disk(&t).is_empty());
+}
+
+#[tokio::test]
+async fn restoring_a_move_brings_back_its_folder_cleanup_under_the_new_batch_and_session() {
+    let mut first = test_engine();
+    let (session, _) = first.add_session("srv");
+    let batch = first.engine.transfers.start_batch("photos".to_string());
+    enqueue_upload(&mut first, session, "a.bin", Some(batch));
+    first.engine.work.moves.insert(batch, move_batch(session, Direction::Upload, &["/local/photos", "/local/other"]));
+    first.engine.save_unfinished_transfers();
+    let saved = std::fs::read(first.engine.paths.unfinished_transfers_file()).unwrap();
+
+    let mut second = test_engine();
+    let path = second.engine.paths.unfinished_transfers_file();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, saved).unwrap();
+    second.engine.restore_unfinished_transfers();
+
+    let restored = all_jobs(&second);
+    let new_batch = restored[0].batch_id.expect("the job is still in a batch");
+    let moved = second.engine.work.moves.get(&new_batch).expect("the move bookkeeping is back");
+    assert_eq!(moved.session_id, restored[0].session_id);
+    assert_eq!(moved.direction, Direction::Upload);
+    assert_eq!(moved.roots, [VfsPath::new("/local/photos"), VfsPath::new("/local/other")]);
+}
+
+#[tokio::test]
+async fn a_saved_move_whose_jobs_are_gone_is_ignored_on_restore() {
+    let mut t = test_engine();
+    write_saved_with_moves(
+        &t,
+        &[saved_job("srv", "a.bin", Direction::Upload)],
+        &[crate::transfer::saved::SavedMove {
+            batch: 77,
+            connection: "srv".to_string(),
+            direction: Direction::Upload,
+            roots: vec!["/local/x".to_string()],
+        }],
+    );
+
+    t.engine.restore_unfinished_transfers();
+
+    assert!(t.engine.work.moves.is_empty());
+}
+
+fn write_saved_with_moves(t: &TestEngine, jobs: &[SavedJob], moves: &[crate::transfer::saved::SavedMove]) {
+    let path = t.engine.paths.unfinished_transfers_file();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, crate::transfer::saved::render_with_moves(jobs, moves).unwrap()).unwrap();
+}
+
+#[tokio::test]
+async fn a_file_saved_before_moves_were_recorded_still_loads() {
+    let mut t = test_engine();
+    write_saved(&t, &[saved_job("srv", "a.bin", Direction::Upload)]);
+
+    t.engine.restore_unfinished_transfers();
+
+    assert_eq!(all_jobs(&t).len(), 1);
+    assert!(t.engine.work.moves.is_empty());
+}
+
+#[tokio::test]
+async fn a_restored_download_move_removes_its_emptied_folders_once_the_jobs_are_done() {
+    let mut t = test_engine();
+    let (session, remote) = t.add_session("srv");
+    remote.dir("/srv/photos").dir("/srv/photos/sub");
+    let batch = t.engine.transfers.start_batch("photos".to_string());
+    let id = t.engine.transfers.enqueue(
+        session,
+        Direction::Download,
+        VfsPath::new("/local/a.bin"),
+        "/srv/photos/a.bin".to_string(),
+        "a.bin".to_string(),
+        100,
+        Some(batch),
+    );
+    t.engine.work.moves.insert(batch, move_batch(session, Direction::Download, &["/srv/photos"]));
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Completed;
+
+    t.engine.finish_move_batch(batch);
+    t.settle().await;
+
+    assert!(!remote.exists("/srv/photos"));
+}

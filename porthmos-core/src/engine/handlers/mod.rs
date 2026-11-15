@@ -38,6 +38,7 @@ pub(crate) use profiles::SecretOwner;
 pub(crate) use profiles::{KeyringDone, KeyringJob};
 pub(crate) use reconnect::ReconnectState;
 pub(crate) use reopen::ReopenState;
+pub(crate) use saved_transfers::UnfinishedSaves;
 pub(crate) use sync::SyncState;
 pub(crate) use update::UpdateEngine;
 

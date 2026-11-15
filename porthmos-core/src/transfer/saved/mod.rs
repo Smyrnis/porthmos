@@ -31,15 +31,26 @@ pub struct SavedJob {
     pub failure: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedMove {
+    pub batch: u64,
+    pub connection: String,
+    pub direction: Direction,
+    pub roots: Vec<String>,
+}
+
 #[derive(Deserialize)]
 struct SavedFile {
     #[serde(default)]
     jobs: Vec<SavedJob>,
+    #[serde(default)]
+    moves: Vec<SavedMove>,
 }
 
 #[derive(Serialize)]
 struct SavedFileRef<'a> {
     jobs: &'a [SavedJob],
+    moves: &'a [SavedMove],
 }
 
 pub fn unfinished(queue: &TransferQueue, connection_of: impl Fn(u64) -> String) -> Vec<SavedJob> {
@@ -67,7 +78,19 @@ pub fn unfinished(queue: &TransferQueue, connection_of: impl Fn(u64) -> String) 
 }
 
 pub fn render(jobs: &[SavedJob]) -> Result<String> {
-    Ok(toml::to_string(&SavedFileRef { jobs })?)
+    render_with_moves(jobs, &[])
+}
+
+pub fn render_with_moves(jobs: &[SavedJob], moves: &[SavedMove]) -> Result<String> {
+    Ok(toml::to_string(&SavedFileRef { jobs, moves })?)
+}
+
+pub fn load_moves(paths: &Paths) -> Vec<SavedMove> {
+    std::fs::read_to_string(paths.unfinished_transfers_file())
+        .ok()
+        .and_then(|text| toml::from_str::<SavedFile>(&text).ok())
+        .map(|file| file.moves)
+        .unwrap_or_default()
 }
 
 pub fn load(paths: &Paths) -> Loaded<Vec<SavedJob>> {
