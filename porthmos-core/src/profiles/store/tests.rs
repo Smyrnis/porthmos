@@ -473,3 +473,50 @@ fn a_malformed_connections_file_error_names_the_file() {
     assert!(error.contains("connections.toml"), "{error}");
     assert!(error.contains("line 2"), "{error}");
 }
+
+#[test]
+fn save_many_to_adds_every_profile_and_keeps_the_existing_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let make = |name: &str| ConnectionProfile {
+        name: name.to_string(),
+        host: format!("{name}.example"),
+        protocol: "sftp".to_string(),
+        port: Some(22),
+        username: "deploy".to_string(),
+        options: std::collections::BTreeMap::new(),
+        group: None,
+        tags: Vec::new(),
+        in_keyring: Vec::new(),
+    };
+    save_to(&path, &make("old")).unwrap();
+
+    save_many_to(&path, &[make("a"), make("b"), make("c")]).unwrap();
+
+    let names: Vec<String> = load_from(&path).unwrap().into_iter().map(|profile| profile.name).collect();
+    assert_eq!(names, ["a", "b", "c", "old"]);
+}
+
+#[test]
+fn save_many_to_leaves_the_original_file_untouched_if_the_write_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[connections.old]\nhost = \"h\"\nusername = \"u\"\n").unwrap();
+    fs::create_dir_all(path.with_extension("toml.tmp")).unwrap();
+    let profile = ConnectionProfile {
+        name: "new".to_string(),
+        host: "h".to_string(),
+        protocol: "sftp".to_string(),
+        port: None,
+        username: "u".to_string(),
+        options: std::collections::BTreeMap::new(),
+        group: None,
+        tags: Vec::new(),
+        in_keyring: Vec::new(),
+    };
+
+    assert!(save_many_to(&path, &[profile]).is_err());
+
+    let names: Vec<String> = load_from(&path).unwrap().into_iter().map(|profile| profile.name).collect();
+    assert_eq!(names, ["old"]);
+}

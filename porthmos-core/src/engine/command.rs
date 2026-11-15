@@ -1,8 +1,11 @@
+use std::path::PathBuf;
+
 use porthmos_vfs::{Answer, Entry, VfsPath};
 
 use crate::{
     config::settings::{PanelSettings, ReopenMode},
     edit::{EditChoice, EditorExit},
+    import::ImportSource,
     panel_memory::PanelKind,
     profiles::ProfileDraft,
     sync::{SyncAction, SyncOptions},
@@ -81,6 +84,9 @@ pub enum Command {
     StartSync { session: SessionId, local_dir: VfsPath, remote_dir: VfsPath, options: SyncOptions },
     RunSync { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     CancelSync { sync_id: u64 },
+    ReadImport { import_id: u64, source: ImportSource, path: PathBuf },
+    RunImport { import_id: u64, rows: Vec<u32> },
+    CancelImport { import_id: u64 },
     CheckForUpdate { manual: bool },
     Shutdown,
 }

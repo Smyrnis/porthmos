@@ -12,6 +12,7 @@ use crate::{
     diff::DiffOutcome,
     edit::{EditQuestionKind, EditorCommand},
     history::HistoryEntry,
+    import::ImportPlan,
     preview::Preview,
     profiles::ConnectionEntry,
     properties::{Digest, Measured},
@@ -71,5 +72,7 @@ pub enum Event {
     PreviewReady { request_id: RequestId, name: String, result: Result<Arc<Preview>, String> },
     SyncPlanReady(Arc<SyncPlan>),
     SyncWithdrawn { sync_ids: Vec<u64> },
+    ImportPlanReady(Arc<ImportPlan>),
+    ImportDone { import_id: u64, added: usize, skipped: usize },
     Update(UpdateState),
 }

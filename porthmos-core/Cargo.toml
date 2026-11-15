@@ -22,6 +22,7 @@ keyring = ["dep:keyring-core", "dep:zbus-secret-service-keyring-store", "dep:app
 anyhow.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
+roxmltree.workspace = true
 serde.workspace = true
 sha2 = "0.10"
 similar.workspace = true

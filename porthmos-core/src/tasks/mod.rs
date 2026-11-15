@@ -24,6 +24,7 @@ pub enum Scope {
     Count,
     Measure,
     Checksum,
+    Import,
     Preview,
     PreviewHint,
     Background,

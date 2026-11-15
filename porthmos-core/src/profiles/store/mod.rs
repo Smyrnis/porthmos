@@ -39,6 +39,18 @@ fn save_to(path: &Path, profile: &ConnectionProfile) -> Result<()> {
     write_config_file(path, &file)
 }
 
+pub fn save_many(paths: &Paths, profiles: &[ConnectionProfile]) -> Result<()> {
+    save_many_to(&paths.connections_file(), profiles)
+}
+
+fn save_many_to(path: &Path, profiles: &[ConnectionProfile]) -> Result<()> {
+    let mut file = read_config_file(path)?;
+    for profile in profiles {
+        file.connections.insert(profile.name.clone(), profile.clone());
+    }
+    write_config_file(path, &file)
+}
+
 pub fn delete(paths: &Paths, name: &str) -> Result<()> {
     delete_from(&paths.connections_file(), name)
 }

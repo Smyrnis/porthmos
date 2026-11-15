@@ -5,6 +5,7 @@ mod edit;
 mod fs;
 mod health;
 mod history;
+mod import;
 mod last_used;
 mod moves;
 mod pause;
@@ -28,6 +29,7 @@ use std::fmt::Display;
 
 pub(crate) use edit::{EditEvent, EditState};
 pub(crate) use history::HistoryLog;
+pub(crate) use import::ImportState;
 pub(crate) use last_used::LastUsedLog;
 pub(crate) use moves::{MoveBatch, without_symlinks};
 #[cfg(test)]

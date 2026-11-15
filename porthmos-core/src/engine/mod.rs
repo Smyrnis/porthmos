@@ -80,6 +80,10 @@ pub(crate) enum Internal {
     },
     Transfer(TransferEvent),
     Edit(handlers::EditEvent),
+    ImportRead {
+        import_id: u64,
+        result: Result<crate::import::ImportPlan, crate::import::ImportError>,
+    },
     Preview {
         request_id: RequestId,
         name: String,
@@ -216,6 +220,7 @@ pub(crate) struct Engine {
     latest_keyring_job: HashMap<String, u64>,
     connecting: std::collections::HashSet<String>,
     sync: handlers::SyncState,
+    import: handlers::ImportState,
     #[cfg_attr(not(feature = "update"), allow(dead_code))]
     update: handlers::UpdateEngine,
 }
@@ -321,6 +326,7 @@ impl Engine {
             latest_keyring_job: HashMap::new(),
             connecting: std::collections::HashSet::new(),
             sync: handlers::SyncState::default(),
+            import: handlers::ImportState::default(),
             update: handlers::UpdateEngine::new(
                 parts.update,
                 parts.update_record,
@@ -469,6 +475,9 @@ impl Engine {
             }
             Command::RunSync { sync_id, choices } => self.run_sync(sync_id, choices),
             Command::CancelSync { sync_id } => self.cancel_sync(sync_id),
+            Command::ReadImport { import_id, source, path } => self.read_import(import_id, source, path),
+            Command::RunImport { import_id, rows } => self.run_import(import_id, rows),
+            Command::CancelImport { import_id } => self.cancel_import(import_id),
             Command::Shutdown => {}
         }
         self.process_row_changes();
@@ -505,6 +514,7 @@ impl Engine {
                 self.reopen_progressed(&name);
             }
             Internal::Edit(event) => self.handle_edit_event(event),
+            Internal::ImportRead { import_id, result } => self.import_read_finished(import_id, result),
             Internal::Preview { request_id, name, result } => self.finish_preview(request_id, name, result),
             Internal::PreviewRested { request_id, location, path } => {
                 if self.preview_hint.take() == Some(request_id) {

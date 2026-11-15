@@ -8,6 +8,7 @@ mod engine;
 pub mod error;
 mod health;
 pub mod history;
+pub mod import;
 pub mod last_used;
 pub mod listing;
 pub mod logging;
