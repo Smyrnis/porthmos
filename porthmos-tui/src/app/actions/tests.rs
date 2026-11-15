@@ -531,6 +531,7 @@ fn outcome(test: &mut TestApp) -> (&'static str, Vec<Command>, Option<String>, S
         Some(Dialog::Form(_)) => "form",
         Some(Dialog::Conflict(_)) => "conflict",
         Some(Dialog::Message(_)) => "message",
+        Some(Dialog::Diff(_)) => "diff",
     };
     (dialog, test.sent(), test.notification(), test.app.screen)
 }

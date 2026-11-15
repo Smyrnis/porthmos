@@ -3,10 +3,16 @@ use std::{
     process::ExitStatus,
 };
 
+use std::sync::Arc;
+
+use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditorCommand, EditorExit};
 
 use super::*;
-use crate::widgets::history_view::printable;
+use crate::widgets::{
+    dialog::diff::{DiffChoice, DiffDialog},
+    history_view::printable,
+};
 
 #[derive(Clone)]
 pub(super) struct EditPrompt {
@@ -15,6 +21,8 @@ pub(super) struct EditPrompt {
     pub(super) kind: EditQuestionKind,
 }
 
+const CONFLICT_CHOICES: [&str; 4] = ["Show differences", "Overwrite", "Keep mine as a copy", "Cancel"];
+const KEEP_COPY_INDEX: usize = 2;
 const EDIT_QUIT_QUESTION: &str = "An edit is still being saved to the server. Quit anyway? The remote file may be left \
                                   incomplete; your copy stays in the state folder.";
 const TRANSFER_QUIT_QUESTION: &str = porthmos_core::transfer::QUIT_WITH_TRANSFERS_TEXT;
@@ -77,9 +85,9 @@ impl App {
             }
             EditQuestionKind::Conflict => {
                 let title = format!("{name} changed on the server while you were editing");
-                let items = vec!["Overwrite".to_string(), "Keep mine as a copy".to_string(), "Cancel".to_string()];
+                let items = CONFLICT_CHOICES.map(str::to_string).to_vec();
                 let mut dialog = ListDialog::new(title, items);
-                dialog.cursor = 1;
+                dialog.cursor = KEEP_COPY_INDEX;
                 self.dialog = Some(Dialog::List(dialog));
                 self.pending_action = Some(PendingAction::EditConflict { edit_id });
             }
@@ -92,7 +100,12 @@ impl App {
             && self.dialog.is_some()
             && matches!(
                 self.pending_action,
-                Some(PendingAction::EditUpload { .. } | PendingAction::EditConflict { .. })
+                Some(
+                    PendingAction::EditUpload { .. }
+                        | PendingAction::EditConflict { .. }
+                        | PendingAction::EditComparing { .. }
+                        | PendingAction::EditDiff { .. }
+                )
             )
         {
             self.edit_questions.push_front(prompt);
@@ -100,7 +113,15 @@ impl App {
     }
 
     pub(super) fn after_dialog_key(&mut self) {
-        if !matches!(self.pending_action, Some(PendingAction::EditUpload { .. } | PendingAction::EditConflict { .. })) {
+        if !matches!(
+            self.pending_action,
+            Some(
+                PendingAction::EditUpload { .. }
+                    | PendingAction::EditConflict { .. }
+                    | PendingAction::EditComparing { .. }
+                    | PendingAction::EditDiff { .. }
+            )
+        ) {
             self.open_edit_question = None;
         }
         self.open_next_edit_question();
@@ -124,11 +145,58 @@ impl App {
 
     pub(super) fn answer_edit_conflict(&mut self, edit_id: u64, index: usize) {
         let choice = match index {
-            0 => EditChoice::Upload,
-            1 => EditChoice::KeepCopy,
+            0 => return self.request_edit_diff(edit_id),
+            1 => EditChoice::Upload,
+            2 => EditChoice::KeepCopy,
             _ => EditChoice::Cancel,
         };
         self.core.send(Command::ResolveEdit { edit_id, choice });
+    }
+
+    fn request_edit_diff(&mut self, edit_id: u64) {
+        let name = self.open_edit_question.as_ref().map(|prompt| prompt.name.clone()).unwrap_or_default();
+        self.core.send(Command::ShowEditDiff { edit_id });
+        let message = format!("Comparing {name} with the server's file.\n\nEsc goes back to the question.");
+        self.dialog = Some(Dialog::Message(MessageDialog::new("Comparing\u{2026}", message)));
+        self.pending_action = Some(PendingAction::EditComparing { edit_id });
+    }
+
+    pub(super) fn ask_open_edit_question_again(&mut self) {
+        if let Some(prompt) = self.open_edit_question.take() {
+            self.edit_questions.push_front(prompt);
+        }
+    }
+
+    pub(super) fn apply_edit_diff(&mut self, edit_id: u64, result: Result<Arc<DiffOutcome>, String>) {
+        let waiting = matches!(self.pending_action, Some(PendingAction::EditComparing { edit_id: waiting }) if waiting == edit_id)
+            && matches!(self.dialog, Some(Dialog::Message(_)));
+        if !waiting {
+            return;
+        }
+        match result {
+            Ok(outcome) => {
+                let name = self.open_edit_question.as_ref().map(|prompt| prompt.name.clone()).unwrap_or_default();
+                self.dialog = Some(Dialog::Diff(DiffDialog::new(&name, &outcome)));
+                self.pending_action = Some(PendingAction::EditDiff { edit_id });
+            }
+            Err(message) => {
+                self.dialog = None;
+                self.pending_action = None;
+                self.ask_open_edit_question_again();
+                self.error(message);
+                self.open_next_edit_question();
+            }
+        }
+    }
+
+    pub(super) fn answer_edit_diff(&mut self, edit_id: u64, choice: DiffChoice) {
+        let resolution = match choice {
+            DiffChoice::Overwrite => EditChoice::Upload,
+            DiffChoice::KeepCopy => EditChoice::KeepCopy,
+            DiffChoice::Cancel => EditChoice::Cancel,
+            DiffChoice::Back => return self.ask_open_edit_question_again(),
+        };
+        self.core.send(Command::ResolveEdit { edit_id, choice: resolution });
     }
 
     pub(super) async fn launch_editor(

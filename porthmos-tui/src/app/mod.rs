@@ -99,6 +99,8 @@ enum PendingAction {
     ClearHistory,
     EditUpload { edit_id: u64 },
     EditConflict { edit_id: u64 },
+    EditComparing { edit_id: u64 },
+    EditDiff { edit_id: u64 },
     ConfirmQuit,
     StartSync { session: SessionId },
     ConfirmSyncDelete { sync_id: u64, choices: Vec<(u32, SyncAction)> },
@@ -522,6 +524,7 @@ impl App {
             Event::PreviewReady { request_id, result, .. } => self.apply_preview_ready(request_id, result),
             Event::ContentsCounted { request_id, contents } => self.apply_contents_counted(request_id, contents),
             Event::EditQuestion { edit_id, name, kind } => self.ask_edit_question(edit_id, &name, kind),
+            Event::EditDiff { edit_id, result } => self.apply_edit_diff(edit_id, result),
             Event::SessionCapabilities { session, preserves_times } => {
                 self.sessions.set_preserves_times(session, preserves_times)
             }

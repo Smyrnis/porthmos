@@ -161,6 +161,8 @@ pub enum Message {
     ProcessFinished(ProcessEvent),
     EditAnswered(porthmos_core::edit::EditChoice),
     EditDoneEditing,
+    EditShowDiff,
+    EditDiffBack,
     SearchTyped(String),
     SearchRowPressed(usize),
     SearchRowActivated(usize),
@@ -186,6 +188,8 @@ pub enum Message {
     SettingsTerminalTyped(String),
     SettingsTerminalApplied,
     SettingsAutoUploadToggled(bool),
+    SettingsCompareLimitTyped(String),
+    SettingsCompareLimitApplied,
     SettingsSearchPreviewToggled(bool),
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
@@ -856,6 +860,7 @@ impl App {
             Event::LocalShellReady { invocation } => self.shell_ready(invocation),
             Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
             Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
+            Event::EditDiff { edit_id, result } => self.edit_diff_ready(edit_id, result),
             Event::EditsBusy(busy) => self.edits_busy = busy,
             Event::TransfersChanged(snapshot) => {
                 self.transfers.replace(snapshot);
@@ -1205,6 +1210,8 @@ impl App {
             | Message::SettingsTerminalTyped(_)
             | Message::SettingsTerminalApplied
             | Message::SettingsAutoUploadToggled(_)
+            | Message::SettingsCompareLimitTyped(_)
+            | Message::SettingsCompareLimitApplied
             | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsClosed
             | Message::SettingsUpdateModeChosen(_)
@@ -1228,6 +1235,10 @@ impl App {
             Message::UpdateBadgePressed => self.show_update_announcement(),
             Message::ProcessFinished(event) => self.process_finished(event),
             Message::EditAnswered(choice) => self.edit_answered(choice),
+            Message::EditShowDiff => self.edit_show_diff(),
+            Message::EditDiffBack => {
+                self.edit_diff_back();
+            }
             Message::EditDoneEditing => self.answer_modal(true),
             message @ (Message::SearchClosed
             | Message::SearchTyped(_)
@@ -1679,6 +1690,9 @@ impl App {
             return;
         }
         if !accepted && matches!(self.modals.front(), Some(Modal::EditWaiting { .. })) {
+            return;
+        }
+        if !accepted && self.edit_diff_back() {
             return;
         }
         let Some(modal) = self.modals.pop() else {

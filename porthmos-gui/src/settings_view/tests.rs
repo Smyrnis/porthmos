@@ -7,6 +7,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         editor: editor.map(str::to_string),
         terminal: None,
         auto_upload: true,
+        compare_limit_mib: 1,
         update_mode: UpdateMode::Notify,
         search_preview: false,
         reopen: porthmos_core::ReopenMode::Off,

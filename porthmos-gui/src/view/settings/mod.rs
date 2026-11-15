@@ -17,6 +17,11 @@ const EDITOR_PLACEHOLDER: &str = "Editor command, for example: code --wait";
 const TERMINAL_PLACEHOLDER: &str = "Terminal command, for example: kitty";
 const TERMINAL_HELP: &str = "Used by Open terminal here. Leave empty to use $TERMINAL or a terminal found on this system. Put {command} where the command to run belongs if the program needs it elsewhere.";
 const THEME_HELP: &str = "Colours you set in theme.toml are kept and applied on top of the theme you pick. The terminal app reads theme.toml when it starts.";
+const COMPARE_LIMIT_PLACEHOLDER: &str = "1";
+const COMPARE_LIMIT_LABEL: &str = "Largest file to compare, in MiB (1 to 64)";
+const COMPARE_LIMIT_HELP: &str =
+    "When an edited file changed on the server, Show differences compares files up to this size.";
+const COMPARE_LIMIT_FIELD_WIDTH: f32 = 80.0;
 const EDITOR_HELP: &str = "Leave empty to use $VISUAL, $EDITOR or the system default.";
 
 pub fn reset_enabled(shortcuts: &Shortcuts, action: Action) -> bool {
@@ -148,6 +153,13 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
         .text_size(13.0)
         .on_toggle(Message::SettingsAutoUploadToggled)
         .style(crate::view::checkbox::style(palette));
+    let compare_limit = text_input(COMPARE_LIMIT_PLACEHOLDER, &state.compare_limit_text)
+        .style(crate::view::input::style(palette))
+        .on_input(Message::SettingsCompareLimitTyped)
+        .on_submit(Message::SettingsCompareLimitApplied)
+        .size(13.0)
+        .width(Length::Fixed(COMPARE_LIMIT_FIELD_WIDTH))
+        .font(Font::DEFAULT);
     column![
         section("Editing", palette),
         row![input, text_button("Apply", Some(Message::SettingsEditorApplied), Look::Normal, palette)]
@@ -155,6 +167,11 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
             .align_y(Alignment::Center),
         wrapped_label(EDITOR_HELP, palette.fg_dim),
         auto_upload,
+        wrapped_label(COMPARE_LIMIT_LABEL, palette.fg),
+        row![compare_limit, text_button("Apply", Some(Message::SettingsCompareLimitApplied), Look::Normal, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        wrapped_label(COMPARE_LIMIT_HELP, palette.fg_dim),
         restart_line(palette),
     ]
     .spacing(8)

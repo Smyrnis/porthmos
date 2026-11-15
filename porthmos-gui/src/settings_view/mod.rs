@@ -8,6 +8,7 @@ pub struct GuiSettings {
     pub editor: Option<String>,
     pub terminal: Option<String>,
     pub auto_upload: bool,
+    pub compare_limit_mib: u64,
     pub update_mode: UpdateMode,
     pub search_preview: bool,
     pub reopen: ReopenMode,
@@ -21,6 +22,7 @@ impl Default for GuiSettings {
             editor: None,
             terminal: None,
             auto_upload: true,
+            compare_limit_mib: porthmos_core::config::settings::DEFAULT_COMPARE_LIMIT_MIB,
             update_mode: UpdateMode::Auto,
             search_preview: false,
             reopen: ReopenMode::Off,
@@ -95,6 +97,7 @@ pub struct SettingsState {
     pub category: SettingsCategory,
     pub capturing: Option<Action>,
     pub editor_text: String,
+    pub compare_limit_text: String,
     pub terminal_text: String,
     pub message: Option<SettingsMessage>,
 }
@@ -105,10 +108,16 @@ impl SettingsState {
             category: SettingsCategory::default(),
             capturing: None,
             editor_text: settings.editor.clone().unwrap_or_default(),
+            compare_limit_text: settings.compare_limit_mib.to_string(),
             terminal_text: settings.terminal.clone().unwrap_or_default(),
             message: None,
         }
     }
+}
+
+pub fn compare_limit_from_text(text: &str) -> Option<u64> {
+    use porthmos_core::config::settings::{MAX_COMPARE_LIMIT_MIB, MIN_COMPARE_LIMIT_MIB};
+    text.trim().parse::<u64>().ok().filter(|mib| (MIN_COMPARE_LIMIT_MIB..=MAX_COMPARE_LIMIT_MIB).contains(mib))
 }
 
 pub fn editor_from_text(text: &str) -> Option<String> {

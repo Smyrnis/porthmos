@@ -1,4 +1,5 @@
 mod conflict;
+mod edit_diff;
 mod sync_options;
 
 use iced::widget::{checkbox, column, container, row, stack, text, text_input};
@@ -9,7 +10,7 @@ use super::{bold_label, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::dialogs::{Dialog, Typed};
 use crate::editing::waiting_notice;
-use crate::modal::{Modal, delete_lines, edit_question_title, quit_text};
+use crate::modal::{DiffPane, Modal, delete_lines, edit_question_title, quit_text};
 use crate::theme::Palette;
 use crate::view::text_fit::fit;
 use porthmos_core::edit::{EditChoice, EditQuestionKind, printable};
@@ -17,6 +18,7 @@ use porthmos_core::permissions::{mode_text, symbolic};
 
 const DIALOG_WIDTH: f32 = 440.0;
 const CONFLICT_WIDTH: f32 = 720.0;
+const DIFF_WIDTH: f32 = 860.0;
 const NAME_CELLS: usize = 60;
 
 pub(super) fn button<'a>(title: &str, message: Message, palette: &Palette) -> Element<'a, Message> {
@@ -99,6 +101,47 @@ fn cautious_buttons<'a>(accept: &str, decline: &str, palette: &Palette) -> Eleme
         .into()
 }
 
+const CONFLICT_EXPLANATION: &str = "Overwrite the server's copy with yours, keep yours as a separate copy next to it, or cancel and keep the temporary file.";
+
+fn question_width(diff: &DiffPane) -> f32 {
+    match diff {
+        DiffPane::Ready(_) => DIFF_WIDTH,
+        DiffPane::Idle | DiffPane::Comparing | DiffPane::Failed(_) => DIALOG_WIDTH,
+    }
+}
+
+fn conflict_content<'a>(diff: &DiffPane, palette: &Palette) -> Element<'a, Message> {
+    match diff {
+        DiffPane::Ready(outcome) => edit_diff::body(outcome, palette),
+        DiffPane::Failed(message) => column![
+            wrapped_label(edit_diff::failed_text(message), palette.err),
+            body_text(CONFLICT_EXPLANATION.to_string(), palette),
+        ]
+        .spacing(8)
+        .into(),
+        DiffPane::Idle | DiffPane::Comparing => body_text(CONFLICT_EXPLANATION.to_string(), palette),
+    }
+}
+
+fn conflict_buttons<'a>(diff: &DiffPane, palette: &Palette) -> Element<'a, Message> {
+    let overwrite = button("Overwrite", Message::EditAnswered(EditChoice::Upload), palette);
+    let keep = primary_button("Keep mine as a copy", Message::EditAnswered(EditChoice::KeepCopy), palette);
+    let cancel = button("Cancel", Message::EditAnswered(EditChoice::Cancel), palette);
+    match diff {
+        DiffPane::Ready(_) => {
+            row![overwrite, keep, cancel, button("Back", Message::EditDiffBack, palette)].spacing(8).into()
+        }
+        DiffPane::Comparing => {
+            row![text_button("Comparing\u{2026}", None, Look::Normal, palette), overwrite, keep, cancel]
+                .spacing(8)
+                .into()
+        }
+        DiffPane::Idle | DiffPane::Failed(_) => {
+            row![button("Show differences", Message::EditShowDiff, palette), overwrite, keep, cancel].spacing(8).into()
+        }
+    }
+}
+
 pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     let palette = app.palette();
     let (title, content, buttons) = match app.modal()? {
@@ -154,7 +197,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             conflict::body(view, *apply_to_rest, palette),
             conflict::buttons(view, palette),
         ),
-        Modal::EditQuestion { name, kind, .. } => {
+        Modal::EditQuestion { name, kind, diff, .. } => {
             let title = edit_question_title(name, *kind);
             match kind {
                 EditQuestionKind::Upload => (
@@ -167,21 +210,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
                     .spacing(8)
                     .into(),
                 ),
-                EditQuestionKind::Conflict => (
-                    title,
-                    body_text(
-                        "Overwrite the server's copy with yours, keep yours as a separate copy next to it, or cancel and keep the temporary file."
-                            .to_string(),
-                        palette,
-                    ),
-                    row![
-                        button("Overwrite", Message::EditAnswered(EditChoice::Upload), palette),
-                        primary_button("Keep mine as a copy", Message::EditAnswered(EditChoice::KeepCopy), palette),
-                        button("Cancel", Message::EditAnswered(EditChoice::Cancel), palette),
-                    ]
-                    .spacing(8)
-                    .into(),
-                ),
+                EditQuestionKind::Conflict => (title, conflict_content(diff, palette), conflict_buttons(diff, palette)),
             }
         }
         Modal::EditWaiting { name, .. } => (
@@ -207,7 +236,11 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             ("Delete".to_string(), body_text(lines, palette), cautious_buttons("Delete", "Cancel", palette))
         }
     };
-    let width = if matches!(app.modal(), Some(Modal::Conflict { .. })) { CONFLICT_WIDTH } else { DIALOG_WIDTH };
+    let width = match app.modal() {
+        Some(Modal::Conflict { .. }) => CONFLICT_WIDTH,
+        Some(Modal::EditQuestion { diff, .. }) => question_width(diff),
+        _ => DIALOG_WIDTH,
+    };
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
     let surface = palette.surface;
     let body = column![bold_label(title, palette.fg_bright), content, buttons].spacing(12);
@@ -225,3 +258,6 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         .align_y(alignment::Vertical::Center);
     Some(stack![backdrop, placed].into())
 }
+
+#[cfg(test)]
+mod tests;

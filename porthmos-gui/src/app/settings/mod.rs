@@ -10,7 +10,7 @@ use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
 use crate::config_file::{self, Edit};
-use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, editor_from_text};
+use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text};
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
 use crate::theme::{Palette, ThemeSettings};
 use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
@@ -18,6 +18,7 @@ use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
 const RESTART_NOTE: &str = "Saved. Takes effect the next time Porthmos starts.";
 const APPLIED_NOTE: &str = "Saved.";
 const RESERVED_TEXT: &str = "That shortcut is reserved by the system.";
+const COMPARE_LIMIT_TEXT: &str = "Enter a whole number from 1 to 64.";
 const NO_CONFIG_TEXT: &str = "The location of the configuration file is unknown.";
 
 fn plain_title(action: Action) -> &'static str {
@@ -229,6 +230,24 @@ impl App {
                 };
                 let editor = editor_from_text(&state.editor_text);
                 self.core_setting_saved(Edit::SetEditor(editor.clone()), |settings| settings.editor = editor);
+            }
+            Message::SettingsCompareLimitTyped(text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.compare_limit_text = text;
+                }
+            }
+            Message::SettingsCompareLimitApplied => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                match compare_limit_from_text(&state.compare_limit_text) {
+                    Some(mib) => {
+                        self.core_setting_saved(Edit::SetCompareLimitMib(mib), |settings| {
+                            settings.compare_limit_mib = mib
+                        });
+                    }
+                    None => self.show_settings_message(Some(SettingsMessage::Error(COMPARE_LIMIT_TEXT.to_string()))),
+                }
             }
             Message::SettingsTerminalTyped(text) => {
                 if let Some(state) = self.settings_state_mut() {

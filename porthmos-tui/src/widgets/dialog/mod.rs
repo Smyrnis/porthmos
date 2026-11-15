@@ -1,5 +1,6 @@
 pub mod confirm;
 pub mod conflict;
+pub mod diff;
 pub mod form;
 pub mod list;
 pub mod message;
@@ -28,6 +29,7 @@ pub enum Dialog {
     Form(FormDialog),
     Conflict(ConflictDialog),
     Message(message::MessageDialog),
+    Diff(diff::DiffDialog),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -42,6 +44,7 @@ pub enum DialogOutcome {
     FormTest(Vec<(&'static str, String)>),
     FormChoiceChanged { key: &'static str },
     Resolved { resolution: Option<porthmos_core::transfer::conflicts::Resolution>, apply_to_rest: bool },
+    DiffChosen(diff::DiffChoice),
 }
 
 impl std::fmt::Debug for DialogOutcome {
@@ -63,6 +66,7 @@ impl std::fmt::Debug for DialogOutcome {
                 .field("resolution", resolution)
                 .field("apply_to_rest", apply_to_rest)
                 .finish(),
+            DialogOutcome::DiffChosen(choice) => f.debug_tuple("DiffChosen").field(choice).finish(),
         }
     }
 }
@@ -103,6 +107,10 @@ impl Dialog {
                 message::MessageOutcome::Pending => DialogOutcome::Pending,
                 message::MessageOutcome::Closed => DialogOutcome::Cancelled,
             },
+            Dialog::Diff(dialog) => match dialog.handle_key(key) {
+                Some(choice) => DialogOutcome::DiffChosen(choice),
+                None => DialogOutcome::Pending,
+            },
         }
     }
 
@@ -115,6 +123,7 @@ impl Dialog {
             Dialog::Form(dialog) => form::render_form(frame, area, dialog, theme),
             Dialog::Conflict(dialog) => conflict::render_conflict(frame, area, dialog, theme),
             Dialog::Message(dialog) => message::render_message(frame, area, dialog, theme),
+            Dialog::Diff(dialog) => diff::render_diff(frame, area, dialog, theme),
         }
     }
 }

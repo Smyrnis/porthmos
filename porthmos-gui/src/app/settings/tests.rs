@@ -92,6 +92,7 @@ fn opening_shows_the_saved_editor() {
         editor: Some("vi".to_string()),
         terminal: None,
         auto_upload: false,
+        compare_limit_mib: 1,
         search_preview: false,
         update_mode: UpdateMode::Off,
         reopen: porthmos_core::ReopenMode::Off,
@@ -317,6 +318,55 @@ fn applying_the_terminal_command_says_it_took_effect_at_once() {
     harness.press(Message::SettingsTerminalApplied);
 
     assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+}
+
+#[test]
+fn the_compare_limit_field_starts_from_the_saved_value() {
+    let mut harness = Harness::with_gui_settings(GuiSettings { compare_limit_mib: 5, ..GuiSettings::default() });
+    open(&mut harness);
+
+    assert_eq!(state(&harness).compare_limit_text, "5");
+}
+
+#[test]
+fn typing_a_valid_compare_limit_and_applying_saves_it() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsCompareLimitTyped(" 8 ".to_string()));
+    harness.press(Message::SettingsCompareLimitApplied);
+
+    assert!(config_text(&harness).contains("compare_limit_mib = 8"), "{}", config_text(&harness));
+    assert_eq!(harness.app.gui_settings().compare_limit_mib, 8);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(RESTART_NOTE.to_string())));
+}
+
+#[test]
+fn the_limits_one_and_sixty_four_are_accepted() {
+    for mib in [1, 64] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsCompareLimitTyped(mib.to_string()));
+        harness.press(Message::SettingsCompareLimitApplied);
+
+        assert_eq!(harness.app.gui_settings().compare_limit_mib, mib);
+    }
+}
+
+#[test]
+fn an_invalid_compare_limit_is_refused_with_a_message_and_not_saved() {
+    for text in ["", "   ", "0", "65", "abc", "1.5", "-2"] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsCompareLimitTyped(text.to_string()));
+        harness.press(Message::SettingsCompareLimitApplied);
+
+        assert_eq!(error_of(&harness), "Enter a whole number from 1 to 64.", "{text:?}");
+        assert_eq!(config_text(&harness), "", "{text:?}");
+        assert_eq!(harness.app.gui_settings().compare_limit_mib, 1, "{text:?}");
+    }
 }
 
 #[test]

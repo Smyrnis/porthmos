@@ -1,12 +1,14 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditChoice, EditQuestionKind, EditorCommand, EditorExit};
 use porthmos_core::{Command, Severity};
 
 use super::App;
 use crate::editing::CommandSpec;
 use crate::editing::{EditorKind, Platform, classify, default_app_spec, editor_spec};
-use crate::modal::Modal;
+use crate::modal::{DiffPane, Modal};
 use crate::processes::{ProcessEvent, ProcessJob};
 
 #[derive(Debug, Clone, Copy)]
@@ -103,7 +105,7 @@ impl App {
         let queued =
             self.modals.any(|modal| matches!(modal, Modal::EditQuestion { edit_id: queued, .. } if *queued == edit_id));
         if !queued {
-            self.modals.push(Modal::EditQuestion { edit_id, name, kind });
+            self.modals.push(Modal::EditQuestion { edit_id, name, kind, diff: DiffPane::Idle });
         }
     }
 
@@ -114,6 +116,42 @@ impl App {
             (false, _) => EditChoice::Cancel,
         };
         self.core.send(Command::ResolveEdit { edit_id, choice });
+    }
+
+    pub(in crate::app) fn edit_show_diff(&mut self) {
+        let Some(Modal::EditQuestion { edit_id, kind: EditQuestionKind::Conflict, diff, .. }) = self.modals.front_mut()
+        else {
+            return;
+        };
+        if matches!(diff, DiffPane::Comparing | DiffPane::Ready(_)) {
+            return;
+        }
+        *diff = DiffPane::Comparing;
+        let edit_id = *edit_id;
+        self.core.send(Command::ShowEditDiff { edit_id });
+    }
+
+    pub(in crate::app) fn edit_diff_ready(&mut self, edit_id: u64, result: Result<Arc<DiffOutcome>, String>) {
+        let Some(Modal::EditQuestion { edit_id: shown, diff, .. }) = self.modals.front_mut() else {
+            return;
+        };
+        if *shown != edit_id || *diff != DiffPane::Comparing {
+            return;
+        }
+        *diff = match result {
+            Ok(outcome) => DiffPane::Ready(outcome),
+            Err(message) => DiffPane::Failed(message),
+        };
+    }
+
+    pub(in crate::app) fn edit_diff_back(&mut self) -> bool {
+        match self.modals.front_mut() {
+            Some(Modal::EditQuestion { diff, .. }) if *diff != DiffPane::Idle => {
+                *diff = DiffPane::Idle;
+                true
+            }
+            _ => false,
+        }
     }
 
     pub(in crate::app) fn edit_answered(&mut self, choice: EditChoice) {

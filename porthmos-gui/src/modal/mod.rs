@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use porthmos_core::delete_prompt::count::{Contents, contents_line};
+use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditQuestionKind, printable};
 use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection};
 use porthmos_core::{Entry, Location, SessionId, VfsPath};
@@ -16,6 +18,15 @@ const NAME_CELLS: usize = 60;
 pub struct DeleteCount {
     pub request_id: u64,
     pub contents: Contents,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum DiffPane {
+    #[default]
+    Idle,
+    Comparing,
+    Ready(Arc<DiffOutcome>),
+    Failed(String),
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +73,7 @@ pub enum Modal {
         edit_id: u64,
         name: String,
         kind: EditQuestionKind,
+        diff: DiffPane,
     },
     EditWaiting {
         edit_id: u64,

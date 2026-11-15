@@ -117,6 +117,23 @@ fn set_editor_writes_and_none_removes_it() {
 }
 
 #[test]
+fn set_compare_limit_writes_it_under_edit_and_keeps_comments_and_other_keys() {
+    let before = "# my notes\n[edit]\nauto_upload = false # keep\n\n[terminal]\ncommand = \"kitty\"\n";
+
+    let written = apply(before, &Edit::SetCompareLimitMib(8)).unwrap();
+
+    assert!(written.contains("# my notes\n[edit]\nauto_upload = false # keep\n"), "{written}");
+    assert!(written.contains("compare_limit_mib = 8\n"), "{written}");
+    assert!(written.contains("[terminal]\ncommand = \"kitty\"\n"), "{written}");
+    assert_eq!(apply(&written, &Edit::SetCompareLimitMib(2)).unwrap().matches("compare_limit_mib").count(), 1);
+}
+
+#[test]
+fn set_compare_limit_creates_the_edit_table_in_an_empty_file() {
+    assert_eq!(apply("", &Edit::SetCompareLimitMib(64)).unwrap(), "[edit]\ncompare_limit_mib = 64\n");
+}
+
+#[test]
 fn a_blank_editor_removes_it() {
     let written = apply("[edit]\neditor = \"vi\"\n", &Edit::SetEditor(Some("   ".to_string()))).unwrap();
 

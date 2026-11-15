@@ -17,6 +17,7 @@ pub enum Edit {
     SetEditor(Option<String>),
     SetTerminal(Option<String>),
     SetAutoUpload(bool),
+    SetCompareLimitMib(u64),
     SetUpdateMode(UpdateMode),
     SetSearchPreview(bool),
     SetReopenMode(ReopenMode),
@@ -145,6 +146,9 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
             None => remove_in(&mut document, &["terminal"], "command")?,
         },
         Edit::SetAutoUpload(on) => set_in(&mut document, &["edit"], "auto_upload", Value::from(*on))?,
+        Edit::SetCompareLimitMib(mib) => {
+            set_in(&mut document, &["edit"], "compare_limit_mib", Value::from(i64::try_from(*mib).unwrap_or(i64::MAX)))?
+        }
         Edit::SetUpdateMode(mode) => set_in(&mut document, &["update"], "mode", Value::from(mode_text(*mode)))?,
         Edit::SetReopenMode(mode) => set_in(&mut document, &["startup"], "reopen", Value::from(mode.id()))?,
         Edit::SetReconnect(on) => set_in(&mut document, &["connection"], "reconnect", Value::from(*on))?,

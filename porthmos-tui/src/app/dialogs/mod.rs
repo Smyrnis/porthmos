@@ -191,6 +191,7 @@ impl App {
                         self.core.send(Command::ResolveEdit { edit_id, choice: EditChoice::Cancel });
                     }
                     Some(PendingAction::Delete { count, .. }) => self.stop_counting(count),
+                    Some(PendingAction::EditComparing { .. }) => self.ask_open_edit_question_again(),
                     _ => {}
                 }
             }
@@ -253,6 +254,8 @@ impl App {
                     | Some(PendingAction::ClearHistory)
                     | Some(PendingAction::EditUpload { .. })
                     | Some(PendingAction::EditConflict { .. })
+                    | Some(PendingAction::EditComparing { .. })
+                    | Some(PendingAction::EditDiff { .. })
                     | Some(PendingAction::ConfirmQuit)
                     | Some(PendingAction::StartSync { .. })
                     | Some(PendingAction::ConfirmSyncDelete { .. })
@@ -271,6 +274,12 @@ impl App {
                         self.pending_action = other;
                         self.navigate_to_bookmark(index);
                     }
+                }
+            }
+            DialogOutcome::DiffChosen(choice) => {
+                self.dialog = None;
+                if let Some(PendingAction::EditDiff { edit_id }) = self.pending_action.take() {
+                    self.answer_edit_diff(edit_id, choice);
                 }
             }
             DialogOutcome::Removed(index) => {

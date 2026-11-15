@@ -456,6 +456,7 @@ impl Engine {
             Command::EditFile { location, path } => self.edit_file(location, path),
             Command::FinishEdit { edit_id, exit } => self.finish_edit(edit_id, exit),
             Command::ResolveEdit { edit_id, choice } => self.resolve_edit(edit_id, choice),
+            Command::ShowEditDiff { edit_id } => self.show_edit_diff(edit_id),
             Command::StartSync { session, local_dir, remote_dir, options } => {
                 self.start_sync(session, local_dir, remote_dir, options)
             }

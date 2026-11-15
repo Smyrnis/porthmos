@@ -74,6 +74,7 @@ pub enum Command {
     CancelPreview,
     FinishEdit { edit_id: u64, exit: EditorExit },
     ResolveEdit { edit_id: u64, choice: EditChoice },
+    ShowEditDiff { edit_id: u64 },
     StartSync { session: SessionId, local_dir: VfsPath, remote_dir: VfsPath, options: SyncOptions },
     RunSync { sync_id: u64, choices: Vec<(u32, SyncAction)> },
     CancelSync { sync_id: u64 },
