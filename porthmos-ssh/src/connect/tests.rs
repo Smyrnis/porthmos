@@ -86,3 +86,50 @@ async fn a_session_reports_the_servers_version() {
     let version = session.server_version().expect("the test server announces itself");
     assert!(version.starts_with("russh_"), "{version}");
 }
+
+fn gate_alias(port: u16) -> SshConfigHost {
+    SshConfigHost {
+        name: "gate".to_string(),
+        host_name: Some("127.0.0.1".to_string()),
+        user: Some(crate::testing::USER.to_string()),
+        port: Some(port),
+        identity_file: None,
+        proxy_jump: None,
+    }
+}
+
+#[tokio::test]
+async fn a_jump_named_by_a_config_alias_uses_the_aliases_host_user_and_port() {
+    let target_server = crate::testing::SshServer::start(crate::testing::Options::default()).await;
+    let jump =
+        crate::testing::SshServer::start(crate::testing::Options { forwarding: true, ..Default::default() }).await;
+    let mut target = target_server.target();
+    target.options.insert("proxy_jump".to_string(), "gate".to_string());
+    let mut prompter = crate::testing::answers(vec![
+        Some(Answer::Confirmed),
+        Some(Answer::Password(crate::testing::PASSWORD.to_string())),
+        Some(Answer::Confirmed),
+    ]);
+
+    connect_through(&target, &mut prompter, &target_server.connect_options(), &[gate_alias(jump.port)], "me")
+        .await
+        .expect("the alias points at the jump server");
+
+    assert_eq!(jump.forwarded_connections(), 1);
+    assert!(matches!(
+        prompter.asked.first(),
+        Some(Question::TrustHostKey { name, port, .. }) if name == "gate" && *port == jump.port
+    ));
+}
+
+#[tokio::test]
+async fn a_target_without_a_jump_ignores_the_config_aliases() {
+    let target_server = crate::testing::SshServer::start(crate::testing::Options::default()).await;
+    let mut prompter = crate::testing::answers(vec![Some(Answer::Confirmed)]);
+
+    connect_through(&target_server.target(), &mut prompter, &target_server.connect_options(), &[gate_alias(1)], "me")
+        .await
+        .expect("a direct connection");
+
+    assert_eq!(prompter.asked.len(), 1);
+}

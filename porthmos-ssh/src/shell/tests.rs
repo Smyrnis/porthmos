@@ -312,3 +312,38 @@ fn a_helper_path_that_no_longer_exists_is_not_used() {
     assert_eq!(live_helper(Some(dir.path().to_path_buf())), None);
     assert_eq!(live_helper(None), None);
 }
+
+#[test]
+fn command_passes_a_jump_host_before_the_destination() {
+    let mut target = sample_target();
+    target.options.insert("proxy_jump".to_string(), "alice@bastion:2222".to_string());
+
+    let invocation = invocation_for(&target, None, PasswordLogin::Plain);
+
+    assert_eq!(
+        args_of(&invocation),
+        vec!["-p", "2222", "-i", "/home/user/.ssh/id_ed25519", "-J", "alice@bastion:2222", "deploy@server.example.com"]
+    );
+}
+
+#[test]
+fn command_adds_no_jump_flag_for_none_or_blank() {
+    for value in ["none", "NONE", "", "  "] {
+        let mut target = sample_target();
+        target.options.insert("proxy_jump".to_string(), value.to_string());
+
+        let invocation = invocation_for(&target, None, PasswordLogin::Plain);
+
+        assert!(!args_of(&invocation).contains(&"-J".to_string()), "{value:?}");
+    }
+}
+
+#[test]
+fn command_for_an_ssh_config_alias_leaves_the_jump_to_the_config() {
+    let mut target = sample_target();
+    target.options.insert("proxy_jump".to_string(), "bastion".to_string());
+
+    let invocation = invocation_for(&target, Some("production"), PasswordLogin::Plain);
+
+    assert!(!args_of(&invocation).contains(&"-J".to_string()));
+}

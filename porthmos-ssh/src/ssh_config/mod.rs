@@ -13,6 +13,7 @@ pub struct SshConfigHost {
     pub user: Option<String>,
     pub port: Option<u16>,
     pub identity_file: Option<PathBuf>,
+    pub proxy_jump: Option<String>,
 }
 
 pub fn load(home: Option<&Path>) -> Result<Vec<SshConfigHost>> {
@@ -123,9 +124,16 @@ fn concrete_aliases(blocks: &[Block]) -> Vec<String> {
 }
 
 fn resolve(alias: &str, blocks: &[Block], home: Option<&Path>) -> SshConfigHost {
-    let mut host =
-        SshConfigHost { name: alias.to_string(), host_name: None, user: None, port: None, identity_file: None };
+    let mut host = SshConfigHost {
+        name: alias.to_string(),
+        host_name: None,
+        user: None,
+        port: None,
+        identity_file: None,
+        proxy_jump: None,
+    };
 
+    let mut proxy_jump_decided = false;
     let mut wildcard_identity_file = None;
     for block in blocks.iter().filter(|block| block.matches(alias)) {
         let names_alias = block.names(alias);
@@ -134,6 +142,10 @@ fn resolve(alias: &str, blocks: &[Block], home: Option<&Path>) -> SshConfigHost 
                 "hostname" if host.host_name.is_none() => host.host_name = Some(expand_tokens(value, alias)),
                 "user" if host.user.is_none() => host.user = Some(value.clone()),
                 "port" if host.port.is_none() => host.port = value.parse().ok(),
+                "proxyjump" if !proxy_jump_decided => {
+                    proxy_jump_decided = true;
+                    host.proxy_jump = (!value.eq_ignore_ascii_case("none") && !value.is_empty()).then(|| value.clone());
+                }
                 "identityfile" if names_alias && host.identity_file.is_none() => {
                     host.identity_file = Some(expand_home(value, home));
                 }

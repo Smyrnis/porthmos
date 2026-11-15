@@ -5,15 +5,18 @@ use std::{
 
 use porthmos_vfs::{Environment, ProtocolError, ShellInvocation, Target};
 
-use crate::{shell, ssh_config, version::installed_ssh_version};
+use crate::{jump::declared_jump, shell, ssh_config, version::installed_ssh_version};
 
 pub const DEFAULT_PORT: u16 = 22;
-const FALLBACK_USERNAME: &str = "root";
+pub(crate) const FALLBACK_USERNAME: &str = "root";
 
 fn discovered_target(host: ssh_config::SshConfigHost, env: &Environment) -> Target {
     let mut options = BTreeMap::new();
     if let Some(identity_file) = host.identity_file {
         options.insert("identity_file".to_string(), identity_file.to_string_lossy().into_owned());
+    }
+    if let Some(proxy_jump) = host.proxy_jump {
+        options.insert("proxy_jump".to_string(), proxy_jump);
     }
     Target {
         host: host.host_name.unwrap_or_else(|| host.name.clone()),
@@ -35,6 +38,7 @@ fn matches_its_ssh_config_alias(target: &Target, env: &Environment) -> bool {
                 && configured.port == target.port
                 && configured.username == target.username
                 && configured.option("identity_file") == target.option("identity_file")
+                && (target.option("proxy_jump").is_none() || declared_jump(&configured) == declared_jump(target))
         },
     )
 }
