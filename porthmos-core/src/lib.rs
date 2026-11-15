@@ -6,6 +6,7 @@ pub mod diff;
 pub mod edit;
 mod engine;
 pub mod error;
+pub mod folder_compare;
 mod health;
 pub mod history;
 pub mod i18n;

@@ -514,6 +514,7 @@ fn a_narrow_panel_keeps_the_end_of_the_filter_the_caret_and_the_count() {
 
 fn context(now: &DateTime<Local>, active: bool) -> PanelContext<'_> {
     PanelContext {
+        marks: None,
         protocol: "local",
         location: "/d".to_string(),
         active,
@@ -592,7 +593,6 @@ fn the_sort_indicator_follows_the_sort_spec() {
 }
 
 #[test]
-#[test]
 fn the_sort_indicator_names_the_new_sort_keys() {
     for (key, label) in [(SortKey::Modified, "modified"), (SortKey::Type, "type")] {
         let spec = SortSpec { key, order: SortOrder::Ascending };
@@ -605,6 +605,24 @@ fn the_sort_indicator_names_the_new_sort_keys() {
         assert!(row_string(&terminal, 0).trim_end().ends_with(&expected), "{label}");
     }
 }
+
+#[test]
+fn the_header_says_when_the_folders_are_being_compared() {
+    let panel = PanelView::from_listing(VfsPath::from("/d"), vec![file("/d", "a.txt", 1)]);
+    let now = fixed_now();
+    let marks = porthmos_core::folder_compare::compare_folders(panel.entries(), panel.entries());
+    let mut comparing = context(&now, true);
+    comparing.marks =
+        Some(crate::widgets::file_list::RowMarks { marks: &marks, side: crate::widgets::file_list::MarkSide::Left });
+
+    let on = draw_with(&panel, 60, 8, &comparing, &indexed());
+    let off = drawn(&panel, 60, 8, true);
+
+    assert!(row_string(&on, 0).contains("compare"), "{:?}", row_string(&on, 0));
+    assert!(!row_string(&off, 0).contains("compare"));
+}
+
+#[test]
 fn a_long_path_is_cut_from_the_left_with_an_ellipsis() {
     let panel = PanelView::from_listing(VfsPath::from("/d"), Vec::new());
     let now = fixed_now();

@@ -39,6 +39,7 @@ const COMMANDS: &[(Action, Available)] = &[
     (Action::BookmarkHere, |_| true),
     (Action::History, |_| true),
     (Action::Sync, App::sync_possible),
+    (Action::CompareFolders, App::compare_possible),
     (Action::Terminal, App::terminal_possible),
     (Action::Settings, |_| true),
     (Action::CheckForUpdates, |_| true),

@@ -37,13 +37,14 @@ pub enum Action {
     BookmarkHere,
     History,
     Sync,
+    CompareFolders,
     Palette,
     Settings,
     CheckForUpdates,
     Quit,
 }
 
-const NAMES: [(Action, &str); 38] = [
+const NAMES: [(Action, &str); 39] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -78,6 +79,7 @@ const NAMES: [(Action, &str); 38] = [
     (Action::BookmarkHere, "bookmark_here"),
     (Action::History, "history"),
     (Action::Sync, "sync"),
+    (Action::CompareFolders, "compare_folders"),
     (Action::Palette, "palette"),
     (Action::Settings, "settings"),
     (Action::CheckForUpdates, "check_for_updates"),
@@ -166,6 +168,7 @@ impl Action {
             Action::BookmarkHere => "Bookmark this folder",
             Action::History => "Transfer history\u{2026}",
             Action::Sync => "Synchronize\u{2026}",
+            Action::CompareFolders => "Compare folders",
             Action::Palette => "Command palette\u{2026}",
             Action::Settings => "Settings",
             Action::CheckForUpdates => "Check for updates",
@@ -367,6 +370,7 @@ impl Default for Shortcuts {
             (character("d"), Modifiers::CTRL, Action::BookmarkHere),
             (character("y"), Modifiers::CTRL, Action::History),
             (character("u"), Modifiers::CTRL, Action::Sync),
+            (character("="), none, Action::CompareFolders),
             (character("p"), Modifiers::CTRL, Action::Palette),
             (character(","), Modifiers::CTRL, Action::Settings),
             (named(Named::F7), none, Action::NewFolder),

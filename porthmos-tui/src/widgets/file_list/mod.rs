@@ -1,5 +1,8 @@
 use chrono::{DateTime, Local};
-use porthmos_core::size_text;
+use porthmos_core::{
+    folder_compare::{FolderMarks, Mark},
+    size_text,
+};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -29,10 +32,32 @@ const MODIFIED_WIDTH: usize = 11;
 const MIN_NAME_WIDTH: usize = 4;
 const MIN_WIDTH_WITH_SIZE: u16 = 28;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkSide {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy)]
+pub struct RowMarks<'a> {
+    pub marks: &'a FolderMarks,
+    pub side: MarkSide,
+}
+
+impl RowMarks<'_> {
+    fn of(&self, name: &str) -> Option<Mark> {
+        match self.side {
+            MarkSide::Left => self.marks.left(name),
+            MarkSide::Right => self.marks.right(name),
+        }
+    }
+}
+
 pub struct ListContext<'a> {
     pub active: bool,
     pub show_modified: bool,
     pub now: &'a DateTime<Local>,
+    pub marks: Option<RowMarks<'a>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -119,7 +144,7 @@ fn row_line(
     let style = if focused && context.active { theme.focused_name() } else { style };
     let name = pad_right(&truncate_name(&name, columns.name_width), columns.name_width);
 
-    let mut spans = vec![marker, Span::raw(" "), Span::styled(name, style)];
+    let mut spans = vec![marker, difference_marker(row, context, theme), Span::styled(name, style)];
     if let Row::Entry(entry) = row {
         if columns.show_size {
             let size = if entry.is_dir { String::new() } else { size_text(entry.size) };
@@ -131,6 +156,21 @@ fn row_line(
         }
     }
     Line::from(spans)
+}
+
+fn difference_marker(row: &Row, context: &ListContext<'_>, theme: &Theme) -> Span<'static> {
+    let mark = match (row, context.marks) {
+        (Row::Entry(entry), Some(marks)) => marks.of(&entry.name),
+        _ => None,
+    };
+    match mark {
+        None => Span::raw(" "),
+        Some(Mark::OnlyHere) => Span::styled("\u{2022}", theme.accent_text()),
+        Some(Mark::Newer) => Span::styled("\u{2191}", theme.ok_text()),
+        Some(Mark::Older) => Span::styled("\u{2193}", theme.paused_text()),
+        Some(Mark::SizeDiffers) => Span::styled("\u{2260}", theme.paused_text()),
+        Some(Mark::KindDiffers) => Span::styled("!", theme.err_text()),
+    }
 }
 
 fn entry_style(is_dir: bool, active: bool, theme: &Theme) -> Style {

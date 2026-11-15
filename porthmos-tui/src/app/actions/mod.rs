@@ -53,6 +53,7 @@ impl App {
             Action::OpenTransfers => self.open_transfers_screen(),
             Action::OpenHistory => self.open_history_screen(),
             Action::OpenSync => self.open_sync(),
+            Action::CompareFolders => self.toggle_compare_folders(),
             Action::CheckForUpdates => self.check_for_updates(),
             Action::ImportConnections => self.open_import_dialog(),
             Action::CycleSession => {

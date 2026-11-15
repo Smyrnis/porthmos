@@ -52,6 +52,7 @@ use crate::{
 
 mod actions;
 mod bookmarks;
+mod compare;
 mod conflicts;
 mod connections;
 mod dialogs;
@@ -177,6 +178,7 @@ pub struct App {
     reported_connection: Option<SessionId>,
     next_properties_id: RequestId,
     import: import::ImportState,
+    compare_folders: bool,
     help_scroll: usize,
     help_max_scroll: std::cell::Cell<usize>,
     pending_action: Option<PendingAction>,
@@ -244,6 +246,7 @@ impl App {
             next_search_id: 1,
             reported_connection: None,
             import: import::ImportState::default(),
+            compare_folders: false,
             help_scroll: 0,
             help_max_scroll: std::cell::Cell::new(0),
             pending_action: None,

@@ -1,7 +1,9 @@
 use porthmos_core::Entry;
 use porthmos_core::listing::Row;
 
-use super::{RowState, columns, edge_color, icon_of, line_cells, link_note, row_background};
+use porthmos_core::folder_compare::Mark;
+
+use super::{RowState, columns, edge_color, icon_of, line_cells, link_note, mark_color, mark_note, row_background};
 use crate::icons::Icon;
 use crate::theme::{Palette, ThemeSettings};
 
@@ -109,4 +111,25 @@ fn a_link_with_an_unreadable_target_says_so() {
 fn an_ordinary_entry_has_no_link_note() {
     let Row::Entry(entry) = entry("a.txt", false) else { unreachable!() };
     assert_eq!(link_note(&entry), None);
+}
+
+#[test]
+fn each_mark_has_its_own_short_note() {
+    let notes: Vec<&str> = [Mark::OnlyHere, Mark::Newer, Mark::Older, Mark::SizeDiffers, Mark::KindDiffers]
+        .into_iter()
+        .map(mark_note)
+        .collect();
+
+    assert_eq!(notes, ["only here", "newer", "older", "size differs", "file vs folder"]);
+}
+
+#[test]
+fn marks_are_coloured_by_what_they_mean() {
+    let palette = palette();
+
+    assert_eq!(mark_color(Mark::OnlyHere, &palette), palette.accent);
+    assert_eq!(mark_color(Mark::Newer, &palette), palette.ok);
+    assert_eq!(mark_color(Mark::Older, &palette), palette.paused);
+    assert_eq!(mark_color(Mark::SizeDiffers, &palette), palette.paused);
+    assert_eq!(mark_color(Mark::KindDiffers, &palette), palette.err);
 }

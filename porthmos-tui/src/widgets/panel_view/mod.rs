@@ -87,6 +87,10 @@ impl PanelView {
         self.listing.rows()
     }
 
+    pub fn entries(&self) -> &[Entry] {
+        self.listing.entries()
+    }
+
     pub fn replace_listing(&mut self, path: VfsPath, entries: Vec<Entry>) {
         let same_folder = &path == self.path();
         if !same_folder {
@@ -270,6 +274,7 @@ pub struct PanelContext<'a> {
     pub switch_hint: Option<String>,
     pub editing: Option<&'a PathField>,
     pub now: &'a DateTime<Local>,
+    pub marks: Option<file_list::RowMarks<'a>>,
 }
 
 const HEADER_GAP: usize = 2;
@@ -281,15 +286,23 @@ pub fn render_panel(frame: &mut Frame, area: Rect, panel: &PanelView, context: &
     if area.width == 0 || area.height == 0 {
         return;
     }
-    render_header(frame, area, Some(sort_indicator(panel.sort_spec())), context, theme);
+    let sort = match context.marks {
+        Some(_) => format!("compare \u{b7} {}", sort_indicator(panel.sort_spec())),
+        None => sort_indicator(panel.sort_spec()),
+    };
+    render_header(frame, area, Some(sort), context, theme);
     render_rule(frame, area, context.active, theme);
 
     let has_footer = area.height >= 4;
     let list_height = area.height.saturating_sub(2 + u16::from(has_footer));
     if list_height > 0 {
         let list_area = Rect::new(area.x, area.y + 2, area.width, list_height);
-        let list_context =
-            file_list::ListContext { active: context.active, show_modified: context.show_modified, now: context.now };
+        let list_context = file_list::ListContext {
+            active: context.active,
+            show_modified: context.show_modified,
+            now: context.now,
+            marks: context.marks,
+        };
         file_list::render_file_list(frame, list_area, panel, &list_context, theme);
     }
     if has_footer {

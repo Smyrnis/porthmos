@@ -320,6 +320,7 @@ pub struct App {
     search_preview_scroll: f32,
     sync_view: SyncView,
     tool_version: u64,
+    compare_folders: bool,
     next_preview_id: u64,
     next_count_id: u64,
     next_import_id: u64,
@@ -404,6 +405,7 @@ impl App {
             search_preview_scroll: 0.0,
             sync_view: SyncView::default(),
             tool_version: 0,
+            compare_folders: false,
             next_preview_id: 1,
             next_count_id: 0,
             next_import_id: 0,
@@ -2187,6 +2189,7 @@ impl App {
             Action::NextTab => self.sessions.next(),
             Action::PreviousTab => self.sessions.previous(),
             Action::Quit => return self.handle(Message::CloseRequested),
+            Action::CompareFolders => self.toggle_compare_folders(),
         }
         Task::none()
     }
@@ -2286,6 +2289,7 @@ mod palette;
 mod preview;
 mod properties;
 mod quick_connect;
+mod compare;
 mod quit;
 mod reopen;
 mod search_window;

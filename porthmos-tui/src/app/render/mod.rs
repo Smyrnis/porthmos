@@ -12,7 +12,7 @@ use super::{
 };
 use crate::palette::REOPEN_LABEL;
 use crate::widgets::{
-    connection_details, connection_form,
+    connection_details, connection_form, file_list,
     frame::{Hint, accent_underline, fill_background, hairline, hint_bar, top_bar, vertical_rule},
     history_view::printable,
     info_line::render_info_line,
@@ -296,6 +296,8 @@ impl App {
         };
         let now = self.clock.now();
         let theme = &self.theme;
+        let folder_marks = self.visible_folder_marks();
+        let marks_for = |side| folder_marks.as_ref().map(|marks| file_list::RowMarks { marks, side });
         let local_active = self.active_panel == ActivePanel::Local;
         let remote_header = self.sessions.active().map(|session| self.remote_header(session));
         let remote_protocol = remote_header.as_ref().map_or("remote", |(protocol, _)| protocol.as_str());
@@ -309,6 +311,7 @@ impl App {
                 switch_hint: single.then(|| format!("local \u{21c4} {remote_protocol}")),
                 editing: self.editing_field(Location::Local),
                 now: &now,
+                marks: marks_for(file_list::MarkSide::Left),
             };
             panel_view::render_panel(frame, layout.local, &self.local, &context, theme);
             if let Some(listing) = self.path_listing(Location::Local) {
@@ -328,6 +331,7 @@ impl App {
                         switch_hint,
                         editing: self.editing_field(Location::Session(session.id)),
                         now: &now,
+                        marks: marks_for(file_list::MarkSide::Right),
                     };
                     panel_view::render_panel(frame, layout.remote, &session.panel, &context, theme);
                     if let Some(listing) = self.path_listing(Location::Session(session.id)) {
@@ -343,6 +347,7 @@ impl App {
                         switch_hint,
                         editing: None,
                         now: &now,
+                        marks: None,
                     };
                     let lines = self.remote_placeholder_lines();
                     panel_view::render_placeholder(frame, layout.remote, &lines, &context, theme);

@@ -2,6 +2,7 @@ use porthmos_core::VfsPath;
 
 use chrono::{DateTime, Local, TimeZone};
 use porthmos_core::Entry;
+use porthmos_core::folder_compare::compare_folders;
 use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 use unicode_width::UnicodeWidthStr;
 
@@ -61,7 +62,20 @@ fn draw(
     let now = now();
     terminal
         .draw(|frame| {
-            let context = ListContext { active, show_modified, now: &now };
+            let context = ListContext { active, show_modified, now: &now, marks: None };
+            render_file_list(frame, frame.area(), panel, &context, theme);
+        })
+        .unwrap();
+    terminal
+}
+
+fn draw_marked(panel: &PanelView, marks: &FolderMarks, side: MarkSide, theme: &Theme) -> Terminal<TestBackend> {
+    let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+    let now = now();
+    terminal
+        .draw(|frame| {
+            let context =
+                ListContext { active: true, show_modified: true, now: &now, marks: Some(RowMarks { marks, side }) };
             render_file_list(frame, frame.area(), panel, &context, theme);
         })
         .unwrap();
@@ -506,4 +520,77 @@ fn permissions_string_marks_a_symlink_with_an_l() {
     let link = Entry { link_target: Some("t".to_string()), permissions: Some(0o120777), ..file("l", 1) };
 
     assert_eq!(permissions_string(&link).as_deref(), Some("lrwxrwxrwx"));
+}
+
+fn marks_of(left: Vec<Entry>, right: Vec<Entry>) -> FolderMarks {
+    compare_folders(&left, &right)
+}
+
+#[test]
+fn each_kind_of_difference_has_its_own_glyph_in_the_second_marker_column() {
+    let theme = indexed();
+    let left = vec![
+        file("only", 1),
+        Entry { modified: Some(1000), ..file("newer", 1) },
+        Entry { modified: Some(10), ..file("older", 1) },
+        file("sized", 1),
+        directory("kind"),
+    ];
+    let right = vec![
+        Entry { modified: Some(10), ..file("newer", 1) },
+        Entry { modified: Some(1000), ..file("older", 1) },
+        file("sized", 9),
+        file("kind", 1),
+    ];
+    let marks = marks_of(left.clone(), right);
+    let panel = panel_of(left);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Left, &theme);
+
+    let glyph = |name: &str| symbol_at(&terminal, 1, row_of(&terminal, name));
+    assert_eq!(glyph("only"), "\u{2022}");
+    assert_eq!(glyph("newer"), "\u{2191}");
+    assert_eq!(glyph("older"), "\u{2193}");
+    assert_eq!(glyph("sized"), "\u{2260}");
+    assert_eq!(glyph("kind/"), "!");
+}
+
+#[test]
+fn the_right_panel_reads_the_right_hand_marks() {
+    let theme = indexed();
+    let right = vec![Entry { modified: Some(10), ..file("a.txt", 1) }];
+    let left = vec![Entry { modified: Some(1000), ..file("a.txt", 1) }];
+    let marks = marks_of(left, right.clone());
+    let panel = panel_of(right);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Right, &theme);
+
+    assert_eq!(symbol_at(&terminal, 1, row_of(&terminal, "a.txt")), "\u{2193}");
+}
+
+#[test]
+fn an_unmarked_row_keeps_a_blank_second_marker_column() {
+    let theme = indexed();
+    let entries = vec![file("same", 1)];
+    let marks = marks_of(entries.clone(), entries.clone());
+    let panel = panel_of(entries);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Left, &theme);
+
+    assert_eq!(symbol_at(&terminal, 1, row_of(&terminal, "same")), " ");
+}
+
+#[test]
+fn a_mark_is_coloured_by_what_it_means() {
+    let theme = indexed();
+    let left = vec![file("only", 1), Entry { modified: Some(1000), ..file("newer", 1) }];
+    let right = vec![Entry { modified: Some(10), ..file("newer", 1) }];
+    let marks = marks_of(left.clone(), right);
+    let panel = panel_of(left);
+
+    let terminal = draw_marked(&panel, &marks, MarkSide::Left, &theme);
+
+    let colour = |name: &str| cell_fg(&terminal, 1, row_of(&terminal, name));
+    assert_eq!(colour("only"), theme.accent);
+    assert_eq!(colour("newer"), theme.ok);
 }

@@ -371,10 +371,11 @@ fn rank(action: Action) -> usize {
         Action::BookmarkHere => 31,
         Action::History => 32,
         Action::Sync => 33,
-        Action::Palette => 34,
-        Action::Settings => 35,
-        Action::CheckForUpdates => 36,
-        Action::Quit => 37,
+        Action::CompareFolders => 34,
+        Action::Palette => 35,
+        Action::Settings => 36,
+        Action::CheckForUpdates => 37,
+        Action::Quit => 38,
     }
 }
 
