@@ -1,3 +1,5 @@
+#![cfg(all(feature = "sftp", feature = "scp", feature = "ftp", feature = "webdav", feature = "s3"))]
+
 use std::path::PathBuf;
 
 use porthmos_core::{ProtocolInfo, i18n};
