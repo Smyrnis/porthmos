@@ -151,7 +151,7 @@ async fn reconnecting_after_a_disconnect_records_the_newer_time() {
     let mut t = engine_with_profile("srv");
     connect(&mut t, "srv").await;
     t.settle().await;
-    let session = *t.engine.sessions.keys().next().unwrap();
+    let session = *t.engine.book.sessions.keys().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session });
     t.drain();
     t.engine.clock = evening;
@@ -472,7 +472,7 @@ async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
     t.drain();
 
     connect(&mut t, "srv").await;
-    let session = *t.engine.sessions.keys().next().unwrap();
+    let session = *t.engine.book.sessions.keys().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session });
     connect(&mut t, "srv").await;
 

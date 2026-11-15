@@ -388,7 +388,14 @@ async fn the_start_folder_listing_also_reports_free_space() {
     let mut t = test_engine();
     let (session, remote) = t.add_session("srv");
     remote.dir("/home/user/work").with_free_space(9_000);
-    t.engine.sessions.get_mut(&session).unwrap().entry.options.insert("remote_path".to_string(), "work".to_string());
+    t.engine
+        .book
+        .sessions
+        .get_mut(&session)
+        .unwrap()
+        .entry
+        .options
+        .insert("remote_path".to_string(), "work".to_string());
 
     t.engine.open_start_directory(session);
 

@@ -420,7 +420,7 @@ async fn a_plan_that_arrives_after_its_session_disconnected_is_dropped_with_an_e
     write_local(&t, "a.txt", b"x", 5);
     start(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time));
     let done = finished_scan(&mut t).await;
-    t.engine.sessions.remove(&session);
+    t.engine.book.sessions.remove(&session);
     t.drain();
 
     t.engine.handle_internal(done);
@@ -880,7 +880,7 @@ async fn a_session_that_vanished_before_running_is_an_error() {
     let (session, _remote) = connect(&mut t, "prod");
     write_local(&t, "a.txt", b"1", 10);
     let plan = scan(&mut t, session, options(SyncDirection::LocalToRemote, SyncBy::Time)).await;
-    t.engine.sessions.remove(&session);
+    t.engine.book.sessions.remove(&session);
     t.drain();
 
     t.engine.handle_command(Command::RunSync { sync_id: plan.sync_id, choices: ticked(&plan) });

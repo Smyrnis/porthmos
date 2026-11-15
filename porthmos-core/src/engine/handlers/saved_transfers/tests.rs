@@ -461,7 +461,7 @@ async fn a_closed_connection_keeps_its_name_in_the_published_rows() {
     let (session, _) = t.add_session("srv");
     t.engine.history.remember_session(session, "srv".to_string());
     enqueue_upload(&mut t, session, "a.bin", None);
-    t.engine.sessions.remove(&session);
+    t.engine.book.sessions.remove(&session);
 
     let snapshot = t.engine.snapshot();
 

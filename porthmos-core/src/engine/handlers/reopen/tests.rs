@@ -74,10 +74,10 @@ fn connected(events: &[Event]) -> Vec<String> {
 }
 
 async fn finish_one(t: &mut TestEngine) {
-    let pending: Vec<String> = t.engine.connecting.iter().cloned().collect();
+    let pending: Vec<String> = t.engine.book.connecting.iter().cloned().collect();
     loop {
         t.run_internal().await;
-        if pending.iter().any(|name| !t.engine.connecting.contains(name)) {
+        if pending.iter().any(|name| !t.engine.book.connecting.contains(name)) {
             break;
         }
     }
@@ -123,7 +123,7 @@ async fn disconnecting_removes_only_that_connection() {
     finish_one(&mut t).await;
     t.engine.handle_command(Command::Connect { profile: "b".into() });
     finish_one(&mut t).await;
-    let first = *t.engine.sessions.iter().find(|(_, live)| live.name == "a").unwrap().0;
+    let first = *t.engine.book.sessions.iter().find(|(_, live)| live.name == "a").unwrap().0;
 
     t.engine.handle_command(Command::Disconnect { session: first });
 
@@ -135,7 +135,7 @@ async fn disconnecting_the_last_connection_leaves_nothing_to_reopen() {
     let mut t = engine_with_profiles(ReopenMode::Ask, &[("a", "fake")]);
     t.engine.handle_command(Command::Connect { profile: "a".into() });
     finish_one(&mut t).await;
-    let session = *t.engine.sessions.keys().next().unwrap();
+    let session = *t.engine.book.sessions.keys().next().unwrap();
 
     t.engine.handle_command(Command::Disconnect { session });
 
@@ -193,7 +193,7 @@ async fn the_last_runs_connections_are_offered_without_connecting() {
     let events = t.drain();
     assert_eq!(offers(&events), vec![vec!["b".to_string(), "a".to_string()]]);
     assert!(connecting(&events).is_empty());
-    assert!(t.engine.sessions.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
 }
 
 #[tokio::test]
@@ -266,8 +266,8 @@ async fn a_connection_that_is_already_open_is_not_opened_twice() {
     t.engine.handle_command(Command::ReopenConnections);
     finish_one(&mut t).await;
 
-    assert_eq!(t.engine.sessions.values().filter(|live| live.name == "a").count(), 1);
-    assert_eq!(t.engine.sessions.values().filter(|live| live.name == "b").count(), 1);
+    assert_eq!(t.engine.book.sessions.values().filter(|live| live.name == "a").count(), 1);
+    assert_eq!(t.engine.book.sessions.values().filter(|live| live.name == "b").count(), 1);
 }
 
 #[tokio::test]
@@ -283,7 +283,7 @@ async fn the_offer_keeps_the_last_runs_list_even_after_other_connections_were_ma
     finish_one(&mut t).await;
     finish_one(&mut t).await;
 
-    let mut names: Vec<_> = t.engine.sessions.values().map(|live| live.name.clone()).collect();
+    let mut names: Vec<_> = t.engine.book.sessions.values().map(|live| live.name.clone()).collect();
     names.sort();
     assert_eq!(names, vec!["a", "b", "c"]);
 }
@@ -300,7 +300,7 @@ async fn accepting_the_offer_twice_connects_only_once() {
     t.engine.handle_command(Command::ReopenConnections);
 
     assert!(connecting(&t.drain()).is_empty());
-    assert_eq!(t.engine.sessions.len(), 1);
+    assert_eq!(t.engine.book.sessions.len(), 1);
 }
 
 #[tokio::test]
@@ -324,7 +324,7 @@ async fn the_automatic_mode_starts_connecting_at_once_and_offers_nothing() {
 
     finish_one(&mut t).await;
     finish_one(&mut t).await;
-    assert_eq!(t.engine.sessions.len(), 2);
+    assert_eq!(t.engine.book.sessions.len(), 2);
 }
 
 #[tokio::test]
@@ -365,7 +365,7 @@ async fn switching_the_mode_off_drops_a_pending_offer() {
     t.engine.handle_command(Command::ReopenConnections);
 
     assert!(connecting(&t.drain()).is_empty());
-    assert!(t.engine.sessions.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
 }
 
 #[tokio::test]

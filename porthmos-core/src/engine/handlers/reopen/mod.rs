@@ -26,7 +26,7 @@ impl ReopenState {
 impl Engine {
     fn open_connection_names(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
-        for live in self.sessions.values() {
+        for live in self.book.sessions.values() {
             if !names.contains(&live.name) {
                 names.push(live.name.clone());
             }
@@ -98,7 +98,7 @@ impl Engine {
     fn reopen_next(&mut self) {
         while let Some(name) = self.reopen.queue.pop_front() {
             self.connect(&name);
-            if self.connecting.contains(&name) {
+            if self.book.connecting.contains(&name) {
                 self.reopen.current = Some(name);
                 return;
             }

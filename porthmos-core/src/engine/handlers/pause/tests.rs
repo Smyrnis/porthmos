@@ -493,7 +493,7 @@ fn disconnecting_while_a_row_is_paused_fails_its_jobs_and_forgets_the_stops() {
     let (mut t, _remote, batch, ids) = engine_with_idle_queue(&["a.bin", "b.bin"]);
     mark_running(&mut t, ids[0], 100);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
-    let session = t.engine.sessions.keys().next().copied().unwrap();
+    let session = t.engine.book.sessions.keys().next().copied().unwrap();
 
     t.engine.disconnect(session);
 

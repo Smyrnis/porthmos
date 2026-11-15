@@ -3,9 +3,10 @@ mod event;
 mod handlers;
 mod prompter;
 mod report;
+mod session_book;
 
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{Arc, atomic::AtomicU64},
     time::{Duration, Instant},
@@ -16,6 +17,7 @@ pub use event::Event;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
 pub(crate) use report::Reporter;
+use session_book::SessionBook;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
@@ -182,11 +184,7 @@ pub(crate) struct Engine {
     pub(crate) unfinished_protected: bool,
     pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
-    sessions: BTreeMap<SessionId, LiveSession>,
-    lost_sessions: std::collections::HashSet<SessionId>,
-    session_folders: HashMap<SessionId, VfsPath>,
-    resume_folders: HashMap<String, VfsPath>,
-    next_session_id: SessionId,
+    book: SessionBook,
     questions: PendingQuestions,
     transfers: TransferQueue,
     max_parallel: usize,
@@ -218,7 +216,6 @@ pub(crate) struct Engine {
     keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
     next_keyring_job: u64,
     latest_keyring_job: HashMap<String, u64>,
-    connecting: std::collections::HashSet<String>,
     sync: handlers::SyncState,
     import: handlers::ImportState,
     #[cfg_attr(not(feature = "update"), allow(dead_code))]
@@ -288,11 +285,7 @@ impl Engine {
             unfinished_protected: false,
             ui_state: crate::state::UiState::default(),
             writer,
-            sessions: BTreeMap::new(),
-            lost_sessions: std::collections::HashSet::new(),
-            session_folders: HashMap::new(),
-            resume_folders: HashMap::new(),
-            next_session_id: 0,
+            book: SessionBook::default(),
             questions: PendingQuestions::default(),
             transfers: TransferQueue::new(),
             max_parallel: parts.transfers.max_parallel,
@@ -324,7 +317,6 @@ impl Engine {
             keyring_jobs: None,
             next_keyring_job: 0,
             latest_keyring_job: HashMap::new(),
-            connecting: std::collections::HashSet::new(),
             sync: handlers::SyncState::default(),
             import: handlers::ImportState::default(),
             update: handlers::UpdateEngine::new(
@@ -508,7 +500,7 @@ impl Engine {
             Internal::Connected { entry, protocol, fs, typed } => self.finish_connect(entry, protocol, fs, typed),
             Internal::ReconnectDue { name, attempt } => self.reconnect_due(name, attempt),
             Internal::ConnectFailed { name, message, retryable } => {
-                self.connecting.remove(&name);
+                self.book.connecting.remove(&name);
                 self.connect_failed(name.clone(), message);
                 self.reconnect_failed(&name, retryable);
                 self.reopen_progressed(&name);
@@ -603,7 +595,7 @@ impl Engine {
     fn fs_for(&self, location: Location) -> Option<Arc<dyn FileSystem>> {
         match location {
             Location::Local => Some(self.local_fs.clone()),
-            Location::Session(id) => self.sessions.get(&id).map(|session| session.fs.clone()),
+            Location::Session(id) => self.book.sessions.get(&id).map(|session| session.fs.clone()),
         }
     }
 
@@ -634,7 +626,7 @@ impl Engine {
             .rows
             .iter()
             .filter_map(|row| row.session_id)
-            .filter(|session_id| !self.sessions.contains_key(session_id))
+            .filter(|session_id| !self.book.sessions.contains_key(session_id))
             .map(|session_id| (session_id, self.session_name(session_id)))
             .collect();
         snapshot

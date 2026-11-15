@@ -107,7 +107,8 @@ impl Engine {
     }
 
     pub(crate) fn session_name(&self, session_id: u64) -> String {
-        self.sessions
+        self.book
+            .sessions
             .get(&session_id)
             .map(|session| session.name.clone())
             .or_else(|| self.history.session_names.get(&session_id).cloned())

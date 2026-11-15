@@ -30,7 +30,7 @@ fn profile_engine(protocol: impl FnOnce(FakeFs) -> FakeProtocol) -> (TestEngine,
 
 fn lost_session(t: &mut TestEngine, folder: &str) -> SessionId {
     let session = t.add_session_with("srv", Arc::new(FakeFs::new()));
-    t.engine.session_folders.insert(session, VfsPath::from(folder));
+    t.engine.book.session_folders.insert(session, VfsPath::from(folder));
     t.engine.session_health_changed(session, false);
     t.drain();
     session
@@ -163,7 +163,7 @@ async fn a_connection_that_comes_back_by_itself_is_left_alone() {
 
     let events = t.drain();
     assert!(!events.iter().any(|event| matches!(event, Event::Disconnected { .. } | Event::Connecting { .. })));
-    assert!(t.engine.sessions.contains_key(&session));
+    assert!(t.engine.book.sessions.contains_key(&session));
 }
 
 #[tokio::test(start_paused = true)]
@@ -282,6 +282,6 @@ async fn turning_the_setting_off_cancels_a_pending_retry() {
     t.engine.handle_internal(Internal::ReconnectDue { name, attempt: number });
 
     assert!(!t.drain().iter().any(|event| matches!(event, Event::Disconnected { .. } | Event::Connecting { .. })));
-    assert!(t.engine.sessions.contains_key(&session));
+    assert!(t.engine.book.sessions.contains_key(&session));
     assert!(t.engine.reconnect.is_idle());
 }

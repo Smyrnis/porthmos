@@ -89,9 +89,8 @@ impl TestEngine {
     }
 
     pub(crate) fn add_session_with(&mut self, name: &str, fs: Arc<dyn FileSystem>) -> SessionId {
-        let id = self.engine.next_session_id;
-        self.engine.next_session_id += 1;
-        self.engine.sessions.insert(
+        let id = self.engine.book.allocate_id();
+        self.engine.book.sessions.insert(
             id,
             LiveSession {
                 name: name.to_string(),

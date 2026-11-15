@@ -915,7 +915,7 @@ fn retry_does_not_reuse_a_session_that_is_still_listed_but_lost() {
     let mut t = test_engine();
     let (lost, _) = t.add_session("alpha");
     let failed = failed_partial_upload(&mut t, lost, "big.bin");
-    t.engine.lost_sessions.insert(lost);
+    t.engine.book.lost_sessions.insert(lost);
     t.drain();
 
     t.engine.retry_row(RowKind::Single(failed));
@@ -930,7 +930,7 @@ async fn retry_moves_a_job_off_a_lost_session_onto_a_healthy_one_with_the_same_n
     let mut t = test_engine();
     let (lost, _) = t.add_session("alpha");
     let failed = failed_partial_upload(&mut t, lost, "big.bin");
-    t.engine.lost_sessions.insert(lost);
+    t.engine.book.lost_sessions.insert(lost);
     let (healthy, _) = t.add_session("alpha");
 
     t.engine.retry_row(RowKind::Single(failed));

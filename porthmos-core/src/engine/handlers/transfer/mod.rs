@@ -27,7 +27,7 @@ impl Engine {
     pub(super) fn filesystems_for(
         &self, session_id: u64, direction: Direction,
     ) -> Option<(Arc<dyn FileSystem>, Arc<dyn FileSystem>)> {
-        let remote = self.sessions.get(&session_id)?.fs.clone();
+        let remote = self.book.sessions.get(&session_id)?.fs.clone();
         Some(match direction {
             Direction::Upload => (self.local_fs.clone(), remote),
             Direction::Download => (remote, self.local_fs.clone()),
@@ -109,7 +109,7 @@ impl Engine {
 
     pub(crate) fn fill_transfer_slots(&mut self) {
         loop {
-            let sessions = &self.sessions;
+            let sessions = &self.book.sessions;
             let startable = self.transfers.startable_limited(self.max_parallel, |session_id| {
                 sessions.get(&session_id).and_then(|session| session.fs.transfer_limit())
             });
@@ -269,7 +269,7 @@ impl Engine {
             TransferEvent::PlanReady { batch_id, session_id, direction, plan } => {
                 self.clear_planning(batch_id);
 
-                if !self.sessions.contains_key(&session_id) {
+                if !self.book.sessions.contains_key(&session_id) {
                     self.report(Severity::Error, format!("{} failed: session disconnected", self.verb_of(batch_id)));
                     self.forget_batch(batch_id);
                     return;
@@ -325,7 +325,7 @@ impl Engine {
                 self.clear_planning(batch_id);
                 let verb = self.verb_of(batch_id);
                 self.forget_batch(batch_id);
-                if self.sessions.contains_key(&session_id) {
+                if self.book.sessions.contains_key(&session_id) {
                     self.info(format!("{verb} cancelled"));
                 }
                 self.refresh_destination(session_id, direction);
@@ -392,7 +392,9 @@ impl Engine {
 
     fn destination_can_set_modified(&self, session_id: u64, direction: Direction) -> bool {
         match direction {
-            Direction::Upload => self.sessions.get(&session_id).is_some_and(|session| session.fs.can_set_modified()),
+            Direction::Upload => {
+                self.book.sessions.get(&session_id).is_some_and(|session| session.fs.can_set_modified())
+            }
             Direction::Download => self.local_fs.can_set_modified(),
         }
     }
@@ -496,7 +498,7 @@ impl Engine {
     pub(crate) fn refresh_destination(&self, session_id: u64, direction: Direction) {
         match direction {
             Direction::Upload => {
-                if self.sessions.contains_key(&session_id) {
+                if self.book.sessions.contains_key(&session_id) {
                     self.emit(Event::LocationChanged { location: Location::Session(session_id) });
                 }
             }
@@ -662,12 +664,12 @@ impl Engine {
     }
 
     fn usable_session_for(&self, session_id: u64) -> Option<u64> {
-        let usable = |id: &u64| self.sessions.contains_key(id) && !self.lost_sessions.contains(id);
+        let usable = |id: &u64| self.book.sessions.contains_key(id) && !self.book.lost_sessions.contains(id);
         if usable(&session_id) {
             return Some(session_id);
         }
         let name = self.session_name(session_id);
-        self.sessions.iter().rev().find(|(id, live)| live.name == name && usable(id)).map(|(id, _)| *id)
+        self.book.sessions.iter().rev().find(|(id, live)| live.name == name && usable(id)).map(|(id, _)| *id)
     }
 
     pub(crate) fn clear_finished_rows(&mut self) {
@@ -724,7 +726,7 @@ impl Engine {
             self.emit(Event::LocationChanged { location: Location::Local });
         }
         for (session_id, parts) in remote_parts {
-            let Some(session) = self.sessions.get(&session_id) else {
+            let Some(session) = self.book.sessions.get(&session_id) else {
                 continue;
             };
             let fs = session.fs.clone();

@@ -610,7 +610,7 @@ async fn a_file_is_never_moved_onto_itself_through_a_loopback_session() {
     t.engine.on_conflict = ConflictPolicy::Overwrite;
     let same_place = Arc::new(porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()));
     let session = t.add_session_with("self", same_place);
-    t.engine.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
+    t.engine.book.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
     std::fs::write(local(&t, "a.txt"), b"precious").unwrap();
 
     let dest = from_os_path(t.dir.path()).to_string_lossy().into_owned();
@@ -631,7 +631,7 @@ async fn a_loopback_session_still_moves_files_to_a_different_place() {
     let elsewhere = tempfile::tempdir().unwrap();
     let place = Arc::new(porthmos_lfs::LocalFs::new(elsewhere.path().to_path_buf()));
     let session = t.add_session_with("self", place);
-    t.engine.sessions.get_mut(&session).unwrap().entry.host = "127.0.0.1".to_string();
+    t.engine.book.sessions.get_mut(&session).unwrap().entry.host = "127.0.0.1".to_string();
     std::fs::write(local(&t, "a.txt"), b"hello").unwrap();
 
     upload(&mut t, session, &["a.txt"], &from_os_path(elsewhere.path()).to_string_lossy()).await;
@@ -752,7 +752,7 @@ async fn an_upload_batch_is_cleaned_up_even_after_its_session_is_gone() {
     std::fs::create_dir_all(local(&t, "tree/hollow")).unwrap();
     let root = local(&t, "tree");
     let batch_id = move_batch(&mut t, session, vec![from_os_path(&root)]);
-    t.engine.sessions.clear();
+    t.engine.book.sessions.clear();
 
     t.engine.finish_move_batch(batch_id);
     t.settle().await;
@@ -826,7 +826,7 @@ async fn a_session_lost_before_the_original_is_removed_fails_the_job_and_keeps_b
         Some(batch_id),
     );
     t.engine.transfers.get_mut(id).unwrap().status = JobStatus::InProgress;
-    t.engine.sessions.clear();
+    t.engine.book.sessions.clear();
 
     t.engine.remove_moved_source(id);
 

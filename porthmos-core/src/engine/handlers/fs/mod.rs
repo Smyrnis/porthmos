@@ -164,13 +164,13 @@ fn scope_for(location: Location) -> Scope {
 
 impl Engine {
     pub(crate) fn open_start_directory(&mut self, session: SessionId) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
         let start = StartFolder {
             name: live.name.clone(),
             requested: live.entry.start_path().map(str::to_string),
-            resume: self.resume_folders.remove(&live.name),
+            resume: self.book.resume_folders.remove(&live.name),
             remembered: self.last_used.store.folder(&live.name),
         };
         let work = list_start_into(
@@ -192,19 +192,19 @@ impl Engine {
     }
 
     fn remember_session_folder(&mut self, session: SessionId, path: VfsPath) {
-        let Some(live) = self.sessions.get(&session) else {
+        let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
         let name = live.name.clone();
         self.record_last_folder(&name, &path);
-        self.session_folders.insert(session, path);
+        self.book.session_folders.insert(session, path);
     }
 
     pub(crate) fn keep_folder_for_reconnect(&mut self, session: SessionId, name: &str, was_lost: bool) {
-        let folder = self.session_folders.remove(&session);
+        let folder = self.book.session_folders.remove(&session);
         match folder.filter(|_| was_lost) {
-            Some(folder) => self.resume_folders.insert(name.to_string(), folder),
-            None => self.resume_folders.remove(name),
+            Some(folder) => self.book.resume_folders.insert(name.to_string(), folder),
+            None => self.book.resume_folders.remove(name),
         };
     }
 

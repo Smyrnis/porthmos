@@ -210,8 +210,8 @@ async fn the_test_does_not_create_a_session_or_emit_connecting_or_connected() {
 
     connected(outcome_of(&mut t, draft()).await);
 
-    assert!(t.engine.sessions.is_empty());
-    assert!(t.engine.connecting.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
+    assert!(t.engine.book.connecting.is_empty());
     assert!(t.drain().iter().all(|event| !matches!(
         event,
         Event::Connecting { .. } | Event::Connected { .. } | Event::ConnectFailed { .. }
@@ -649,7 +649,7 @@ mod hardening {
         tokio::task::yield_now().await;
 
         t.engine.handle_command(Command::Connect { profile: "srv".into() });
-        assert!(t.engine.connecting.contains("srv"));
+        assert!(t.engine.book.connecting.contains("srv"));
         t.run_internal().await;
         let mut seen = t.drain();
         while !seen.iter().any(|event| matches!(event, Event::TestFinished { .. })) {
@@ -660,8 +660,8 @@ mod hardening {
         assert!(
             seen.iter().any(|event| matches!(event, Event::TestFinished { outcome: TestOutcome::Connected(_), .. }))
         );
-        assert!(t.engine.connecting.is_empty());
-        assert_eq!(t.engine.sessions.len(), 1);
+        assert!(t.engine.book.connecting.is_empty());
+        assert_eq!(t.engine.book.sessions.len(), 1);
     }
 
     fn editing_plain() -> ProfileDraft {

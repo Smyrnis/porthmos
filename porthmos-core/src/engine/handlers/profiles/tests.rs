@@ -1044,12 +1044,12 @@ fn listing_with_a_malformed_connections_file_shows_the_file_name_and_the_line() 
 
 fn with_resume_folders(t: &mut TestEngine, names: &[&str]) {
     for name in names {
-        t.engine.resume_folders.insert(name.to_string(), porthmos_vfs::VfsPath::new("/srv/old"));
+        t.engine.book.resume_folders.insert(name.to_string(), porthmos_vfs::VfsPath::new("/srv/old"));
     }
 }
 
 fn resuming(t: &TestEngine) -> Vec<String> {
-    let mut names: Vec<String> = t.engine.resume_folders.keys().cloned().collect();
+    let mut names: Vec<String> = t.engine.book.resume_folders.keys().cloned().collect();
     names.sort();
     names
 }

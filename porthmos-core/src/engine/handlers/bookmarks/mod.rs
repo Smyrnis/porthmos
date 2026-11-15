@@ -31,7 +31,7 @@ impl Engine {
     pub(crate) fn add_bookmark(&mut self, label: String, location: Location, path: VfsPath) {
         let host = match location {
             Location::Local => None,
-            Location::Session(id) => match self.sessions.get(&id) {
+            Location::Session(id) => match self.book.sessions.get(&id) {
                 Some(session) => Some(session.name.clone()),
                 None => {
                     self.report(Severity::Warning, "Connect to a remote server first");

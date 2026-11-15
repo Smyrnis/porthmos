@@ -117,7 +117,8 @@ impl Engine {
     }
 
     pub(crate) fn vet_move(&self, session_id: u64, files: Vec<PlannedFile>) -> (Vec<PlannedFile>, HashSet<VfsPath>) {
-        let on_this_computer = self.sessions.get(&session_id).is_some_and(|session| is_loopback(&session.entry.host));
+        let on_this_computer =
+            self.book.sessions.get(&session_id).is_some_and(|session| is_loopback(&session.entry.host));
         let (onto_themselves, files): (Vec<PlannedFile>, Vec<PlannedFile>) = if on_this_computer {
             files.into_iter().partition(|file| file.source == file.destination)
         } else {
@@ -238,7 +239,7 @@ impl Engine {
         match direction {
             Direction::Upload => self.emit(Event::LocationChanged { location: Location::Local }),
             Direction::Download => {
-                if self.sessions.contains_key(&session_id) {
+                if self.book.sessions.contains_key(&session_id) {
                     self.emit(Event::LocationChanged { location: Location::Session(session_id) });
                 }
             }
@@ -269,7 +270,7 @@ impl Engine {
         let (session_id, direction, roots) = (batch.session_id, batch.direction, batch.roots.clone());
         let source = match direction {
             Direction::Upload => self.local_fs.clone(),
-            Direction::Download => match self.sessions.get(&session_id) {
+            Direction::Download => match self.book.sessions.get(&session_id) {
                 Some(session) => session.fs.clone(),
                 None => return,
             },

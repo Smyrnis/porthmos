@@ -74,8 +74,7 @@ impl Engine {
             let session_id = match sessions.get(&saved.connection) {
                 Some(id) => *id,
                 None => {
-                    let id = self.next_session_id;
-                    self.next_session_id += 1;
+                    let id = self.book.allocate_id();
                     self.history.remember_session(id, saved.connection.clone());
                     sessions.insert(saved.connection.clone(), id);
                     id

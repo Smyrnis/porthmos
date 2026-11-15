@@ -206,7 +206,7 @@ impl Engine {
             self.report(Severity::Warning, message);
             return;
         }
-        let Some(live) = self.sessions.get(&session_id) else {
+        let Some(live) = self.book.sessions.get(&session_id) else {
             self.report(Severity::Warning, "Sync failed: session disconnected");
             return;
         };
@@ -308,7 +308,7 @@ impl Engine {
         self.sync.scanning.remove(&batch_id);
         self.clear_planning(batch_id);
         self.transfers.forget_batch_if_empty(batch_id);
-        if !self.sessions.contains_key(&plan.session) {
+        if !self.book.sessions.contains_key(&plan.session) {
             self.report(Severity::Error, "Sync failed: session disconnected");
             return;
         }
@@ -355,7 +355,7 @@ impl Engine {
             self.report(Severity::Warning, "That sync plan is no longer available");
             return;
         };
-        if !self.sessions.contains_key(&plan.session) {
+        if !self.book.sessions.contains_key(&plan.session) {
             self.report(Severity::Error, "Sync failed: session disconnected");
             return;
         }
@@ -445,7 +445,7 @@ impl Engine {
         if files.is_empty() && folders.is_empty() {
             return None;
         }
-        let live = self.sessions.get(&plan.session)?;
+        let live = self.book.sessions.get(&plan.session)?;
         let (location, place, target_fs, source_fs, target_root, source_root) = match plan.options.direction {
             SyncDirection::RemoteToLocal => (
                 Location::Local,
@@ -518,7 +518,7 @@ impl Engine {
     fn start_sync_batch(
         &mut self, plan: &SyncPlan, direction: Direction, files: Vec<PlannedFile>, empty_folders: &BTreeSet<VfsPath>,
     ) -> Option<u64> {
-        let live = self.sessions.get(&plan.session)?;
+        let live = self.book.sessions.get(&plan.session)?;
         let (target_fs, target_root, arrow) = match direction {
             Direction::Upload => (live.fs.clone(), plan.remote_root.clone(), '\u{2191}'),
             Direction::Download => (self.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
@@ -568,7 +568,7 @@ impl Engine {
         }
         self.sync.scanning.remove(&batch_id);
         self.clear_planning(batch_id);
-        if !self.sessions.contains_key(&session_id) {
+        if !self.book.sessions.contains_key(&session_id) {
             self.sync.pending_deletions.remove(&batch_id);
             self.transfers.forget_batch_if_empty(batch_id);
             self.report(Severity::Error, "Sync failed: session disconnected");
@@ -588,7 +588,7 @@ impl Engine {
         let session = self.planning.iter().find(|scan| scan.batch_id == batch_id).map(|scan| scan.session_id);
         self.clear_planning(batch_id);
         self.transfers.forget_batch_if_empty(batch_id);
-        if session.is_some_and(|session| self.sessions.contains_key(&session)) {
+        if session.is_some_and(|session| self.book.sessions.contains_key(&session)) {
             self.info("Sync cancelled");
         }
     }

@@ -68,22 +68,22 @@ impl Engine {
         if self.reconnect.attempt(&name) != Some(attempt) {
             return;
         }
-        let live = self.sessions.iter().find(|(_, live)| live.name == name).map(|(&session, _)| session);
+        let live = self.book.sessions.iter().find(|(_, live)| live.name == name).map(|(&session, _)| session);
         match live {
-            Some(session) if self.lost_sessions.contains(&session) => self.disconnect(session),
+            Some(session) if self.book.lost_sessions.contains(&session) => self.disconnect(session),
             Some(_) => {
                 self.reconnect.forget(&name);
                 return;
             }
             None => {}
         }
-        if self.connecting.contains(&name) {
+        if self.book.connecting.contains(&name) {
             self.reconnect.forget(&name);
             return;
         }
         self.info(format!("Reconnecting to {name}"));
         self.connect(&name);
-        if !self.connecting.contains(&name) {
+        if !self.book.connecting.contains(&name) {
             self.reconnect.forget(&name);
         }
     }
@@ -110,7 +110,7 @@ impl Engine {
     }
 
     pub(crate) fn stop_reconnecting_session(&mut self, session: SessionId) {
-        if let Some(name) = self.sessions.get(&session).map(|live| live.name.clone()) {
+        if let Some(name) = self.book.sessions.get(&session).map(|live| live.name.clone()) {
             self.reconnect.forget(&name);
         }
     }

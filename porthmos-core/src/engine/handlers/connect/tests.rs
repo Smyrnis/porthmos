@@ -191,7 +191,7 @@ async fn cancelling_the_password_prompt_fails_with_connection_cancelled_and_allo
     })
     .await;
     assert_eq!(message, "Connection cancelled");
-    assert!(t.engine.sessions.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
     let request_id = next_matching(&mut t, |event| match event {
@@ -255,7 +255,7 @@ async fn connecting_to_an_already_connected_profile_reuses_the_session() {
             Event::SessionCapabilities { session: capable, .. }
         ] if *id == session && *capable == session
     ));
-    assert_eq!(t.engine.sessions.len(), 1);
+    assert_eq!(t.engine.book.sessions.len(), 1);
 }
 
 #[test]
@@ -306,7 +306,7 @@ fn disconnect_reports_a_confirmation_notification() {
 
     t.engine.handle_command(Command::Disconnect { session });
 
-    assert!(t.engine.sessions.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
     assert_eq!(messages(&mut t), vec!["Disconnected from test".to_string()]);
 }
 
@@ -453,7 +453,7 @@ async fn disconnecting_during_a_copy_cancels_it_and_late_results_do_not_bring_it
 
     let messages = messages(&mut t);
     assert!(messages.iter().any(|m| m == "1 transfer cancelled \u{2014} session disconnected"), "{messages:?}");
-    assert!(t.engine.sessions.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
     assert_eq!(t.engine.transfers.jobs().count(), 0);
     assert!(t.engine.planning.is_empty());
     assert!(t.engine.snapshot().active.is_empty());
@@ -464,7 +464,7 @@ fn preparing_a_shell_hands_back_the_protocols_invocation() {
     let mut t = test_engine();
     let invocation = ShellInvocation { program: "ssh".into(), args: vec!["h".into()], env: Vec::new() };
     let session = t.add_session_with("srv", Arc::new(FakeFs::new()));
-    t.engine.sessions.get_mut(&session).unwrap().protocol =
+    t.engine.book.sessions.get_mut(&session).unwrap().protocol =
         Arc::new(FakeProtocol::new(FakeFs::new()).with_shell(invocation.clone()));
 
     t.engine.handle_command(Command::PrepareShell { session, directory: None });
@@ -477,7 +477,7 @@ fn preparing_a_shell_in_a_directory_starts_the_shell_there() {
     let mut t = test_engine();
     let invocation = ShellInvocation { program: "ssh".into(), args: vec!["h".into()], env: Vec::new() };
     let session = t.add_session_with("srv", Arc::new(FakeFs::new()));
-    t.engine.sessions.get_mut(&session).unwrap().protocol =
+    t.engine.book.sessions.get_mut(&session).unwrap().protocol =
         Arc::new(FakeProtocol::new(FakeFs::new()).with_shell(invocation.clone()));
 
     t.engine.handle_command(Command::PrepareShell { session, directory: Some(VfsPath::from("/srv/www")) });
@@ -505,7 +505,7 @@ fn preparing_a_local_shell_needs_no_connection() {
     t.engine.handle_command(Command::PrepareLocalShell { directory: VfsPath::from("/x") });
 
     assert!(t.notices().is_empty());
-    assert!(t.engine.sessions.is_empty());
+    assert!(t.engine.book.sessions.is_empty());
 }
 
 #[test]
@@ -907,7 +907,7 @@ async fn a_saved_secret_option_reaches_the_protocol() {
     assert_eq!(target.password, None);
     assert_eq!(backend.calls(), vec!["get option:token:srv"]);
     let session = connected(&seen, "srv").unwrap();
-    assert!(!t.engine.sessions[&session].entry.options.contains_key("token"));
+    assert!(!t.engine.book.sessions[&session].entry.options.contains_key("token"));
 }
 
 #[tokio::test]
@@ -926,9 +926,9 @@ async fn the_shell_handoff_gets_the_password_but_the_session_does_not_keep_it() 
     finish(&mut t, &mut seen).await;
     let session = connected(&seen, "srv").unwrap();
 
-    assert!(t.engine.sessions[&session].entry.password.is_none());
+    assert!(t.engine.book.sessions[&session].entry.password.is_none());
     assert_eq!(t.engine.shell_target(session).and_then(|target| target.password).as_deref(), Some("pw"));
-    assert!(!format!("{:?}", t.engine.sessions[&session].entry).contains("pw\""));
+    assert!(!format!("{:?}", t.engine.book.sessions[&session].entry).contains("pw\""));
 }
 
 #[test]
@@ -961,7 +961,7 @@ async fn two_connects_to_the_same_profile_ask_only_once() {
 
     assert_eq!(questions(&seen), 1);
     assert_eq!(seen.iter().filter(|event| matches!(event, Event::Connected { .. })).count(), 1);
-    assert_eq!(t.engine.sessions.len(), 1);
+    assert_eq!(t.engine.book.sessions.len(), 1);
 }
 
 #[tokio::test]
@@ -1251,7 +1251,7 @@ async fn a_remembered_folder_that_can_no_longer_be_read_falls_back_to_the_start_
     let session = connect_and_open(&mut t, "/srv/logs").await;
     t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
     t.engine.handle_command(Command::Disconnect { session });
-    t.engine.resume_folders.insert("srv".to_string(), VfsPath::from("/srv/gone"));
+    t.engine.book.resume_folders.insert("srv".to_string(), VfsPath::from("/srv/gone"));
     t.engine.last_used.store.forget("srv");
     t.drain();
 
@@ -1272,7 +1272,7 @@ async fn a_lost_connections_folder_is_resumed_only_once() {
     let (_, _) = reconnect_listing(&mut t).await;
     t.settle().await;
     t.drain();
-    let reconnected = t.engine.sessions.keys().copied().next().unwrap();
+    let reconnected = t.engine.book.sessions.keys().copied().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session: reconnected });
     t.drain();
 
