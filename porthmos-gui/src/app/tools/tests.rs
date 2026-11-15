@@ -39,7 +39,6 @@ fn remote_harness() -> Harness {
         path: VfsPath::new("/srv"),
         entries: vec![hit("/srv/a.txt")],
     });
-    named(&mut harness, Named::Tab);
     harness.sent();
     harness
 }

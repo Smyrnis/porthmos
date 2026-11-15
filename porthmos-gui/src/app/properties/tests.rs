@@ -267,7 +267,6 @@ fn calculate_goes_to_the_server_the_dialog_was_opened_on_even_if_another_becomes
         path: folder.clone(),
         entries: vec![file(&folder, "big.iso", false)],
     });
-    plain(&mut harness, Named::Tab);
     plain(&mut harness, Named::ArrowDown);
     open(&mut harness);
     assert!(matches!(harness.sent().last(), Some(Command::Measure { location: Location::Session(1), .. })));

@@ -813,6 +813,7 @@ impl App {
                     if let Some(session) = self.sessions.active_mut() {
                         session.pane.panel.apply(remote);
                     }
+                    self.active = PanelSide::Remote;
                 }
                 self.sessions.set_shell_available(session, shell_available);
             }

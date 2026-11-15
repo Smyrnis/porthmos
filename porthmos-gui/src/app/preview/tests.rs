@@ -142,7 +142,6 @@ fn previewing_a_remote_file_names_its_session() {
         path: VfsPath::new("/srv"),
         entries: vec![file(&VfsPath::new("/srv"), "r.log")],
     });
-    named(&mut harness, Named::Tab);
     harness.sent();
     harness.app.side_mut(PanelSide::Remote).unwrap().panel.set_cursor(1);
 

@@ -122,7 +122,6 @@ fn edit_on_the_remote_panel_uses_its_session() {
         path: VfsPath::new("/srv"),
         entries: vec![file(&VfsPath::new("/srv"), "r.log")],
     });
-    named(&mut harness, Named::Tab);
     harness.sent();
     harness.app.side_mut(PanelSide::Remote).unwrap().panel.set_cursor(1);
 

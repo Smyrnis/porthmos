@@ -331,6 +331,7 @@ fn enter_on_a_file_of_the_connection_shows_that_panel() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha", false);
     list_session(&mut harness, 1, vec![file(&VfsPath::new("/srv"), "a.txt"), file(&VfsPath::new("/srv"), "b.txt")]);
+    harness.press(Message::PanelClicked(PanelSide::Local, 0));
     assert_eq!(harness.app.active_side(), PanelSide::Local);
     open(&mut harness);
     typed(&mut harness, "#b.txt");

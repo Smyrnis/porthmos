@@ -376,6 +376,29 @@ fn the_sort_shortcut_reaches_the_type_sort() {
     assert!(reached.contains(&SortKey::Type), "{reached:?}");
     assert!(reached.contains(&SortKey::Modified), "{reached:?}");
 }
+
+#[test]
+fn a_new_connection_makes_the_remote_panel_the_active_one() {
+    let mut harness = Harness::new();
+    assert_eq!(harness.app.active_side(), PanelSide::Local);
+
+    connect(&mut harness, 1, "alpha");
+
+    assert_eq!(harness.app.active_side(), PanelSide::Remote);
+}
+
+#[test]
+fn switching_back_to_an_open_connection_keeps_the_panel_the_user_was_in() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    connect(&mut harness, 2, "beta");
+    harness.press(Message::PanelClicked(PanelSide::Local, 0));
+
+    connect(&mut harness, 1, "alpha");
+
+    assert_eq!(harness.app.active_side(), PanelSide::Local);
+}
+
 #[test]
 fn clicking_a_tab_activates_that_connection() {
     let mut harness = Harness::new();
@@ -635,11 +658,13 @@ fn tab_switches_the_active_panel() {
     assert_eq!(harness.app.active_side(), PanelSide::Local);
 
     connect(&mut harness, 1, "alpha");
-    plain(&mut harness, Named::Tab);
     assert_eq!(harness.app.active_side(), PanelSide::Remote);
 
     plain(&mut harness, Named::Tab);
     assert_eq!(harness.app.active_side(), PanelSide::Local);
+
+    plain(&mut harness, Named::Tab);
+    assert_eq!(harness.app.active_side(), PanelSide::Remote);
 }
 
 #[test]
@@ -648,7 +673,6 @@ fn keys_act_on_the_active_panel() {
     fill_local(&mut harness, &["a", "b"]);
     connect(&mut harness, 1, "alpha");
     list_session(&mut harness, 1, "/srv", &["x", "y", "z"]);
-    plain(&mut harness, Named::Tab);
 
     plain(&mut harness, Named::End);
 
@@ -663,6 +687,7 @@ fn ctrl_h_toggles_hidden_in_the_active_panel_only() {
     connect(&mut harness, 1, "alpha");
     list_session(&mut harness, 1, "/srv", &[".dot", "x"]);
     assert_eq!(harness.app.local().panel.rows().len(), 2);
+    plain(&mut harness, Named::Tab);
 
     key(&mut harness, Key::Character("h".into()), Modifiers::CTRL);
 
@@ -813,11 +838,11 @@ fn refresh_relists_the_active_location() {
     harness.sent();
 
     key(&mut harness, Key::Character("r".into()), Modifiers::CTRL);
-    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester")]);
+    assert_eq!(harness.sent(), vec![list_of(Location::Session(1), "/srv")]);
 
     plain(&mut harness, Named::Tab);
     key(&mut harness, Key::Character("r".into()), Modifiers::CTRL);
-    assert_eq!(harness.sent(), vec![list_of(Location::Session(1), "/srv")]);
+    assert_eq!(harness.sent(), vec![list_of(Location::Local, "/home/tester")]);
 }
 
 #[test]
@@ -854,7 +879,6 @@ fn keys_are_ignored_once_the_app_is_closing() {
 fn disconnecting_the_last_session_returns_focus_to_the_local_panel() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha");
-    plain(&mut harness, Named::Tab);
     assert_eq!(harness.app.active_side(), PanelSide::Remote);
 
     harness.feed(Event::Disconnected { session: 1, name: "alpha".to_string() });
@@ -1006,12 +1030,12 @@ fn the_new_folder_key_opens_a_prompt_for_the_active_panel() {
     connect(&mut harness, 1, "alpha");
 
     plain(&mut harness, Named::F7);
-    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Local, .. }));
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Remote, .. }));
     plain(&mut harness, Named::Escape);
 
     plain(&mut harness, Named::Tab);
     plain(&mut harness, Named::F7);
-    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Remote, .. }));
+    assert!(matches!(open_modal(&harness), crate::modal::Modal::NewFolder { side: PanelSide::Local, .. }));
 }
 
 #[test]
@@ -1032,8 +1056,8 @@ fn accepting_a_new_folder_name_sends_create_dir_in_the_panel_folder() {
     assert_eq!(
         harness.sent(),
         vec![
-            Command::CreateDir { location: Location::Local, path: VfsPath::new("/home/tester/docs") },
-            Command::CreateDir { location: Location::Session(1), path: VfsPath::new("/srv/new") },
+            Command::CreateDir { location: Location::Session(1), path: VfsPath::new("/srv/docs") },
+            Command::CreateDir { location: Location::Local, path: VfsPath::new("/home/tester/new") },
         ]
     );
     assert!(harness.app.modal().is_none());
@@ -1296,6 +1320,8 @@ fn the_action_bar_buttons_run_the_same_actions_as_the_keys() {
 fn upload_target(harness: &mut Harness) {
     connect(harness, 1, "alpha");
     list_session(harness, 1, "/srv/in", &["old"]);
+    plain(harness, Named::Tab);
+    assert_eq!(harness.app.active_side(), PanelSide::Local);
 }
 
 #[test]
