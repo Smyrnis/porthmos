@@ -154,6 +154,15 @@ jobs:
           --license LICENSE
           ${{ needs.plan.outputs.product == 'gui' && '--icon assets/icon/porthmos.svg' || '' }}
           --out dist
+      - name: Windows installer
+        if: matrix.exe == '.exe' && needs.plan.outputs.product == 'gui'
+        shell: pwsh
+        env:
+          PROGRAM: ${{ needs.plan.outputs.program }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          ./installer/build.ps1 -Exe "target\${{ matrix.target }}\release\$env:PROGRAM.exe" -Version $env:VERSION -Out dist
+          ./installer/check.ps1 -Setup "dist\$env:PROGRAM-$env:VERSION-setup.exe" -Version $env:VERSION
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ needs.plan.outputs.product }}-${{ matrix.target }}
@@ -279,6 +288,7 @@ jobs:
               *aarch64-unknown-linux-gnu*) echo "Linux ARM64" ;;
               *aarch64-apple-darwin*) echo "macOS Apple Silicon" ;;
               *x86_64-apple-darwin*) echo "macOS Intel" ;;
+              *-setup.exe) echo "Windows x86_64 installer" ;;
               *x86_64-pc-windows-msvc*) echo "Windows x86_64" ;;
               *) echo "Other" ;;
             esac

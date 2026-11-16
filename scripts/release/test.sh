@@ -19,6 +19,10 @@ commit() {
   git_in "$dir" rev-parse HEAD
 }
 
+absent() {
+  if grep "$@"; then return 1; fi
+}
+
 make_repo() {
   local name=$1 origin="$WORK/$1-origin.git" clone="$WORK/$1"
   git init -q --bare -b main "$origin"
@@ -196,7 +200,53 @@ for name, version in (("porthmos-tui", tui), ("porthmos-gui", gui)):
     assert int(version.split(".")[0]) >= 2026, (name, version)
 '
   grep -Eq '^version = "[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?"$' "$ROOT/porthmos-gui/Cargo.toml"
-  ! grep -q '^version.workspace = true' "$ROOT/porthmos-gui/Cargo.toml"
+  absent -q '^version.workspace = true' "$ROOT/porthmos-gui/Cargo.toml"
+}
+
+test_the_windows_installer_installs_per_user_outside_package_manager_folders() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  [ -f "$script" ]
+  grep -q '^PrivilegesRequired=lowest$' "$script"
+  absent -q '^PrivilegesRequiredOverridesAllowed' "$script"
+  grep -Fq 'DefaultDirName={localappdata}\Programs\Porthmos' "$script"
+  absent -Eqi '\{(autopf|pf|pf32|pf64|commonpf)' "$script"
+  absent -Eqi 'program files|windowsapps|scoop|winget|chocolatey' "$script"
+}
+
+test_the_windows_installer_upgrades_in_place_and_cleans_what_the_updater_leaves() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  grep -Eq '^AppId=\{\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$' "$script"
+  grep -q '^CloseApplications=yes$' "$script"
+  grep -Fq 'Name: "{app}\*.old"' "$script"
+  grep -Fq 'Name: "{app}\.porthmos.*"' "$script"
+}
+
+test_the_windows_installer_leaves_the_machine_and_the_users_data_alone() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  absent -qi '^ChangesEnvironment=yes' "$script"
+  absent -qi '^ChangesAssociations=yes' "$script"
+  absent -q '^\[Registry\]' "$script"
+  absent -Eqi 'userappdata|{app}\\\.\.|connections\.toml|state\.toml' "$script"
+  grep -q '^#ifndef AppVersion$' "$script"
+}
+
+test_the_release_builds_the_installer_only_for_the_windows_window_app() {
+  local workflow="$ROOT/.github/workflows/release.yml"
+  grep -q 'installer/build.ps1' "$workflow"
+  grep -Eq "matrix.exe == '.exe' && needs.plan.outputs.product == 'gui'" "$workflow"
+  grep -q 'installer/check.ps1' "$ROOT/.github/workflows/ci.yml"
+}
+
+test_the_windows_installer_is_a_full_wizard_with_every_page() {
+  local script="$ROOT/installer/porthmos-gui.iss"
+  grep -q '^WizardStyle=modern$' "$script"
+  grep -q '^DisableWelcomePage=no$' "$script"
+  grep -q '^DisableDirPage=no$' "$script"
+  grep -q '^DisableReadyPage=no$' "$script"
+  grep -q '^DisableFinishedPage=no$' "$script"
+  grep -q '^LicenseFile=' "$script"
+  grep -q '^\[Tasks\]' "$script"
+  grep -Eq '^Filename: "\{app\}\\porthmos-gui.exe"; Description: .*Flags: nowait postinstall skipifsilent$' "$script"
 }
 
 set +e
