@@ -5,17 +5,22 @@ Settings, saved connections, and bookmarks live under
 macOS, and under `%APPDATA%\porthmos` on Windows:
 
 - `config.toml` — panel, transfer, edit, terminal, update, search, startup,
-  key-binding and theme settings. See
+  connection, key-binding and theme settings. See
   [`config/config.example.toml`](../../config/config.example.toml) for every
   option with its default.
 - `connections.toml` — saved connection profiles.
 - `bookmarks.toml` — saved bookmarks.
 - `known_certificates.toml` — TLS certificates you chose to trust.
+- `theme.toml` — optional colours for both apps (a base of `dark`,
+  `high-contrast` or `light`, and any colour you want to change). See the end
+  of [`config/config.example.toml`](../../config/config.example.toml). Changes
+  are read when the app starts.
 
 Transfer history and other state live under `$XDG_STATE_HOME/porthmos`
 (or `~/.local/state/porthmos`) on Linux and macOS, and under
 `%LOCALAPPDATA%\porthmos` on Windows. That folder holds `state.toml`,
-`last_used.toml`, `history.toml`, `gui-windows.toml` (the window app's window
+`last_used.toml`, `history.toml`, `unfinished-transfers.toml` (transfers that
+were not finished when you quit), `gui-windows.toml` (the window app's window
 sizes and positions) and the log.
 
 If you used this app under its old name, TermConnect, your old
@@ -53,11 +58,18 @@ Between runs Porthmos keeps, in the state folder:
 
 - the size and position of the window app's windows — main, Settings,
   connection manager and Search (`gui-windows.toml`), written when the app
-  quits normally. Whether a window was maximized is not remembered. On Wayland
-  only the size is restored, because the compositor does not tell the app where
-  a window is;
-- the connections that were open, only when `[startup] reopen` is not `"off"`
-  (`state.toml`, key `reopen`); see below.
+  quits normally, and whether each was maximized (a maximized window keeps its
+  normal size for when you restore it). On Wayland only the size is restored,
+  because the compositor does not tell the app where a window is. Porthmos does
+  not check that a saved position is still on a screen; your window manager
+  normally moves a window that would open off screen;
+- the transfers that were not finished (`unfinished-transfers.toml`): written
+  whenever the set of unfinished transfers changes and every 5 seconds while
+  data moves, and read at the next start. A transfer that was running comes
+  back stopped and resumes from the saved byte count when you retry it;
+- the connections that were open, and which one was active, only when
+  `[startup] reopen` is not `"off"` (`state.toml`, keys `reopen` and
+  `reopen_active`); see below.
 
 A remembered folder that no longer exists is skipped without a message.
 
@@ -79,6 +91,20 @@ without a prompt, and each one returns to the folder it was last in. Only
 saved connections are remembered, in the order you opened them. Changing the
 setting in the window app's Settings applies at once; in the terminal app edit
 `config.toml` and restart.
+
+## Sorting
+
+`[panel] sort_key` is `"name"`, `"size"`, `"modified"` or `"type"` (the file
+extension) and `sort_order` is `"ascending"` or `"descending"`. A sort you
+choose in the interface is remembered for that panel and wins over the setting.
+
+## Language
+
+The text of both apps is prepared for translation, with one file per language
+inside `porthmos-core`. Only English exists today. The language comes from the
+`PORTHMOS_LANG` environment variable, then `LC_ALL`, then `LANG` (`en_US.UTF-8`
+and `de` style values are both understood); an unknown language falls back to
+English. There is no setting for it yet.
 
 ## Notices
 

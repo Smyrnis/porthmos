@@ -5,8 +5,9 @@ The repository is a Cargo workspace:
 - `porthmos-vfs` — the virtual filesystem contract every protocol
   implements (`FileSystem`, `Protocol`, `Prompter`) and the shared file types.
 - `porthmos-lfs` — the local file system as a `FileSystem`.
-- `porthmos-ssh` — SSH connections, host keys, `~/.ssh/config` discovery and
-  the `ssh` terminal hand-off, shared by the SFTP and SCP protocols.
+- `porthmos-ssh` — SSH connections (including hops through `ProxyJump`
+  bastion hosts), host keys, `~/.ssh/config` discovery and the `ssh` terminal
+  hand-off, shared by the SFTP and SCP protocols.
 - `porthmos-tls` — certificate trust shared by the FTPS and WebDAV protocols.
 - `protocols/` — one crate per remote protocol:
   - `protocols/sftp` (`porthmos-sftp`) — SFTP.
@@ -15,8 +16,11 @@ The repository is a Cargo workspace:
   - `protocols/webdav` (`porthmos-webdav`) — WebDAV.
   - `protocols/s3` (`porthmos-s3`) — S3-compatible object storage.
 - `porthmos-core` — the UI-free engine: connections, listings, transfers,
-  sync, editing, search, history, profiles, bookmarks and settings. A
-  frontend drives it by sending commands and receiving events. Each protocol
+  sync, folder comparison, editing, search, history, profiles, bookmarks,
+  settings and import of connections from other programs, plus the
+  translation support (`i18n`, with the language files in
+  `porthmos-core/locales`). A frontend drives it by sending commands and
+  receiving events. Each protocol
   is a cargo feature, all on by default, as is `keyring`.
 - `porthmos-tui` — the terminal interface, built as the `porthmos`
   binary.

@@ -18,7 +18,9 @@ talks SFTP, SCP, FTP and FTPS, WebDAV and S3-compatible storage.
 - Dual-panel browser with several connections open at once
 - SFTP, SCP, FTP/FTPS, WebDAV and S3-compatible storage
 - Background transfers that queue, run in parallel and resume
-- Folder sync, remote editing in your own editor, search and a command palette
+- Folder sync (with mirroring), folder compare, remote editing in your own
+  editor, search and a command palette
+- Jump hosts, imports from FileZilla, WinSCP and PuTTY, and SHA-256 checksums
 - Go to a typed path, and optionally reopen the connections you had open last time
 
 <p align="center"><img src="assets/screenshots/porthmos-gui.png" alt="Porthmos window app copying two archives to an SFTP server" width="900"></p>
