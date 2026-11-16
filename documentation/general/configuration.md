@@ -100,11 +100,21 @@ choose in the interface is remembered for that panel and wins over the setting.
 
 ## Language
 
-The text of both apps is prepared for translation, with one file per language
-inside `porthmos-core`. Only English exists today. The language comes from the
-`PORTHMOS_LANG` environment variable, then `LC_ALL`, then `LANG` (`en_US.UTF-8`
-and `de` style values are both understood); an unknown language falls back to
-English. There is no setting for it yet.
+The text of both apps comes from one language file per language inside
+`porthmos-core`. English (`en`) and Greek (`el`) exist today.
+
+`[general] language` is `"auto"` (the default), `"en"` or `"el"`. With `"auto"`
+the language comes from the `PORTHMOS_LANG` environment variable, then
+`LC_ALL`, then `LANG` (`el_GR.UTF-8` and `el` style values are both
+understood); a language that has no file falls back to English. An unknown
+value in `config.toml` is reported as a warning and treated as `"auto"`.
+
+The window app has a Language section in Settings > General (Automatic,
+English, Ελληνικά) that applies at once and writes the setting. The terminal
+app reads the setting when it starts, so a change needs a restart.
+
+Config and theme warnings, error causes from the operating system and key
+names stay in English.
 
 ## Notices
 
