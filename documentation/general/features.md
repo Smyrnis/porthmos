@@ -104,9 +104,12 @@
   position it had when you last quit, maximized if it was (on Wayland, only the
   size). A new connection makes its remote panel the active one. Settings
   also lets you rebind the shortcuts.
-- **Language** — the text is prepared for translation, but only English exists
-  so far. The language is read from `PORTHMOS_LANG`, `LC_ALL` or `LANG`, and
-  anything unknown falls back to English.
+- **Language** — every menu, dialog and message of both apps is available in
+  English and Greek (Ελληνικά). The language comes from `[general] language`
+  in `config.toml`, or from `PORTHMOS_LANG`, `LC_ALL` or `LANG` when that is
+  `"auto"`, and anything unknown falls back to English. The window app also
+  has a Language choice in Settings that applies at once. See
+  [Configuration](configuration.md#language).
 - **Terminal hand-off** — `F4` follows the panel you are in. On the local panel
   it opens your shell (`$SHELL`, or PowerShell on Windows) in that folder. On
   the remote panel of an SFTP or SCP connection it opens a full `ssh` session

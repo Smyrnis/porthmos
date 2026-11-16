@@ -30,7 +30,9 @@ and installs the latest version without starting the interface, and
 ignore `mode`.
 
 The program is not code-signed, so macOS Gatekeeper and Windows SmartScreen may
-warn the first time you run a downloaded copy.
+warn the first time you run a downloaded copy, and for the Windows installer.
+The installer is only for the first install: updates download the program
+archive, never the installer, and replace the installed program in place.
 
 ## Release channels
 
