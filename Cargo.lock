@@ -5266,7 +5266,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-core"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
@@ -5300,7 +5300,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-ftp"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5322,7 +5322,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-gui"
-version = "2026.5.0-dev.4"
+version = "2026.5.0-dev.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5351,7 +5351,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-lfs"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "libc",
@@ -5364,7 +5364,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-release"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5378,7 +5378,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-s3"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5410,7 +5410,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-scp"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "porthmos-lfs",
@@ -5422,7 +5422,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-sftp"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5438,7 +5438,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-ssh"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5452,7 +5452,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-tls"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5470,7 +5470,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-tui"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5491,7 +5491,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-update"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5518,7 +5518,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-vfs"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5532,7 +5532,7 @@ dependencies = [
 
 [[package]]
 name = "porthmos-webdav"
-version = "2026.5.0-dev.3"
+version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
