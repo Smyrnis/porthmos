@@ -2862,7 +2862,7 @@ fn a_failed_staging_row_cancels_the_drag_and_tells_the_user() {
     let mut failed = staging_rows(RowState::Failed);
     failed[0].failure = Some(porthmos_core::transfer::rows::RowFailure {
         file: "a".to_string(),
-        message: "permission denied".to_string(),
+        message: "permission denied".into(),
         attempts: 1,
     });
 

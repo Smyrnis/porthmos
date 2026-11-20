@@ -1,4 +1,5 @@
 use super::{Direction, TransferQueue};
+use crate::Message;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RowKind {
@@ -38,7 +39,7 @@ pub struct QueueRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowFailure {
     pub file: String,
-    pub message: String,
+    pub message: Message,
     pub attempts: u32,
 }
 

@@ -536,7 +536,7 @@ fn a_failed_transfer_is_in_the_log_once() {
     let logs = crate::engine::testing::capture_logs(|| {
         t.engine.handle_transfer_event(TransferEvent::Failed {
             id,
-            message: "Transfer failed: a \u{2014} disk full".to_string(),
+            message: "Transfer failed: a \u{2014} disk full".into(),
         });
         t.engine.process_row_changes();
     });
@@ -560,10 +560,8 @@ fn a_failed_scan_is_in_the_log_once() {
     });
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_transfer_event(TransferEvent::PlanFailed {
-            batch_id,
-            message: "Copy failed: no access".to_string(),
-        });
+        t.engine
+            .handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: "Copy failed: no access".into() });
     });
 
     assert_eq!(error_lines(&logs), 1, "{logs}");
@@ -652,10 +650,7 @@ fn a_failure_for_a_scan_that_is_no_longer_tracked_is_still_logged() {
     let mut t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_transfer_event(TransferEvent::PlanFailed {
-            batch_id: 99,
-            message: "Copy failed: gone".to_string(),
-        });
+        t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id: 99, message: "Copy failed: gone".into() });
     });
 
     assert_eq!(error_lines(&logs), 1, "{logs}");
@@ -667,10 +662,7 @@ fn a_failure_for_a_job_that_no_longer_exists_is_still_logged() {
     let mut t = test_engine();
 
     let logs = crate::engine::testing::capture_logs(|| {
-        t.engine.handle_transfer_event(TransferEvent::Failed {
-            id: 4242,
-            message: "Transfer failed: vanished".to_string(),
-        });
+        t.engine.handle_transfer_event(TransferEvent::Failed { id: 4242, message: "Transfer failed: vanished".into() });
     });
 
     assert_eq!(error_lines(&logs), 1, "{logs}");

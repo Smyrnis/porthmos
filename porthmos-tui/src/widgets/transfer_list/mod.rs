@@ -1,6 +1,5 @@
 pub mod advice;
 
-use porthmos_core::Message;
 use porthmos_core::i18n;
 use porthmos_core::transfer::{
     Direction,
@@ -220,14 +219,9 @@ fn bar_spans(row: &QueueRow, theme: &Theme) -> Vec<Span<'static>> {
     ]
 }
 
-fn error_part(message: &str) -> String {
-    let message = Message::parse(message);
-    message.cause().unwrap_or_else(|| message.summary()).to_string()
-}
-
 fn detail_lines(row: &QueueRow, failed_time: Option<&str>, width: usize, theme: &Theme) -> Vec<Line<'static>> {
     let Some(failure) = &row.failure else { return Vec::new() };
-    let error = error_part(&failure.message);
+    let error = failure.message.cause().unwrap_or_else(|| failure.message.summary()).to_string();
     let time = failed_time.map(|time| format!(" \u{b7} {time}")).unwrap_or_default();
     let outcome = match failure.attempts {
         0 => i18n::text("queue.did_not_start"),

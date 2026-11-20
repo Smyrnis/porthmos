@@ -101,7 +101,7 @@ fn the_body_builds_for_every_outcome() {
 
 #[test]
 fn a_failure_message_reads_on_one_line_without_question_marks() {
-    let text = failed_text("Comparison failed: a.txt:\nsession disconnected");
+    let text = failed_text(&"Comparison failed: a.txt:\nsession disconnected".into());
 
     assert_eq!(text, "Comparison failed: a.txt: session disconnected");
     assert!(!text.contains('?'));
@@ -109,7 +109,21 @@ fn a_failure_message_reads_on_one_line_without_question_marks() {
 
 #[test]
 fn a_failure_message_never_carries_control_characters() {
-    let text = failed_text("bad \u{1b}[2J name\u{7}");
+    let text = failed_text(&"bad \u{1b}[2J name\u{7}".into());
 
     assert!(!text.chars().any(char::is_control), "{text:?}");
+}
+
+#[test]
+fn a_failure_with_a_cause_reads_as_the_summary_then_the_cause() {
+    let message = porthmos_core::Message::with_cause("Could not compare a.txt", &"denied");
+
+    assert_eq!(failed_text(&message), "Could not compare a.txt: denied");
+}
+
+#[test]
+fn a_cause_with_an_escape_sequence_is_drawn_printable() {
+    let message = porthmos_core::Message::with_cause("Could not compare", &"\u{1b}[2Jgone");
+
+    assert!(!failed_text(&message).chars().any(char::is_control));
 }

@@ -2,6 +2,7 @@ use iced::widget::scrollable::{Direction, Scrollbar};
 use iced::widget::text::Wrapping;
 use iced::widget::{column, container, row, scrollable, space, text};
 use iced::{Element, Font, Length};
+use porthmos_core::edit::printable;
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
 
@@ -53,6 +54,10 @@ fn rows_view<'a>(
         .into()
 }
 
+fn failure_text(message: &porthmos_core::Message) -> String {
+    message.to_string().lines().map(printable).collect::<Vec<_>>().join("\n")
+}
+
 fn notice<'a>(text: String, color: iced::Color, height: f32) -> Element<'a, Message> {
     container(label(text, color)).padding(12).width(Length::Fill).height(Length::Fixed(height)).into()
 }
@@ -65,7 +70,7 @@ pub fn pane<'a>(app: &'a App, state: &'a SearchPreview, height: f32) -> Element<
         }
         SearchPreview::File(file) => match file.status() {
             PreviewStatus::Loading => notice(tr("Loading…"), palette.fg_dim, height),
-            PreviewStatus::Failed(message) => notice(message.clone(), palette.err, height),
+            PreviewStatus::Failed(message) => notice(failure_text(message), palette.err, height),
             PreviewStatus::Ready(_) => rows_view(
                 file,
                 palette,
@@ -86,7 +91,7 @@ pub fn body<'a>(app: &'a App, state: &'a PreviewState) -> Element<'a, Message> {
     let viewport = preview_list_height(app.window_size());
     let content: Element<'a, Message> = match state.status() {
         PreviewStatus::Loading => notice(tr("Loading…"), palette.fg_dim, viewport),
-        PreviewStatus::Failed(message) => notice(message.clone(), palette.err, viewport),
+        PreviewStatus::Failed(message) => notice(failure_text(message), palette.err, viewport),
         PreviewStatus::Ready(_) => rows_view(
             state,
             palette,

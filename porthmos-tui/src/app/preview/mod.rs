@@ -1,6 +1,7 @@
 use porthmos_core::i18n;
 use std::sync::Arc;
 
+use porthmos_core::Message;
 use porthmos_core::preview::{Preview, PreviewSlot};
 
 use super::*;
@@ -33,7 +34,7 @@ impl App {
         }
     }
 
-    pub(super) fn apply_preview_ready(&mut self, request_id: RequestId, result: Result<Arc<Preview>, String>) {
+    pub(super) fn apply_preview_ready(&mut self, request_id: RequestId, result: Result<Arc<Preview>, Message>) {
         if request_id != self.next_preview_id {
             return;
         }

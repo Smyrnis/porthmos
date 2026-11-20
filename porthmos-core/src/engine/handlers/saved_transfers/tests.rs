@@ -138,7 +138,7 @@ async fn a_job_that_had_failed_for_another_reason_keeps_that_reason() {
 
     t.engine.restore_unfinished_transfers();
 
-    assert_eq!(all_jobs(&t)[0].status, JobStatus::Failed("permission denied".to_string()));
+    assert_eq!(all_jobs(&t)[0].status, JobStatus::Failed("permission denied".into()));
 }
 
 #[tokio::test]
@@ -252,10 +252,7 @@ async fn restoring_publishes_the_rows_to_the_front_ends() {
         .expect("a transfers snapshot");
     assert_eq!(snapshot.rows.len(), 1);
     assert_eq!(snapshot.rows[0].state, RowState::Failed);
-    assert_eq!(
-        snapshot.rows[0].failure.as_ref().map(|failure| failure.message.as_str()),
-        Some(interrupted_reason().as_str())
-    );
+    assert_eq!(snapshot.rows[0].failure.as_ref().map(|failure| failure.message.clone()), Some(interrupted_reason()));
 }
 
 #[tokio::test]
@@ -392,7 +389,7 @@ async fn a_restored_job_nobody_touched_is_saved_again_with_its_reason() {
 
     let saved = saved_on_disk(&t);
     assert_eq!(saved.len(), 2);
-    assert_eq!(saved[0].failure.as_deref(), Some(interrupted_reason().as_str()));
+    assert_eq!(saved[0].failure.as_deref(), Some(interrupted_reason().to_string().as_str()));
     assert_eq!(saved[1].failure.as_deref(), Some("permission denied"));
     assert!(saved.iter().all(|job| job.connection == "srv"));
 }
@@ -544,7 +541,7 @@ async fn a_job_that_fails_is_saved_with_its_failure() {
     let id = enqueue_upload(&mut t, session, "queued.bin", None);
     t.engine.publish_transfers();
 
-    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed("Permission denied".to_string());
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed("Permission denied".into());
     t.engine.publish_transfers();
 
     assert_eq!(saved_on_disk(&t)[0].failure.as_deref(), Some("Permission denied"));
@@ -760,4 +757,68 @@ async fn a_restored_download_move_removes_its_emptied_folders_once_the_jobs_are_
     t.settle().await;
 
     assert!(!remote.exists("/srv/photos"));
+}
+
+#[tokio::test]
+async fn a_file_from_the_current_release_restores_its_failure() {
+    let mut t = test_engine();
+    let mut with_cause = saved_job("srv", "a.bin", Direction::Upload);
+    with_cause.failure = Some("Could not copy a.bin:\ndisk full".to_string());
+    let mut plain = saved_job("srv", "b.bin", Direction::Upload);
+    plain.failure = Some("Session disconnected".to_string());
+    write_saved(&t, &[with_cause, plain, saved_job("srv", "c.bin", Direction::Upload)]);
+
+    t.engine.restore_unfinished_transfers();
+
+    let jobs = all_jobs(&t);
+    let failures: Vec<&crate::Message> = jobs
+        .iter()
+        .map(|job| match &job.status {
+            JobStatus::Failed(message) => message,
+            other => panic!("expected a failed job, got {other:?}"),
+        })
+        .collect();
+    assert_eq!((failures[0].summary(), failures[0].cause()), ("Could not copy a.bin", Some("disk full")));
+    assert_eq!((failures[1].summary(), failures[1].cause()), ("Session disconnected", None));
+    assert_eq!(*failures[2], interrupted_reason());
+}
+
+#[tokio::test]
+async fn a_failed_job_comes_back_equal_after_save_and_restore() {
+    let mut t = test_engine();
+    let (session, _) = t.add_session("srv");
+    ready_to_save(&mut t);
+    let id = enqueue_upload(&mut t, session, "a.bin", None);
+    let failure = crate::error::failure_report("Could not copy a.bin", &"disk full");
+    t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed(failure.clone());
+    t.engine.publish_transfers();
+    let saved = saved_on_disk(&t);
+
+    let mut restarted = test_engine();
+    write_saved(&restarted, &saved);
+    restarted.engine.restore_unfinished_transfers();
+
+    assert_eq!(all_jobs(&restarted)[0].status, JobStatus::Failed(failure));
+}
+
+#[tokio::test]
+async fn a_failure_text_with_line_breaks_restores_as_the_same_text() {
+    let mut t = test_engine();
+    let mut multi_line = saved_job("srv", "a.bin", Direction::Upload);
+    multi_line.failure = Some("copied, but the original couldn't be removed: 550-a\n550 b".to_string());
+    let mut odd_summary = saved_job("srv", "b.bin", Direction::Upload);
+    odd_summary.failure = Some("Transfer failed: b\nname:\nerr".to_string());
+    write_saved(&t, &[multi_line, odd_summary]);
+
+    t.engine.restore_unfinished_transfers();
+
+    let texts: Vec<String> = all_jobs(&t)
+        .iter()
+        .map(|job| match &job.status {
+            JobStatus::Failed(message) => message.to_string(),
+            other => panic!("expected a failed job, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(texts[0], "copied, but the original couldn't be removed: 550-a\n550 b");
+    assert_eq!(texts[1], "Transfer failed: b\nname:\nerr");
 }

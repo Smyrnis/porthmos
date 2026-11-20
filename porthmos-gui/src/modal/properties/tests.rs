@@ -52,9 +52,9 @@ fn progress_then_the_result_replace_the_measure_state() {
 fn a_failed_measure_keeps_its_text() {
     let mut pane = pane_for(&[]);
 
-    pane.set_measured(Err("Could not measure the selection:\nreset".to_string()));
+    pane.set_measured(Err("Could not measure the selection:\nreset".into()));
 
-    assert_eq!(pane.measure, MeasurePane::Failed("Could not measure the selection:\nreset".to_string()));
+    assert_eq!(pane.measure, MeasurePane::Failed("Could not measure the selection:\nreset".into()));
 }
 
 #[test]
@@ -179,9 +179,21 @@ fn only_a_finished_digest_can_be_copied() {
     let mut pane = pane_for(&["a.iso", "b.iso"]);
     pane.begin_checksums();
     pane.set_checksum(&path("a.iso"), Ok(digest()));
-    pane.set_checksum(&path("b.iso"), Err("x".to_string()));
+    pane.set_checksum(&path("b.iso"), Err("x".into()));
 
     assert_eq!(pane.digest_text(0), Some(ABC.to_string()));
     assert_eq!(pane.digest_text(1), None);
     assert_eq!(pane.digest_text(7), None);
+}
+
+#[test]
+fn a_failed_checksum_keeps_its_summary_and_cause() {
+    let mut pane = pane_for(&["a.iso"]);
+    pane.set_measured(Ok(measured()));
+    pane.begin_checksums();
+    let message = porthmos_core::Message::with_cause("Could not read the file", &"Permission denied");
+
+    pane.set_checksum(&path("a.iso"), Err(message.clone()));
+
+    assert_eq!(pane.files[0].state, HashState::Failed(message));
 }

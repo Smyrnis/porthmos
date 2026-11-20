@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditChoice, EditQuestionKind, EditorCommand, EditorExit};
-use porthmos_core::{Command, Severity};
+use porthmos_core::{Command, Message, Severity};
 
 use super::App;
 use crate::editing::CommandSpec;
@@ -132,7 +132,7 @@ impl App {
         self.core.send(Command::ShowEditDiff { edit_id });
     }
 
-    pub(in crate::app) fn edit_diff_ready(&mut self, edit_id: u64, result: Result<Arc<DiffOutcome>, String>) {
+    pub(in crate::app) fn edit_diff_ready(&mut self, edit_id: u64, result: Result<Arc<DiffOutcome>, Message>) {
         let Some(Modal::EditQuestion { edit_id: shown, diff, .. }) = self.modals.front_mut() else {
             return;
         };

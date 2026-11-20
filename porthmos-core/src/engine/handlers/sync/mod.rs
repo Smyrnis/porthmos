@@ -11,8 +11,9 @@ use porthmos_vfs::{ErrorKind, FileKind, FileSystem, ProtocolError, VfsPath};
 
 use super::super::{Engine, Event, Internal, PlanningScan, TransferEvent};
 use crate::{
-    Location, Severity,
+    Location, Message, Severity,
     delete_prompt::this_computer,
+    failure_report,
     sync::{self, SyncAction, SyncDirection, SyncItem, SyncOptions, SyncPlan, SyncReason, scan::scan_both},
     tasks::Scope,
     transfer::{
@@ -21,7 +22,6 @@ use crate::{
         plan::{DirectoryPlan, ExistingFile, PlannedFile, ensure_directory},
         rows::RowKind,
     },
-    user_message,
 };
 
 const NAMED_UNREADABLE_FOLDERS: usize = 3;
@@ -299,7 +299,7 @@ impl Engine {
                 Ok(None) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    TransferEvent::SyncFailed { batch_id, message: user_message(i18n::text("sync.failed"), &err) }
+                    TransferEvent::SyncFailed { batch_id, message: failure_report(i18n::text("sync.failed"), &err) }
                 }
             };
             let _ = internal.send(Internal::Transfer(event));
@@ -542,7 +542,7 @@ impl Engine {
                 Ok(false) => TransferEvent::SyncCancelled { batch_id },
                 Err(err) => {
                     tracing::debug!("{err:?}");
-                    TransferEvent::SyncFailed { batch_id, message: user_message(i18n::text("sync.failed"), &err) }
+                    TransferEvent::SyncFailed { batch_id, message: failure_report(i18n::text("sync.failed"), &err) }
                 }
             };
             let _ = internal.send(Internal::Transfer(event));
@@ -587,7 +587,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn sync_failed(&mut self, batch_id: u64, message: String) {
+    pub(crate) fn sync_failed(&mut self, batch_id: u64, message: Message) {
         self.sync.scanning.remove(&batch_id);
         self.finish_pending_deletions(batch_id, false);
         self.clear_planning(batch_id);

@@ -37,3 +37,12 @@ fn the_overlay_is_present_while_a_preview_loads() {
 
     assert!(overlay(&harness.app).is_some());
 }
+
+#[test]
+fn a_preview_failure_keeps_its_lines_but_loses_control_characters() {
+    let message = porthmos_core::Message::with_cause("Could not preview", &"\u{1b}[2Jgone");
+
+    let text = super::failure_text(&message);
+
+    assert_eq!(text, "Could not preview:\n?[2Jgone");
+}

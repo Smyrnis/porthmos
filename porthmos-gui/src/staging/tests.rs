@@ -147,7 +147,7 @@ fn a_failed_row_marks_the_staging_failed() {
     let mut staging = staging_with(parent.path(), &["a"]);
     staging.remember(&snapshot(vec![row(RowKind::Single(9), RowState::Failed)]));
     let mut failed = row(RowKind::Batch(1), RowState::Failed);
-    failed.failure = Some(RowFailure { file: "a".to_string(), message: "permission denied".to_string(), attempts: 3 });
+    failed.failure = Some(RowFailure { file: "a".to_string(), message: "permission denied".into(), attempts: 3 });
 
     let broken = snapshot(vec![row(RowKind::Single(9), RowState::Failed), failed]);
     let message = staging.failure(&broken).expect("a failed row fails the staging");

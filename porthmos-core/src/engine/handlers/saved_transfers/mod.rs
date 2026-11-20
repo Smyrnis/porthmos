@@ -10,7 +10,7 @@ use porthmos_vfs::VfsPath;
 
 use super::{super::Engine, MoveBatch};
 use crate::{
-    Severity,
+    Message, Severity,
     persist::{Loaded, write_atomic},
     transfer::{
         JobStatus,
@@ -174,8 +174,13 @@ impl Engine {
         let Some(mut job) = self.transfers.get_mut(id) else {
             return;
         };
-        job.status =
-            JobStatus::Failed(saved.failure.clone().unwrap_or_else(crate::transfer::saved::interrupted_reason));
+        job.status = JobStatus::Failed(
+            saved
+                .failure
+                .as_deref()
+                .map(Message::from_display)
+                .unwrap_or_else(crate::transfer::saved::interrupted_reason),
+        );
         job.attempts = 1;
         job.resume = true;
         job.transferred_bytes = saved.transferred_bytes;

@@ -32,7 +32,7 @@ fn row(id: u64, label: &str, direction: Direction, bytes: (u64, u64), state: Row
 }
 
 fn failure(file: &str, message: &str, attempts: u32) -> Option<RowFailure> {
-    Some(RowFailure { file: file.to_string(), message: message.to_string(), attempts })
+    Some(RowFailure { file: file.to_string(), message: message.into(), attempts })
 }
 
 struct Fixture {
@@ -453,6 +453,28 @@ fn the_detail_shows_only_the_error_part_of_a_real_failure_message_and_advises_fr
     );
     assert!(!everything(&terminal).contains("Transfer failed"));
     assert!(!row_string(&terminal, 10).contains('?'));
+}
+
+#[test]
+fn a_failure_keeps_the_cause_for_the_detail_line_and_drops_the_summary() {
+    let message = porthmos_core::Message::with_cause("Transfer failed: dir/quota.xlsx", &"Connection reset by peer");
+    let failure = Some(RowFailure { file: "quota.xlsx".to_string(), message, attempts: 2 });
+
+    let terminal = failed_fixture(failure, 100);
+
+    assert!(row_string(&terminal, 10).starts_with("Connection reset by peer"), "{:?}", row_string(&terminal, 10));
+    assert!(!everything(&terminal).contains("Transfer failed"));
+}
+
+#[test]
+fn a_cause_with_several_lines_shows_all_of_them_on_the_detail_line() {
+    let message = porthmos_core::Message::with_cause("Transfer failed: a.bin", &"first line\nsecond line");
+    let failure = Some(RowFailure { file: "a.bin".to_string(), message, attempts: 2 });
+
+    let terminal = failed_fixture(failure, 100);
+
+    let line = row_string(&terminal, 10);
+    assert!(line.contains("first line") && line.contains("second line"), "{line:?}");
 }
 
 #[test]

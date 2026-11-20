@@ -291,7 +291,7 @@ async fn a_source_that_cannot_be_removed_fails_the_job_and_keeps_the_copy() {
     assert!(local(&t, "sealed/a.txt").exists());
     let job = t.engine.transfers.jobs().next().unwrap();
     assert!(
-        matches!(&job.status, JobStatus::Failed(message) if message.contains("couldn't be removed")),
+        matches!(&job.status, JobStatus::Failed(message) if message.to_string().contains("couldn't be removed")),
         "{:?}",
         job.status
     );
@@ -418,7 +418,7 @@ async fn a_copy_of_another_size_keeps_the_source() {
         .await
         .unwrap_err();
 
-    assert!(error.contains("doesn't match"), "{error}");
+    assert!(error.to_string().contains("doesn't match"), "{error}");
     assert!(source.exists("/s/a.txt"));
 }
 
@@ -835,7 +835,7 @@ async fn a_session_lost_before_the_original_is_removed_fails_the_job_and_keeps_b
 
     let job = t.engine.transfers.get(id).unwrap();
     assert!(
-        matches!(&job.status, JobStatus::Failed(message) if message.contains("session disconnected")),
+        matches!(&job.status, JobStatus::Failed(message) if message.to_string().contains("session disconnected")),
         "{:?}",
         job.status
     );
@@ -889,7 +889,57 @@ fn a_failed_scan_forgets_its_move() {
     let (session, _remote) = t.add_session("srv");
     let batch_id = move_batch(&mut t, session, Vec::new());
 
-    t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: "no".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: "no".into() });
 
     assert!(t.engine.work.moves.is_empty());
+}
+
+#[test]
+fn a_failed_source_removal_keeps_the_original_and_shows_the_cause() {
+    let mut t = test_engine();
+    let id = t.engine.transfers.enqueue(
+        1,
+        crate::transfer::Direction::Upload,
+        VfsPath::from("/local/a.txt"),
+        "/remote/a.txt".to_string(),
+        "a.txt".to_string(),
+        10,
+        None,
+    );
+
+    t.engine.handle_transfer_event(TransferEvent::SourceRemovalFailed {
+        id,
+        message: crate::Message::new("permission denied"),
+    });
+
+    assert_eq!(
+        t.engine.transfers.get(id).unwrap().status,
+        JobStatus::Failed(crate::Message::from("copied, but the original couldn't be removed: permission denied"))
+    );
+    assert_eq!(
+        t.first_notice(),
+        Some((Severity::Error, "Copied a.txt, but couldn't remove the original: permission denied".to_string()))
+    );
+}
+
+#[test]
+fn a_multi_line_server_error_is_shown_unchanged_in_the_failed_removal_status() {
+    let mut t = test_engine();
+    let id = t.engine.transfers.enqueue(
+        1,
+        crate::transfer::Direction::Upload,
+        VfsPath::from("/local/a.txt"),
+        "/remote/a.txt".to_string(),
+        "a.txt".to_string(),
+        10,
+        None,
+    );
+
+    t.engine
+        .handle_transfer_event(TransferEvent::SourceRemovalFailed { id, message: crate::Message::new("550-a\n550 b") });
+
+    let JobStatus::Failed(status) = &t.engine.transfers.get(id).unwrap().status else {
+        panic!("the job should have failed");
+    };
+    assert_eq!(status.to_string(), "copied, but the original couldn't be removed: 550-a\n550 b");
 }

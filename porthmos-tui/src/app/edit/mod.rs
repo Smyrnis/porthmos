@@ -6,6 +6,7 @@ use std::{
 
 use std::sync::Arc;
 
+use porthmos_core::Message;
 use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditorCommand, EditorExit};
 
@@ -170,7 +171,7 @@ impl App {
         }
     }
 
-    pub(super) fn apply_edit_diff(&mut self, edit_id: u64, result: Result<Arc<DiffOutcome>, String>) {
+    pub(super) fn apply_edit_diff(&mut self, edit_id: u64, result: Result<Arc<DiffOutcome>, Message>) {
         let waiting = matches!(self.pending_action, Some(PendingAction::EditComparing { edit_id: waiting }) if waiting == edit_id)
             && matches!(self.dialog, Some(Dialog::Message(_)));
         if !waiting {
@@ -186,7 +187,7 @@ impl App {
                 self.dialog = None;
                 self.pending_action = None;
                 self.ask_open_edit_question_again();
-                self.error(message);
+                self.error(message.to_string());
                 self.open_next_edit_question();
             }
         }

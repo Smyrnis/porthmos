@@ -265,7 +265,7 @@ fn plan_failed_clears_planning_and_shows_an_error() {
 
     t.engine.handle_transfer_event(TransferEvent::PlanFailed {
         batch_id,
-        message: "Copy failed: permission denied".to_string(),
+        message: "Copy failed: permission denied".into(),
     });
 
     assert!(t.engine.work.planning.is_empty());
@@ -456,7 +456,7 @@ fn a_failed_event_consumes_its_cancel_mark_and_requeues_within_the_retry_limit()
     mark_active(&mut t, job);
     t.engine.transfers.get_mut(job).unwrap().attempts = 1;
 
-    t.engine.handle_transfer_event(TransferEvent::Failed { id: job, message: "Transfer failed: a.txt".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::Failed { id: job, message: "Transfer failed: a.txt".into() });
 
     assert!(!t.engine.tasks.take_cancelled(Scope::Transfer(job)));
     assert!(
@@ -471,7 +471,7 @@ fn a_cancelled_job_that_ends_in_an_error_is_not_retried() {
     mark_active(&mut t, job);
     t.engine.tasks.cancel(Scope::Transfer(job));
 
-    t.engine.handle_transfer_event(TransferEvent::Failed { id: job, message: "Transfer failed: a.txt".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::Failed { id: job, message: "Transfer failed: a.txt".into() });
 
     assert_eq!(t.engine.transfers.get(job).unwrap().status, JobStatus::Cancelled);
     assert!(t.first_notice().is_none());
@@ -486,8 +486,7 @@ fn a_permanent_failure_of_the_last_pending_job_refreshes_the_destination() {
     mark_active(&mut t, failing);
     t.engine.transfers.get_mut(failing).unwrap().attempts = 3;
 
-    t.engine
-        .handle_transfer_event(TransferEvent::Failed { id: failing, message: "Transfer failed: bad.txt".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::Failed { id: failing, message: "Transfer failed: bad.txt".into() });
 
     assert!(local_changed(&t.drain()));
 }
@@ -550,10 +549,7 @@ fn plan_failed_and_cancelled_forget_the_batch_label() {
     let failed = t.engine.transfers.start_batch("one".to_string());
     let cancelled = t.engine.transfers.start_batch("two".to_string());
 
-    t.engine.handle_transfer_event(TransferEvent::PlanFailed {
-        batch_id: failed,
-        message: "Copy failed: boom".to_string(),
-    });
+    t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id: failed, message: "Copy failed: boom".into() });
     t.engine.handle_transfer_event(TransferEvent::PlanCancelled {
         batch_id: cancelled,
         session_id: 1,
@@ -823,14 +819,14 @@ fn cancel_on_a_finished_row_does_nothing() {
 fn retry_on_a_disconnected_session_shows_one_warning_and_leaves_the_files() {
     let mut t = test_engine();
     let batch = t.engine.transfers.start_batch("photos".to_string());
-    let failed = add_job(&mut t, "a", Some(batch), JobStatus::Failed("boom".to_string()));
+    let failed = add_job(&mut t, "a", Some(batch), JobStatus::Failed("boom".into()));
     t.engine.transfers.get_mut(failed).unwrap().attempts = 3;
     let cancelled = add_job(&mut t, "b", Some(batch), JobStatus::Cancelled);
 
     t.engine.retry_row(RowKind::Batch(batch));
 
     let job = t.engine.transfers.get(failed).unwrap();
-    assert_eq!((job.status.clone(), job.attempts), (JobStatus::Failed("boom".to_string()), 3));
+    assert_eq!((job.status.clone(), job.attempts), (JobStatus::Failed("boom".into()), 3));
     assert_eq!(t.engine.transfers.get(cancelled).unwrap().status, JobStatus::Cancelled);
     assert_eq!(t.notices(), vec![(Severity::Warning, "Can't retry: reconnect to unknown first".to_string())]);
 }
@@ -838,7 +834,7 @@ fn retry_on_a_disconnected_session_shows_one_warning_and_leaves_the_files() {
 fn failed_partial_upload(t: &mut TestEngine, session_id: u64, name: &str) -> u64 {
     let id = enqueue_job(t, session_id, name, None);
     let mut job = t.engine.transfers.get_mut(id).unwrap();
-    job.status = JobStatus::Failed("session closed".to_string());
+    job.status = JobStatus::Failed("session closed".into());
     job.transferred_bytes = 5;
     id
 }
@@ -870,7 +866,7 @@ fn retry_names_the_connection_to_reconnect_when_none_is_live() {
 
     t.engine.retry_row(RowKind::Single(failed));
 
-    assert_eq!(t.engine.transfers.get(failed).unwrap().status, JobStatus::Failed("session closed".to_string()));
+    assert_eq!(t.engine.transfers.get(failed).unwrap().status, JobStatus::Failed("session closed".into()));
     let warnings: Vec<String> = t
         .notices()
         .into_iter()
@@ -895,7 +891,7 @@ fn a_batch_where_every_file_fails_raises_one_error_not_one_per_file() {
     for (n, id) in ids.iter().enumerate() {
         t.engine.handle_transfer_event(TransferEvent::Failed {
             id: *id,
-            message: format!("Transfer failed: f{n}.txt:\nPermission denied"),
+            message: format!("Transfer failed: f{n}.txt:\nPermission denied").into(),
         });
     }
 
@@ -910,6 +906,44 @@ fn a_batch_where_every_file_fails_raises_one_error_not_one_per_file() {
     assert!(errors[0].contains("Permission denied"), "{}", errors[0]);
 }
 
+fn batch_error_after_failing_two_files(cause: crate::Message) -> String {
+    let mut t = test_engine();
+    let batch = t.engine.transfers.start_batch("pair".to_string());
+    let ids: Vec<u64> = (0..2).map(|n| enqueue_job(&mut t, 999, &format!("f{n}.txt"), Some(batch))).collect();
+    for id in &ids {
+        mark_active(&mut t, *id);
+        t.engine.transfers.get_mut(*id).unwrap().attempts = 3;
+    }
+    t.drain();
+    for id in &ids {
+        t.engine.handle_transfer_event(TransferEvent::Failed { id: *id, message: cause.clone() });
+    }
+    let errors: Vec<String> = t
+        .notices()
+        .into_iter()
+        .filter(|(severity, _)| *severity == Severity::Error)
+        .map(|(_, message)| message)
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    errors.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_failed_batch_notice_names_only_the_last_line_of_a_long_cause() {
+    let notice =
+        batch_error_after_failing_two_files(crate::error::failure_report("Transfer failed: f0.txt", &"alpha\nomega"));
+
+    assert!(notice.contains("omega"), "{notice}");
+    assert!(!notice.contains("alpha"), "{notice}");
+}
+
+#[test]
+fn a_failure_with_no_cause_names_its_summary_in_the_batch_notice() {
+    let notice = batch_error_after_failing_two_files(crate::Message::new("Session disconnected"));
+
+    assert!(notice.contains("Session disconnected"), "{notice}");
+}
+
 #[test]
 fn retry_does_not_reuse_a_session_that_is_still_listed_but_lost() {
     let mut t = test_engine();
@@ -921,7 +955,7 @@ fn retry_does_not_reuse_a_session_that_is_still_listed_but_lost() {
     t.engine.retry_row(RowKind::Single(failed));
 
     assert_eq!(t.engine.transfers.get(failed).unwrap().session_id, lost);
-    assert_eq!(t.engine.transfers.get(failed).unwrap().status, JobStatus::Failed("session closed".to_string()));
+    assert_eq!(t.engine.transfers.get(failed).unwrap().status, JobStatus::Failed("session closed".into()));
     assert_eq!(t.notices(), vec![(Severity::Warning, "Can't retry: reconnect to alpha first".to_string())]);
 }
 
@@ -946,7 +980,7 @@ async fn retry_leaves_the_queue_and_the_row_route_consistent_after_moving_sessio
     let first = enqueue_job(&mut t, old_session, "a", Some(batch));
     let second = enqueue_job(&mut t, old_session, "b", Some(batch));
     for id in [first, second] {
-        t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed("session closed".to_string());
+        t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Failed("session closed".into());
     }
     t.engine.disconnect(old_session);
     let (new_session, _) = t.add_session("alpha");
@@ -971,10 +1005,8 @@ fn a_batch_that_was_a_move_says_so_in_its_failure_summary() {
     t.drain();
 
     for id in &ids {
-        t.engine.handle_transfer_event(TransferEvent::Failed {
-            id: *id,
-            message: "Transfer failed: f:\nDisk full".to_string(),
-        });
+        t.engine
+            .handle_transfer_event(TransferEvent::Failed { id: *id, message: "Transfer failed: f:\nDisk full".into() });
     }
 
     let notices = t.notices();
@@ -992,7 +1024,7 @@ async fn retry_points_a_move_batch_at_the_reconnected_session() {
         .moves
         .insert(batch, MoveBatch { session_id: old_session, direction: Direction::Upload, roots: Vec::new() });
     let failed = enqueue_job(&mut t, old_session, "a", Some(batch));
-    t.engine.transfers.get_mut(failed).unwrap().status = JobStatus::Failed("session closed".to_string());
+    t.engine.transfers.get_mut(failed).unwrap().status = JobStatus::Failed("session closed".into());
     t.engine.disconnect(old_session);
     let (new_session, _) = t.add_session("alpha");
 
@@ -1019,7 +1051,7 @@ fn retry_leaves_running_jobs_alone() {
     let batch = t.engine.transfers.start_batch("photos".to_string());
     let running = add_job(&mut t, "a", Some(batch), JobStatus::InProgress);
     t.engine.transfers.get_mut(running).unwrap().attempts = 1;
-    add_job(&mut t, "b", Some(batch), JobStatus::Failed("boom".to_string()));
+    add_job(&mut t, "b", Some(batch), JobStatus::Failed("boom".into()));
 
     t.engine.retry_row(RowKind::Batch(batch));
 
@@ -1033,7 +1065,7 @@ fn clear_removes_only_finished_rows() {
     let done = add_job(&mut t, "a", None, JobStatus::Completed);
     let running = add_job(&mut t, "b", None, JobStatus::InProgress);
     let batch = t.engine.transfers.start_batch("photos".to_string());
-    let failed_in_batch = add_job(&mut t, "c", Some(batch), JobStatus::Failed("boom".to_string()));
+    let failed_in_batch = add_job(&mut t, "c", Some(batch), JobStatus::Failed("boom".into()));
 
     t.engine.clear_finished_rows();
 
@@ -1061,7 +1093,7 @@ fn clearing_removes_partials_only_of_cancelled_and_failed_downloads() {
     let mut t = test_engine();
     for (name, status) in [
         ("cancelled.bin", JobStatus::Cancelled),
-        ("failed.bin", JobStatus::Failed("boom".to_string())),
+        ("failed.bin", JobStatus::Failed("boom".into())),
         ("done.bin", JobStatus::Completed),
         ("queued.bin", JobStatus::Queued),
     ] {

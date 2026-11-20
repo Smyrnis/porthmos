@@ -9,7 +9,7 @@ use porthmos_vfs::{Entry, ErrorKind, FileKind, FileSystem, ProtocolError, VfsPat
 
 use super::super::{Engine, Event, Internal, Location, TransferEvent};
 use crate::{
-    Severity,
+    Message, Severity,
     tasks::Scope,
     transfer::{
         Direction, JobStatus,
@@ -26,20 +26,20 @@ pub(crate) struct MoveBatch {
 
 pub(crate) async fn remove_copied_source(
     source: &dyn FileSystem, source_path: &VfsPath, destination: &dyn FileSystem, destination_path: &VfsPath,
-) -> Result<(), String> {
+) -> Result<(), Message> {
     let original = match source.stat(source_path).await {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err.to_string()),
+        Err(err) => return Err(Message::new(err.to_string())),
     };
     let copy = destination
         .stat(destination_path)
         .await
-        .map_err(|err| i18n::text_with("moves.copy_unchecked", &[("cause", &err.to_string())]))?;
+        .map_err(|err| Message::new(i18n::text_with("moves.copy_unchecked", &[("cause", &err.to_string())])))?;
     if copy.is_dir() || copy.size != original.size {
-        return Err(i18n::text("moves.copy_mismatch"));
+        return Err(Message::new(i18n::text("moves.copy_mismatch")));
     }
-    source.remove_file(source_path).await.map_err(|err| err.to_string())
+    source.remove_file(source_path).await.map_err(|err| Message::new(err.to_string()))
 }
 
 pub(crate) async fn remove_emptied_directories(fs: &dyn FileSystem, roots: &[VfsPath]) -> usize {
@@ -162,7 +162,7 @@ impl Engine {
         let (session_id, direction) = (job.session_id, job.direction);
         let (source_path, destination_path) = job.source_and_destination();
         let Some((source, destination)) = self.filesystems_for(session_id, direction) else {
-            return self.source_removal_failed(id, i18n::text("moves.session_gone"));
+            return self.source_removal_failed(id, Message::new(i18n::text("moves.session_gone")));
         };
         self.work.source_removals.insert(id);
         let internal = self.internal.clone();
@@ -204,7 +204,7 @@ impl Engine {
         self.moved_job_settled(id);
     }
 
-    pub(crate) fn source_removal_failed(&mut self, id: u64, message: String) {
+    pub(crate) fn source_removal_failed(&mut self, id: u64, message: Message) {
         self.tasks.forget(Scope::Transfer(id));
         self.work.source_removals.remove(&id);
         self.work.pause_stops.remove(&id);
@@ -213,11 +213,13 @@ impl Engine {
         };
         job.paused = false;
         let name = job.display_name.clone();
-        job.status = JobStatus::Failed(i18n::text_with("moves.original_kept_status", &[("cause", &message)]));
+        let cause = message.to_string();
+        job.status =
+            JobStatus::Failed(Message::new(i18n::text_with("moves.original_kept_status", &[("cause", &cause)])));
         drop(job);
         self.announce(
             Severity::Error,
-            i18n::text_with("moves.original_kept_notice", &[("name", &name), ("cause", &message)]),
+            i18n::text_with("moves.original_kept_notice", &[("name", &name), ("cause", &cause)]),
         );
         self.moved_job_settled(id);
     }

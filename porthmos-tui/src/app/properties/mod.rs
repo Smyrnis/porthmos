@@ -1,6 +1,6 @@
 use porthmos_core::i18n;
 use porthmos_core::{
-    Command, RequestId, VfsPath,
+    Command, Message, RequestId, VfsPath,
     properties::{Digest, Measured},
 };
 
@@ -72,7 +72,7 @@ impl App {
         }
     }
 
-    pub(super) fn apply_measured(&mut self, request_id: RequestId, result: Result<Measured, String>) {
+    pub(super) fn apply_measured(&mut self, request_id: RequestId, result: Result<Measured, Message>) {
         if let Some(dialog) = self.properties_dialog_for(request_id) {
             dialog.set_measured(result);
         }
@@ -84,7 +84,7 @@ impl App {
         }
     }
 
-    pub(super) fn apply_checksummed(&mut self, request_id: RequestId, path: &VfsPath, result: Result<Digest, String>) {
+    pub(super) fn apply_checksummed(&mut self, request_id: RequestId, path: &VfsPath, result: Result<Digest, Message>) {
         if let Some(dialog) = self.properties_dialog_for(request_id) {
             dialog.set_checksum(path, result);
         }

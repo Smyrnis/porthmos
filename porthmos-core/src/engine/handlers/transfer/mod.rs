@@ -12,7 +12,7 @@ use super::{
     MoveBatch, without_symlinks,
 };
 use crate::{
-    Severity,
+    Message, Severity, failure_report,
     tasks::Scope,
     transfer::{
         self, Direction, JobStatus, TransferJob, TransferOutcome,
@@ -21,7 +21,6 @@ use crate::{
         plan::{DirectoryPlan, PlanOutcome},
         rows::{QueueRow, RowKind},
     },
-    user_message,
 };
 
 impl Engine {
@@ -103,7 +102,7 @@ impl Engine {
                     tracing::debug!("{err:?}");
                     TransferEvent::PlanFailed {
                         batch_id,
-                        message: user_message(i18n::text(&format!("transfer.plan_failed.{kind}")), &err),
+                        message: failure_report(i18n::text(&format!("transfer.plan_failed.{kind}")), &err),
                     }
                 }
             };
@@ -135,7 +134,7 @@ impl Engine {
 
         let Some((source, destination)) = self.filesystems_for(session_id, job.direction) else {
             if let Some(mut job) = self.transfers.get_mut(id) {
-                job.status = JobStatus::Failed(i18n::text("common.session_disconnected"));
+                job.status = JobStatus::Failed(Message::from(i18n::text("common.session_disconnected")));
             }
             self.report(Severity::Error, i18n::text_with("transfer.job_disconnected", &[("name", &display_name)]));
             self.refresh_transfer_destination(id);
@@ -185,7 +184,10 @@ impl Engine {
                     tracing::debug!("{err:?}");
                     TransferEvent::Failed {
                         id,
-                        message: user_message(i18n::text_with("transfer.job_failed", &[("name", &display_name)]), &err),
+                        message: failure_report(
+                            i18n::text_with("transfer.job_failed", &[("name", &display_name)]),
+                            &err,
+                        ),
                     }
                 }
             };
@@ -617,7 +619,11 @@ impl Engine {
         let RowKind::Batch(batch_id) = row.kind else {
             return;
         };
-        let cause = failure.message.rsplit_once('\n').map_or(failure.message.as_str(), |(_, cause)| cause);
+        let cause = failure
+            .message
+            .cause()
+            .map(|cause| cause.rsplit('\n').next().unwrap_or(cause))
+            .unwrap_or_else(|| failure.message.summary());
         self.announce(
             Severity::Error,
             i18n::text_with(

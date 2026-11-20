@@ -62,7 +62,7 @@ fn a_running_measure_shows_the_size_so_far_and_progress() {
 #[test]
 fn a_failed_measure_shows_one_line_of_error_and_no_numbers() {
     let mut pane = pane_for(&[]);
-    pane.set_measured(Err("Could not measure the selection:\nConnection\u{1b}[2J reset".to_string()));
+    pane.set_measured(Err("Could not measure the selection:\nConnection\u{1b}[2J reset".into()));
 
     let rows = measure_rows(&pane);
 
@@ -109,7 +109,7 @@ fn a_file_status_tells_each_state() {
     assert_eq!(file_status(&pane.files[0]), "reading\u{2026} 0 B");
     pane.set_checksum_progress(&path("a.iso"), 2_048, 4_096);
     assert_eq!(file_status(&pane.files[0]), "2.0 KB of 4.0 KB");
-    pane.set_checksum(&path("b.iso"), Err("Could not read the file:\nPermission denied".to_string()));
+    pane.set_checksum(&path("b.iso"), Err("Could not read the file:\nPermission denied".into()));
     assert_eq!(file_status(&pane.files[1]), "Could not read the file: Permission denied");
     pane.set_checksum(&path("c.iso"), Ok(digest()));
     assert_eq!(file_status(&pane.files[2]), "");

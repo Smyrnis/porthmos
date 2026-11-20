@@ -509,7 +509,7 @@ fn a_failed_reply_becomes_a_failed_pane_with_the_message() {
 
     harness.feed(Event::EditDiff { edit_id: 3, result: Err("Comparison failed: a.txt".into()) });
 
-    assert_eq!(pane(&harness), DiffPane::Failed("Comparison failed: a.txt".to_string()));
+    assert_eq!(pane(&harness), DiffPane::Failed("Comparison failed: a.txt".into()));
 }
 
 #[test]

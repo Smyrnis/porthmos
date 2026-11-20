@@ -1,6 +1,8 @@
 use porthmos_vfs::{PART_SUFFIX, VfsPath};
 use serde::{Deserialize, Serialize};
 
+use crate::Message;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
@@ -13,7 +15,7 @@ pub enum JobStatus {
     Queued,
     InProgress,
     Completed,
-    Failed(String),
+    Failed(Message),
     Cancelled,
 }
 

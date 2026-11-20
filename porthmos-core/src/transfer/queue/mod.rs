@@ -7,6 +7,8 @@ use std::{
 
 use porthmos_vfs::VfsPath;
 
+use crate::Message;
+
 use super::{
     job::{Destination, Direction, JobStatus, TransferJob},
     rows::{QueueRow, RowFailure, RowKind, RowState},
@@ -681,7 +683,7 @@ impl TransferQueue {
         self.queued.len()
     }
 
-    pub fn fail_queued_for_session(&mut self, session_id: u64, reason: &str) -> usize {
+    pub fn fail_queued_for_session(&mut self, session_id: u64, reason: &Message) -> usize {
         let ids: Vec<u64> = self
             .queued
             .iter()
@@ -689,12 +691,12 @@ impl TransferQueue {
             .map(|(_, id)| *id)
             .collect();
         for id in &ids {
-            self.update(*id, |job| job.status = JobStatus::Failed(reason.to_string()));
+            self.update(*id, |job| job.status = JobStatus::Failed(reason.clone()));
         }
         ids.len()
     }
 
-    pub fn fail_or_retry(&mut self, id: u64, message: String) -> bool {
+    pub fn fail_or_retry(&mut self, id: u64, message: Message) -> bool {
         let Some(job) = self.jobs.get(&id) else {
             return false;
         };

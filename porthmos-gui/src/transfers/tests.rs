@@ -127,7 +127,7 @@ fn failed_row(file: &str, message: &str, attempts: u32) -> QueueRow {
     QueueRow {
         failure: Some(porthmos_core::transfer::rows::RowFailure {
             file: file.to_string(),
-            message: message.to_string(),
+            message: message.into(),
             attempts,
         }),
         ..row(RowState::Failed, 0, 10)
@@ -321,4 +321,16 @@ fn a_short_window_gives_the_queue_a_share_of_its_height() {
 #[test]
 fn the_queue_always_has_room_for_its_header_and_one_row() {
     assert_eq!(queue_height(50.0), QUEUE_HEADER_HEIGHT + 1.0 + QUEUE_ROW_HEIGHT);
+}
+
+#[test]
+fn the_failure_detail_reads_the_attempts_then_the_summary_and_cause() {
+    let mut failed = row(RowState::Failed, 0, 10);
+    failed.failure = Some(porthmos_core::transfer::rows::RowFailure {
+        file: "a.txt".to_string(),
+        message: porthmos_core::Message::with_cause("Could not copy a.txt", &"disk full"),
+        attempts: 2,
+    });
+
+    assert_eq!(super::failure_detail(&failed).as_deref(), Some("2 attempts \u{b7} Could not copy a.txt:\ndisk full"));
 }

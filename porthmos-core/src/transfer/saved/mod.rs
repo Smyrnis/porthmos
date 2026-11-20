@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use super::{Direction, JobStatus, TransferQueue};
 use crate::{
-    Paths,
+    Message, Paths,
     persist::{Loaded, read_or_set_aside, toml_problem},
 };
 
-pub fn interrupted_reason() -> String {
-    crate::i18n::text("transfer.interrupted")
+pub fn interrupted_reason() -> Message {
+    Message::from(crate::i18n::text("transfer.interrupted"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ pub fn unfinished(queue: &TransferQueue, connection_of: impl Fn(u64) -> String) 
             batch: job.batch_id,
             label: job.batch_id.and_then(|batch| queue.batch_label(batch)).map(str::to_string),
             failure: match &job.status {
-                JobStatus::Failed(message) => Some(message.clone()),
+                JobStatus::Failed(message) => Some(message.to_string()),
                 _ => None,
             },
         })

@@ -30,13 +30,13 @@ fn the_fill_is_a_share_of_the_bar_and_never_overflows_it() {
 #[test]
 fn a_failed_row_text_carries_the_failure() {
     let mut failed = row(RowState::Failed);
-    failed.failure = Some(RowFailure { file: "a.txt".to_string(), message: "denied".to_string(), attempts: 2 });
+    failed.failure = Some(RowFailure { file: "a.txt".to_string(), message: "denied".into(), attempts: 2 });
 
     assert_eq!(row_text(&failed), "photos  ·  a.txt · 2 attempts · denied");
     assert_eq!(row_text(&row(RowState::Running)), "photos");
 
     let mut single = row(RowState::Failed);
-    single.failure = Some(RowFailure { file: "photos".to_string(), message: "denied".to_string(), attempts: 1 });
+    single.failure = Some(RowFailure { file: "photos".to_string(), message: "denied".into(), attempts: 1 });
     assert_eq!(row_text(&single), "photos  ·  1 attempt · denied");
 }
 
@@ -57,7 +57,7 @@ fn only_a_failed_row_has_a_hint_and_it_is_the_whole_text() {
     let mut failed = row(RowState::Failed);
     failed.failure = Some(RowFailure {
         file: "big.bin".to_string(),
-        message: "a very long reason that does not fit in the row".to_string(),
+        message: "a very long reason that does not fit in the row".into(),
         attempts: 3,
     });
 

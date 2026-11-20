@@ -72,7 +72,7 @@ fn a_batch_without_a_stored_label_uses_its_first_files_name() {
 
 #[test]
 fn row_state_follows_the_precedence_rules() {
-    let failed = || JobStatus::Failed("boom".to_string());
+    let failed = || JobStatus::Failed("boom".into());
     assert_eq!(state_of(vec![JobStatus::InProgress, JobStatus::Queued, failed()]), RowState::Running);
     assert_eq!(state_of(vec![JobStatus::Queued, JobStatus::Completed]), RowState::Queued);
     assert_eq!(state_of(vec![JobStatus::Completed, JobStatus::Completed]), RowState::Done);

@@ -154,7 +154,7 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn search_failed(&mut self, request_id: u64, message: String) {
+    pub(in crate::app) fn search_failed(&mut self, request_id: u64, message: porthmos_core::Message) {
         if let Some(state) = self.current_search(request_id) {
             state.failed(message);
         }

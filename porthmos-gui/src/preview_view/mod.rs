@@ -1,6 +1,7 @@
 use porthmos_core::i18n;
 use std::sync::Arc;
 
+use porthmos_core::Message;
 use porthmos_core::edit::printable;
 use porthmos_core::preview::{Preview, PreviewContent};
 use porthmos_core::size_text;
@@ -13,7 +14,7 @@ const OVERSCAN: usize = 2;
 pub enum PreviewStatus {
     Loading,
     Ready(Arc<Preview>),
-    Failed(String),
+    Failed(Message),
 }
 
 #[derive(Debug)]
@@ -101,7 +102,7 @@ impl PreviewState {
         self.status == PreviewStatus::Loading
     }
 
-    pub fn finish(&mut self, request_id: u64, result: Result<Arc<Preview>, String>) -> bool {
+    pub fn finish(&mut self, request_id: u64, result: Result<Arc<Preview>, Message>) -> bool {
         if request_id != self.request_id || !self.is_loading() {
             return false;
         }

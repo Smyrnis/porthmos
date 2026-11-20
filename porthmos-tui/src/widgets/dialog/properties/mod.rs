@@ -3,7 +3,7 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use porthmos_core::{
-    VfsPath,
+    Message, VfsPath,
     properties::{
         Digest, Measured,
         digest::matches_expected,
@@ -47,7 +47,7 @@ pub enum PropertiesChoice {
 enum MeasureState {
     Running(Measured),
     Done(Measured),
-    Failed(String),
+    Failed(Message),
     Cancelled,
 }
 
@@ -55,7 +55,7 @@ enum HashState {
     Idle,
     Running { done: u64, total: u64 },
     Done(Digest),
-    Failed(String),
+    Failed(Message),
     Cancelled,
 }
 
@@ -101,7 +101,7 @@ impl PropertiesDialog {
         }
     }
 
-    pub fn set_measured(&mut self, result: Result<Measured, String>) {
+    pub fn set_measured(&mut self, result: Result<Measured, Message>) {
         if matches!(self.measure, MeasureState::Cancelled) {
             return;
         }
@@ -120,7 +120,7 @@ impl PropertiesDialog {
         }
     }
 
-    pub fn set_checksum(&mut self, path: &VfsPath, result: Result<Digest, String>) {
+    pub fn set_checksum(&mut self, path: &VfsPath, result: Result<Digest, Message>) {
         if let Some(row) = self.files.iter_mut().find(|row| &row.path == path)
             && matches!(row.state, HashState::Running { .. })
         {
@@ -234,10 +234,6 @@ fn digest_rows(hex: &str, width: usize) -> Vec<String> {
     characters.chunks(width).map(|chunk| chunk.iter().collect()).collect()
 }
 
-fn one_line(message: &str) -> String {
-    printable(&message.replace(":\n", ": ").replace('\n', " "))
-}
-
 fn padded_label(label: &str) -> String {
     let padded = format!("{label:<LABEL_WIDTH$}");
     if label.chars().count() >= LABEL_WIDTH { format!("{padded} ") } else { padded }
@@ -263,7 +259,7 @@ fn measure_lines(dialog: &PropertiesDialog, theme: &Theme) -> Vec<Line<'static>>
             }
             lines
         }
-        MeasureState::Failed(message) => vec![Line::styled(one_line(message), theme.err_text())],
+        MeasureState::Failed(message) => vec![Line::styled(printable(&message.one_line()), theme.err_text())],
         MeasureState::Cancelled => vec![labelled(&i18n::text("props.size"), &i18n::text("props.cancelled"), theme)],
     }
 }
@@ -279,7 +275,7 @@ fn file_lines(row: &FileRow, width: usize, theme: &Theme) -> Vec<Line<'static>> 
             i18n::text_with("props.progress", &[("done", &size_text(*done)), ("total", &size_text(*total))]),
             theme.dim(),
         ),
-        HashState::Failed(message) => (one_line(message), theme.err_text()),
+        HashState::Failed(message) => (printable(&message.one_line()), theme.err_text()),
         HashState::Cancelled => (i18n::text("props.cancelled"), theme.dim()),
         HashState::Done(digest) => match row.listed_total {
             Some(total) if total != digest.bytes => {

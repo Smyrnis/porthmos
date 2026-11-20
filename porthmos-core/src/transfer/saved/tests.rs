@@ -48,7 +48,7 @@ fn only_work_that_is_not_done_is_kept() {
         JobStatus::InProgress,
         JobStatus::Completed,
         JobStatus::Cancelled,
-        JobStatus::Failed("boom".to_string()),
+        JobStatus::Failed("boom".into()),
     ]);
 
     let saved = unfinished(&queue, names);
@@ -90,7 +90,7 @@ fn a_saved_job_remembers_what_a_retry_needs() {
 
 #[test]
 fn a_failed_job_keeps_its_reason_and_a_running_one_has_none() {
-    let (queue, _) = queue_with(&[JobStatus::Failed("no space left".to_string()), JobStatus::Queued]);
+    let (queue, _) = queue_with(&[JobStatus::Failed("no space left".into()), JobStatus::Queued]);
 
     let saved = unfinished(&queue, names);
 
@@ -119,7 +119,7 @@ fn nothing_unfinished_saves_nothing() {
 
 #[test]
 fn saved_jobs_survive_a_round_trip_through_the_file_text() {
-    let (queue, _) = queue_with(&[JobStatus::Queued, JobStatus::Failed("boom".to_string())]);
+    let (queue, _) = queue_with(&[JobStatus::Queued, JobStatus::Failed("boom".into())]);
     let saved = unfinished(&queue, names);
 
     let dir = tempfile::tempdir().unwrap();
@@ -174,4 +174,20 @@ fn a_file_with_unknown_extra_fields_still_loads() {
 #[test]
 fn the_reason_shown_for_a_restored_job_names_the_cause() {
     assert_eq!(interrupted_reason(), "Porthmos was closed before this finished");
+}
+
+#[test]
+fn a_failure_with_a_cause_survives_render_and_load() {
+    let failure = crate::error::failure_report("Could not copy a.txt", &"disk full");
+    let (queue, _) = queue_with(&[JobStatus::Failed(failure)]);
+    let saved = unfinished(&queue, names);
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = paths_in(&dir);
+    std::fs::write(paths.unfinished_transfers_file(), render(&saved).unwrap()).unwrap();
+
+    match load(&paths) {
+        Loaded::Ready(loaded) => assert_eq!(loaded[0].failure.as_deref(), Some("Could not copy a.txt:\ndisk full")),
+        _ => panic!("the file should load"),
+    }
 }

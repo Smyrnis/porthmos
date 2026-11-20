@@ -1078,7 +1078,7 @@ async fn folders_that_finish_after_their_batch_was_dropped_copy_nothing() {
     t.engine.handle_command(Command::RunSync { sync_id: plan.sync_id, choices: ticked(&plan) });
     let batch = planning_batch(&t, Direction::Upload);
     let done = finished_scan(&mut t).await;
-    t.engine.sync_failed(batch, "Sync failed".to_string());
+    t.engine.sync_failed(batch, "Sync failed".into());
 
     t.engine.handle_internal(done);
 

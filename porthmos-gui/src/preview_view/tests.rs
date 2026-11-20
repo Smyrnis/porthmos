@@ -120,7 +120,7 @@ fn finish_ignores_a_stale_request_id() {
 fn finish_cannot_replace_a_finished_state() {
     let mut state = ready(text("first"));
 
-    assert!(!state.finish(1, Err("late".to_string())));
+    assert!(!state.finish(1, Err("late".into())));
 
     assert_eq!(state.row_count(), 1);
 }
@@ -128,9 +128,9 @@ fn finish_cannot_replace_a_finished_state() {
 #[test]
 fn failed_shows_no_info_and_no_rows() {
     let mut state = PreviewState::loading(1, "file".to_string());
-    state.finish(1, Err("permission denied".to_string()));
+    state.finish(1, Err("permission denied".into()));
 
-    assert_eq!(state.status(), &PreviewStatus::Failed("permission denied".to_string()));
+    assert_eq!(state.status(), &PreviewStatus::Failed("permission denied".into()));
     assert_eq!(state.info_text(), "");
     assert_eq!(state.row_count(), 0);
     assert!(state.rows(0, 5).is_empty());
@@ -197,7 +197,7 @@ fn columns_is_zero_until_the_preview_is_ready() {
     let mut state = PreviewState::loading(1, "file".to_string());
     assert_eq!(state.columns(), 0);
 
-    state.finish(1, Err("denied".to_string()));
+    state.finish(1, Err("denied".into()));
 
     assert_eq!(state.columns(), 0);
 }

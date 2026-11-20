@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use porthmos_core::Message;
 use porthmos_core::preview::{Preview, PreviewContent};
 use porthmos_core::size_text;
 use ratatui::{
@@ -32,7 +33,7 @@ const ZERO_WIDTH_JOINER: char = '\u{200d}';
 pub enum PreviewState {
     Loading,
     Folder,
-    Failed(String),
+    Failed(Message),
     Ready(Arc<Preview>),
 }
 
@@ -87,7 +88,7 @@ impl PreviewView {
         Self { state: PreviewState::Folder, ..Self::loading(name) }
     }
 
-    pub fn finish(&mut self, result: Result<Arc<Preview>, String>) {
+    pub fn finish(&mut self, result: Result<Arc<Preview>, Message>) {
         self.lines = match &result {
             Ok(preview) => match &preview.content {
                 PreviewContent::Text(text) => text_lines(text),
@@ -444,7 +445,7 @@ fn render_view(frame: &mut Frame, area: Rect, view: &PreviewView, theme: &Theme,
         }
         PreviewState::Failed(message) => {
             view.max_top.set(0);
-            for line in message.lines() {
+            for line in message.to_string().lines() {
                 lines.push(Line::styled(fit_line(&printable(line), width), theme.err_text()));
             }
         }

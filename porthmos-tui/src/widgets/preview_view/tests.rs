@@ -64,7 +64,7 @@ fn while_loading_the_title_names_the_file_and_the_body_says_loading() {
 fn a_failure_is_shown_in_the_body_in_the_error_colour_line_by_line() {
     let theme = indexed();
     let mut view = PreviewView::loading("a.txt".to_string());
-    view.finish(Err("Couldn't preview a.txt:\nPermission denied".to_string()));
+    view.finish(Err("Couldn't preview a.txt:\nPermission denied".into()));
 
     let terminal = draw(&view, 80, 12);
 
@@ -326,7 +326,7 @@ fn no_size_of_terminal_panics() {
     let binary = ready("b", binary_preview(&vec![1u8; 1000]));
     let loading = PreviewView::loading("c".to_string());
     let mut failed = PreviewView::loading("d".to_string());
-    failed.finish(Err("boom\nline two".to_string()));
+    failed.finish(Err("boom\nline two".into()));
     let mut wrapped = ready("e", text_preview(&lines(30)));
     wrapped.toggle_wrap();
 

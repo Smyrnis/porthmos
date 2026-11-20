@@ -5,7 +5,7 @@ use porthmos_vfs::VfsPath;
 
 use super::super::{Engine, Event};
 use crate::{
-    Severity,
+    Message, Severity,
     history::{History, HistoryEntry, HistoryResult, MAX_FAILED_FILES, render_entries},
     transfer::{
         Direction, JobStatus, RowChange, TransferJob,
@@ -260,7 +260,9 @@ impl Engine {
         }
     }
 
-    pub(crate) fn record_failed_scan(&mut self, session_id: u64, direction: Direction, label: String, message: &str) {
+    pub(crate) fn record_failed_scan(
+        &mut self, session_id: u64, direction: Direction, label: String, message: &Message,
+    ) {
         let connection = self.session_name(session_id);
         tracing::error!(target: "porthmos::transfers", connection = %connection, file = %label, "{message}");
         let entry = self.history_entry(connection, direction, label, HistoryResult::Failed);

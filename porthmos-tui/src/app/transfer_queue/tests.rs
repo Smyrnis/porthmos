@@ -87,7 +87,7 @@ fn cancel_on_a_scan_row_flags_only_that_scan() {
 fn retry_asks_the_core_to_retry_the_selected_row() {
     let mut test = app_on_transfers_screen();
     let mut queue = TransferQueue::new();
-    let failed = add_job(&mut queue, "a", None, JobStatus::Failed("boom".to_string()));
+    let failed = add_job(&mut queue, "a", None, JobStatus::Failed("boom".into()));
     show(&mut test, &queue, &[]);
 
     test.app.apply_action(Action::Open);
@@ -102,7 +102,7 @@ fn clear_removes_only_finished_rows_and_clamps_the_cursor() {
     add_job(&mut queue, "a", None, JobStatus::Completed);
     add_job(&mut queue, "b", None, JobStatus::InProgress);
     let batch = queue.start_batch("photos".to_string());
-    add_job(&mut queue, "c", Some(batch), JobStatus::Failed("boom".to_string()));
+    add_job(&mut queue, "c", Some(batch), JobStatus::Failed("boom".into()));
     show(&mut test, &queue, &[]);
     test.app.transfers_cursor = 2;
 
@@ -259,7 +259,7 @@ fn a_route_survives_the_disconnect_of_its_session() {
 fn a_route_uses_the_name_core_gives_for_a_connection_that_is_not_open() {
     let mut test = app_on_transfers_screen();
     let mut queue = TransferQueue::new();
-    job_for(&mut queue, 40, Direction::Upload, "a.txt", JobStatus::Failed("stopped".to_string()));
+    job_for(&mut queue, 40, Direction::Upload, "a.txt", JobStatus::Failed("stopped".into()));
     let snapshot = TransferSnapshot {
         connections: [(40, "prod".to_string())].into_iter().collect(),
         ..TransferSnapshot::of(&queue, &[])
@@ -309,7 +309,7 @@ fn the_failed_time_is_the_clock_time_of_the_first_snapshot_showing_the_failure()
     let mut test = app_on_transfers_screen();
     test.app.clock = fixed(14, 7);
     let mut queue = TransferQueue::new();
-    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".into()));
 
     show(&mut test, &queue, &[]);
 
@@ -322,7 +322,7 @@ fn a_later_snapshot_does_not_move_the_failed_time() {
     let mut test = app_on_transfers_screen();
     test.app.clock = fixed(14, 7);
     let mut queue = TransferQueue::new();
-    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".into()));
     show(&mut test, &queue, &[]);
 
     test.app.clock = fixed(15, 30);
@@ -336,7 +336,7 @@ fn a_later_snapshot_does_not_move_the_failed_time() {
 fn retrying_a_failed_row_forgets_its_failed_time() {
     let mut test = app_on_transfers_screen();
     let mut queue = TransferQueue::new();
-    let id = job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    let id = job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".into()));
     show(&mut test, &queue, &[]);
     let kind = first_row(&test).kind;
 
@@ -350,7 +350,7 @@ fn retrying_a_failed_row_forgets_its_failed_time() {
 fn a_cleared_row_is_forgotten() {
     let mut test = app_on_transfers_screen();
     let mut queue = TransferQueue::new();
-    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".to_string()));
+    job_for(&mut queue, 1, Direction::Upload, "a.txt", JobStatus::Failed("boom".into()));
     show(&mut test, &queue, &[]);
     let kind = first_row(&test).kind;
 
@@ -366,7 +366,7 @@ fn a_partly_failed_row_also_gets_a_failed_time() {
     let mut queue = TransferQueue::new();
     let batch = queue.start_batch("folder".to_string());
     add_job(&mut queue, "a", Some(batch), JobStatus::Completed);
-    add_job(&mut queue, "b", Some(batch), JobStatus::Failed("boom".to_string()));
+    add_job(&mut queue, "b", Some(batch), JobStatus::Failed("boom".into()));
 
     show(&mut test, &queue, &[]);
 
@@ -419,7 +419,7 @@ fn r_on_the_transfers_screen_retries_like_enter_and_does_not_rename() {
     let outcome = |code: KeyCode| {
         let mut test = app_on_transfers_screen();
         let mut queue = TransferQueue::new();
-        add_job(&mut queue, "a", None, JobStatus::Failed("boom".to_string()));
+        add_job(&mut queue, "a", None, JobStatus::Failed("boom".into()));
         show(&mut test, &queue, &[]);
         test.sent();
         test.app.apply_key(crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE));

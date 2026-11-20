@@ -45,7 +45,7 @@ fn retry_or_give_up_requeues_within_the_attempt_limit() {
     let mut queue = TransferQueue::new();
     let id = queue_with_one_job(&mut queue);
     let mut job = queue.get_mut(id).unwrap();
-    job.status = JobStatus::Failed("boom".to_string());
+    job.status = JobStatus::Failed("boom".into());
     job.attempts = 1;
     job.transferred_bytes = 50;
     drop(job);
@@ -61,7 +61,7 @@ fn retry_or_give_up_stops_after_max_attempts() {
     let mut queue = TransferQueue::new();
     let id = queue_with_one_job(&mut queue);
     let mut job = queue.get_mut(id).unwrap();
-    job.status = JobStatus::Failed("boom".to_string());
+    job.status = JobStatus::Failed("boom".into());
     job.attempts = 3;
     drop(job);
 
@@ -102,11 +102,11 @@ fn fail_queued_for_session_marks_only_that_sessions_queued_jobs() {
     );
     queue.get_mut(in_progress).unwrap().status = JobStatus::InProgress;
 
-    let count = queue.fail_queued_for_session(1, "session disconnected");
+    let count = queue.fail_queued_for_session(1, &"session disconnected".into());
 
     assert_eq!(count, 2);
-    assert_eq!(queue.get(a1).unwrap().status, JobStatus::Failed("session disconnected".to_string()));
-    assert_eq!(queue.get(a2).unwrap().status, JobStatus::Failed("session disconnected".to_string()));
+    assert_eq!(queue.get(a1).unwrap().status, JobStatus::Failed("session disconnected".into()));
+    assert_eq!(queue.get(a2).unwrap().status, JobStatus::Failed("session disconnected".into()));
     assert_eq!(queue.get(other).unwrap().status, JobStatus::Queued);
     assert_eq!(queue.get(in_progress).unwrap().status, JobStatus::InProgress);
 }
@@ -179,7 +179,7 @@ fn startable_with_a_limit_of_one_waits_for_the_active_job() {
 #[test]
 fn startable_skips_finished_failed_and_cancelled_jobs() {
     let mut queue = TransferQueue::new();
-    for status in [JobStatus::Completed, JobStatus::Failed("boom".to_string()), JobStatus::Cancelled] {
+    for status in [JobStatus::Completed, JobStatus::Failed("boom".into()), JobStatus::Cancelled] {
         let id = queue_with_one_job(&mut queue);
         queue.get_mut(id).unwrap().status = status;
     }
@@ -332,7 +332,7 @@ fn retry_jobs_requeues_only_failed_and_cancelled_jobs_and_resets_them() {
     let running = enqueue_for(&mut queue, 1, Direction::Upload, "d.txt");
     {
         let mut job = queue.get_mut(failed).unwrap();
-        job.status = JobStatus::Failed("boom".to_string());
+        job.status = JobStatus::Failed("boom".into());
         job.attempts = 3;
         job.transferred_bytes = 5;
     }
@@ -413,7 +413,7 @@ fn new_jobs_do_not_resume() {
 fn an_automatic_retry_resumes() {
     let mut queue = TransferQueue::new();
     let id = queue_with_one_job(&mut queue);
-    queue.get_mut(id).unwrap().status = JobStatus::Failed("boom".to_string());
+    queue.get_mut(id).unwrap().status = JobStatus::Failed("boom".into());
     queue.get_mut(id).unwrap().attempts = 1;
 
     assert!(queue.retry_or_give_up(id));
@@ -629,7 +629,7 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
                         0 => JobStatus::Queued,
                         1 => JobStatus::InProgress,
                         2 => JobStatus::Completed,
-                        3 => JobStatus::Failed("boom".to_string()),
+                        3 => JobStatus::Failed("boom".into()),
                         _ => JobStatus::Cancelled,
                     };
                     if let Some(mut job) = queue.get_mut(id) {
@@ -652,7 +652,7 @@ fn everything_matches_a_recount_from_the_jobs_after_every_random_operation() {
                 queue.cancel_all_queued();
             }
             7 => {
-                queue.fail_queued_for_session(random.next(3), "gone");
+                queue.fail_queued_for_session(random.next(3), &"gone".into());
             }
             8 => {
                 if let Some(id) = pick(&mut random, &ids) {
@@ -860,7 +860,7 @@ fn a_row_reports_when_it_finishes_and_when_it_reopens() {
 
     queue.get_mut(a).unwrap().status = JobStatus::Completed;
     assert!(drain(&mut queue).is_empty());
-    queue.get_mut(b).unwrap().status = JobStatus::Failed("boom".to_string());
+    queue.get_mut(b).unwrap().status = JobStatus::Failed("boom".into());
     assert_eq!(drain(&mut queue), vec![RowChange::Finished(RowKind::Batch(batch))]);
 
     queue.retry_jobs(&[b]);
@@ -884,7 +884,7 @@ fn cancelling_and_failing_queued_jobs_finish_their_rows() {
 
     queue.retry_jobs(&[single, other]);
     drain(&mut queue);
-    queue.fail_queued_for_session(1, "session disconnected");
+    queue.fail_queued_for_session(1, &"session disconnected".into());
     assert_eq!(drain(&mut queue), vec![RowChange::Finished(RowKind::Single(single))]);
 }
 
@@ -1033,7 +1033,7 @@ fn a_batch_that_still_has_jobs_keeps_its_unkept_times_flag() {
 fn fail_job(queue: &mut TransferQueue, id: u64, message: &str, attempts: u32) {
     let mut job = queue.get_mut(id).unwrap();
     job.attempts = attempts;
-    job.status = JobStatus::Failed(message.to_string());
+    job.status = JobStatus::Failed(message.into());
 }
 
 #[test]
@@ -1064,7 +1064,7 @@ fn a_failed_job_sets_the_rows_failure_with_message_file_and_attempts() {
     let failure = queue.rows()[0].failure.clone().expect("a failure");
     assert_eq!(
         failure,
-        RowFailure { file: "access.log".to_string(), message: "permission denied".to_string(), attempts: 3 }
+        RowFailure { file: "access.log".to_string(), message: "permission denied".into(), attempts: 3 }
     );
 }
 
@@ -1079,7 +1079,10 @@ fn a_later_failure_replaces_the_earlier_one_in_a_batch() {
     fail_job(&mut queue, first, "timed out", 2);
 
     let failure = queue.rows()[0].failure.clone().unwrap();
-    assert_eq!((failure.file.as_str(), failure.message.as_str(), failure.attempts), ("a", "timed out", 2));
+    assert_eq!(
+        (failure.file.as_str(), failure.message.to_string(), failure.attempts),
+        ("a", "timed out".to_string(), 2)
+    );
 }
 
 #[test]
@@ -1161,12 +1164,12 @@ fn a_transient_failure_that_is_retried_never_replaces_another_jobs_failure() {
         job.attempts = 1;
     }
 
-    let retried = queue.fail_or_retry(transient, "connection reset".to_string());
+    let retried = queue.fail_or_retry(transient, "connection reset".into());
 
     assert!(retried);
     assert_eq!(queue.get(transient).unwrap().status, JobStatus::Queued);
     let failure = queue.rows()[0].failure.clone().unwrap();
-    assert_eq!((failure.file.as_str(), failure.message.as_str()), ("secret.conf", "permission denied"));
+    assert_eq!((failure.file.as_str(), failure.message.to_string()), ("secret.conf", "permission denied".to_string()));
 }
 
 #[test]
@@ -1179,11 +1182,11 @@ fn giving_up_marks_the_job_failed_and_records_its_failure() {
         job.attempts = 3;
     }
 
-    let retried = queue.fail_or_retry(id, "disk full".to_string());
+    let retried = queue.fail_or_retry(id, "disk full".into());
 
     assert!(!retried);
-    assert_eq!(queue.get(id).unwrap().status, JobStatus::Failed("disk full".to_string()));
-    assert_eq!(queue.rows()[0].failure.clone().map(|failure| failure.message), Some("disk full".to_string()));
+    assert_eq!(queue.get(id).unwrap().status, JobStatus::Failed("disk full".into()));
+    assert_eq!(queue.rows()[0].failure.clone().map(|failure| failure.message), Some("disk full".into()));
 }
 
 #[test]
@@ -1196,9 +1199,9 @@ fn a_retried_job_is_marked_to_resume_and_an_unknown_job_is_ignored() {
         job.attempts = 1;
     }
 
-    assert!(queue.fail_or_retry(id, "reset".to_string()));
+    assert!(queue.fail_or_retry(id, "reset".into()));
     assert!(queue.get(id).unwrap().resume);
-    assert!(!queue.fail_or_retry(999, "x".to_string()));
+    assert!(!queue.fail_or_retry(999, "x".into()));
 }
 
 #[test]
@@ -1212,7 +1215,7 @@ fn a_retried_failure_never_flips_a_row_to_finished() {
     }
     queue.take_changes();
 
-    queue.fail_or_retry(id, "reset".to_string());
+    queue.fail_or_retry(id, "reset".into());
 
     assert!(queue.take_changes().is_empty());
 }
@@ -1335,7 +1338,7 @@ fn retrying_a_failed_job_clears_its_pause() {
     {
         let mut job = queue.get_mut(id).unwrap();
         job.paused = true;
-        job.status = JobStatus::Failed("boom".to_string());
+        job.status = JobStatus::Failed("boom".into());
     }
 
     queue.retry_jobs(&[id]);
@@ -1558,7 +1561,7 @@ fn cancelling_removing_and_failing_after_a_move_keep_the_queue_consistent() {
     let b = row_of_files(&mut queue, "B", 2, &["b1"]);
     assert!(queue.move_row(b, true));
 
-    assert_eq!(queue.fail_queued_for_session(2, "gone"), 1);
+    assert_eq!(queue.fail_queued_for_session(2, &"gone".into()), 1);
     queue.assert_consistent();
     let ids: Vec<u64> = queue.jobs_of(a).iter().map(|job| job.id).collect();
     assert_eq!(queue.cancel_all_queued(), 2);
@@ -1617,7 +1620,7 @@ fn moving_rows_at_random_keeps_the_queue_consistent_and_starts_jobs_in_row_order
                         0 => JobStatus::Queued,
                         1 => JobStatus::InProgress,
                         2 => JobStatus::Completed,
-                        3 => JobStatus::Failed("boom".to_string()),
+                        3 => JobStatus::Failed("boom".into()),
                         _ => JobStatus::Cancelled,
                     };
                 }
@@ -1706,7 +1709,7 @@ fn a_paused_job_without_a_partial_file_does_not_hold_its_destination() {
 
 #[test]
 fn the_held_destination_is_released_when_the_paused_job_ends_in_any_way() {
-    for end in [JobStatus::Cancelled, JobStatus::Completed, JobStatus::Failed("no".to_string())] {
+    for end in [JobStatus::Cancelled, JobStatus::Completed, JobStatus::Failed("no".into())] {
         let mut queue = TransferQueue::new();
         let held = shared_destination_job(&mut queue, "one");
         let other = shared_destination_job(&mut queue, "two");
@@ -1780,7 +1783,7 @@ fn failing_a_sessions_queued_jobs_includes_the_paused_ones() {
     let waiting = named_job(&mut queue, "w");
     pause(&mut queue, paused);
 
-    assert_eq!(queue.fail_queued_for_session(1, "gone"), 2);
+    assert_eq!(queue.fail_queued_for_session(1, &"gone".into()), 2);
 
     assert!(matches!(queue.get(paused).unwrap().status, JobStatus::Failed(_)));
     assert!(matches!(queue.get(waiting).unwrap().status, JobStatus::Failed(_)));
@@ -1863,5 +1866,32 @@ fn rows_never_share_a_position() {
     for step in 0..40 {
         queue.move_row(kinds[step % 4], step % 3 == 0);
         queue.assert_consistent();
+    }
+}
+
+#[test]
+fn a_failed_job_row_keeps_the_summary_and_cause_apart() {
+    let mut queue = TransferQueue::new();
+    let id = queue_with_one_job(&mut queue);
+    queue.get_mut(id).unwrap().attempts = 3;
+
+    queue.fail_or_retry(id, crate::error::failure_report("Could not copy a.txt", &"disk full"));
+
+    let row = queue.rows().into_iter().next().unwrap();
+    let message = row.failure.unwrap().message;
+    assert_eq!(message.summary(), "Could not copy a.txt");
+    assert_eq!(message.cause(), Some("disk full"));
+}
+
+#[test]
+fn failing_the_queued_jobs_of_a_session_gives_each_the_same_reason() {
+    let mut queue = TransferQueue::new();
+    let first = queue_with_one_job(&mut queue);
+    let second = queue_with_a_batch_job(&mut queue, 7, "b.txt", 10);
+
+    queue.fail_queued_for_session(1, &crate::Message::new("Disconnected"));
+
+    for id in [first, second] {
+        assert_eq!(queue.get(id).unwrap().status, JobStatus::Failed(crate::Message::new("Disconnected")));
     }
 }

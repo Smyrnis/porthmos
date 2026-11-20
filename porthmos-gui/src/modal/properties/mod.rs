@@ -1,11 +1,11 @@
-use porthmos_core::VfsPath;
 use porthmos_core::properties::{Digest, Measured, digest::matches_expected};
+use porthmos_core::{Message, VfsPath};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MeasurePane {
     Running(Measured),
     Done(Measured),
-    Failed(String),
+    Failed(Message),
     Cancelled,
 }
 
@@ -14,7 +14,7 @@ pub enum HashState {
     Idle,
     Running { done: u64, total: u64 },
     Done(Digest),
-    Failed(String),
+    Failed(Message),
     Cancelled,
 }
 
@@ -49,7 +49,7 @@ impl PropertiesPane {
         }
     }
 
-    pub fn set_measured(&mut self, result: Result<Measured, String>) {
+    pub fn set_measured(&mut self, result: Result<Measured, Message>) {
         if self.measure == MeasurePane::Cancelled {
             return;
         }
@@ -70,7 +70,7 @@ impl PropertiesPane {
         }
     }
 
-    pub fn set_checksum(&mut self, path: &VfsPath, result: Result<Digest, String>) {
+    pub fn set_checksum(&mut self, path: &VfsPath, result: Result<Digest, Message>) {
         if let Some(file) = self.running_file(path) {
             file.state = match result {
                 Ok(digest) => HashState::Done(digest),

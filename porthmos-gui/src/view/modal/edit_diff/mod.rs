@@ -44,8 +44,8 @@ pub fn row_color(kind: Option<DiffKind>, palette: &Palette) -> Color {
     }
 }
 
-pub fn failed_text(message: &str) -> String {
-    printable(&message.replace('\n', " "))
+pub fn failed_text(message: &porthmos_core::Message) -> String {
+    printable(&message.one_line())
 }
 
 fn row_view<'a>(row: Row, palette: &Palette) -> Element<'a, Message> {

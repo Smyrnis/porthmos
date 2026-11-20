@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use porthmos_core::edit::printable;
 use porthmos_core::preview::Preview;
-use porthmos_core::{Entry, Location, VfsPath};
+use porthmos_core::{Entry, Location, Message, VfsPath};
 
 use crate::preview_view::PreviewState;
 
@@ -12,7 +13,7 @@ pub enum SearchStatus {
     Idle,
     Searching,
     Done { truncated: bool, incomplete: bool },
-    Failed(String),
+    Failed(Message),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +121,7 @@ impl SearchState {
         PreviewSync::Request { path: entry.path.clone() }
     }
 
-    pub fn preview_arrived(&mut self, request_id: u64, result: Result<Arc<Preview>, String>) {
+    pub fn preview_arrived(&mut self, request_id: u64, result: Result<Arc<Preview>, Message>) {
         if let Some(SearchPreview::File(state)) = self.preview.as_mut() {
             state.finish(request_id, result);
         }
@@ -182,7 +183,7 @@ impl SearchState {
         }
     }
 
-    pub fn failed(&mut self, message: String) {
+    pub fn failed(&mut self, message: Message) {
         if self.status == SearchStatus::Searching {
             self.status = SearchStatus::Failed(message);
         }
@@ -241,7 +242,7 @@ impl SearchState {
                 };
                 if *incomplete { format!("{summary}. {}", porthmos_core::search_incomplete_note()) } else { summary }
             }
-            SearchStatus::Failed(message) => format!("Search failed: {message}"),
+            SearchStatus::Failed(message) => format!("Search failed: {}", printable(&message.one_line())),
         }
     }
 }

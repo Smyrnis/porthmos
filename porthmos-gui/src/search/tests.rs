@@ -74,7 +74,7 @@ fn finished_marks_done_and_truncated_is_remembered() {
 fn failed_keeps_results_and_shows_the_message() {
     let mut state = searching();
     state.found(hit("/data/a.txt"));
-    state.failed("permission denied".to_string());
+    state.failed("permission denied".into());
     assert_eq!(state.results().len(), 1);
     assert_eq!(state.status_text(), "Search failed: permission denied");
 }
@@ -142,7 +142,7 @@ fn late_results_after_a_blank_pattern_are_dropped() {
     state.set_pattern(String::new());
     state.found(hit("/data/late.txt"));
     state.finished(false, false);
-    state.failed("late".to_string());
+    state.failed("late".into());
     assert!(state.results().is_empty());
     assert_eq!(state.status(), &SearchStatus::Idle);
 }
@@ -261,7 +261,7 @@ fn preview_arrived_ignores_an_old_request_id() {
     state.found(hit("/data/a.txt"));
     state.sync_preview(5);
 
-    state.preview_arrived(4, Err("stale".to_string()));
+    state.preview_arrived(4, Err("stale".into()));
 
     assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if file.is_loading()));
 }
@@ -272,7 +272,7 @@ fn preview_arrived_fills_the_pane_for_the_current_request() {
     state.found(hit("/data/a.txt"));
     state.sync_preview(5);
 
-    state.preview_arrived(5, Err("denied".to_string()));
+    state.preview_arrived(5, Err("denied".into()));
 
     assert!(matches!(state.preview(), Some(SearchPreview::File(file)) if !file.is_loading()));
 }
@@ -309,4 +309,23 @@ fn a_complete_search_has_no_note() {
     state.finished(false, false);
 
     assert_eq!(state.status_text(), "1 found");
+}
+
+#[test]
+fn a_failure_with_a_cause_is_kept_as_a_message() {
+    let mut state = searching();
+    let message = porthmos_core::Message::with_cause("Could not search /data", &"permission denied");
+
+    state.failed(message.clone());
+
+    assert_eq!(state.status(), &SearchStatus::Failed(message));
+}
+
+#[test]
+fn a_search_failure_with_an_escape_sequence_is_shown_printable() {
+    let mut state = searching();
+
+    state.failed(porthmos_core::Message::with_cause("Could not search", &"\u{1b}[2Jgone"));
+
+    assert!(!state.status_text().chars().any(char::is_control), "{:?}", state.status_text());
 }

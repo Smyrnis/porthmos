@@ -26,6 +26,11 @@ impl Message {
         }
     }
 
+    pub fn from_display(text: &str) -> Self {
+        let parsed = Self::parse(text);
+        if parsed == text { parsed } else { Self::new(text) }
+    }
+
     pub fn summary(&self) -> &str {
         &self.summary
     }

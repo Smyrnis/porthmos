@@ -234,12 +234,38 @@ fn progress_is_drawn_while_measuring() {
 #[test]
 fn a_failed_measure_shows_the_error_and_no_numbers() {
     let mut dialog = dialog_for(&[]);
-    dialog.set_measured(Err("Could not measure the selection:\nConnection reset".to_string()));
+    dialog.set_measured(Err("Could not measure the selection:\nConnection reset".into()));
 
     let terminal = draw(&dialog, 100, 30);
 
     assert!(find_text(&terminal, "Connection reset").is_some());
     assert!(find_text(&terminal, "files").is_none());
+}
+
+#[test]
+fn a_typed_measure_failure_is_drawn_as_its_summary_then_its_cause_on_one_line() {
+    let mut dialog = dialog_for(&[]);
+    dialog
+        .set_measured(Err(porthmos_core::Message::with_cause("Could not measure the selection", &"Connection reset")));
+
+    let terminal = draw(&dialog, 100, 30);
+
+    assert!(find_text(&terminal, "Could not measure the selection: Connection reset").is_some());
+}
+
+#[test]
+fn a_typed_checksum_failure_with_an_escape_sequence_is_drawn_printable() {
+    let mut dialog = PropertiesDialog::new("Properties".to_string(), vec![(VfsPath::new("/d/bad"), "bad".to_string())]);
+    dialog.set_measured(Ok(Measured::default()));
+    dialog.handle_key(key(KeyCode::Char('s')));
+    dialog.set_checksum(
+        &VfsPath::new("/d/bad"),
+        Err(porthmos_core::Message::with_cause("Could not read", &"\u{1b}[2Jgone")),
+    );
+
+    let terminal = draw(&dialog, 100, 30);
+
+    assert!(!has_unprintable_cell(&terminal));
 }
 
 #[test]
@@ -261,7 +287,7 @@ fn hostile_names_and_errors_are_printable() {
     );
     dialog.set_measured(Ok(Measured::default()));
     dialog.handle_key(key(KeyCode::Char('s')));
-    dialog.set_checksum(&VfsPath::new("/d/bad"), Err("failed\u{1b}[2J\nnow".to_string()));
+    dialog.set_checksum(&VfsPath::new("/d/bad"), Err("failed\u{1b}[2J\nnow".into()));
 
     let terminal = draw(&dialog, 100, 30);
 
@@ -319,7 +345,7 @@ fn a_running_hash_shows_how_far_it_is() {
 fn a_failed_hash_shows_its_error_on_that_file_only() {
     let mut dialog = measured_dialog(&["a.iso", "b.iso"]);
     dialog.handle_key(key(KeyCode::Char('s')));
-    dialog.set_checksum(&VfsPath::new("/d/a.iso"), Err("Could not read the file:\nPermission denied".to_string()));
+    dialog.set_checksum(&VfsPath::new("/d/a.iso"), Err("Could not read the file:\nPermission denied".into()));
     dialog.set_checksum(&VfsPath::new("/d/b.iso"), Ok(digest()));
 
     let terminal = draw(&dialog, 100, 30);

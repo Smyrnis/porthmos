@@ -50,20 +50,20 @@ pub(crate) const EDIT_UPLOAD_GRACE: Duration = Duration::from_secs(30);
 pub(crate) enum TransferEvent {
     Progress { id: u64, transferred: u64 },
     Finished { id: u64, outcome: TransferOutcome },
-    Failed { id: u64, message: String },
+    Failed { id: u64, message: Message },
     PlanReady { batch_id: u64, session_id: u64, direction: Direction, plan: DirectoryPlan },
-    PlanFailed { batch_id: u64, message: String },
+    PlanFailed { batch_id: u64, message: Message },
     PlanCancelled { batch_id: u64, session_id: u64, direction: Direction },
     PartialsRemoved { session_id: u64 },
     TimesNotKept { id: u64 },
     PermissionsNotKept { id: u64 },
     SourceRemoved { id: u64 },
-    SourceRemovalFailed { id: u64, message: String },
+    SourceRemovalFailed { id: u64, message: Message },
     SourceRemovalCancelled { id: u64 },
     MovedFoldersRemoved { session_id: u64, direction: Direction, removed: usize },
     SyncPlanReady { batch_id: u64, plan: crate::sync::SyncPlan },
     SyncCancelled { batch_id: u64 },
-    SyncFailed { batch_id: u64, message: String },
+    SyncFailed { batch_id: u64, message: Message },
     SyncFoldersReady { batch_id: u64, session_id: u64, direction: Direction, plan: DirectoryPlan },
 }
 
@@ -464,11 +464,13 @@ impl Engine {
         let failed = i18n::text_with("engine.task_failed", &[("name", name)]);
         match scope {
             Scope::Transfer(id) if self.transfers.get(id).is_some_and(|job| job.status == JobStatus::InProgress) => {
-                self.handle_transfer_event(TransferEvent::Failed { id, message: failed });
+                self.handle_transfer_event(TransferEvent::Failed { id, message: Message::from(failed) });
             }
-            Scope::Planning(batch_id) if self.sync.is_scanning(batch_id) => self.sync_failed(batch_id, failed),
+            Scope::Planning(batch_id) if self.sync.is_scanning(batch_id) => {
+                self.sync_failed(batch_id, Message::from(failed))
+            }
             Scope::Planning(batch_id) if self.work.planning.iter().any(|scan| scan.batch_id == batch_id) => {
-                self.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: failed });
+                self.handle_transfer_event(TransferEvent::PlanFailed { batch_id, message: Message::from(failed) });
             }
             Scope::Edit(edit_id) if self.edit_in_progress(edit_id) => self.fail_edit(edit_id, &failed),
             #[cfg(feature = "update")]

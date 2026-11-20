@@ -11,7 +11,7 @@ use super::{
     profiles::{SecretOwner, profile_account, ssh_account},
 };
 use crate::{
-    ConnectionState, Severity, connect_failure_message,
+    ConnectionState, Message, Severity, connect_failure_message,
     profiles::{ConnectionEntry, ConnectionSource, PASSWORD_MARKER},
     secrets::Secrets,
     tasks::Scope,
@@ -191,9 +191,10 @@ impl Engine {
         self.keep_folder_for_reconnect(session, &live.name, was_lost);
         self.history.remember_session(session, live.name.clone());
 
-        let affected = self.transfers.fail_queued_for_session(session, &i18n::text("common.session_disconnected"))
-            + self.cancel_session_transfers(session)
-            + self.drop_conflict_reviews(|review| review.session_id == session);
+        let affected =
+            self.transfers.fail_queued_for_session(session, &Message::from(i18n::text("common.session_disconnected")))
+                + self.cancel_session_transfers(session)
+                + self.drop_conflict_reviews(|review| review.session_id == session);
         self.drop_sync_plans(|plan| plan.session == session);
         self.stop_properties_of(session);
         self.finish_move_batches_of(session);

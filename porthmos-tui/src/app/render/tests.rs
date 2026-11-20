@@ -996,7 +996,7 @@ fn transfer_rows_snapshot() -> porthmos_core::transfer::TransferSnapshot {
     for (name, status) in [
         ("running.bin", JobStatus::InProgress),
         ("waiting.bin", JobStatus::Queued),
-        ("broken.log", JobStatus::Failed("permission denied".to_string())),
+        ("broken.log", JobStatus::Failed("permission denied".into())),
     ] {
         let id = queue.enqueue(
             1,

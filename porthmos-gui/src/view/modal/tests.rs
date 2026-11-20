@@ -53,7 +53,7 @@ fn the_dialog_is_wider_only_while_a_diff_is_shown() {
     assert_eq!(question_width(&DiffPane::Idle), DIALOG_WIDTH);
     assert_eq!(question_width(&DiffPane::Comparing), DIALOG_WIDTH);
     assert_eq!(question_width(&DiffPane::Ready(changes())), DIFF_WIDTH);
-    assert_eq!(question_width(&DiffPane::Failed("x".to_string())), DIALOG_WIDTH);
+    assert_eq!(question_width(&DiffPane::Failed("x".into())), DIALOG_WIDTH);
 }
 
 #[test]

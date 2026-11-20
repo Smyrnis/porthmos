@@ -86,3 +86,26 @@ fn text_in_the_displayed_form_is_split_when_converted() {
     assert_eq!(message.summary(), "Unable to list /srv");
     assert_eq!(message.cause(), Some("Permission denied"));
 }
+
+#[test]
+fn a_saved_form_that_parse_would_rewrite_is_kept_as_written() {
+    let saved = "550-no such file\n550 try later";
+
+    assert_eq!(Message::from_display(saved).to_string(), saved);
+}
+
+#[test]
+fn a_saved_form_that_parse_reads_back_exactly_is_split_into_summary_and_cause() {
+    assert_eq!(
+        Message::from_display("Could not copy a.txt:\ndisk full"),
+        Message::with_cause("Could not copy a.txt", &"disk full")
+    );
+    assert_eq!(Message::from_display("Disconnected"), Message::new("Disconnected"));
+}
+
+#[test]
+fn a_summary_with_a_line_break_comes_back_as_the_same_text() {
+    let original = Message::with_cause("Transfer failed: a\nb", &"err");
+
+    assert_eq!(Message::from_display(&original.to_string()).to_string(), original.to_string());
+}

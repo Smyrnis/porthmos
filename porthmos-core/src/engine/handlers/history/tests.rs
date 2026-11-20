@@ -142,8 +142,8 @@ fn a_batch_with_failures_lists_them() {
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("docs".to_string());
     job(&mut t, session, "a", Some(batch), JobStatus::Completed);
-    job(&mut t, session, "b", Some(batch), JobStatus::Failed("boom".to_string()));
-    job(&mut t, session, "c", Some(batch), JobStatus::Failed("bang".to_string()));
+    job(&mut t, session, "b", Some(batch), JobStatus::Failed("boom".into()));
+    job(&mut t, session, "c", Some(batch), JobStatus::Failed("bang".into()));
 
     t.engine.publish_transfers();
 
@@ -159,7 +159,7 @@ fn a_batch_with_failures_lists_them() {
 fn a_row_where_everything_failed_is_failed() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    job(&mut t, session, "a", None, JobStatus::Failed("boom".to_string()));
+    job(&mut t, session, "a", None, JobStatus::Failed("boom".into()));
 
     t.engine.publish_transfers();
 
@@ -185,7 +185,7 @@ fn a_cancelled_row_is_recorded_as_cancelled_without_failed_names() {
 fn a_retry_that_finishes_again_is_a_second_entry() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    let id = job(&mut t, session, "a", None, JobStatus::Failed("boom".to_string()));
+    let id = job(&mut t, session, "a", None, JobStatus::Failed("boom".into()));
     t.engine.publish_transfers();
     assert_eq!(recorded(&t).len(), 1);
 
@@ -277,7 +277,7 @@ fn a_huge_failure_list_is_capped_but_counted() {
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("many".to_string());
     for index in 0..250 {
-        job(&mut t, session, &format!("f{index}"), Some(batch), JobStatus::Failed("gone".to_string()));
+        job(&mut t, session, &format!("f{index}"), Some(batch), JobStatus::Failed("gone".into()));
     }
 
     t.engine.publish_transfers();
@@ -316,8 +316,8 @@ fn each_failed_job_logs_one_error_line_with_its_reason() {
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("docs".to_string());
     job(&mut t, session, "a", Some(batch), JobStatus::Completed);
-    job(&mut t, session, "b", Some(batch), JobStatus::Failed("Transfer failed: b \u{2014} disk full".to_string()));
-    job(&mut t, session, "c", Some(batch), JobStatus::Failed("Transfer failed: c \u{2014} timed out".to_string()));
+    job(&mut t, session, "b", Some(batch), JobStatus::Failed("Transfer failed: b \u{2014} disk full".into()));
+    job(&mut t, session, "c", Some(batch), JobStatus::Failed("Transfer failed: c \u{2014} timed out".into()));
 
     let logs = capture_logs(|| t.engine.publish_transfers());
 
@@ -345,7 +345,7 @@ fn finished_rows_without_failures_log_nothing() {
 fn failure_reasons_never_reach_the_history_file() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    job(&mut t, session, "a", None, JobStatus::Failed("secret reason text".to_string()));
+    job(&mut t, session, "a", None, JobStatus::Failed("secret reason text".into()));
 
     t.engine.publish_transfers();
 
@@ -368,7 +368,7 @@ fn a_copy_whose_scan_failed_is_recorded_as_failed_and_logged() {
     let logs = capture_logs(|| {
         t.engine.handle_transfer_event(TransferEvent::PlanFailed {
             batch_id: batch,
-            message: "Copy failed: permission denied".to_string(),
+            message: "Copy failed: permission denied".into(),
         })
     });
 
@@ -532,7 +532,7 @@ fn interrupted_rows_log_the_reasons_of_files_that_had_already_failed() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("docs".to_string());
-    job(&mut t, session, "a", Some(batch), JobStatus::Failed("Transfer failed: a \u{2014} disk full".to_string()));
+    job(&mut t, session, "a", Some(batch), JobStatus::Failed("Transfer failed: a \u{2014} disk full".into()));
     job(&mut t, session, "b", Some(batch), JobStatus::InProgress);
 
     let logs = capture_logs(|| t.engine.record_interrupted());
@@ -576,7 +576,7 @@ fn a_retry_entry_counts_only_what_that_attempt_did() {
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("docs".to_string());
     job(&mut t, session, "a", Some(batch), JobStatus::Completed);
-    let failed = job(&mut t, session, "b", Some(batch), JobStatus::Failed("boom".to_string()));
+    let failed = job(&mut t, session, "b", Some(batch), JobStatus::Failed("boom".into()));
     t.engine.publish_transfers();
     t.engine.transfers.retry_jobs(&[failed]);
     t.engine.publish_transfers();
@@ -622,7 +622,7 @@ fn a_finish_reopen_finish_burst_inside_one_drain_is_recorded_once() {
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("docs".to_string());
     job(&mut t, session, "a", Some(batch), JobStatus::Completed);
-    job(&mut t, session, "b", Some(batch), JobStatus::Failed("boom".to_string()));
+    job(&mut t, session, "b", Some(batch), JobStatus::Failed("boom".into()));
 
     t.engine.process_row_changes();
 
@@ -635,7 +635,7 @@ fn a_finish_reopen_finish_burst_inside_one_drain_is_recorded_once() {
 fn a_row_that_reopens_before_the_drain_is_not_recorded_until_it_finishes() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    let id = job(&mut t, session, "a", None, JobStatus::Failed("boom".to_string()));
+    let id = job(&mut t, session, "a", None, JobStatus::Failed("boom".into()));
     t.engine.transfers.retry_jobs(&[id]);
 
     t.engine.process_row_changes();
@@ -945,7 +945,7 @@ fn failed_scans_and_interrupted_rows_use_the_engine_clock_too() {
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("photos".to_string());
     t.engine.work.planning.push(scan(batch, session, "photos"));
-    t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id: batch, message: "no".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::PlanFailed { batch_id: batch, message: "no".into() });
     job(&mut t, session, "running.txt", None, JobStatus::InProgress);
 
     t.engine.record_interrupted();

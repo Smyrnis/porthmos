@@ -39,7 +39,9 @@ impl App {
         self.core.send(Command::Preview { request_id, location, path: entry.path });
     }
 
-    pub(in crate::app) fn preview_arrived(&mut self, request_id: u64, result: Result<Arc<Preview>, String>) {
+    pub(in crate::app) fn preview_arrived(
+        &mut self, request_id: u64, result: Result<Arc<Preview>, porthmos_core::Message>,
+    ) {
         if let Some(state) = self.search.as_mut() {
             state.preview_arrived(request_id, result.clone());
         }

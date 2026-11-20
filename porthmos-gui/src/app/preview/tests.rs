@@ -194,7 +194,7 @@ fn a_failed_result_shows_the_message() {
 
     harness.feed(Event::PreviewReady { request_id: id, name: "a.txt".to_string(), result: Err("denied".into()) });
 
-    assert_eq!(preview_state(&harness).status(), &PreviewStatus::Failed("denied".to_string()));
+    assert_eq!(preview_state(&harness).status(), &PreviewStatus::Failed("denied".into()));
 }
 
 #[test]

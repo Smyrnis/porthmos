@@ -246,7 +246,7 @@ fn a_cancelled_failure_for_a_paused_running_job_queues_it_again_still_paused() {
     t.engine.transfers.get_mut(ids[0]).unwrap().status = JobStatus::InProgress;
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
 
-    t.engine.handle_transfer_event(TransferEvent::Failed { id: ids[0], message: "aborted".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::Failed { id: ids[0], message: "aborted".into() });
 
     let paused = job(&t, ids[0]);
     assert_eq!(paused.status, JobStatus::Queued);
@@ -470,7 +470,7 @@ fn a_failed_removal_after_a_pause_clears_the_pause_and_the_stop_marker() {
     t.engine.work.source_removals.insert(ids[0]);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
 
-    t.engine.handle_transfer_event(TransferEvent::SourceRemovalFailed { id: ids[0], message: "denied".to_string() });
+    t.engine.handle_transfer_event(TransferEvent::SourceRemovalFailed { id: ids[0], message: "denied".into() });
 
     let failed = job(&t, ids[0]);
     assert!(matches!(failed.status, JobStatus::Failed(_)));

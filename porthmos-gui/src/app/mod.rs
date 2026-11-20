@@ -887,27 +887,19 @@ impl App {
             Event::SearchDone { request_id, truncated, incomplete } => {
                 self.search_done(request_id, truncated, incomplete)
             }
-            Event::SearchFailed { request_id, message } => self.search_failed(request_id, message.to_string()),
-            Event::PreviewReady { request_id, result, .. } => {
-                self.preview_arrived(request_id, result.map_err(|message| message.to_string()))
-            }
+            Event::SearchFailed { request_id, message } => self.search_failed(request_id, message),
+            Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),
             Event::ContentsCounted { request_id, contents } => self.contents_counted(request_id, contents),
             Event::MeasureProgress { request_id, measured } => self.properties_progress(request_id, measured),
-            Event::Measured { request_id, result } => {
-                self.properties_measured(request_id, result.map_err(|message| message.to_string()))
-            }
+            Event::Measured { request_id, result } => self.properties_measured(request_id, result),
             Event::ChecksumProgress { request_id, path, bytes_done, bytes_total } => {
                 self.properties_checksum_progress(request_id, &path, bytes_done, bytes_total)
             }
-            Event::Checksummed { request_id, path, result } => {
-                self.properties_checksummed(request_id, &path, result.map_err(|message| message.to_string()))
-            }
+            Event::Checksummed { request_id, path, result } => self.properties_checksummed(request_id, &path, result),
             Event::LocalShellReady { invocation } => self.shell_ready(invocation),
             Event::EditReady { edit_id, file, editor } => self.edit_ready(edit_id, file, editor),
             Event::EditQuestion { edit_id, name, kind } => self.edit_question(edit_id, name, kind),
-            Event::EditDiff { edit_id, result } => {
-                self.edit_diff_ready(edit_id, result.map_err(|message| message.to_string()))
-            }
+            Event::EditDiff { edit_id, result } => self.edit_diff_ready(edit_id, result),
             Event::EditsBusy(busy) => self.edits_busy = busy,
             Event::TransfersChanged(snapshot) => {
                 self.transfers.replace(snapshot);

@@ -23,10 +23,6 @@ fn error_label() -> String {
     tr("Error")
 }
 
-fn one_line(message: &str) -> String {
-    printable(&message.replace(":\n", ": ").replace('\n', " "))
-}
-
 pub fn measure_rows(pane: &PropertiesPane) -> Vec<(String, String)> {
     match &pane.measure {
         MeasurePane::Running(measured) => {
@@ -37,7 +33,7 @@ pub fn measure_rows(pane: &PropertiesPane) -> Vec<(String, String)> {
             rows.extend(skipped_line(measured).map(|skipped| (tr("Skipped"), skipped)));
             rows
         }
-        MeasurePane::Failed(message) => vec![(error_label(), one_line(message))],
+        MeasurePane::Failed(message) => vec![(error_label(), printable(&message.one_line()))],
         MeasurePane::Cancelled => vec![(tr("Size"), i18n::text("props.cancelled"))],
     }
 }
@@ -53,7 +49,7 @@ pub fn file_status(file: &FileHash) -> String {
         HashState::Running { done, total } => {
             i18n::text_with("props.progress", &[("done", &size_text(*done)), ("total", &size_text(*total))])
         }
-        HashState::Failed(message) => one_line(message),
+        HashState::Failed(message) => printable(&message.one_line()),
         HashState::Cancelled => i18n::text("props.cancelled"),
         HashState::Done(digest) => match file.listed_total {
             Some(total) if total != digest.bytes => i18n::text_with(

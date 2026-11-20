@@ -7,7 +7,7 @@ use porthmos_core::delete_prompt::count::{Contents, contents_line};
 use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditQuestionKind, printable};
 use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection};
-use porthmos_core::{Entry, Location, SessionId, VfsPath};
+use porthmos_core::{Entry, Location, Message, SessionId, VfsPath};
 
 use crate::app::PanelSide;
 use crate::conflicts::ConflictView;
@@ -28,7 +28,7 @@ pub enum DiffPane {
     Idle,
     Comparing,
     Ready(Arc<DiffOutcome>),
-    Failed(String),
+    Failed(Message),
 }
 
 #[derive(Debug, Clone)]

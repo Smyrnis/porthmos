@@ -73,7 +73,9 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn properties_measured(&mut self, request_id: u64, result: Result<Measured, String>) {
+    pub(in crate::app) fn properties_measured(
+        &mut self, request_id: u64, result: Result<Measured, porthmos_core::Message>,
+    ) {
         if let Some(pane) = self.properties_pane_for(request_id) {
             pane.set_measured(result);
         }
@@ -88,7 +90,7 @@ impl App {
     }
 
     pub(in crate::app) fn properties_checksummed(
-        &mut self, request_id: u64, path: &VfsPath, result: Result<Digest, String>,
+        &mut self, request_id: u64, path: &VfsPath, result: Result<Digest, porthmos_core::Message>,
     ) {
         if let Some(pane) = self.properties_pane_for(request_id) {
             pane.set_checksum(path, result);
