@@ -178,6 +178,41 @@ fn a_file_with_only_default_settings_has_no_rows() {
 }
 
 #[test]
+fn a_site_with_a_proxy_imports_its_address_and_user_but_never_a_password() {
+    let text = session(
+        "S",
+        &[
+            "HostName=h",
+            "ProxyMethod=3",
+            "ProxyHost=web-proxy",
+            "ProxyPort=3128",
+            "ProxyUsername=carol",
+            "ProxyPassword=SENTINEL-PROXYPW",
+            "ProxyPasswordEnc=SENTINEL-PROXYENC",
+            "ProxyTelnetCommand=SENTINEL-COMMAND",
+        ],
+    );
+    let row = only(&text);
+
+    let found = candidate(&row);
+
+    assert_eq!(found.options.get("proxy").map(String::as_str), Some("http://web-proxy:3128"));
+    assert_eq!(found.options.get("proxy_user").map(String::as_str), Some("carol"));
+    assert!(!format!("{row:?}").contains("SENTINEL"));
+}
+
+#[test]
+fn a_site_whose_protocol_has_no_proxy_field_says_the_proxy_is_not_imported() {
+    let row = only(&session("S", &["HostName=h", "FSProtocol=5", "ProxyMethod=2", "ProxyHost=gate"]));
+
+    let found = candidate(&row);
+
+    assert_eq!(found.protocol, "ftp");
+    assert!(!found.options.contains_key("proxy"));
+    assert!(found.notes.iter().any(|note| note.contains("proxy")), "{:?}", found.notes);
+}
+
+#[test]
 fn secrets_are_never_read() {
     let text = session(
         "S",

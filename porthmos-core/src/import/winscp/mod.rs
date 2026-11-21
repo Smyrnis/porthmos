@@ -1,13 +1,30 @@
 use std::collections::BTreeMap;
 
-use super::{Candidate, ImportError, ImportRow, Verdict, clean, escape};
+use super::{
+    Candidate, ImportError, ImportRow, Verdict, clean, escape,
+    proxy::{ProxyFields, proxy_options},
+};
 
 const NOT_WINSCP: &str = "import.not_winscp";
 const SESSIONS_PREFIX: &str = "Sessions\\";
 const DEFAULT_SETTINGS: &str = "Default Settings";
 const PPK_NOTE: &str = "key is in PuTTY format, convert it first";
-const ALLOWED_KEYS: [&str; 8] =
-    ["HostName", "PortNumber", "UserName", "FSProtocol", "Ftps", "RemoteDirectory", "PublicKeyFile", "IsWorkspace"];
+const ALLOWED_KEYS: [&str; 12] = [
+    "HostName",
+    "PortNumber",
+    "UserName",
+    "FSProtocol",
+    "Ftps",
+    "RemoteDirectory",
+    "PublicKeyFile",
+    "IsWorkspace",
+    "ProxyMethod",
+    "ProxyHost",
+    "ProxyPort",
+    "ProxyUsername",
+];
+const PROXY_NOT_FOR_PROTOCOL: &str =
+    "the proxy of this session is not imported: only SFTP and SCP connections can use one";
 
 struct Section {
     raw_name: String,
@@ -119,6 +136,20 @@ fn candidate(section: &Section, name: &str, folders: &[&str]) -> Result<Candidat
         } else {
             options.insert("identity_file".to_string(), key);
         }
+    }
+    let proxy = proxy_options(&ProxyFields {
+        method: section.value("ProxyMethod"),
+        host: section.value("ProxyHost"),
+        port: section.value("ProxyPort"),
+        user: section.value("ProxyUsername"),
+    });
+    if matches!(protocol, "sftp" | "scp") {
+        options.extend(proxy.options);
+        notes.extend(proxy.notes);
+    } else if !proxy.options.is_empty() {
+        notes.push(PROXY_NOT_FOR_PROTOCOL.to_string());
+    } else {
+        notes.extend(proxy.notes);
     }
     if let Some(directory) =
         section.value("RemoteDirectory").map(|path| clean::printable(path.trim())).filter(|path| !path.is_empty())

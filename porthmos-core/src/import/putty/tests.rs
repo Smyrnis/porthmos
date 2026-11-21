@@ -106,6 +106,50 @@ fn lines_without_an_equals_sign_and_crlf_endings_are_tolerated() {
 }
 
 #[test]
+fn a_session_with_a_proxy_imports_its_address_and_user_but_never_its_password_or_command() {
+    let text = "HostName=h\nUserName=u\nProxyMethod=2\nProxyHost=gate.example\nProxyPort=1081\nProxyUsername=bob\nProxyPassword=SENTINEL-PROXYPW\nProxyTelnetCommand=SENTINEL-COMMAND\n";
+    let row = session("S", text);
+
+    let found = candidate(&row);
+
+    assert_eq!(found.options.get("proxy").map(String::as_str), Some("socks5://gate.example:1081"));
+    assert_eq!(found.options.get("proxy_user").map(String::as_str), Some("bob"));
+    let shown = format!("{row:?}");
+    assert!(!shown.contains("SENTINEL"), "{shown}");
+}
+
+#[test]
+fn a_session_with_a_proxy_type_that_is_not_imported_says_so() {
+    let row = session("S", "HostName=h\nProxyMethod=5\nProxyTelnetCommand=SENTINEL-COMMAND\n");
+
+    let found = candidate(&row);
+
+    assert!(!found.options.contains_key("proxy"));
+    assert!(found.notes.iter().any(|note| note.contains("proxy")), "{:?}", found.notes);
+    assert!(!format!("{row:?}").contains("SENTINEL"));
+}
+
+#[test]
+fn a_reg_export_imports_the_proxy_the_same_way() {
+    let text = reg(&reg_session(
+        "S",
+        &[
+            "\"HostName\"=\"h\"",
+            "\"ProxyMethod\"=dword:00000003",
+            "\"ProxyHost\"=\"web-proxy\"",
+            "\"ProxyPort\"=dword:00000c38",
+            "\"ProxyUsername\"=\"carol\"",
+        ],
+    ));
+
+    let rows = parse_reg(&text).unwrap();
+
+    let found = candidate(&rows[0]);
+    assert_eq!(found.options.get("proxy").map(String::as_str), Some("http://web-proxy:3128"));
+    assert_eq!(found.options.get("proxy_user").map(String::as_str), Some("carol"));
+}
+
+#[test]
 fn session_secrets_are_never_read() {
     let text = "HostName=h\nUserName=u\nProxyPassword=SENTINEL-PROXY\nProxyUsername=SENTINEL-PROXYUSER\nPassphrase=SENTINEL-PASSPHRASE\nPassword=SENTINEL-PASSWORD-1234\nProxyTelnetCommand=SENTINEL-COMMAND\n";
     let shown = format!("{:?}", session("S", text));

@@ -3,6 +3,7 @@ pub(crate) mod escape;
 pub(crate) mod filezilla;
 mod finish;
 mod location;
+pub(crate) mod proxy;
 pub(crate) mod putty;
 mod read;
 #[cfg(test)]

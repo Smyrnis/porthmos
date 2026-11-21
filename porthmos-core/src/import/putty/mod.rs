@@ -1,14 +1,27 @@
 use crate::i18n;
 use std::collections::BTreeMap;
 
-use super::{Candidate, ImportError, ImportRow, Verdict, clean, escape};
+use super::{
+    Candidate, ImportError, ImportRow, Verdict, clean, escape,
+    proxy::{ProxyFields, proxy_options},
+};
 
 const NOT_REG: &str = "import.not_reg";
 const NOT_TEXT: &str = "import.not_text_reg";
 const SESSIONS_KEY: &str = "hkey_current_user\\software\\simontatham\\putty\\sessions";
 const DEFAULT_SETTINGS: &str = "Default Settings";
 const PPK_NOTE: &str = "key is in PuTTY format, convert it first";
-const ALLOWED_KEYS: [&str; 5] = ["HostName", "PortNumber", "UserName", "Protocol", "PublicKeyFile"];
+const ALLOWED_KEYS: [&str; 9] = [
+    "HostName",
+    "PortNumber",
+    "UserName",
+    "Protocol",
+    "PublicKeyFile",
+    "ProxyMethod",
+    "ProxyHost",
+    "ProxyPort",
+    "ProxyUsername",
+];
 
 #[derive(Default)]
 struct Fields {
@@ -17,6 +30,7 @@ struct Fields {
     username: Option<String>,
     protocol: Option<String>,
     key: Option<String>,
+    proxy: ProxyFields,
 }
 
 impl Fields {
@@ -27,6 +41,10 @@ impl Fields {
             "UserName" => self.username = Some(value),
             "Protocol" => self.protocol = Some(value),
             "PublicKeyFile" => self.key = Some(value),
+            "ProxyMethod" => self.proxy.method = Some(value),
+            "ProxyHost" => self.proxy.host = Some(value),
+            "ProxyPort" => self.proxy.port = Some(value),
+            "ProxyUsername" => self.proxy.user = Some(value),
             _ => {}
         }
     }
@@ -75,6 +93,10 @@ fn candidate(name: &str, fields: &Fields) -> Result<Candidate, Verdict> {
             options.insert("identity_file".to_string(), key);
         }
     }
+
+    let proxy = proxy_options(&fields.proxy);
+    options.extend(proxy.options);
+    notes.extend(proxy.notes);
 
     Ok(Candidate {
         name: name.to_string(),
