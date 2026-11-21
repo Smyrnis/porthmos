@@ -17,7 +17,7 @@ pub(crate) struct StateGuard {
 
 impl Engine {
     pub(crate) fn load_ui_state(&mut self) {
-        let loaded = state::load(&self.paths);
+        let loaded = state::load(&self.host.paths);
         if let Some(warning) = loaded.warning {
             self.report(Severity::Warning, warning);
         }
@@ -75,7 +75,7 @@ impl Engine {
         if self.state_guard.protected {
             return;
         }
-        let Err(err) = state::save(&self.paths, &self.ui_state) else {
+        let Err(err) = state::save(&self.host.paths, &self.ui_state) else {
             return;
         };
         if self.state_guard.write_warned {
@@ -94,7 +94,7 @@ impl Engine {
             self.report(Severity::Warning, i18n::text_with("remember.protected", &[("what", &i18n::text(what))]));
             return;
         }
-        if let Err(err) = state::save(&self.paths, &self.ui_state) {
+        if let Err(err) = state::save(&self.host.paths, &self.ui_state) {
             self.report(
                 Severity::Warning,
                 i18n::text_with("remember.failed", &[("what", &i18n::text(what)), ("cause", &err.to_string())]),

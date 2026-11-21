@@ -22,9 +22,9 @@ fn profile_lines(names: &[(&str, &str)]) -> String {
 
 fn engine_with_profiles(mode: ReopenMode, names: &[(&str, &str)]) -> TestEngine {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
-    std::fs::write(t.engine.paths.connections_file(), profile_lines(names)).unwrap();
-    t.engine.protocols = vec![
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
+    std::fs::write(t.engine.host.paths.connections_file(), profile_lines(names)).unwrap();
+    t.engine.host.protocols = vec![
         Arc::new(FakeProtocol::new(FakeFs::new())),
         Arc::new(FakeProtocol::new(FakeFs::new()).with_id("failing").failing_connect("Connection refused")),
     ];
@@ -34,7 +34,7 @@ fn engine_with_profiles(mode: ReopenMode, names: &[(&str, &str)]) -> TestEngine 
 
 fn remember_last_run(t: &mut TestEngine, names: &[&str]) {
     let state = UiState { reopen: names.iter().map(|name| name.to_string()).collect(), ..UiState::default() };
-    state::save(&t.engine.paths, &state).unwrap();
+    state::save(&t.engine.host.paths, &state).unwrap();
     t.engine.load_ui_state();
     t.drain();
 }
@@ -45,13 +45,13 @@ fn remember_last_run_active(t: &mut TestEngine, names: &[&str], active: &str) {
         reopen_active: Some(active.to_string()),
         ..UiState::default()
     };
-    state::save(&t.engine.paths, &state).unwrap();
+    state::save(&t.engine.host.paths, &state).unwrap();
     t.engine.load_ui_state();
     t.drain();
 }
 
 fn saved_active(t: &TestEngine) -> Option<String> {
-    state::load(&t.engine.paths).state.reopen_active
+    state::load(&t.engine.host.paths).state.reopen_active
 }
 
 fn focused(events: &[Event]) -> Vec<String> {
@@ -75,7 +75,7 @@ fn session_of(events: &[Event], wanted: &str) -> u64 {
 }
 
 fn saved_list(t: &TestEngine) -> Vec<String> {
-    state::load(&t.engine.paths).state.reopen
+    state::load(&t.engine.host.paths).state.reopen
 }
 
 fn offers(events: &[Event]) -> Vec<Vec<String>> {
@@ -148,7 +148,7 @@ async fn nothing_is_recorded_while_the_mode_is_off() {
     finish_one(&mut t).await;
 
     assert!(saved_list(&t).is_empty());
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
 }
 
 #[tokio::test]
@@ -411,7 +411,7 @@ async fn a_protected_state_file_is_left_alone() {
     t.engine.handle_command(Command::Connect { profile: "a".into() });
     finish_one(&mut t).await;
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
 }
 
 #[tokio::test]

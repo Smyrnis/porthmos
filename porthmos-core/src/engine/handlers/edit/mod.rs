@@ -215,7 +215,7 @@ async fn upload(job: UploadJob, fs: Arc<dyn FileSystem>, local: Arc<dyn FileSyst
 
 impl Engine {
     pub(crate) fn edit_file(&mut self, location: Location, path: VfsPath) {
-        let editor = match resolve_editor(self.edit.settings.editor.as_deref(), &self.env) {
+        let editor = match resolve_editor(self.edit.settings.editor.as_deref(), &self.host.env) {
             Ok(editor) => editor,
             Err(message) => {
                 self.report(Severity::Error, editor_failure(&message));
@@ -277,8 +277,8 @@ impl Engine {
         };
         let edit_id = self.new_edit_session(Location::Session(session_id), path.clone(), editor);
         let name = self.edit.sessions[&edit_id].name.clone();
-        let dir = self.paths.edit_dir().join(format!("{}-{edit_id}", self.now().timestamp_millis()));
-        let local = self.local_fs.clone();
+        let dir = self.host.paths.edit_dir().join(format!("{}-{edit_id}", self.now().timestamp_millis()));
+        let local = self.host.local_fs.clone();
         let internal = self.internal.clone();
         self.info(i18n::text_with("edit.downloading", &[("name", &printable(&name))]));
         self.tasks.spawn("edit-download", Scope::Edit(edit_id), move |cancel| async move {
@@ -509,7 +509,7 @@ impl Engine {
             );
             return;
         };
-        let local = self.local_fs.clone();
+        let local = self.host.local_fs.clone();
         let internal = self.internal.clone();
         let job = UploadJob {
             edit_id,
@@ -518,7 +518,7 @@ impl Engine {
             baseline,
             name,
             mode,
-            at: self.now().with_timezone(&(self.local_offset)()),
+            at: self.now().with_timezone(&(self.host.local_offset)()),
         };
         self.tasks.spawn("edit-upload", Scope::Edit(edit_id), move |_| async move {
             let event = upload(job, fs, local).await;

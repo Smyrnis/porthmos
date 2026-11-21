@@ -152,7 +152,8 @@ impl Engine {
                 outcome: TestOutcome::Failed { stage: TestStage::Settings, message: message.into() },
             });
         };
-        let Some(protocol) = self.protocols.iter().find(|protocol| protocol.id() == draft.protocol).cloned() else {
+        let Some(protocol) = self.host.protocols.iter().find(|protocol| protocol.id() == draft.protocol).cloned()
+        else {
             return reject(i18n::text_with("profiles.no_protocol", &[("protocol", &draft.protocol)]));
         };
         let preserve_from: Option<ConnectionEntry> = original

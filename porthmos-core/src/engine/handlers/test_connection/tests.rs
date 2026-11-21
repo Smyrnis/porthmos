@@ -27,7 +27,7 @@ fn draft() -> ProfileDraft {
 
 fn engine_with(protocol: FakeProtocol) -> TestEngine {
     let mut t = test_engine();
-    t.engine.protocols = vec![Arc::new(protocol)];
+    t.engine.host.protocols = vec![Arc::new(protocol)];
     t
 }
 
@@ -297,13 +297,13 @@ mod hardening {
 
     fn saved_engine(backend: &Arc<TestBackend>, protocol: FakeProtocol, lines: &str) -> TestEngine {
         let mut t = test_engine_with_secrets(backend.clone());
-        std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
+        std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
         std::fs::write(
-            t.engine.paths.connections_file(),
+            t.engine.host.paths.connections_file(),
             format!("[connections.srv]\nprotocol = \"fake\"\nhost = \"h\"\nusername = \"u\"\n{lines}"),
         )
         .unwrap();
-        t.engine.protocols = vec![Arc::new(protocol)];
+        t.engine.host.protocols = vec![Arc::new(protocol)];
         t
     }
 
@@ -434,7 +434,7 @@ mod hardening {
         let backend = Arc::new(TestBackend::new());
         backend.put("profile:srv", "hunter2");
         let mut t = saved_engine(&backend, FakeProtocol::new(FakeFs::new()), "in_keyring = [\"password\"]\n");
-        t.engine.protocols = vec![
+        t.engine.host.protocols = vec![
             Arc::new(FakeProtocol::new(FakeFs::new())),
             Arc::new(FakeProtocol::new(FakeFs::new()).with_id("other").requiring_password("x")),
         ];

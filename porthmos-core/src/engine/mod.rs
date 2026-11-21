@@ -1,6 +1,7 @@
 mod command;
 mod event;
 mod handlers;
+mod host;
 mod prompter;
 mod report;
 mod session_book;
@@ -15,6 +16,7 @@ use std::{
 
 pub use command::{Command, Location, RequestId, SessionId};
 pub use event::Event;
+use host::Host;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
 pub(crate) use report::Reporter;
@@ -34,7 +36,6 @@ use crate::{
     tasks::{Scope, Tasks},
     transfer::{
         Direction, JobStatus, TransferOutcome, TransferQueue, TransferSnapshot,
-        conflicts::ConflictPolicy,
         plan::DirectoryPlan,
         rows::{RowState, ScanInfo},
     },
@@ -182,16 +183,11 @@ impl Default for Graces {
 }
 
 pub(crate) struct Engine {
-    paths: Paths,
-    env: Environment,
-    protocols: Vec<Arc<dyn Protocol>>,
-    local_fs: Arc<dyn FileSystem>,
+    host: Host,
     events: UnboundedSender<Event>,
     internal: UnboundedSender<Internal>,
     tasks: Tasks,
     reporter: Reporter,
-    clock: fn() -> chrono::DateTime<chrono::Utc>,
-    local_offset: fn() -> chrono::FixedOffset,
     pub(crate) finished: Option<tokio::sync::watch::Sender<bool>>,
     pub(crate) grace: Graces,
     pub(crate) state_guard: handlers::StateGuard,
@@ -202,8 +198,6 @@ pub(crate) struct Engine {
     questions: PendingQuestions,
     transfers: TransferQueue,
     pub(crate) work: transfer_work::TransferWork,
-    max_parallel: usize,
-    on_conflict: ConflictPolicy,
     search: SearchState,
     bookmarks: Bookmarks,
     secrets: Secrets,
@@ -266,16 +260,11 @@ impl Engine {
         });
         let reporter = Reporter::new(events.clone());
         Self {
-            paths: parts.paths,
-            env: parts.env,
-            protocols: parts.protocols,
-            local_fs: parts.local_fs,
+            host: Host::new(parts.paths, parts.env, parts.protocols, parts.local_fs),
             events,
             internal,
             tasks,
             reporter,
-            clock: chrono::Utc::now,
-            local_offset: current_local_offset,
             finished: None,
             grace: Graces::default(),
             state_guard: handlers::StateGuard::default(),
@@ -285,9 +274,11 @@ impl Engine {
             book: SessionBook::default(),
             questions: PendingQuestions::default(),
             transfers: TransferQueue::new(),
-            work: transfer_work::TransferWork::new(parts.publish_interval),
-            max_parallel: parts.transfers.max_parallel,
-            on_conflict: parts.transfers.on_conflict,
+            work: transfer_work::TransferWork::new(
+                parts.publish_interval,
+                parts.transfers.max_parallel,
+                parts.transfers.on_conflict,
+            ),
             search: SearchState {
                 generation: Arc::new(AtomicU64::new(0)),
                 max_depth: parts.search.max_depth,
@@ -561,7 +552,7 @@ impl Engine {
     }
 
     pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
-        (self.clock)()
+        (self.host.clock)()
     }
 
     pub(crate) fn persist_failed(&mut self, path: PathBuf, message: String, tag: u64) {
@@ -582,7 +573,7 @@ impl Engine {
 
     fn fs_for(&self, location: Location) -> Option<Arc<dyn FileSystem>> {
         match location {
-            Location::Local => Some(self.local_fs.clone()),
+            Location::Local => Some(self.host.local_fs.clone()),
             Location::Session(id) => self.book.sessions.get(&id).map(|session| session.fs.clone()),
         }
     }
@@ -666,7 +657,3 @@ pub(crate) mod testing;
 
 #[cfg(test)]
 mod tests;
-
-fn current_local_offset() -> chrono::FixedOffset {
-    *chrono::Local::now().offset()
-}

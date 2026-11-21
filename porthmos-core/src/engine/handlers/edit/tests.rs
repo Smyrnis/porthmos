@@ -53,7 +53,7 @@ fn a_local_file_is_edited_in_place_without_a_temporary_copy() {
     let events = t.drain();
     let (_, file, _) = find_ready(&events).expect("EditReady");
     assert_eq!(file, path);
-    assert!(!t.engine.paths.edit_dir().exists());
+    assert!(!t.engine.host.paths.edit_dir().exists());
 }
 
 #[cfg(windows)]
@@ -107,7 +107,7 @@ fn a_folder_is_refused() {
 fn the_editor_comes_from_the_setting_then_the_environment() {
     let mut t = test_engine();
     let path = local_file(&t, "l.txt");
-    t.engine.env.editor = Some("nano -w".to_string());
+    t.engine.host.env.editor = Some("nano -w".to_string());
 
     t.engine.handle_command(Command::EditFile { location: Location::Local, path: from_os_path(&path.clone()) });
     let (_, _, from_env) = find_ready(&t.drain()).unwrap();
@@ -230,7 +230,7 @@ async fn a_remote_file_is_downloaded_to_a_private_temporary_copy() {
     let (_, file, editor) = find_ready(&events).expect("EditReady");
     assert_eq!(std::fs::read(&file).unwrap(), b"old content");
     assert_eq!(file.file_name().unwrap(), "a.txt");
-    assert!(file.starts_with(t.engine.paths.edit_dir()));
+    assert!(file.starts_with(t.engine.host.paths.edit_dir()));
     assert_eq!(mode(&file), 0o600);
     assert_eq!(mode(file.parent().unwrap()), 0o700);
     assert_eq!(editor.program, "vi");
@@ -284,7 +284,7 @@ async fn a_remote_folder_is_refused_without_a_temporary_copy() {
 
     assert!(find_ready(&events).is_none());
     assert!(error_notices(&events).iter().any(|message| message == "Can't edit a folder"));
-    assert!(!t.engine.paths.edit_dir().exists());
+    assert!(!t.engine.host.paths.edit_dir().exists());
 }
 
 #[tokio::test]
@@ -297,7 +297,7 @@ async fn a_remote_file_over_the_limit_is_refused_before_downloading() {
 
     assert!(find_ready(&events).is_none());
     assert!(error_notices(&events).iter().any(|message| message == "big is too large to edit (limit 64 MiB)"));
-    assert!(!t.engine.paths.edit_dir().exists());
+    assert!(!t.engine.host.paths.edit_dir().exists());
 }
 
 #[tokio::test]
@@ -322,7 +322,7 @@ async fn a_remote_file_that_cannot_be_read_leaves_no_temporary_copy() {
 
     assert!(find_ready(&events).is_none());
     assert!(!error_notices(&events).is_empty());
-    let leftovers = std::fs::read_dir(t.engine.paths.edit_dir()).map(|dir| dir.count()).unwrap_or(0);
+    let leftovers = std::fs::read_dir(t.engine.host.paths.edit_dir()).map(|dir| dir.count()).unwrap_or(0);
     assert_eq!(leftovers, 0);
 }
 
@@ -347,7 +347,7 @@ async fn cancelling_everything_during_the_download_removes_the_temporary_copy() 
     let events = t.drain();
     assert!(find_ready(&events).is_none());
     assert!(notices_of(&events).contains(&(Severity::Info, "Edit cancelled".to_string())));
-    let leftovers = std::fs::read_dir(t.engine.paths.edit_dir()).map(|dir| dir.count()).unwrap_or(0);
+    let leftovers = std::fs::read_dir(t.engine.host.paths.edit_dir()).map(|dir| dir.count()).unwrap_or(0);
     assert_eq!(leftovers, 0);
     assert!(t.engine.edit.sessions.is_empty());
 }
@@ -658,8 +658,8 @@ async fn a_session_lost_before_the_upload_keeps_the_copy() {
 #[tokio::test]
 async fn a_conflict_copy_name_that_already_exists_fails_the_upload_and_overwrites_nothing() {
     let mut t = test_engine();
-    t.engine.clock = || crate::engine::testing::utc(2026, 9, 30, 10, 15, 0);
-    t.engine.local_offset = || chrono::FixedOffset::east_opt(0).unwrap();
+    t.engine.host.clock = || crate::engine::testing::utc(2026, 9, 30, 10, 15, 0);
+    t.engine.host.local_offset = || chrono::FixedOffset::east_opt(0).unwrap();
     let (session, fs) = remote_session(&mut t);
     let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
     let file = t.engine.edit.sessions[&edit_id].temp.as_ref().unwrap().file.clone();
@@ -816,9 +816,9 @@ async fn finishing_before_the_editor_was_ever_started_is_ignored() {
 #[tokio::test]
 async fn an_existing_temporary_folder_is_never_reused() {
     let mut t = test_engine();
-    t.engine.clock = || crate::engine::testing::utc(2026, 9, 30, 10, 15, 0);
+    t.engine.host.clock = || crate::engine::testing::utc(2026, 9, 30, 10, 15, 0);
     let (session, _fs) = remote_session(&mut t);
-    let taken = t.engine.paths.edit_dir().join(format!("{}-0", (t.engine.clock)().timestamp_millis()));
+    let taken = t.engine.host.paths.edit_dir().join(format!("{}-0", (t.engine.host.clock)().timestamp_millis()));
     std::fs::create_dir_all(&taken).unwrap();
     std::fs::write(taken.join("precious"), b"someone else's copy").unwrap();
 
@@ -838,7 +838,7 @@ async fn a_download_that_finished_just_before_cancelling_does_not_open_the_edito
         VfsPath::from(REMOTE),
         EditorCommand { program: "vi".to_string(), args: Vec::new() },
     );
-    let dir = t.engine.paths.edit_dir().join("finished-download");
+    let dir = t.engine.host.paths.edit_dir().join("finished-download");
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("a.txt");
     std::fs::write(&file, b"old content").unwrap();
@@ -938,7 +938,7 @@ async fn a_question_that_arrives_during_shutdown_is_not_asked() {
 #[tokio::test]
 async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_folder() {
     let mut t = test_engine();
-    t.engine.local_fs = Arc::new(
+    t.engine.host.local_fs = Arc::new(
         porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
     );
     let (session, fs) = t.add_session("prod");
@@ -950,7 +950,7 @@ async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_fo
     for name in ["..\\..\\x.txt", "C:\\evil.bat", "a:b.txt"] {
         let events = open_remote(&mut t, session, &format!("/home/user/{name}")).await;
         let (_, file, _) = find_ready(&events).expect("EditReady");
-        assert_eq!(file.parent().unwrap().parent().unwrap(), t.engine.paths.edit_dir(), "{file:?}");
+        assert_eq!(file.parent().unwrap().parent().unwrap(), t.engine.host.paths.edit_dir(), "{file:?}");
         files.push(file.file_name().unwrap().to_string_lossy().into_owned());
     }
 
@@ -960,8 +960,8 @@ async fn a_remote_name_the_local_side_cannot_store_is_cleaned_inside_the_edit_fo
 #[tokio::test]
 async fn the_conflict_copy_is_stamped_with_the_local_time() {
     let mut t = test_engine();
-    t.engine.clock = || crate::engine::testing::utc(2026, 10, 31, 15, 22, 19);
-    t.engine.local_offset = || chrono::FixedOffset::east_opt(2 * 3600).unwrap();
+    t.engine.host.clock = || crate::engine::testing::utc(2026, 10, 31, 15, 22, 19);
+    t.engine.host.local_offset = || chrono::FixedOffset::east_opt(2 * 3600).unwrap();
     let (session, fs) = remote_session(&mut t);
     let edit_id = conflicted(&mut t, session, &fs, b"someone else was here", 10).await;
 

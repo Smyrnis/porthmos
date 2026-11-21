@@ -21,7 +21,7 @@ fn engine_with_sftp() -> TestEngine {
     });
     let protocol =
         porthmos_vfs::testing::FakeProtocol::new(porthmos_vfs::testing::FakeFs::new()).with_id("sftp").with_form(form);
-    t.engine.protocols = vec![std::sync::Arc::new(protocol)];
+    t.engine.host.protocols = vec![std::sync::Arc::new(protocol)];
     t
 }
 
@@ -37,14 +37,14 @@ fn draft(name: &str, host: &str, port: &str) -> ProfileDraft {
 }
 
 fn saved(t: &TestEngine) -> Vec<ConnectionProfile> {
-    let mut profiles = store::load(&t.engine.paths).unwrap();
+    let mut profiles = store::load(&t.engine.host.paths).unwrap();
     profiles.sort_by(|a, b| a.name.cmp(&b.name));
     profiles
 }
 
 fn seed(t: &TestEngine, name: &str, host: &str, options: BTreeMap<String, String>) {
     store::save(
-        &t.engine.paths,
+        &t.engine.host.paths,
         &ConnectionProfile {
             name: name.to_string(),
             protocol: "sftp".to_string(),
@@ -165,9 +165,9 @@ fn renaming_a_connection_to_a_new_name_deletes_the_old_profile() {
 #[test]
 fn a_save_that_fails_reports_the_error_without_closing_the_form() {
     let mut t = engine_with_sftp();
-    std::fs::write(&t.engine.paths.config_dir, b"not a directory").ok();
-    std::fs::create_dir_all(t.engine.paths.config_dir.parent().unwrap()).unwrap();
-    std::fs::write(&t.engine.paths.config_dir, b"not a directory").unwrap();
+    std::fs::write(&t.engine.host.paths.config_dir, b"not a directory").ok();
+    std::fs::create_dir_all(t.engine.host.paths.config_dir.parent().unwrap()).unwrap();
+    std::fs::write(&t.engine.host.paths.config_dir, b"not a directory").unwrap();
 
     t.engine.handle_command(Command::SaveProfile { original: None, draft: Box::new(draft("prod", "h", "22")) });
 
@@ -247,7 +247,7 @@ fn editing_keeps_hand_written_options_of_the_same_protocol() {
 fn editing_an_entry_of_a_protocol_missing_from_this_build_keeps_its_options() {
     let mut t = engine_with_sftp();
     store::save(
-        &t.engine.paths,
+        &t.engine.host.paths,
         &ConnectionProfile {
             name: "files".to_string(),
             protocol: "ftp".to_string(),
@@ -287,7 +287,7 @@ fn engine_discovering(names: &[&str]) -> TestEngine {
     let protocol = porthmos_vfs::testing::FakeProtocol::new(porthmos_vfs::testing::FakeFs::new())
         .with_id("sftp")
         .with_discovered(names.iter().map(|name| discovered(name)).collect());
-    t.engine.protocols = vec![std::sync::Arc::new(protocol)];
+    t.engine.host.protocols = vec![std::sync::Arc::new(protocol)];
     t
 }
 
@@ -305,7 +305,7 @@ fn saving_ssh_labels_stores_them_normalized_and_relists() {
         tags: "prod, prod".into(),
     });
 
-    let labels = store::load_ssh_labels(&t.engine.paths).unwrap();
+    let labels = store::load_ssh_labels(&t.engine.host.paths).unwrap();
     assert_eq!(labels.get("web1").unwrap().group.as_deref(), Some("Work/Web"));
     assert_eq!(labels.get("web1").unwrap().tags, vec!["prod"]);
     let events = t.drain();
@@ -322,17 +322,17 @@ fn saving_ssh_labels_for_an_unknown_host_is_rejected() {
     assert!(
         matches!(t.drain().as_slice(), [Event::ProfileRejected { field: None, message }] if message == "nope is not in ~/.ssh/config")
     );
-    assert!(store::load_ssh_labels(&t.engine.paths).unwrap().is_empty());
+    assert!(store::load_ssh_labels(&t.engine.host.paths).unwrap().is_empty());
 }
 
 #[test]
 fn moving_ssh_labels_reattaches_them_to_another_host() {
     let mut t = engine_discovering(&["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("A")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("A")).unwrap();
 
     t.engine.handle_command(Command::MoveSshLabels { from: "old".into(), to: "new".into() });
 
-    let labels = store::load_ssh_labels(&t.engine.paths).unwrap();
+    let labels = store::load_ssh_labels(&t.engine.host.paths).unwrap();
     assert_eq!(labels.keys().collect::<Vec<_>>(), vec!["new"]);
     assert!(matches!(t.drain().last(), Some(Event::Profiles(_))));
 }
@@ -340,7 +340,7 @@ fn moving_ssh_labels_reattaches_them_to_another_host() {
 #[test]
 fn moving_ssh_labels_to_an_unknown_host_is_an_error_notice() {
     let mut t = engine_discovering(&["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("A")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("A")).unwrap();
 
     t.engine.handle_command(Command::MoveSshLabels { from: "old".into(), to: "ghost".into() });
 
@@ -348,17 +348,17 @@ fn moving_ssh_labels_to_an_unknown_host_is_an_error_notice() {
         event,
         Event::Notice { severity: Severity::Error, message } if message == "ghost is not in ~/.ssh/config"
     )));
-    assert!(store::load_ssh_labels(&t.engine.paths).unwrap().contains_key("old"));
+    assert!(store::load_ssh_labels(&t.engine.host.paths).unwrap().contains_key("old"));
 }
 
 #[test]
 fn forgetting_ssh_labels_removes_them_and_relists() {
     let mut t = engine_discovering(&[]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("A")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("A")).unwrap();
 
     t.engine.handle_command(Command::ForgetSshLabels { name: "old".into() });
 
-    assert!(store::load_ssh_labels(&t.engine.paths).unwrap().is_empty());
+    assert!(store::load_ssh_labels(&t.engine.host.paths).unwrap().is_empty());
     assert!(matches!(t.drain().last(), Some(Event::Profiles(entries)) if entries.is_empty()));
 }
 
@@ -391,7 +391,7 @@ fn engine_with_sftp_and(backend: &std::sync::Arc<TestBackend>) -> TestEngine {
     let protocol = porthmos_vfs::testing::FakeProtocol::new(porthmos_vfs::testing::FakeFs::new())
         .with_id("sftp")
         .with_form(secured_form());
-    t.engine.protocols = vec![std::sync::Arc::new(protocol)];
+    t.engine.host.protocols = vec![std::sync::Arc::new(protocol)];
     t
 }
 
@@ -403,7 +403,7 @@ fn with_password(name: &str, password: &str) -> Box<ProfileDraft> {
 
 fn seed_with_markers(t: &TestEngine, name: &str, markers: &[&str]) {
     seed(t, name, "h", BTreeMap::new());
-    store::set_profile_markers(&t.engine.paths, name, &markers.iter().map(|m| m.to_string()).collect::<Vec<_>>())
+    store::set_profile_markers(&t.engine.host.paths, name, &markers.iter().map(|m| m.to_string()).collect::<Vec<_>>())
         .unwrap();
 }
 
@@ -696,7 +696,7 @@ async fn switching_protocol_forgets_the_old_protocols_saved_secrets() {
     backend.put("profile:web", "pw");
     backend.put("option:token:web", "tok");
     let mut t = engine_with_sftp_and(&backend);
-    t.engine.protocols.push(std::sync::Arc::new(
+    t.engine.host.protocols.push(std::sync::Arc::new(
         porthmos_vfs::testing::FakeProtocol::new(porthmos_vfs::testing::FakeFs::new()).with_id("ftp"),
     ));
     seed_with_markers(&t, "web", &["password", "token"]);
@@ -717,12 +717,12 @@ fn engine_discovering_with(backend: &std::sync::Arc<TestBackend>, names: &[&str]
     let protocol = porthmos_vfs::testing::FakeProtocol::new(porthmos_vfs::testing::FakeFs::new())
         .with_id("sftp")
         .with_discovered(names.iter().map(|name| discovered(name)).collect());
-    t.engine.protocols = vec![std::sync::Arc::new(protocol)];
+    t.engine.host.protocols = vec![std::sync::Arc::new(protocol)];
     t
 }
 
 fn mark_ssh(t: &TestEngine, alias: &str) {
-    store::set_ssh_markers(&t.engine.paths, alias, &["password".to_string()]).unwrap();
+    store::set_ssh_markers(&t.engine.host.paths, alias, &["password".to_string()]).unwrap();
 }
 
 #[tokio::test]
@@ -730,7 +730,7 @@ async fn moving_labels_moves_the_saved_password_too() {
     let backend = std::sync::Arc::new(TestBackend::new());
     backend.put("ssh:old", "pw");
     let mut t = engine_discovering_with(&backend, &["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("Work")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("Work")).unwrap();
     mark_ssh(&t, "old");
     t.engine.secrets.remember("ssh:old", "pw");
 
@@ -740,7 +740,7 @@ async fn moving_labels_moves_the_saved_password_too() {
     assert_eq!(backend.stored("ssh:new").as_deref(), Some("pw"));
     assert!(backend.stored("ssh:old").is_none());
     assert_eq!(backend.calls(), vec!["get ssh:old", "set ssh:new", "delete ssh:old"]);
-    let records = store::load_ssh_labels(&t.engine.paths).unwrap();
+    let records = store::load_ssh_labels(&t.engine.host.paths).unwrap();
     assert_eq!(records["new"].in_keyring, vec!["password"]);
     assert_eq!(records["new"].group.as_deref(), Some("Work"));
     assert!(!records.contains_key("old"));
@@ -752,13 +752,13 @@ async fn moving_labels_moves_the_saved_password_too() {
 async fn moving_labels_without_a_saved_password_never_touches_the_keyring() {
     let backend = std::sync::Arc::new(TestBackend::new());
     let mut t = engine_discovering_with(&backend, &["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("Work")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("Work")).unwrap();
 
     t.engine.handle_command(Command::MoveSshLabels { from: "old".into(), to: "new".into() });
     t.settle().await;
 
     assert!(backend.calls().is_empty());
-    assert!(store::load_ssh_labels(&t.engine.paths).unwrap()["new"].in_keyring.is_empty());
+    assert!(store::load_ssh_labels(&t.engine.host.paths).unwrap()["new"].in_keyring.is_empty());
 }
 
 #[tokio::test]
@@ -767,13 +767,13 @@ async fn a_failed_password_move_is_reported_and_leaves_no_false_marker() {
     backend.put("ssh:old", "pw");
     backend.fail_writes();
     let mut t = engine_discovering_with(&backend, &["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("Work")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("Work")).unwrap();
     mark_ssh(&t, "old");
 
     t.engine.handle_command(Command::MoveSshLabels { from: "old".into(), to: "new".into() });
     t.settle().await;
 
-    let records = store::load_ssh_labels(&t.engine.paths).unwrap();
+    let records = store::load_ssh_labels(&t.engine.host.paths).unwrap();
     assert!(records["new"].in_keyring.is_empty());
     assert_eq!(records["new"].group.as_deref(), Some("Work"));
     assert_eq!(backend.stored("ssh:old").as_deref(), Some("pw"));
@@ -794,7 +794,7 @@ async fn moving_labels_to_an_unknown_host_leaves_the_password_alone() {
     t.settle().await;
 
     assert!(backend.calls().is_empty());
-    assert_eq!(store::load_ssh_labels(&t.engine.paths).unwrap()["old"].in_keyring, vec!["password"]);
+    assert_eq!(store::load_ssh_labels(&t.engine.host.paths).unwrap()["old"].in_keyring, vec!["password"]);
 }
 
 #[tokio::test]
@@ -810,7 +810,7 @@ async fn forgetting_labels_forgets_the_password() {
 
     assert!(backend.stored("ssh:old").is_none());
     assert_eq!(backend.calls(), vec!["delete ssh:old"]);
-    assert!(store::load_ssh_labels(&t.engine.paths).unwrap().is_empty());
+    assert!(store::load_ssh_labels(&t.engine.host.paths).unwrap().is_empty());
     assert!(t.engine.secrets.cached("ssh:old").is_none());
 }
 
@@ -818,7 +818,7 @@ async fn forgetting_labels_forgets_the_password() {
 async fn forgetting_labels_without_a_saved_password_never_touches_the_keyring() {
     let backend = std::sync::Arc::new(TestBackend::new());
     let mut t = engine_discovering_with(&backend, &[]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only("Work")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only("Work")).unwrap();
 
     t.engine.handle_command(Command::ForgetSshLabels { name: "old".into() });
     t.settle().await;
@@ -831,14 +831,14 @@ async fn forgetting_only_the_password_keeps_group_and_tags() {
     let backend = std::sync::Arc::new(TestBackend::new());
     backend.put("ssh:web1", "pw");
     let mut t = engine_discovering_with(&backend, &["web1"]);
-    store::save_ssh_labels(&t.engine.paths, "web1", &group_only("Work")).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "web1", &group_only("Work")).unwrap();
     mark_ssh(&t, "web1");
     t.engine.secrets.remember("ssh:web1", "pw");
 
     t.engine.handle_command(Command::ForgetSshPassword { alias: "web1".into() });
     t.settle().await;
 
-    let record = &store::load_ssh_labels(&t.engine.paths).unwrap()["web1"];
+    let record = &store::load_ssh_labels(&t.engine.host.paths).unwrap()["web1"];
     assert_eq!(record.group.as_deref(), Some("Work"));
     assert!(record.in_keyring.is_empty());
     assert!(backend.stored("ssh:web1").is_none());
@@ -877,7 +877,7 @@ async fn a_failed_password_forget_is_reported() {
         error_notices(&t.drain()),
         vec!["Couldn't remove the password for web1 from the system keyring: write failed".to_string()]
     );
-    assert_eq!(store::load_ssh_labels(&t.engine.paths).unwrap()["web1"].in_keyring, vec!["password"]);
+    assert_eq!(store::load_ssh_labels(&t.engine.host.paths).unwrap()["web1"].in_keyring, vec!["password"]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1032,8 +1032,8 @@ async fn settle_waits_for_a_keyring_job_that_outlasts_the_quiet_period() {
 #[test]
 fn listing_with_a_malformed_connections_file_shows_the_file_name_and_the_line() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
-    std::fs::write(t.engine.paths.connections_file(), "[connections.s3]\nhost = \"h\nusername = \"u\"\n").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
+    std::fs::write(t.engine.host.paths.connections_file(), "[connections.s3]\nhost = \"h\nusername = \"u\"\n").unwrap();
 
     t.engine.list_profiles();
 

@@ -27,7 +27,7 @@ fn set(t: &mut TestEngine, limit: Option<u64>) {
 }
 
 fn saved(t: &TestEngine) -> state::UiState {
-    state::load(&t.engine.paths).state
+    state::load(&t.engine.host.paths).state
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn turning_it_off_applies_publishes_and_forgets_it() {
     assert_eq!(t.engine.work.speed_limit.get(), None);
     assert_eq!(limits(&t.drain()), [None]);
     assert_eq!(saved(&t).speed_limit, None);
-    assert!(!std::fs::read_to_string(t.engine.paths.state_file()).unwrap().contains("speed_limit"));
+    assert!(!std::fs::read_to_string(t.engine.host.paths.state_file()).unwrap().contains("speed_limit"));
 }
 
 #[test]
@@ -81,8 +81,8 @@ fn setting_the_same_limit_again_publishes_nothing_new() {
 #[test]
 fn a_remembered_limit_is_applied_and_published_at_start() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
-    std::fs::write(t.engine.paths.state_file(), "speed_limit = 524288\n").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
+    std::fs::write(t.engine.host.paths.state_file(), "speed_limit = 524288\n").unwrap();
 
     t.engine.load_ui_state();
 
@@ -93,8 +93,8 @@ fn a_remembered_limit_is_applied_and_published_at_start() {
 #[test]
 fn a_remembered_limit_of_zero_is_no_limit() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
-    std::fs::write(t.engine.paths.state_file(), "speed_limit = 0\n").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
+    std::fs::write(t.engine.host.paths.state_file(), "speed_limit = 0\n").unwrap();
 
     t.engine.load_ui_state();
 
@@ -138,15 +138,15 @@ fn setting_the_limit_keeps_the_keyring_choice() {
 #[test]
 fn a_protected_settings_file_still_gets_the_limit_for_this_run_but_is_not_written() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
-    std::fs::write(t.engine.paths.state_file(), "not toml [").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
+    std::fs::write(t.engine.host.paths.state_file(), "not toml [").unwrap();
     t.engine.state_guard.protected = true;
     t.drain();
 
     set(&mut t, Some(1000));
 
     assert_eq!(t.engine.work.speed_limit.get(), Some(1000));
-    assert_eq!(std::fs::read_to_string(t.engine.paths.state_file()).unwrap(), "not toml [");
+    assert_eq!(std::fs::read_to_string(t.engine.host.paths.state_file()).unwrap(), "not toml [");
     let notices = t.notices();
     assert!(
         notices.iter().any(|(severity, message)| *severity == Severity::Warning
@@ -159,7 +159,7 @@ fn a_protected_settings_file_still_gets_the_limit_for_this_run_but_is_not_writte
 #[test]
 fn a_settings_folder_that_cannot_be_written_warns_but_keeps_the_limit_for_this_run() {
     let mut t = test_engine();
-    std::fs::write(&t.engine.paths.state_dir, b"a file where the folder should be").unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file where the folder should be").unwrap();
     t.drain();
 
     set(&mut t, Some(1000));
@@ -208,8 +208,8 @@ async fn a_running_transfer_obeys_the_limit() {
 #[test]
 fn a_broken_settings_file_at_start_means_no_limit_and_a_warning_and_is_not_overwritten_by_a_new_limit() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
-    std::fs::write(t.engine.paths.state_file(), "speed_limit = \"fast\"\n").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
+    std::fs::write(t.engine.host.paths.state_file(), "speed_limit = \"fast\"\n").unwrap();
 
     t.engine.load_ui_state();
 

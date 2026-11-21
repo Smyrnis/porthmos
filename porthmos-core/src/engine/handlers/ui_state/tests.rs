@@ -19,7 +19,7 @@ fn local_folder_shown(path: &str) -> Internal {
 }
 
 fn saved_local_folder(t: &crate::engine::testing::TestEngine) -> Option<String> {
-    crate::state::load(&t.engine.paths).state.local_folder
+    crate::state::load(&t.engine.host.paths).state.local_folder
 }
 
 fn choices(events: &[Event]) -> Vec<bool> {
@@ -50,9 +50,9 @@ fn the_save_choice_is_published_and_remembered() {
 fn a_choice_that_cannot_be_written_is_a_warning() {
     let backend = Arc::new(TestBackend::new());
     let mut t = test_engine_with_secrets(backend);
-    std::fs::remove_dir_all(&t.engine.paths.state_dir).ok();
-    std::fs::create_dir_all(t.engine.paths.state_dir.parent().unwrap()).unwrap();
-    std::fs::write(&t.engine.paths.state_dir, b"a file").unwrap();
+    std::fs::remove_dir_all(&t.engine.host.paths.state_dir).ok();
+    std::fs::create_dir_all(t.engine.host.paths.state_dir.parent().unwrap()).unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file").unwrap();
 
     t.engine.handle_command(Command::RememberSaveChoice { save: true });
 
@@ -62,8 +62,8 @@ fn a_choice_that_cannot_be_written_is_a_warning() {
 #[test]
 fn a_corrupt_state_file_is_announced_at_start_and_the_choice_defaults_to_off() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
-    std::fs::write(t.engine.paths.state_file(), "not toml [").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
+    std::fs::write(t.engine.host.paths.state_file(), "not toml [").unwrap();
 
     t.engine.load_ui_state();
 
@@ -79,7 +79,7 @@ fn a_protected_state_file_is_never_overwritten_by_remembering_the_choice() {
 
     t.engine.remember_save_choice(true);
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
     let notice = t.first_notice().expect("a notice");
     assert_eq!(notice.0, Severity::Warning);
 }
@@ -102,7 +102,7 @@ fn remembering_the_local_folder_keeps_the_other_saved_choices() {
 
     t.engine.handle_internal(local_folder_shown("/x"));
 
-    let state = crate::state::load(&t.engine.paths).state;
+    let state = crate::state::load(&t.engine.host.paths).state;
     assert!(state.save_passwords_in_keyring);
     assert_eq!(state.local_folder.as_deref(), Some("/x"));
 }
@@ -111,11 +111,11 @@ fn remembering_the_local_folder_keeps_the_other_saved_choices() {
 fn showing_the_same_local_folder_again_writes_nothing() {
     let mut t = test_engine();
     t.engine.handle_internal(local_folder_shown("/x"));
-    std::fs::remove_file(t.engine.paths.state_file()).unwrap();
+    std::fs::remove_file(t.engine.host.paths.state_file()).unwrap();
 
     t.engine.handle_internal(local_folder_shown("/x"));
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
 }
 
 #[test]
@@ -125,16 +125,16 @@ fn a_protected_state_file_is_left_alone_without_a_notice_when_the_local_folder_c
 
     t.engine.handle_internal(local_folder_shown("/x"));
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
     assert!(t.first_notice().is_none());
 }
 
 #[test]
 fn a_local_folder_that_cannot_be_written_warns_once() {
     let mut t = test_engine();
-    std::fs::remove_dir_all(&t.engine.paths.state_dir).ok();
-    std::fs::create_dir_all(t.engine.paths.state_dir.parent().unwrap()).unwrap();
-    std::fs::write(&t.engine.paths.state_dir, b"a file").unwrap();
+    std::fs::remove_dir_all(&t.engine.host.paths.state_dir).ok();
+    std::fs::create_dir_all(t.engine.host.paths.state_dir.parent().unwrap()).unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file").unwrap();
 
     t.engine.handle_internal(local_folder_shown("/a"));
     t.engine.handle_internal(local_folder_shown("/b"));
@@ -154,7 +154,7 @@ fn a_session_folder_does_not_touch_the_state_file() {
 
     t.engine.handle_internal(Internal::FolderShown { location: Location::Session(session), path: VfsPath::new("/x") });
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
 }
 
 fn size_descending(show_hidden: bool) -> PanelSettings {
@@ -168,7 +168,7 @@ fn a_panels_choices_are_remembered_in_the_state_file() {
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Remote, settings: size_descending(false) });
 
-    let state = crate::state::load(&t.engine.paths).state;
+    let state = crate::state::load(&t.engine.host.paths).state;
     let configured = PanelSettings::default();
     assert_eq!(state.local_panel.unwrap().applied_to(&configured), size_descending(true));
     assert_eq!(state.remote_panel.unwrap().applied_to(&configured), size_descending(false));
@@ -182,7 +182,7 @@ fn remembering_a_panel_keeps_the_folder_and_the_other_choices() {
 
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
 
-    let state = crate::state::load(&t.engine.paths).state;
+    let state = crate::state::load(&t.engine.host.paths).state;
     assert_eq!(state.local_folder.as_deref(), Some("/x"));
     assert!(state.local_panel.is_some());
     assert!(state.remote_panel.is_none());
@@ -191,9 +191,9 @@ fn remembering_a_panel_keeps_the_folder_and_the_other_choices() {
 #[test]
 fn a_panel_choice_that_cannot_be_saved_warns_once_together_with_the_folder() {
     let mut t = test_engine();
-    std::fs::remove_dir_all(&t.engine.paths.state_dir).ok();
-    std::fs::create_dir_all(t.engine.paths.state_dir.parent().unwrap()).unwrap();
-    std::fs::write(&t.engine.paths.state_dir, b"a file").unwrap();
+    std::fs::remove_dir_all(&t.engine.host.paths.state_dir).ok();
+    std::fs::create_dir_all(t.engine.host.paths.state_dir.parent().unwrap()).unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file").unwrap();
 
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Remote, settings: size_descending(true) });
@@ -214,7 +214,7 @@ fn a_protected_state_file_is_left_alone_when_a_panel_choice_changes() {
 
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
     assert!(t.first_notice().is_none());
 }
 
@@ -222,15 +222,15 @@ fn a_protected_state_file_is_left_alone_when_a_panel_choice_changes() {
 fn the_same_panel_choice_again_writes_nothing() {
     let mut t = test_engine();
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
-    std::fs::remove_file(t.engine.paths.state_file()).unwrap();
+    std::fs::remove_file(t.engine.host.paths.state_file()).unwrap();
 
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
 }
 
 fn saved_open_groups(t: &crate::engine::testing::TestEngine) -> Vec<String> {
-    crate::state::load(&t.engine.paths).state.open_groups
+    crate::state::load(&t.engine.host.paths).state.open_groups
 }
 
 fn groups(names: &[&str]) -> Vec<String> {
@@ -263,7 +263,7 @@ fn open_groups_sit_beside_the_other_remembered_state() {
 
     t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work"]) });
 
-    let state = crate::state::load(&t.engine.paths).state;
+    let state = crate::state::load(&t.engine.host.paths).state;
     assert!(state.save_passwords_in_keyring);
     assert_eq!(state.open_groups, groups(&["Work"]));
 }
@@ -275,5 +275,5 @@ fn a_protected_state_file_is_never_overwritten_by_remembering_open_groups() {
 
     t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work"]) });
 
-    assert!(!t.engine.paths.state_file().exists());
+    assert!(!t.engine.host.paths.state_file().exists());
 }

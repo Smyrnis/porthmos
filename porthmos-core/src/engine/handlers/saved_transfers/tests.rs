@@ -33,13 +33,13 @@ fn saved_job(connection: &str, name: &str, direction: Direction) -> SavedJob {
 }
 
 fn write_saved(t: &TestEngine, jobs: &[SavedJob]) {
-    let path = t.engine.paths.unfinished_transfers_file();
+    let path = t.engine.host.paths.unfinished_transfers_file();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, render(jobs).unwrap()).unwrap();
 }
 
 fn saved_on_disk(t: &TestEngine) -> Vec<SavedJob> {
-    match load(&t.engine.paths) {
+    match load(&t.engine.host.paths) {
         Loaded::Ready(jobs) => jobs,
         Loaded::Missing => Vec::new(),
         Loaded::SetAside { warning, .. } => panic!("{warning}"),
@@ -94,7 +94,7 @@ async fn saving_with_nothing_unfinished_removes_an_older_file() {
     t.engine.save_unfinished_transfers();
     t.engine.writer.flush().await;
 
-    assert!(!t.engine.paths.unfinished_transfers_file().exists());
+    assert!(!t.engine.host.paths.unfinished_transfers_file().exists());
 }
 
 #[tokio::test]
@@ -104,7 +104,7 @@ async fn saving_with_nothing_unfinished_creates_no_file() {
     t.engine.save_unfinished_transfers();
     t.engine.writer.flush().await;
 
-    assert!(!t.engine.paths.unfinished_transfers_file().exists());
+    assert!(!t.engine.host.paths.unfinished_transfers_file().exists());
 }
 
 #[tokio::test]
@@ -269,7 +269,7 @@ async fn restored_rows_do_not_add_history_entries() {
 #[tokio::test]
 async fn an_unreadable_file_is_set_aside_and_reported() {
     let mut t = test_engine();
-    let path = t.engine.paths.unfinished_transfers_file();
+    let path = t.engine.host.paths.unfinished_transfers_file();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, "jobs = [[[").unwrap();
 
@@ -347,10 +347,10 @@ async fn what_was_saved_comes_back_in_a_second_engine() {
     enqueue_upload(&mut first, session, "b.bin", Some(batch));
     first.engine.save_unfinished_transfers();
     first.engine.writer.flush().await;
-    let saved = std::fs::read(first.engine.paths.unfinished_transfers_file()).unwrap();
+    let saved = std::fs::read(first.engine.host.paths.unfinished_transfers_file()).unwrap();
 
     let mut second = test_engine();
-    let path = second.engine.paths.unfinished_transfers_file();
+    let path = second.engine.host.paths.unfinished_transfers_file();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, saved).unwrap();
     second.engine.restore_unfinished_transfers();
@@ -417,7 +417,7 @@ async fn the_saved_file_is_private_to_the_user() {
 
     t.engine.save_unfinished_transfers();
 
-    let mode = std::fs::metadata(t.engine.paths.unfinished_transfers_file()).unwrap().permissions().mode();
+    let mode = std::fs::metadata(t.engine.host.paths.unfinished_transfers_file()).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
 }
 
@@ -525,12 +525,12 @@ async fn the_file_goes_away_when_the_last_unfinished_job_finishes() {
     ready_to_save(&mut t);
     let id = enqueue_upload(&mut t, session, "queued.bin", None);
     t.engine.publish_transfers();
-    assert!(t.engine.paths.unfinished_transfers_file().exists());
+    assert!(t.engine.host.paths.unfinished_transfers_file().exists());
 
     t.engine.transfers.get_mut(id).unwrap().status = JobStatus::Completed;
     t.engine.publish_transfers();
 
-    assert!(!t.engine.paths.unfinished_transfers_file().exists());
+    assert!(!t.engine.host.paths.unfinished_transfers_file().exists());
 }
 
 #[tokio::test]
@@ -570,7 +570,7 @@ async fn a_protected_file_is_never_overwritten_by_a_publish() {
     enqueue_upload(&mut t, session, "queued.bin", None);
     t.engine.publish_transfers();
 
-    assert!(!t.engine.paths.unfinished_transfers_file().exists());
+    assert!(!t.engine.host.paths.unfinished_transfers_file().exists());
 }
 
 #[tokio::test]
@@ -625,7 +625,7 @@ fn move_batch(session_id: u64, direction: Direction, roots: &[&str]) -> crate::e
 }
 
 fn saved_moves_on_disk(t: &TestEngine) -> Vec<crate::transfer::saved::SavedMove> {
-    crate::transfer::saved::load_moves(&t.engine.paths)
+    crate::transfer::saved::load_moves(&t.engine.host.paths)
 }
 
 #[tokio::test]
@@ -683,10 +683,10 @@ async fn restoring_a_move_brings_back_its_folder_cleanup_under_the_new_batch_and
     enqueue_upload(&mut first, session, "a.bin", Some(batch));
     first.engine.work.moves.insert(batch, move_batch(session, Direction::Upload, &["/local/photos", "/local/other"]));
     first.engine.save_unfinished_transfers();
-    let saved = std::fs::read(first.engine.paths.unfinished_transfers_file()).unwrap();
+    let saved = std::fs::read(first.engine.host.paths.unfinished_transfers_file()).unwrap();
 
     let mut second = test_engine();
-    let path = second.engine.paths.unfinished_transfers_file();
+    let path = second.engine.host.paths.unfinished_transfers_file();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, saved).unwrap();
     second.engine.restore_unfinished_transfers();
@@ -719,7 +719,7 @@ async fn a_saved_move_whose_jobs_are_gone_is_ignored_on_restore() {
 }
 
 fn write_saved_with_moves(t: &TestEngine, jobs: &[SavedJob], moves: &[crate::transfer::saved::SavedMove]) {
-    let path = t.engine.paths.unfinished_transfers_file();
+    let path = t.engine.host.paths.unfinished_transfers_file();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, crate::transfer::saved::render_with_moves(jobs, moves).unwrap()).unwrap();
 }

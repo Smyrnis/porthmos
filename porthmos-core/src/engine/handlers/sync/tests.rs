@@ -605,7 +605,7 @@ async fn a_same_size_target_stamped_newer_is_listed_when_the_remote_target_keeps
 #[tokio::test]
 async fn a_same_size_target_stamped_newer_is_not_listed_when_the_local_target_cannot_keep_times() {
     let mut t = test_engine();
-    t.engine.local_fs = Arc::new(time_less_local_with("a.txt", b"x", 5_000));
+    t.engine.host.local_fs = Arc::new(time_less_local_with("a.txt", b"x", 5_000));
     let (session, remote) = connect(&mut t, "prod");
     remote.file("/srv/a.txt", b"x", Some(1_000));
     t.engine.handle_command(Command::StartSync {
@@ -626,7 +626,7 @@ async fn a_same_size_target_stamped_newer_is_listed_when_the_local_target_keeps_
     let local = FakeFs::new();
     local.dir("/work");
     local.file("/work/a.txt", b"x", Some(5_000));
-    t.engine.local_fs = Arc::new(local);
+    t.engine.host.local_fs = Arc::new(local);
     let (session, remote) = connect(&mut t, "prod");
     remote.file("/srv/a.txt", b"x", Some(1_000));
     t.engine.handle_command(Command::StartSync {
@@ -706,7 +706,7 @@ async fn downloading_copies_the_files_and_keeps_their_times() {
 #[tokio::test]
 async fn a_sync_skips_a_download_the_local_side_cannot_store_and_touches_nothing_else() {
     let mut t = test_engine();
-    t.engine.local_fs = Arc::new(
+    t.engine.host.local_fs = Arc::new(
         porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
     );
     let (session, remote) = connect(&mut t, "prod");
@@ -1256,7 +1256,7 @@ async fn without_subfolders_a_real_nested_remote_folder_produces_only_depth_one_
 #[tokio::test]
 async fn a_sync_skips_a_download_that_would_overwrite_a_file_differing_only_in_case() {
     let mut t = test_engine();
-    t.engine.local_fs = Arc::new(
+    t.engine.host.local_fs = Arc::new(
         porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
     );
     let (session, remote) = connect(&mut t, "prod");

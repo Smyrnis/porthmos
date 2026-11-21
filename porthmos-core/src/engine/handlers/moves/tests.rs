@@ -173,7 +173,7 @@ async fn a_remote_name_with_a_backslash_is_moved_as_one_file() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_remote_name_with_a_backslash_is_moved_under_a_clean_name_when_the_local_side_cannot_store_it() {
     let mut t = test_engine();
-    t.engine.local_fs =
+    t.engine.host.local_fs =
         Arc::new(porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(NameRules::Windows));
     let (session, remote) = t.add_session("srv");
     remote.file("/srv/a\\b.txt", b"odd", None);
@@ -187,7 +187,7 @@ async fn a_remote_name_with_a_backslash_is_moved_under_a_clean_name_when_the_loc
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_skipped_because_it_already_exists_stays_and_keeps_its_folder() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Skip;
+    t.engine.work.on_conflict = ConflictPolicy::Skip;
     let (session, remote) = t.add_session("srv");
     remote.file("/up/tree/old.txt", b"theirs", None);
     std::fs::create_dir(local(&t, "tree")).unwrap();
@@ -205,7 +205,7 @@ async fn a_file_skipped_because_it_already_exists_stays_and_keeps_its_folder() {
 #[tokio::test(flavor = "multi_thread")]
 async fn overwriting_on_conflict_moves_the_file_over_the_existing_one() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Overwrite;
+    t.engine.work.on_conflict = ConflictPolicy::Overwrite;
     let (session, remote) = t.add_session("srv");
     remote.file("/up/a.txt", b"old", None);
     std::fs::write(local(&t, "a.txt"), b"fresh").unwrap();
@@ -555,7 +555,7 @@ fn move_batch(t: &mut TestEngine, session: u64, roots: Vec<VfsPath>) -> u64 {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stale_partial_copy_is_never_resumed_so_the_original_is_never_lost_to_a_spliced_copy() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Skip;
+    t.engine.work.on_conflict = ConflictPolicy::Skip;
     let (session, remote) = t.add_session("srv");
     remote.file("/up/a.txt.part", b"OLDOLD", Some(now_seconds()));
     std::fs::write(local(&t, "a.txt"), b"newnewnewnew").unwrap();
@@ -610,7 +610,7 @@ fn only_loopback_hosts_are_recognised_as_this_computer() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_is_never_moved_onto_itself_through_a_loopback_session() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Overwrite;
+    t.engine.work.on_conflict = ConflictPolicy::Overwrite;
     let same_place = Arc::new(porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()));
     let session = t.add_session_with("self", same_place);
     t.engine.book.sessions.get_mut(&session).unwrap().entry.host = "localhost".to_string();
@@ -653,7 +653,7 @@ fn names_that_differ_only_by_case_keep_their_originals_and_warn() {
         planned(&local(&t, "a.txt"), "/up/a.txt", 2),
         planned(&local(&t, "other.txt"), "/up/other.txt", 3),
     ]);
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
 
     t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan, &[], false);
 
@@ -681,7 +681,7 @@ fn the_same_name_in_different_folders_is_not_a_case_collision() {
         planned(&local(&t, "x/a.txt"), "/up/x/a.txt", 1),
         planned(&local(&t, "y/A.txt"), "/up/y/A.txt", 2),
     ]);
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
 
     t.engine.apply_plan_ready(batch_id, session, Direction::Upload, plan, &[], false);
 
@@ -733,7 +733,7 @@ async fn cancelling_the_only_queued_files_still_cleans_up_what_was_emptied() {
     remote.dir("/up");
     std::fs::create_dir_all(local(&t, "tree/hollow")).unwrap();
     std::fs::write(local(&t, "tree/big.bin"), b"queued").unwrap();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let root = local(&t, "tree");
     let batch_id = move_batch(&mut t, session, vec![from_os_path(&root)]);
     let plan = plan_of(vec![planned(&local(&t, "tree/big.bin"), "/up/tree/big.bin", 6)]);
@@ -766,7 +766,7 @@ async fn an_upload_batch_is_cleaned_up_even_after_its_session_is_gone() {
 #[tokio::test(flavor = "multi_thread")]
 async fn renaming_on_conflict_moves_the_file_under_the_new_name_and_leaves_the_old_one() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Rename;
+    t.engine.work.on_conflict = ConflictPolicy::Rename;
     let (session, remote) = t.add_session("srv");
     remote.file("/up/a.txt", b"theirs", None);
     std::fs::write(local(&t, "a.txt"), b"mine").unwrap();

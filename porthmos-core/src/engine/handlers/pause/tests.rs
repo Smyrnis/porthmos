@@ -56,7 +56,7 @@ fn row_states(events: &[Event]) -> Vec<RowState> {
 
 fn engine_with_idle_queue(names: &[&str]) -> (TestEngine, FakeFs, u64, Vec<u64>) {
     let mut t = test_engine();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (session, remote) = t.add_session("srv");
     remote.dir("/up");
     let (batch, ids) = batch_of(&mut t, session, names, 4000);
@@ -65,7 +65,7 @@ fn engine_with_idle_queue(names: &[&str]) -> (TestEngine, FakeFs, u64, Vec<u64>)
 
 fn engine_with_slow_queue(names: &[&str]) -> (TestEngine, FakeFs, u64, Vec<u64>) {
     let mut t = test_engine();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (session, remote) = t.add_session("srv");
     remote.dir("/up");
     let (batch, ids) = batch_of(&mut t, session, names, 40_000);
@@ -99,7 +99,7 @@ fn pausing_a_queued_row_pauses_every_job_and_publishes_the_paused_row() {
 async fn a_paused_row_does_not_start_when_slots_are_free() {
     let (mut t, remote, batch, ids) = engine_with_idle_queue(&["a.bin", "b.bin"]);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
 
     t.engine.fill_transfer_slots();
     t.settle().await;
@@ -112,7 +112,7 @@ async fn a_paused_row_does_not_start_when_slots_are_free() {
 async fn resuming_a_row_lets_its_jobs_run_to_completion() {
     let (mut t, remote, batch, ids) = engine_with_idle_queue(&["a.bin", "b.bin"]);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(batch) });
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
 
     t.engine.handle_command(Command::ResumeRow { kind: RowKind::Batch(batch) });
     t.settle().await;
@@ -126,14 +126,14 @@ async fn resuming_a_row_lets_its_jobs_run_to_completion() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_paused_row_lets_the_next_row_use_the_slot() {
     let mut t = test_engine();
-    t.engine.max_parallel = 1;
+    t.engine.work.max_parallel = 1;
     let (session, remote) = t.add_session("srv");
     remote.dir("/up");
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (first, _) = batch_of(&mut t, session, &["a.bin"], 4000);
     let (_second, second_ids) = batch_of(&mut t, session, &["b.bin"], 4000);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(first) });
-    t.engine.max_parallel = 1;
+    t.engine.work.max_parallel = 1;
 
     t.engine.fill_transfer_slots();
     t.settle().await;
@@ -156,7 +156,7 @@ fn pausing_a_row_that_does_not_exist_or_is_only_a_scan_changes_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn pausing_a_row_that_already_finished_changes_nothing() {
     let (mut t, _remote, batch, ids) = engine_with_idle_queue(&["a.bin"]);
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
     t.engine.fill_transfer_slots();
     t.settle().await;
     assert_eq!(job(&t, ids[0]).status, JobStatus::Completed);
@@ -170,7 +170,7 @@ async fn pausing_a_row_that_already_finished_changes_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn pausing_a_running_transfer_stops_it_keeps_the_partial_file_and_queues_it_paused() {
     let (mut t, remote, batch, ids) = engine_with_slow_queue(&["a.bin"]);
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
     t.engine.fill_transfer_slots();
     wait_for_partial(&remote, "/up/a.bin.part").await;
     tokio::time::sleep(Duration::from_millis(400)).await;
@@ -191,7 +191,7 @@ async fn pausing_a_running_transfer_stops_it_keeps_the_partial_file_and_queues_i
 #[tokio::test(flavor = "multi_thread")]
 async fn a_paused_transfer_resumes_and_finishes_with_every_byte() {
     let (mut t, remote, batch, ids) = engine_with_slow_queue(&["a.bin"]);
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
     t.engine.fill_transfer_slots();
     wait_for_partial(&remote, "/up/a.bin.part").await;
     tokio::time::sleep(Duration::from_millis(400)).await;
@@ -210,7 +210,7 @@ async fn a_paused_transfer_resumes_and_finishes_with_every_byte() {
 #[tokio::test(flavor = "multi_thread")]
 async fn pausing_and_resuming_before_the_stopped_transfer_reports_back_keeps_it_going() {
     let (mut t, remote, batch, ids) = engine_with_slow_queue(&["a.bin"]);
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
     t.engine.fill_transfer_slots();
     wait_for_partial(&remote, "/up/a.bin.part").await;
 
@@ -374,7 +374,7 @@ fn a_paused_move_forgets_its_progress_because_it_will_start_over() {
 #[test]
 fn a_paused_job_holding_a_partial_file_keeps_other_rows_off_its_destination() {
     let mut t = test_engine();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (session, _remote) = t.add_session("srv");
     let enqueue = |t: &mut TestEngine, name: &str| {
         let batch = t.engine.transfers.start_batch(name.to_string());
@@ -398,7 +398,7 @@ fn a_paused_job_holding_a_partial_file_keeps_other_rows_off_its_destination() {
         job.transferred_bytes = 5;
     }
     t.engine.handle_command(Command::PauseRow { kind: first });
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
 
     t.engine.fill_transfer_slots();
 
@@ -408,13 +408,13 @@ fn a_paused_job_holding_a_partial_file_keeps_other_rows_off_its_destination() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_finished_row_refreshes_the_panel_even_while_another_row_stays_paused() {
     let mut t = test_engine();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (session, remote) = t.add_session("srv");
     remote.dir("/up");
     let (first, _) = batch_of(&mut t, session, &["a.bin"], 100);
     let (second, _) = batch_of(&mut t, session, &["b.bin"], 100);
     t.engine.handle_command(Command::PauseRow { kind: RowKind::Batch(second) });
-    t.engine.max_parallel = 4;
+    t.engine.work.max_parallel = 4;
     t.drain();
 
     t.engine.fill_transfer_slots();
@@ -427,7 +427,7 @@ async fn a_finished_row_refreshes_the_panel_even_while_another_row_stays_paused(
 #[test]
 fn pausing_the_last_waiting_row_refreshes_the_panel_that_was_waiting_for_it() {
     let mut t = test_engine();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (session, _remote) = t.add_session("srv");
     let (first, first_ids) = batch_of(&mut t, session, &["a.bin"], 100);
     let (second, _) = batch_of(&mut t, session, &["b.bin"], 100);

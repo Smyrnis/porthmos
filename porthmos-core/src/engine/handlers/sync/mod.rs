@@ -217,7 +217,7 @@ impl Engine {
             return;
         };
         let (remote, name) = (live.fs.clone(), live.name.clone());
-        let local = self.local_fs.clone();
+        let local = self.host.local_fs.clone();
         if options.direction == SyncDirection::Both && !(local.can_set_modified() && remote.can_set_modified()) {
             self.report(Severity::Warning, i18n::text_with("sync.both_unsupported", &[("name", &name)]));
             return;
@@ -443,7 +443,7 @@ impl Engine {
             SyncDirection::RemoteToLocal => (
                 Location::Local,
                 this_computer(),
-                self.local_fs.clone(),
+                self.host.local_fs.clone(),
                 live.fs.clone(),
                 plan.local_root.clone(),
                 plan.remote_root.clone(),
@@ -452,7 +452,7 @@ impl Engine {
                 Location::Session(plan.session),
                 live.name.clone(),
                 live.fs.clone(),
-                self.local_fs.clone(),
+                self.host.local_fs.clone(),
                 plan.remote_root.clone(),
                 plan.local_root.clone(),
             ),
@@ -514,7 +514,7 @@ impl Engine {
         let live = self.book.sessions.get(&plan.session)?;
         let (target_fs, target_root, arrow) = match direction {
             Direction::Upload => (live.fs.clone(), plan.remote_root.clone(), '\u{2191}'),
-            Direction::Download => (self.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
+            Direction::Download => (self.host.local_fs.clone(), plan.local_root.clone(), '\u{2193}'),
         };
         let rules = target_fs.name_rules();
         let display_name =

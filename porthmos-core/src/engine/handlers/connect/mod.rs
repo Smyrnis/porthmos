@@ -69,7 +69,7 @@ impl Engine {
         if let Some((&session, live)) = self.book.sessions.iter().find(|(_, live)| live.name == profile) {
             let name = live.name.clone();
             let shell_available = self.shell_target(session).is_some_and(|target| {
-                self.book.sessions[&session].protocol.shell_command(&target, &self.env).is_some()
+                self.book.sessions[&session].protocol.shell_command(&target, &self.host.env).is_some()
             });
             self.emit_connected(session, name, shell_available);
             return;
@@ -98,7 +98,8 @@ impl Engine {
             self.connect_failed(profile.to_string(), i18n::text_with("connection.not_saved", &[("name", profile)]));
             return;
         };
-        let Some(protocol) = self.protocols.iter().find(|protocol| protocol.id() == entry.protocol).cloned() else {
+        let Some(protocol) = self.host.protocols.iter().find(|protocol| protocol.id() == entry.protocol).cloned()
+        else {
             self.connect_failed(
                 entry.name.clone(),
                 i18n::text_with("connection.protocol_missing", &[("protocol", &entry.protocol), ("name", &entry.name)]),
@@ -142,9 +143,9 @@ impl Engine {
         let session = self.book.allocate_id();
         let name = entry.name.clone();
         self.book.sessions.insert(session, LiveSession { name: name.clone(), entry, protocol, fs });
-        let shell_available = self
-            .shell_target(session)
-            .is_some_and(|target| self.book.sessions[&session].protocol.shell_command(&target, &self.env).is_some());
+        let shell_available = self.shell_target(session).is_some_and(|target| {
+            self.book.sessions[&session].protocol.shell_command(&target, &self.host.env).is_some()
+        });
         self.emit_connected(session, name.clone(), shell_available);
         if self.names_a_live_connection(&name) {
             self.record_use(&name);
@@ -209,7 +210,7 @@ impl Engine {
     }
 
     pub(crate) fn prepare_local_shell(&mut self, directory: &VfsPath) {
-        let invocation = ShellInvocation::local(directory, &self.env);
+        let invocation = ShellInvocation::local(directory, &self.host.env);
         self.emit(Event::LocalShellReady { invocation });
     }
 
@@ -221,7 +222,7 @@ impl Engine {
         let Some(target) = self.shell_target(session) else {
             return;
         };
-        match live.protocol.shell_command(&target, &self.env) {
+        match live.protocol.shell_command(&target, &self.host.env) {
             Some(invocation) => {
                 let invocation = match directory {
                     Some(directory) => invocation.starting_in(&directory),

@@ -106,13 +106,13 @@ impl Engine {
     fn announce_earlier_update(&mut self) {
         if let Some(executable) = self.update.executable.as_deref()
             && matches!(
-                porthmos_update::install_place(executable, self.env.home.as_deref()),
+                porthmos_update::install_place(executable, self.host.env.home.as_deref()),
                 porthmos_update::InstallPlace::Updatable { .. }
             )
         {
             porthmos_update::forget_previous_version(executable);
         }
-        let dir = porthmos_update::UpdateDir::for_product(self.paths.update_dir(), self.update.identity.product);
+        let dir = porthmos_update::UpdateDir::for_product(self.host.paths.update_dir(), self.update.identity.product);
         if let Some(staged) = porthmos_update::find_staged(&dir, &self.update.identity.version) {
             let version = staged.version.to_string();
             self.update.staged = Some(staged);
@@ -256,7 +256,7 @@ impl Engine {
             .update
             .executable
             .as_deref()
-            .map(|executable| porthmos_update::install_place(executable, self.env.home.as_deref()));
+            .map(|executable| porthmos_update::install_place(executable, self.host.env.home.as_deref()));
         match place {
             Some(porthmos_update::InstallPlace::Updatable { .. }) => {
                 if self.update.staged.as_ref().is_some_and(|staged| staged.version == info.version) {

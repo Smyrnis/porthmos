@@ -270,7 +270,7 @@ impl Engine {
         }
         let (session_id, direction, roots) = (batch.session_id, batch.direction, batch.roots.clone());
         let source = match direction {
-            Direction::Upload => self.local_fs.clone(),
+            Direction::Upload => self.host.local_fs.clone(),
             Direction::Download => match self.book.sessions.get(&session_id) {
                 Some(session) => session.fs.clone(),
                 None => return,

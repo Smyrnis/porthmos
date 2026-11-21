@@ -261,7 +261,7 @@ async fn run_until_shutdown_waiting_for_uploads(
     engine.grace.flush = Duration::from_millis(200);
     let (finished_tx, finished) = watch::channel(false);
     engine.finished = Some(finished_tx);
-    let paths = engine.paths.clone();
+    let paths = engine.host.paths.clone();
     let (commands, receiver) = tokio::sync::mpsc::unbounded_channel();
     let running = tokio::spawn(engine.run(receiver, internal));
     RunningEngine { commands, running, finished, paths, events, _dir: dir }
@@ -483,8 +483,8 @@ async fn a_history_write_that_never_finishes_does_not_block_the_shutdown() {
     let (session, _fs) = t.add_session("prod");
     let id = queue_job(&mut t, session, "a");
     t.engine.transfers.get_mut(id).unwrap().status = JobStatus::InProgress;
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
-    let fifo = t.engine.paths.history_file().with_extension("toml.tmp");
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
+    let fifo = t.engine.host.paths.history_file().with_extension("toml.tmp");
     let c_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
     assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
     let mut engine = run_until_shutdown(t, Duration::from_millis(50)).await;
@@ -739,18 +739,19 @@ fn count_in_engine(needle: &str) -> Vec<(String, usize)> {
 
 #[test]
 fn the_wall_clock_is_read_in_one_place_in_the_engine() {
-    assert_eq!(count_in_engine("Utc::now"), vec![("mod.rs".to_string(), 1)]);
+    let host = std::path::Path::new("host").join("mod.rs").display().to_string();
+    assert_eq!(count_in_engine("Utc::now"), vec![(host, 1)]);
 }
 
 #[test]
 fn handlers_ask_the_engine_for_the_time_and_never_call_the_clock_themselves() {
-    assert_eq!(count_in_engine("(self.clock)()"), vec![("mod.rs".to_string(), 1)]);
+    assert_eq!(count_in_engine("(self.host.clock)()"), vec![("mod.rs".to_string(), 1)]);
 }
 
 #[test]
 fn the_engine_reports_the_time_its_clock_gives() {
     let mut t = test_engine();
-    t.engine.clock = || testing::utc(2026, 5, 6, 7, 8, 9);
+    t.engine.host.clock = || testing::utc(2026, 5, 6, 7, 8, 9);
 
     assert_eq!(t.engine.now(), testing::utc(2026, 5, 6, 7, 8, 9));
 }

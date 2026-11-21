@@ -29,8 +29,8 @@ impl Engine {
     ) -> Option<(Arc<dyn FileSystem>, Arc<dyn FileSystem>)> {
         let remote = self.book.sessions.get(&session_id)?.fs.clone();
         Some(match direction {
-            Direction::Upload => (self.local_fs.clone(), remote),
-            Direction::Download => (remote, self.local_fs.clone()),
+            Direction::Upload => (self.host.local_fs.clone(), remote),
+            Direction::Download => (remote, self.host.local_fs.clone()),
         })
     }
 
@@ -113,7 +113,7 @@ impl Engine {
     pub(crate) fn fill_transfer_slots(&mut self) {
         loop {
             let sessions = &self.book.sessions;
-            let startable = self.transfers.startable_limited(self.max_parallel, |session_id| {
+            let startable = self.transfers.startable_limited(self.work.max_parallel, |session_id| {
                 sessions.get(&session_id).and_then(|session| session.fs.transfer_limit())
             });
             if startable.is_empty() {
@@ -355,7 +355,7 @@ impl Engine {
             return;
         }
         let automatic: Option<Vec<Resolution>> =
-            conflicts.iter().map(|index| self.on_conflict.resolution_for(&plan.files[*index])).collect();
+            conflicts.iter().map(|index| self.work.on_conflict.resolution_for(&plan.files[*index])).collect();
         if let Some(answers) = automatic {
             self.apply_plan_ready(batch_id, session_id, direction, plan, &answers, false);
             return;
@@ -408,7 +408,7 @@ impl Engine {
             Direction::Upload => {
                 self.book.sessions.get(&session_id).is_some_and(|session| session.fs.can_set_modified())
             }
-            Direction::Download => self.local_fs.can_set_modified(),
+            Direction::Download => self.host.local_fs.can_set_modified(),
         }
     }
 

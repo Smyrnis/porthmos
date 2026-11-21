@@ -147,7 +147,7 @@ impl Engine {
     }
 
     fn profile_markers(&self, name: &str) -> Vec<String> {
-        store::load(&self.paths)
+        store::load(&self.host.paths)
             .ok()
             .and_then(|profiles| profiles.into_iter().find(|profile| profile.name == name))
             .map(|profile| profile.in_keyring)
@@ -155,7 +155,7 @@ impl Engine {
     }
 
     pub(crate) fn ssh_markers(&self, alias: &str) -> Vec<String> {
-        store::load_ssh_labels(&self.paths)
+        store::load_ssh_labels(&self.host.paths)
             .ok()
             .and_then(|records| records.get(alias).map(|record| record.in_keyring.clone()))
             .unwrap_or_default()
@@ -163,8 +163,8 @@ impl Engine {
 
     fn write_markers(&mut self, owner: &SecretOwner, markers: &[String]) {
         let written = match owner {
-            SecretOwner::Profile(name) => store::set_profile_markers(&self.paths, name, markers).map(|_| ()),
-            SecretOwner::SshHost(alias) => store::set_ssh_markers(&self.paths, alias, markers),
+            SecretOwner::Profile(name) => store::set_profile_markers(&self.host.paths, name, markers).map(|_| ()),
+            SecretOwner::SshHost(alias) => store::set_ssh_markers(&self.host.paths, alias, markers),
         };
         if let Err(err) = written {
             self.report(Severity::Error, err.to_string());
@@ -347,7 +347,7 @@ impl Engine {
             let mut markers: Vec<String> = current.into_iter().filter(|marker| !rollback.contains(marker)).collect();
             markers.extend(restore.into_iter().filter(|marker| !markers.contains(marker)).collect::<Vec<_>>());
             let exists = match &owner {
-                SecretOwner::Profile(name) => store::load(&self.paths)
+                SecretOwner::Profile(name) => store::load(&self.host.paths)
                     .ok()
                     .is_some_and(|profiles| profiles.iter().any(|profile| &profile.name == name)),
                 SecretOwner::SshHost(_) => true,

@@ -172,7 +172,7 @@ async fn an_upload_is_planned_copied_and_announced_end_to_end() {
 #[tokio::test]
 async fn one_warning_summarises_the_renamed_names() {
     let mut t = test_engine();
-    t.engine.local_fs = Arc::new(
+    t.engine.host.local_fs = Arc::new(
         porthmos_lfs::LocalFs::new(t.dir.path().to_path_buf()).with_name_rules(porthmos_vfs::NameRules::Windows),
     );
     let (session, remote) = t.add_session("srv");
@@ -401,7 +401,7 @@ fn nothing_is_startable_after_cancel_all_copies() {
     t.engine.cancel_all_copies();
     t.engine.handle_transfer_event(TransferEvent::Finished { id: active, outcome: TransferOutcome::Cancelled });
 
-    assert!(t.engine.transfers.startable(t.engine.max_parallel).is_empty());
+    assert!(t.engine.transfers.startable(t.engine.work.max_parallel).is_empty());
     assert!(t.first_notice().is_none());
 }
 
@@ -681,7 +681,7 @@ fn cancelling_the_copy_queues_nothing_and_says_so() {
 #[test]
 fn a_policy_other_than_ask_never_prompts() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Skip;
+    t.engine.work.on_conflict = ConflictPolicy::Skip;
 
     review(&mut t, vec![conflict_file("a.txt", false), conflict_file("b.txt", true)]);
 
@@ -692,7 +692,7 @@ fn a_policy_other_than_ask_never_prompts() {
 #[test]
 fn skipped_existing_files_are_reported() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Skip;
+    t.engine.work.on_conflict = ConflictPolicy::Skip;
 
     review(&mut t, vec![conflict_file("a.txt", false), conflict_file("b.txt", true), conflict_file("c.txt", true)]);
 
@@ -702,7 +702,7 @@ fn skipped_existing_files_are_reported() {
 #[test]
 fn files_blocked_by_a_folder_are_reported() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Overwrite;
+    t.engine.work.on_conflict = ConflictPolicy::Overwrite;
     let mut blocked = conflict_file("photos", true);
     blocked.existing = Some(ExistingFile { size: 0, modified: None, is_dir: true });
 
@@ -717,7 +717,7 @@ fn files_blocked_by_a_folder_are_reported() {
 #[test]
 fn an_automatic_policy_resumes_a_partial_and_queues_it_with_resume() {
     let mut t = test_engine();
-    t.engine.on_conflict = ConflictPolicy::Skip;
+    t.engine.work.on_conflict = ConflictPolicy::Skip;
     let mut partial = conflict_file("big.iso", false);
     partial.partial = Some(ExistingFile { size: 0, modified: None, is_dir: false });
 

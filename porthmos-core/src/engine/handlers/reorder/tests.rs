@@ -12,7 +12,7 @@ use porthmos_lfs::from_os_path;
 
 fn three_waiting_rows() -> (TestEngine, Vec<RowKind>) {
     let mut t = test_engine();
-    t.engine.max_parallel = 0;
+    t.engine.work.max_parallel = 0;
     let (session, _remote) = t.add_session("srv");
     let kinds = ["a", "b", "c"]
         .iter()
@@ -84,7 +84,7 @@ async fn the_row_moved_to_the_top_is_the_one_that_starts_when_a_slot_frees() {
     std::fs::write(t.dir.path().join("c"), b"data").unwrap();
     t.engine.handle_command(Command::ReorderRow { kind: kinds[2], earlier: true });
     t.engine.handle_command(Command::ReorderRow { kind: kinds[2], earlier: true });
-    t.engine.max_parallel = 1;
+    t.engine.work.max_parallel = 1;
 
     t.engine.fill_transfer_slots();
 

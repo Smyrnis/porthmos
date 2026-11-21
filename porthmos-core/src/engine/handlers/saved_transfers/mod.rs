@@ -67,7 +67,7 @@ impl Engine {
         if self.unfinished_saves.protected {
             return;
         }
-        let path = self.paths.unfinished_transfers_file();
+        let path = self.host.paths.unfinished_transfers_file();
         let jobs = unfinished(&self.transfers, |session_id| self.session_name(session_id));
         if jobs.is_empty() {
             if let Err(err) = std::fs::remove_file(&path)
@@ -113,7 +113,7 @@ impl Engine {
     }
 
     fn restore_saved_jobs(&mut self) {
-        let jobs = match load(&self.paths) {
+        let jobs = match load(&self.host.paths) {
             Loaded::Missing => return,
             Loaded::SetAside { warning, protected } => {
                 self.unfinished_saves.protected = protected;
@@ -144,7 +144,7 @@ impl Engine {
             });
             self.enqueue_restored(session_id, batch_id, saved);
         }
-        for moved in load_moves(&self.paths) {
+        for moved in load_moves(&self.host.paths) {
             let (Some(batch_id), Some(session_id)) = (batches.get(&moved.batch), sessions.get(&moved.connection))
             else {
                 continue;

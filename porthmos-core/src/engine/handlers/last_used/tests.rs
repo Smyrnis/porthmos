@@ -22,14 +22,14 @@ fn evening() -> DateTime<Utc> {
 
 fn engine_with_profile(name: &str) -> TestEngine {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
     std::fs::write(
-        t.engine.paths.connections_file(),
+        t.engine.host.paths.connections_file(),
         format!("[connections.{name}]\nprotocol = \"fake\"\nhost = \"h\"\nusername = \"u\"\n"),
     )
     .unwrap();
-    t.engine.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()))];
-    t.engine.clock = morning;
+    t.engine.host.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()))];
+    t.engine.host.clock = morning;
     t
 }
 
@@ -47,8 +47,8 @@ fn engine_discovering(names: &[&str]) -> TestEngine {
         })
         .collect();
     let protocol = FakeProtocol::new(FakeFs::new()).with_id("sftp").with_discovered(discovered);
-    t.engine.protocols = vec![Arc::new(protocol)];
-    t.engine.clock = morning;
+    t.engine.host.protocols = vec![Arc::new(protocol)];
+    t.engine.host.clock = morning;
     t
 }
 
@@ -69,7 +69,7 @@ async fn connect(t: &mut TestEngine, name: &str) {
 
 async fn file_on_disk(t: &mut TestEngine) -> String {
     t.engine.writer.flush().await;
-    std::fs::read_to_string(t.engine.paths.last_used_file()).unwrap_or_default()
+    std::fs::read_to_string(t.engine.host.paths.last_used_file()).unwrap_or_default()
 }
 
 fn times(pairs: &[(&str, DateTime<Utc>)]) -> BTreeMap<String, DateTime<Utc>> {
@@ -108,14 +108,14 @@ async fn the_file_is_private() {
     connect(&mut t, "srv").await;
     file_on_disk(&mut t).await;
 
-    let mode = std::fs::metadata(t.engine.paths.last_used_file()).unwrap().permissions().mode() & 0o777;
+    let mode = std::fs::metadata(t.engine.host.paths.last_used_file()).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
 }
 
 #[tokio::test]
 async fn a_failed_connection_records_nothing() {
     let mut t = engine_with_profile("srv");
-    t.engine.protocols = Vec::new();
+    t.engine.host.protocols = Vec::new();
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
 
@@ -138,7 +138,7 @@ async fn reusing_an_open_session_keeps_the_time_of_the_connection_that_opened_it
     let mut t = engine_with_profile("srv");
     connect(&mut t, "srv").await;
     t.drain();
-    t.engine.clock = evening;
+    t.engine.host.clock = evening;
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
 
@@ -154,7 +154,7 @@ async fn reconnecting_after_a_disconnect_records_the_newer_time() {
     let session = *t.engine.book.sessions.keys().next().unwrap();
     t.engine.handle_command(Command::Disconnect { session });
     t.drain();
-    t.engine.clock = evening;
+    t.engine.host.clock = evening;
 
     connect(&mut t, "srv").await;
 
@@ -206,8 +206,8 @@ fn profile(name: &str) -> ConnectionProfile {
 
 fn engine_saving_sftp() -> TestEngine {
     let mut t = test_engine();
-    t.engine.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()).with_id("sftp"))];
-    store::save(&t.engine.paths, &profile("prod")).unwrap();
+    t.engine.host.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()).with_id("sftp"))];
+    store::save(&t.engine.host.paths, &profile("prod")).unwrap();
     t
 }
 
@@ -249,7 +249,7 @@ async fn editing_without_renaming_leaves_the_time_alone() {
 #[tokio::test]
 async fn a_rejected_rename_keeps_the_time_where_it_was() {
     let mut t = engine_saving_sftp();
-    store::save(&t.engine.paths, &profile("taken")).unwrap();
+    store::save(&t.engine.host.paths, &profile("taken")).unwrap();
     remember(&mut t, "prod", morning());
 
     t.engine.handle_command(Command::SaveProfile { original: Some("prod".into()), draft: Box::new(draft("taken")) });
@@ -295,7 +295,7 @@ fn group_only() -> Labels {
 #[tokio::test]
 async fn moving_ssh_labels_carries_the_time_to_the_new_host() {
     let mut t = engine_discovering(&["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only()).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only()).unwrap();
     remember(&mut t, "old", morning());
 
     t.engine.handle_command(Command::MoveSshLabels { from: "old".into(), to: "new".into() });
@@ -306,7 +306,7 @@ async fn moving_ssh_labels_carries_the_time_to_the_new_host() {
 #[tokio::test]
 async fn moving_ssh_labels_to_an_unknown_host_keeps_the_time() {
     let mut t = engine_discovering(&["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only()).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only()).unwrap();
     remember(&mut t, "old", morning());
 
     t.engine.handle_command(Command::MoveSshLabels { from: "old".into(), to: "ghost".into() });
@@ -317,7 +317,7 @@ async fn moving_ssh_labels_to_an_unknown_host_keeps_the_time() {
 #[tokio::test]
 async fn forgetting_ssh_labels_forgets_the_time() {
     let mut t = engine_discovering(&[]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only()).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only()).unwrap();
     remember(&mut t, "old", morning());
 
     t.engine.handle_command(Command::ForgetSshLabels { name: "old".into() });
@@ -329,7 +329,7 @@ async fn forgetting_ssh_labels_forgets_the_time() {
 #[tokio::test]
 async fn a_connection_that_fails_after_the_handshake_started_records_nothing() {
     let mut t = engine_with_profile("srv");
-    t.engine.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()).failing_connect("Connection refused"))];
+    t.engine.host.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()).failing_connect("Connection refused"))];
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
     t.run_internal().await;
@@ -385,8 +385,8 @@ fn engine_with_profile_shadowing_a_host(name: &str, other_host: &str) -> TestEng
             options: Default::default(),
         })
         .collect();
-    t.engine.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()).with_discovered(hosts))];
-    store::save_ssh_labels(&t.engine.paths, name, &group_only()).unwrap();
+    t.engine.host.protocols = vec![Arc::new(FakeProtocol::new(FakeFs::new()).with_discovered(hosts))];
+    store::save_ssh_labels(&t.engine.host.paths, name, &group_only()).unwrap();
     t
 }
 
@@ -415,7 +415,7 @@ async fn moving_the_labels_of_a_hidden_host_leaves_the_time_of_the_profile_that_
 #[tokio::test]
 async fn moving_ssh_labels_never_replaces_a_newer_time_of_the_new_host() {
     let mut t = engine_discovering(&["new"]);
-    store::save_ssh_labels(&t.engine.paths, "old", &group_only()).unwrap();
+    store::save_ssh_labels(&t.engine.host.paths, "old", &group_only()).unwrap();
     remember(&mut t, "old", morning());
     remember(&mut t, "new", evening());
 
@@ -438,10 +438,10 @@ async fn renaming_an_unused_connection_onto_a_name_with_a_stale_time_clears_it()
 #[tokio::test]
 async fn a_failed_write_is_a_warning_once_and_debug_after() {
     let mut t = engine_with_profile("srv");
-    t.engine.persist_failed(t.engine.paths.last_used_file(), "disk full".to_string(), 0);
+    t.engine.persist_failed(t.engine.host.paths.last_used_file(), "disk full".to_string(), 0);
 
     let first = t.notices();
-    t.engine.persist_failed(t.engine.paths.last_used_file(), "disk full".to_string(), 0);
+    t.engine.persist_failed(t.engine.host.paths.last_used_file(), "disk full".to_string(), 0);
     let second = t.notices();
 
     assert!(
@@ -488,7 +488,7 @@ async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
 #[cfg(unix)]
 fn protected_store(t: &TestEngine) -> crate::last_used::LastUsed {
     use std::os::unix::fs::PermissionsExt;
-    let paths = &t.engine.paths;
+    let paths = &t.engine.host.paths;
     std::fs::create_dir_all(&paths.state_dir).unwrap();
     std::fs::write(paths.last_used_file(), "not toml [").unwrap();
     std::fs::set_permissions(&paths.state_dir, std::fs::Permissions::from_mode(0o500)).unwrap();

@@ -16,14 +16,14 @@ use crate::{
 
 fn profile_engine(protocol: impl FnOnce(FakeFs) -> FakeProtocol) -> (TestEngine, FakeFs) {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
     std::fs::write(
-        t.engine.paths.connections_file(),
+        t.engine.host.paths.connections_file(),
         "[connections.srv]\nprotocol = \"fake\"\nhost = \"h\"\nusername = \"u\"\n",
     )
     .unwrap();
     let remote = FakeFs::new();
-    t.engine.protocols = vec![Arc::new(protocol(remote.clone()))];
+    t.engine.host.protocols = vec![Arc::new(protocol(remote.clone()))];
     t.engine.reconnect.enabled = true;
     (t, remote)
 }
@@ -233,7 +233,7 @@ async fn a_stale_timer_is_ignored() {
 async fn a_profile_that_is_gone_ends_the_retries() {
     let (mut t, _remote) = profile_engine(FakeProtocol::new);
     lost_session(&mut t, "/home/user");
-    std::fs::write(t.engine.paths.connections_file(), "").unwrap();
+    std::fs::write(t.engine.host.paths.connections_file(), "").unwrap();
 
     let (name, number) = next_due(&mut t).await;
     t.engine.handle_internal(Internal::ReconnectDue { name, attempt: number });

@@ -63,13 +63,13 @@ fn clearing_history_empties_it_on_disk_and_replies_with_an_empty_list() {
     t.engine.handle_command(Command::ClearHistory);
 
     assert!(last_history_event(&mut t).is_empty());
-    assert!(History::load(&t.engine.paths).0.entries().is_empty());
+    assert!(History::load(&t.engine.host.paths).0.entries().is_empty());
 }
 
 #[test]
 fn a_failed_clear_tells_the_user() {
     let mut t = test_engine();
-    std::fs::write(&t.engine.paths.state_dir, b"a file where the directory should be").unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file where the directory should be").unwrap();
 
     t.engine.handle_command(Command::ClearHistory);
 
@@ -268,7 +268,7 @@ fn a_file_name_that_is_not_utf8_is_recorded_lossily() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].local_path, "/local/caf\u{fffd}.txt");
     assert!(t.notices().is_empty());
-    assert_eq!(History::load(&t.engine.paths).0.entries().len(), 1);
+    assert_eq!(History::load(&t.engine.host.paths).0.entries().len(), 1);
 }
 
 #[test]
@@ -293,7 +293,7 @@ fn a_huge_failure_list_is_capped_but_counted() {
 fn a_failed_write_warns_once_and_keeps_the_entries_in_memory() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    std::fs::write(&t.engine.paths.state_dir, b"a file where the directory should be").unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file where the directory should be").unwrap();
     job(&mut t, session, "a", None, JobStatus::Completed);
     t.engine.publish_transfers();
     job(&mut t, session, "b", None, JobStatus::Completed);
@@ -349,7 +349,7 @@ fn failure_reasons_never_reach_the_history_file() {
 
     t.engine.publish_transfers();
 
-    let text = std::fs::read_to_string(t.engine.paths.history_file()).unwrap();
+    let text = std::fs::read_to_string(t.engine.host.paths.history_file()).unwrap();
     assert!(!text.contains("secret reason text"), "{text}");
     assert!(text.contains("a"));
 }
@@ -450,7 +450,7 @@ async fn quitting_records_unfinished_rows_before_the_engine_stops() {
     let (session, _fs) = t.add_session("prod");
     job(&mut t, session, "a", None, JobStatus::InProgress);
     let TestEngine { engine, internal, dir, .. } = t;
-    let paths = engine.paths.clone();
+    let paths = engine.host.paths.clone();
     let (commands, receiver) = tokio::sync::mpsc::unbounded_channel();
     commands.send(Command::Shutdown).unwrap();
 
@@ -501,7 +501,7 @@ fn an_engine_dropped_before_it_ever_ran_still_records_unfinished_rows() {
     let (session, _fs) = t.add_session("prod");
     job(&mut t, session, "a", None, JobStatus::InProgress);
     let TestEngine { engine, internal, dir, .. } = t;
-    let paths = engine.paths.clone();
+    let paths = engine.host.paths.clone();
     let (commands, receiver) = tokio::sync::mpsc::unbounded_channel();
     commands.send(Command::Shutdown).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
@@ -719,14 +719,14 @@ async fn history_is_written_in_the_background_and_a_flush_puts_it_on_disk() {
     t.engine.publish_transfers();
     t.engine.writer.flush().await;
 
-    assert_eq!(History::load(&t.engine.paths).0.entries().len(), 1);
+    assert_eq!(History::load(&t.engine.host.paths).0.entries().len(), 1);
 }
 
 #[tokio::test]
 async fn a_failed_background_write_is_reported_once_and_keeps_the_entries_in_memory() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    std::fs::write(&t.engine.paths.state_dir, b"a file where the directory should be").unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file where the directory should be").unwrap();
     job(&mut t, session, "a", None, JobStatus::Completed);
     t.engine.publish_transfers();
     t.engine.writer.flush().await;
@@ -760,14 +760,14 @@ async fn many_quick_entries_cost_far_fewer_writes_than_entries() {
 
     assert_eq!(recorded(&t).len(), 40);
     assert!(t.engine.writer.writes_done() <= 2, "{} writes", t.engine.writer.writes_done());
-    assert_eq!(History::load(&t.engine.paths).0.entries().len(), 40);
+    assert_eq!(History::load(&t.engine.host.paths).0.entries().len(), 40);
 }
 
 #[tokio::test]
 async fn a_protected_history_is_never_written() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.state_dir).unwrap();
     t.engine.history.store = History::load(&crate::Paths::in_dir(t.dir.path())).0;
     t.engine.history.store.set_writable_for_test(false);
     job(&mut t, session, "a", None, JobStatus::Completed);
@@ -775,7 +775,7 @@ async fn a_protected_history_is_never_written() {
     t.engine.publish_transfers();
     t.engine.writer.flush().await;
 
-    assert!(!t.engine.paths.history_file().exists());
+    assert!(!t.engine.host.paths.history_file().exists());
     assert_eq!(recorded(&t).len(), 1);
 }
 
@@ -790,7 +790,7 @@ async fn an_engine_dropped_with_a_held_back_history_write_still_saves_it() {
     job(&mut t, session, "b", None, JobStatus::Completed);
     t.engine.publish_transfers();
     let TestEngine { engine, dir, .. } = t;
-    let paths = engine.paths.clone();
+    let paths = engine.host.paths.clone();
 
     drop(engine);
 
@@ -802,7 +802,7 @@ async fn an_engine_dropped_with_a_held_back_history_write_still_saves_it() {
 async fn a_failed_clear_still_warns_after_an_earlier_write_warning() {
     let mut t = test_engine();
     let (session, _fs) = t.add_session("prod");
-    std::fs::write(&t.engine.paths.state_dir, b"a file where the directory should be").unwrap();
+    std::fs::write(&t.engine.host.paths.state_dir, b"a file where the directory should be").unwrap();
     job(&mut t, session, "a", None, JobStatus::Completed);
     t.engine.publish_transfers();
     t.engine.writer.flush().await;
@@ -929,7 +929,7 @@ fn fixed_clock() -> chrono::DateTime<chrono::Utc> {
 #[test]
 fn recorded_entries_carry_the_engine_clock() {
     let mut t = test_engine();
-    t.engine.clock = fixed_clock;
+    t.engine.host.clock = fixed_clock;
     let (session, _fs) = t.add_session("prod");
     job(&mut t, session, "a", None, JobStatus::Completed);
 
@@ -941,7 +941,7 @@ fn recorded_entries_carry_the_engine_clock() {
 #[test]
 fn failed_scans_and_interrupted_rows_use_the_engine_clock_too() {
     let mut t = test_engine();
-    t.engine.clock = fixed_clock;
+    t.engine.host.clock = fixed_clock;
     let (session, _fs) = t.add_session("prod");
     let batch = t.engine.transfers.start_batch("photos".to_string());
     t.engine.work.planning.push(scan(batch, session, "photos"));

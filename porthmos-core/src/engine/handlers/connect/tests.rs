@@ -27,14 +27,14 @@ fn with_fake_profile(protocol: impl FnOnce(FakeFs) -> FakeProtocol) -> (TestEngi
 
 fn with_fake_profile_lines(extra_lines: &str, protocol: impl FnOnce(FakeFs) -> FakeProtocol) -> (TestEngine, FakeFs) {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
     std::fs::write(
-        t.engine.paths.connections_file(),
+        t.engine.host.paths.connections_file(),
         format!("[connections.srv]\nprotocol = \"fake\"\nhost = \"h\"\nusername = \"u\"\n{extra_lines}"),
     )
     .unwrap();
     let remote = FakeFs::new();
-    t.engine.protocols = vec![Arc::new(protocol(remote.clone()))];
+    t.engine.host.protocols = vec![Arc::new(protocol(remote.clone()))];
     (t, remote)
 }
 
@@ -273,7 +273,7 @@ fn an_unknown_profile_fails_without_connecting() {
 #[test]
 fn a_profile_whose_protocol_is_missing_fails_with_a_clear_message() {
     let (mut t, _remote) = with_fake_profile(FakeProtocol::new);
-    t.engine.protocols.clear();
+    t.engine.host.protocols.clear();
 
     t.engine.handle_command(Command::Connect { profile: "srv".into() });
 
@@ -490,11 +490,11 @@ fn preparing_a_shell_in_a_directory_starts_the_shell_there() {
 #[test]
 fn preparing_a_local_shell_hands_back_the_users_shell_in_that_folder() {
     let mut t = test_engine();
-    t.engine.env.shell = Some("/usr/bin/fish".to_string());
+    t.engine.host.env.shell = Some("/usr/bin/fish".to_string());
 
     t.engine.handle_command(Command::PrepareLocalShell { directory: VfsPath::from("/home/tester/it's mine") });
 
-    let expected = ShellInvocation::local(&VfsPath::new("/home/tester/it's mine"), &t.engine.env);
+    let expected = ShellInvocation::local(&VfsPath::new("/home/tester/it's mine"), &t.engine.host.env);
     assert!(matches!(t.drain().as_slice(), [Event::LocalShellReady { invocation }] if *invocation == expected));
 }
 
@@ -525,7 +525,7 @@ fn preparing_a_shell_for_a_protocol_without_one_warns() {
 fn connecting_to_a_missing_ssh_host_fails_with_a_message() {
     let mut t = test_engine();
     crate::profiles::store::save_ssh_labels(
-        &t.engine.paths,
+        &t.engine.host.paths,
         "old",
         &crate::profiles::Labels { group: Some("A".into()), tags: Vec::new(), in_keyring: Vec::new() },
     )
@@ -567,13 +567,13 @@ fn with_secured_profile_lines(
     backend: &Arc<TestBackend>, extra_lines: &str, protocol: impl FnOnce(FakeFs) -> FakeProtocol,
 ) -> TestEngine {
     let mut t = test_engine_with_secrets(backend.clone());
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
     std::fs::write(
-        t.engine.paths.connections_file(),
+        t.engine.host.paths.connections_file(),
         format!("[connections.srv]\nprotocol = \"fake\"\nhost = \"h\"\nusername = \"u\"\n{extra_lines}"),
     )
     .unwrap();
-    t.engine.protocols = vec![Arc::new(protocol(FakeFs::new()))];
+    t.engine.host.protocols = vec![Arc::new(protocol(FakeFs::new()))];
     t
 }
 
@@ -633,7 +633,7 @@ fn errors(seen: &[Event]) -> Vec<String> {
 }
 
 fn markers(t: &TestEngine) -> Vec<String> {
-    store::load(&t.engine.paths).unwrap().remove(0).in_keyring
+    store::load(&t.engine.host.paths).unwrap().remove(0).in_keyring
 }
 
 #[tokio::test]
@@ -845,7 +845,7 @@ async fn a_marker_with_no_keyring_available_asks_without_calling_it() {
 async fn an_ssh_config_host_saves_under_its_alias_and_uses_it_next_time() {
     let backend = Arc::new(TestBackend::new());
     let mut t = test_engine_with_secrets(backend.clone());
-    t.engine.protocols = vec![Arc::new(
+    t.engine.host.protocols = vec![Arc::new(
         FakeProtocol::new(FakeFs::new()).requiring_password("pw").with_discovered(vec![discovered_host("web1")]),
     )];
     let mut seen = Vec::new();
@@ -856,14 +856,14 @@ async fn an_ssh_config_host_saves_under_its_alias_and_uses_it_next_time() {
 
     assert_eq!(backend.stored("ssh:web1").as_deref(), Some("pw"));
     assert!(backend.stored("profile:web1").is_none());
-    assert_eq!(store::load_ssh_labels(&t.engine.paths).unwrap()["web1"].in_keyring, vec!["password"]);
-    assert!(store::load(&t.engine.paths).unwrap().is_empty());
+    assert_eq!(store::load_ssh_labels(&t.engine.host.paths).unwrap()["web1"].in_keyring, vec!["password"]);
+    assert!(store::load(&t.engine.host.paths).unwrap().is_empty());
     t.assert_secret_nowhere("pw\"", &seen);
 
     let mut fresh = test_engine_with_secrets(backend.clone());
-    std::fs::create_dir_all(&fresh.engine.paths.config_dir).unwrap();
-    std::fs::copy(t.engine.paths.connections_file(), fresh.engine.paths.connections_file()).unwrap();
-    fresh.engine.protocols = vec![Arc::new(
+    std::fs::create_dir_all(&fresh.engine.host.paths.config_dir).unwrap();
+    std::fs::copy(t.engine.host.paths.connections_file(), fresh.engine.host.paths.connections_file()).unwrap();
+    fresh.engine.host.protocols = vec![Arc::new(
         FakeProtocol::new(FakeFs::new()).requiring_password("pw").with_discovered(vec![discovered_host("web1")]),
     )];
     let mut again = Vec::new();
@@ -1210,7 +1210,7 @@ async fn the_last_folder_of_a_connection_is_remembered_across_a_restart() {
     let session = connect_and_open(&mut t, "/srv/logs").await;
     t.engine.handle_command(Command::Disconnect { session });
     t.engine.writer.flush().await;
-    let (reloaded, warning) = crate::last_used::LastUsed::load(&t.engine.paths);
+    let (reloaded, warning) = crate::last_used::LastUsed::load(&t.engine.host.paths);
     assert!(warning.is_none());
     t.engine.last_used = crate::engine::handlers::LastUsedLog::new(reloaded);
     t.drain();
@@ -1239,7 +1239,7 @@ async fn browsing_writes_the_folder_next_to_the_last_used_time() {
     connect_and_open(&mut t, "/srv/logs").await;
     t.engine.writer.flush().await;
 
-    let text = std::fs::read_to_string(t.engine.paths.last_used_file()).unwrap_or_default();
+    let text = std::fs::read_to_string(t.engine.host.paths.last_used_file()).unwrap_or_default();
 
     assert!(text.contains("[last_folder]") && text.contains("srv = \"/srv/logs\""), "{text}");
 }

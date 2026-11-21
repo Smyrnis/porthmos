@@ -44,7 +44,7 @@ impl Engine {
             }
         };
         self.import.requested = Some(import_id);
-        let protocols = self.protocols.clone();
+        let protocols = self.host.protocols.clone();
         let internal = self.internal.clone();
         self.tasks.spawn("import-read", Scope::Import, move |_cancel| async move {
             let result = tokio::task::spawn_blocking(move || read_plan(import_id, source, &path, &protocols, &taken))
@@ -101,7 +101,7 @@ impl Engine {
         }
         let mut added = profiles.len();
         if !profiles.is_empty()
-            && let Err(err) = store::save_many(&self.paths, &profiles)
+            && let Err(err) = store::save_many(&self.host.paths, &profiles)
         {
             skipped += added;
             added = 0;

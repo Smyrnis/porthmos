@@ -25,7 +25,7 @@ fn a_local_bookmark_is_saved_and_published() {
 
     let published = bookmark_events(t.drain());
     assert_eq!(published, vec![vec![Bookmark { label: "here".into(), path: VfsPath::from("/data"), host: None }]]);
-    let (reloaded, _) = bookmarks::load(&t.engine.paths).unwrap();
+    let (reloaded, _) = bookmarks::load(&t.engine.host.paths).unwrap();
     assert_eq!(reloaded.len(), 1);
 }
 
@@ -115,13 +115,13 @@ fn removing_a_bookmark_deletes_it_and_says_so() {
 #[test]
 fn a_protected_bookmarks_file_reports_an_error_instead_of_overwriting() {
     let mut t = test_engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
-    std::fs::write(t.engine.paths.bookmarks_file(), "garbage [").unwrap();
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
+    std::fs::write(t.engine.host.paths.bookmarks_file(), "garbage [").unwrap();
     t.engine.bookmarks = crate::config::bookmarks::Bookmarks::protected_for_test(Vec::new());
 
     t.engine.add_bookmark("home".to_string(), Location::Local, VfsPath::from("/home/me"));
 
-    assert_eq!(std::fs::read_to_string(t.engine.paths.bookmarks_file()).unwrap(), "garbage [");
+    assert_eq!(std::fs::read_to_string(t.engine.host.paths.bookmarks_file()).unwrap(), "garbage [");
     assert_eq!(t.first_notice().map(|notice| notice.0), Some(Severity::Error));
 }
 
@@ -156,7 +156,7 @@ fn a_bookmark_that_cannot_be_written_reports_why() {
     use std::os::unix::fs::PermissionsExt;
 
     let mut t = test_engine();
-    let config_dir = t.engine.paths.config_dir.clone();
+    let config_dir = t.engine.host.paths.config_dir.clone();
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
     let writable_anyway = std::fs::File::create(config_dir.join("probe")).is_ok();

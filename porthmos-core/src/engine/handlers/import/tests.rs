@@ -26,7 +26,7 @@ fn filezilla(servers: &[String]) -> String {
 
 fn engine() -> TestEngine {
     let mut t = test_engine();
-    t.engine.protocols = vec![sftp_like(), ftp_like()];
+    t.engine.host.protocols = vec![sftp_like(), ftp_like()];
     t
 }
 
@@ -50,7 +50,7 @@ async fn read(t: &mut TestEngine, import_id: u64, path: PathBuf) -> Option<Arc<I
 }
 
 fn saved_names(t: &TestEngine) -> Vec<String> {
-    store::load(&t.engine.paths).unwrap().into_iter().map(|profile| profile.name).collect()
+    store::load(&t.engine.host.paths).unwrap().into_iter().map(|profile| profile.name).collect()
 }
 
 fn done_of(events: &[Event]) -> Option<(u64, usize, usize)> {
@@ -105,8 +105,8 @@ async fn a_failed_read_does_not_also_raise_an_error_notice() {
 #[tokio::test]
 async fn existing_connections_are_marked_exists() {
     let mut t = engine();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
-    std::fs::write(t.engine.paths.connections_file(), "[connections.beta]\nhost = \"mine\"\nusername = \"me\"\n")
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
+    std::fs::write(t.engine.host.paths.connections_file(), "[connections.beta]\nhost = \"mine\"\nusername = \"me\"\n")
         .unwrap();
     let path = write_source(&t, &three_sites());
     let plan = read(&mut t, 1, path).await.unwrap();
@@ -126,7 +126,7 @@ async fn run_import_saves_only_ticked_new_rows() {
     assert_eq!(done_of(&events), Some((1, 2, 0)));
     assert!(events.iter().any(|event| matches!(event, Event::Profiles(_))));
     assert_eq!(saved_names(&t), ["alpha", "gamma"]);
-    let saved = store::load(&t.engine.paths).unwrap();
+    let saved = store::load(&t.engine.host.paths).unwrap();
     assert_eq!(
         (saved[0].host.as_str(), saved[0].username.as_str(), saved[0].protocol.as_str()),
         ("alpha.example", "alice", "sftp")
@@ -139,15 +139,15 @@ async fn run_import_never_overwrites_a_name_that_appeared_after_the_review() {
     let mut t = engine();
     let path = write_source(&t, &three_sites());
     read(&mut t, 1, path).await.unwrap();
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
-    std::fs::write(t.engine.paths.connections_file(), "[connections.alpha]\nhost = \"mine\"\nusername = \"me\"\n")
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
+    std::fs::write(t.engine.host.paths.connections_file(), "[connections.alpha]\nhost = \"mine\"\nusername = \"me\"\n")
         .unwrap();
 
     t.engine.handle_command(Command::RunImport { import_id: 1, rows: vec![0, 1] });
 
     let events = t.drain();
     assert_eq!(done_of(&events), Some((1, 1, 1)));
-    let saved = store::load(&t.engine.paths).unwrap();
+    let saved = store::load(&t.engine.host.paths).unwrap();
     let alpha = saved.iter().find(|profile| profile.name == "alpha").unwrap();
     assert_eq!(alpha.host, "mine");
     assert!(saved.iter().any(|profile| profile.name == "beta"));
@@ -163,8 +163,8 @@ async fn run_import_skips_rows_that_are_not_new_and_bad_indices() {
     let mut t = engine();
     let text =
         filezilla(&[filezilla_server("good", 1, ""), filezilla_server("storj", 8, ""), filezilla_server("dup", 1, "")]);
-    std::fs::create_dir_all(&t.engine.paths.config_dir).unwrap();
-    std::fs::write(t.engine.paths.connections_file(), "[connections.dup]\nhost = \"mine\"\nusername = \"me\"\n")
+    std::fs::create_dir_all(&t.engine.host.paths.config_dir).unwrap();
+    std::fs::write(t.engine.host.paths.connections_file(), "[connections.dup]\nhost = \"mine\"\nusername = \"me\"\n")
         .unwrap();
     let path = write_source(&t, &text);
     read(&mut t, 1, path).await.unwrap();
@@ -261,7 +261,7 @@ async fn a_result_for_a_replaced_read_is_ignored() {
 async fn saved_profiles_have_no_keyring_marker_and_no_secret_calls() {
     let backend = Arc::new(TestBackend::new());
     let mut t = test_engine_with_secrets(backend.clone());
-    t.engine.protocols = vec![sftp_like(), ftp_like()];
+    t.engine.host.protocols = vec![sftp_like(), ftp_like()];
     let path = write_source(&t, &three_sites());
     read(&mut t, 1, path).await.unwrap();
     backend.calls();
@@ -271,7 +271,7 @@ async fn saved_profiles_have_no_keyring_marker_and_no_secret_calls() {
     t.settle().await;
 
     assert_eq!(backend.calls().len(), calls_before);
-    assert!(store::load(&t.engine.paths).unwrap().iter().all(|profile| profile.in_keyring.is_empty()));
+    assert!(store::load(&t.engine.host.paths).unwrap().iter().all(|profile| profile.in_keyring.is_empty()));
 }
 
 #[tokio::test]
@@ -298,7 +298,7 @@ async fn a_write_failure_counts_as_skipped_and_stops_nothing_else() {
     let mut t = engine();
     let path = write_source(&t, &three_sites());
     read(&mut t, 1, path).await.unwrap();
-    std::fs::create_dir_all(t.engine.paths.connections_file().with_extension("toml.tmp")).unwrap();
+    std::fs::create_dir_all(t.engine.host.paths.connections_file().with_extension("toml.tmp")).unwrap();
 
     t.engine.handle_command(Command::RunImport { import_id: 1, rows: vec![0, 1] });
 

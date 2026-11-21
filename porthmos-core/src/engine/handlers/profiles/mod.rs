@@ -14,7 +14,7 @@ use crate::{
 
 impl Engine {
     pub(crate) fn all_profiles(&self) -> anyhow::Result<Vec<ConnectionEntry>> {
-        profiles::list_all(&self.paths, &self.protocols, &self.env)
+        profiles::list_all(&self.host.paths, &self.host.protocols, &self.host.env)
     }
 
     pub(crate) fn names_a_live_connection(&self, name: &str) -> bool {
@@ -32,7 +32,7 @@ impl Engine {
     pub(crate) fn save_profile(&mut self, original: Option<String>, draft: ProfileDraft) {
         let preserve_from =
             original.as_ref().and_then(|name| self.all_profiles().ok()?.into_iter().find(|entry| &entry.name == name));
-        let registered = self.protocols.iter().find(|protocol| protocol.id() == draft.protocol);
+        let registered = self.host.protocols.iter().find(|protocol| protocol.id() == draft.protocol);
         let unavailable = preserve_from.as_ref().filter(|entry| entry.protocol == draft.protocol);
         let form = match (registered, unavailable) {
             (Some(protocol), _) => protocol.connection_form(),
@@ -53,7 +53,7 @@ impl Engine {
             }
         };
 
-        match store::load(&self.paths) {
+        match store::load(&self.host.paths) {
             Ok(existing)
                 if existing
                     .iter()
@@ -71,13 +71,13 @@ impl Engine {
 
         if let Some(original) = &original
             && profile.name != *original
-            && let Err(err) = store::delete(&self.paths, original)
+            && let Err(err) = store::delete(&self.host.paths, original)
         {
             self.report(Severity::Error, format!("{err:#}"));
             return;
         }
 
-        match store::save(&self.paths, &profile) {
+        match store::save(&self.host.paths, &profile) {
             Ok(()) => {
                 if let Some(original) = &original {
                     self.carry_last_used(original, &profile.name);
@@ -116,7 +116,7 @@ impl Engine {
         }
         let labels =
             Labels { group: labels::normalize_group(group), tags: labels::parse_tags(tags), in_keyring: Vec::new() };
-        match store::save_ssh_labels(&self.paths, name, &labels) {
+        match store::save_ssh_labels(&self.host.paths, name, &labels) {
             Ok(()) => {
                 self.emit(Event::ProfileSaved);
                 self.list_profiles();
@@ -129,7 +129,7 @@ impl Engine {
         match self.is_ssh_host(to) {
             Ok(true) => {
                 let saved = self.ssh_markers(from);
-                match store::move_ssh_labels(&self.paths, from, to) {
+                match store::move_ssh_labels(&self.host.paths, from, to) {
                     Ok(()) => {
                         if !self.names_a_live_connection(from) {
                             self.merge_last_used(from, to);
@@ -149,7 +149,7 @@ impl Engine {
 
     pub(crate) fn forget_ssh_labels(&mut self, name: &str) {
         let saved = self.ssh_markers(name);
-        if let Err(err) = store::forget_ssh_labels(&self.paths, name) {
+        if let Err(err) = store::forget_ssh_labels(&self.host.paths, name) {
             self.report(Severity::Error, format!("{err:#}"));
             return self.list_profiles();
         }
@@ -170,12 +170,12 @@ impl Engine {
     }
 
     pub(crate) fn delete_profile(&mut self, name: &str) {
-        let saved = store::load(&self.paths)
+        let saved = store::load(&self.host.paths)
             .ok()
             .and_then(|profiles| profiles.into_iter().find(|profile| profile.name == name))
             .map(|profile| profile.in_keyring)
             .unwrap_or_default();
-        if let Err(err) = store::delete(&self.paths, name) {
+        if let Err(err) = store::delete(&self.host.paths, name) {
             self.report(Severity::Error, format!("{err:#}"));
             return self.list_profiles();
         }

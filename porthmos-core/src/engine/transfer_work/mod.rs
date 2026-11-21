@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{ConflictReview, PlanningScan, handlers};
-use crate::transfer::{TransferSnapshot, limit::SpeedLimit};
+use crate::transfer::{TransferSnapshot, conflicts::ConflictPolicy, limit::SpeedLimit};
 
 pub(crate) struct TransferWork {
     pub(crate) planning: Vec<PlanningScan>,
@@ -17,10 +17,12 @@ pub(crate) struct TransferWork {
     pub(crate) last_progress_publish: Option<Instant>,
     pub(crate) publish_interval: Duration,
     pub(crate) transfers_dirty: bool,
+    pub(crate) max_parallel: usize,
+    pub(crate) on_conflict: ConflictPolicy,
 }
 
 impl TransferWork {
-    pub(crate) fn new(publish_interval: Duration) -> Self {
+    pub(crate) fn new(publish_interval: Duration, max_parallel: usize, on_conflict: ConflictPolicy) -> Self {
         Self {
             planning: Vec::new(),
             moves: HashMap::new(),
@@ -32,6 +34,8 @@ impl TransferWork {
             last_progress_publish: None,
             publish_interval,
             transfers_dirty: false,
+            max_parallel,
+            on_conflict,
         }
     }
 }
