@@ -24,6 +24,7 @@ pub(super) const UNFINISHED_PROGRESS_SAVE: Duration = Duration::from_secs(5);
 #[derive(Default)]
 pub(crate) struct UnfinishedSaves {
     ready: bool,
+    protected: bool,
     shape: Vec<SavedJob>,
     moves: Vec<SavedMove>,
     transferred: u64,
@@ -63,7 +64,7 @@ impl Engine {
     }
 
     pub(crate) fn save_unfinished_transfers(&mut self) {
-        if self.unfinished_protected {
+        if self.unfinished_saves.protected {
             return;
         }
         let path = self.paths.unfinished_transfers_file();
@@ -85,7 +86,7 @@ impl Engine {
     }
 
     pub(crate) fn save_unfinished_when_changed(&mut self) {
-        if !self.unfinished_saves.ready || self.unfinished_protected {
+        if !self.unfinished_saves.ready || self.unfinished_saves.protected {
             return;
         }
         let jobs = unfinished(&self.transfers, |session_id| self.session_name(session_id));
@@ -115,7 +116,7 @@ impl Engine {
         let jobs = match load(&self.paths) {
             Loaded::Missing => return,
             Loaded::SetAside { warning, protected } => {
-                self.unfinished_protected = protected;
+                self.unfinished_saves.protected = protected;
                 self.report(Severity::Warning, warning);
                 return;
             }

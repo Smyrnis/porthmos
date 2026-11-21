@@ -140,7 +140,7 @@ fn a_protected_settings_file_still_gets_the_limit_for_this_run_but_is_not_writte
     let mut t = test_engine();
     std::fs::create_dir_all(&t.engine.paths.state_dir).unwrap();
     std::fs::write(t.engine.paths.state_file(), "not toml [").unwrap();
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
     t.drain();
 
     set(&mut t, Some(1000));

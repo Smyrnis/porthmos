@@ -8,7 +8,6 @@ mod transfer_work;
 
 use crate::i18n;
 use std::{
-    collections::HashMap,
     path::PathBuf,
     sync::{Arc, atomic::AtomicU64},
     time::{Duration, Instant},
@@ -168,6 +167,18 @@ struct SearchState {
     generation: Arc<AtomicU64>,
 }
 
+pub(crate) struct Graces {
+    pub(crate) shutdown: Duration,
+    pub(crate) upload: Duration,
+    pub(crate) flush: Duration,
+}
+
+impl Default for Graces {
+    fn default() -> Self {
+        Self { shutdown: SHUTDOWN_GRACE, upload: EDIT_UPLOAD_GRACE, flush: PERSIST_FLUSH_GRACE }
+    }
+}
+
 pub(crate) struct Engine {
     paths: Paths,
     env: Environment,
@@ -180,12 +191,8 @@ pub(crate) struct Engine {
     clock: fn() -> chrono::DateTime<chrono::Utc>,
     local_offset: fn() -> chrono::FixedOffset,
     pub(crate) finished: Option<tokio::sync::watch::Sender<bool>>,
-    pub(crate) shutdown_grace: Duration,
-    pub(crate) upload_grace: Duration,
-    pub(crate) flush_grace: Duration,
-    pub(crate) state_protected: bool,
-    pub(crate) state_write_warned: bool,
-    pub(crate) unfinished_protected: bool,
+    pub(crate) grace: Graces,
+    pub(crate) state_guard: handlers::StateGuard,
     unfinished_saves: handlers::UnfinishedSaves,
     pub(crate) ui_state: crate::state::UiState,
     writer: crate::persist::writer::Writer,
@@ -202,13 +209,10 @@ pub(crate) struct Engine {
     reopen: handlers::ReopenState,
     reconnect: handlers::ReconnectState,
     previews: handlers::PreviewSlots,
-    properties_request: Option<RequestId>,
-    properties_location: Option<Location>,
+    properties: handlers::PropertiesState,
     history: handlers::HistoryLog,
     edit: handlers::EditState,
-    keyring_jobs: Option<UnboundedSender<handlers::KeyringJob>>,
-    next_keyring_job: u64,
-    latest_keyring_job: HashMap<String, u64>,
+    keyring: handlers::KeyringState,
     sync: handlers::SyncState,
     import: handlers::ImportState,
     #[cfg_attr(not(feature = "update"), allow(dead_code))]
@@ -270,12 +274,8 @@ impl Engine {
             clock: chrono::Utc::now,
             local_offset: current_local_offset,
             finished: None,
-            shutdown_grace: SHUTDOWN_GRACE,
-            upload_grace: EDIT_UPLOAD_GRACE,
-            flush_grace: PERSIST_FLUSH_GRACE,
-            state_protected: false,
-            state_write_warned: false,
-            unfinished_protected: false,
+            grace: Graces::default(),
+            state_guard: handlers::StateGuard::default(),
             unfinished_saves: handlers::UnfinishedSaves::default(),
             ui_state: crate::state::UiState::default(),
             writer,
@@ -292,13 +292,10 @@ impl Engine {
             reopen: handlers::ReopenState::new(parts.reopen),
             reconnect: handlers::ReconnectState::new(parts.reconnect),
             previews: handlers::PreviewSlots::default(),
-            properties_request: None,
-            properties_location: None,
+            properties: handlers::PropertiesState::default(),
             history: handlers::HistoryLog::new(parts.history),
             edit: handlers::EditState::new(parts.edit),
-            keyring_jobs: None,
-            next_keyring_job: 0,
-            latest_keyring_job: HashMap::new(),
+            keyring: handlers::KeyringState::default(),
             sync: handlers::SyncState::default(),
             import: handlers::ImportState::default(),
             update: handlers::UpdateEngine::new(
@@ -359,14 +356,14 @@ impl Engine {
         self.cancel_all_work();
         self.tasks.cancel_all();
         self.record_interrupted();
-        let _ = tokio::time::timeout(self.flush_grace, self.writer.flush()).await;
+        let _ = tokio::time::timeout(self.grace.flush, self.writer.flush()).await;
         self.writer.close();
-        self.keyring_jobs = None;
+        self.keyring.close_queue();
         let tasks = self.tasks.clone();
         if tasks.live_names().contains(&"edit-upload") {
-            self.apply_results_until(internal, tasks.wait_for_name("edit-upload", self.upload_grace)).await;
+            self.apply_results_until(internal, tasks.wait_for_name("edit-upload", self.grace.upload)).await;
         }
-        self.apply_results_until(internal, tasks.shutdown(self.shutdown_grace)).await;
+        self.apply_results_until(internal, tasks.shutdown(self.grace.shutdown)).await;
         while let Ok(done) = internal.try_recv() {
             self.apply_late_result(done);
         }

@@ -406,7 +406,7 @@ async fn switching_the_mode_off_drops_a_pending_offer() {
 #[tokio::test]
 async fn a_protected_state_file_is_left_alone() {
     let mut t = engine_with_profiles(ReopenMode::Ask, &[("a", "fake")]);
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
 
     t.engine.handle_command(Command::Connect { profile: "a".into() });
     finish_one(&mut t).await;

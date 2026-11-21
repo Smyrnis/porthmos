@@ -397,7 +397,7 @@ async fn a_restored_job_nobody_touched_is_saved_again_with_its_reason() {
 #[tokio::test]
 async fn a_file_that_could_not_be_set_aside_is_never_overwritten() {
     let mut t = test_engine();
-    t.engine.unfinished_protected = true;
+    t.engine.unfinished_saves.protected = true;
     let (session, _) = t.add_session("srv");
     enqueue_upload(&mut t, session, "a.bin", None);
     write_saved(&t, &[saved_job("srv", "kept.bin", Direction::Upload)]);
@@ -565,7 +565,7 @@ async fn a_protected_file_is_never_overwritten_by_a_publish() {
     let mut t = test_engine();
     let (session, _) = t.add_session("srv");
     ready_to_save(&mut t);
-    t.engine.unfinished_protected = true;
+    t.engine.unfinished_saves.protected = true;
 
     enqueue_upload(&mut t, session, "queued.bin", None);
     t.engine.publish_transfers();

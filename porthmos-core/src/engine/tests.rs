@@ -256,9 +256,9 @@ async fn run_until_shutdown_waiting_for_uploads(
     t: TestEngine, grace: Duration, upload_grace: Duration,
 ) -> RunningEngine {
     let TestEngine { mut engine, internal, dir, events } = t;
-    engine.shutdown_grace = grace;
-    engine.upload_grace = upload_grace;
-    engine.flush_grace = Duration::from_millis(200);
+    engine.grace.shutdown = grace;
+    engine.grace.upload = upload_grace;
+    engine.grace.flush = Duration::from_millis(200);
     let (finished_tx, finished) = watch::channel(false);
     engine.finished = Some(finished_tx);
     let paths = engine.paths.clone();
@@ -515,7 +515,7 @@ fn a_failed_connect_is_in_the_log_as_well_as_shown() {
 #[test]
 fn a_warning_from_a_handler_is_in_the_log_too_and_shown_once() {
     let mut t = test_engine();
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
 
     let logs = crate::engine::testing::capture_logs(|| t.engine.remember_save_choice(true));
 

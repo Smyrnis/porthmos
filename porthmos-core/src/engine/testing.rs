@@ -145,7 +145,7 @@ impl TestEngine {
             match tokio::time::timeout(QUIET, self.internal.recv()).await {
                 Ok(Some(done)) => self.engine.handle_internal(done),
                 Err(_)
-                    if (!self.engine.latest_keyring_job.is_empty() || self.transfers_in_flight())
+                    if (!self.engine.keyring.latest.is_empty() || self.transfers_in_flight())
                         && started.elapsed() < LIMIT => {}
                 Ok(None) | Err(_) => break,
             }

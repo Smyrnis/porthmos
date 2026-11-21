@@ -75,7 +75,7 @@ fn a_corrupt_state_file_is_announced_at_start_and_the_choice_defaults_to_off() {
 #[test]
 fn a_protected_state_file_is_never_overwritten_by_remembering_the_choice() {
     let mut t = test_engine();
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
 
     t.engine.remember_save_choice(true);
 
@@ -121,7 +121,7 @@ fn showing_the_same_local_folder_again_writes_nothing() {
 #[test]
 fn a_protected_state_file_is_left_alone_without_a_notice_when_the_local_folder_changes() {
     let mut t = test_engine();
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
 
     t.engine.handle_internal(local_folder_shown("/x"));
 
@@ -210,7 +210,7 @@ fn a_panel_choice_that_cannot_be_saved_warns_once_together_with_the_folder() {
 #[test]
 fn a_protected_state_file_is_left_alone_when_a_panel_choice_changes() {
     let mut t = test_engine();
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
 
     t.engine.handle_command(Command::RememberPanel { kind: PanelKind::Local, settings: size_descending(true) });
 
@@ -271,7 +271,7 @@ fn open_groups_sit_beside_the_other_remembered_state() {
 #[test]
 fn a_protected_state_file_is_never_overwritten_by_remembering_open_groups() {
     let mut t = test_engine();
-    t.engine.state_protected = true;
+    t.engine.state_guard.protected = true;
 
     t.engine.handle_command(Command::RememberOpenGroups { groups: groups(&["Work"]) });
 

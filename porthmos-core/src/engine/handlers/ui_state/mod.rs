@@ -9,13 +9,19 @@ use crate::{
     state,
 };
 
+#[derive(Default)]
+pub(crate) struct StateGuard {
+    pub(crate) protected: bool,
+    write_warned: bool,
+}
+
 impl Engine {
     pub(crate) fn load_ui_state(&mut self) {
         let loaded = state::load(&self.paths);
         if let Some(warning) = loaded.warning {
             self.report(Severity::Warning, warning);
         }
-        self.state_protected = loaded.protected;
+        self.state_guard.protected = loaded.protected;
         let save = loaded.state.save_passwords_in_keyring;
         self.ui_state = loaded.state;
         self.ui_state.speed_limit = self.ui_state.speed_limit.filter(|rate| *rate > 0);
@@ -27,7 +33,7 @@ impl Engine {
     }
 
     pub(crate) fn remember_save_choice(&mut self, save: bool) {
-        if !self.state_protected {
+        if !self.state_guard.protected {
             self.ui_state.save_passwords_in_keyring = save;
         }
         self.remember_ui_state("remember.what.keyring_choice");
@@ -66,17 +72,17 @@ impl Engine {
     }
 
     pub(crate) fn save_quietly(&mut self, what: &str) {
-        if self.state_protected {
+        if self.state_guard.protected {
             return;
         }
         let Err(err) = state::save(&self.paths, &self.ui_state) else {
             return;
         };
-        if self.state_write_warned {
+        if self.state_guard.write_warned {
             tracing::debug!("couldn't remember the {what}: {err:#}");
             return;
         }
-        self.state_write_warned = true;
+        self.state_guard.write_warned = true;
         self.report(
             Severity::Warning,
             i18n::text_with("remember.failed", &[("what", &i18n::text(what)), ("cause", &err.to_string())]),
@@ -84,7 +90,7 @@ impl Engine {
     }
 
     pub(crate) fn remember_ui_state(&mut self, what: &str) {
-        if self.state_protected {
+        if self.state_guard.protected {
             self.report(Severity::Warning, i18n::text_with("remember.protected", &[("what", &i18n::text(what))]));
             return;
         }

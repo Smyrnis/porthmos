@@ -2,7 +2,7 @@ mod keyring;
 
 use crate::i18n;
 use keyring::SecretChanges;
-pub(crate) use keyring::{KeyringDone, KeyringJob, SecretOwner, profile_account, ssh_account};
+pub(crate) use keyring::{KeyringDone, KeyringState, SecretOwner, profile_account, ssh_account};
 use porthmos_vfs::{ConnectionForm, OptionKind};
 
 use super::super::{Engine, Event};

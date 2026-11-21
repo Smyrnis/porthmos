@@ -1026,7 +1026,7 @@ async fn settle_waits_for_a_keyring_job_that_outlasts_the_quiet_period() {
     t.settle().await;
 
     assert_eq!(backend.stored("profile:web").as_deref(), Some("pw"));
-    assert!(t.engine.latest_keyring_job.is_empty());
+    assert!(t.engine.keyring.latest.is_empty());
 }
 
 #[test]

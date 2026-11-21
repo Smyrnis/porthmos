@@ -14,6 +14,19 @@ use crate::{
     tasks::Scope,
 };
 
+#[derive(Default)]
+pub(crate) struct PropertiesState {
+    request: Option<RequestId>,
+    location: Option<Location>,
+}
+
+impl PropertiesState {
+    fn clear(&mut self) {
+        self.request = None;
+        self.location = None;
+    }
+}
+
 fn measure_failed() -> String {
     i18n::text("properties.measure_failed")
 }
@@ -55,18 +68,17 @@ async fn checksum_one(
 
 impl Engine {
     fn claim_properties(&mut self, request_id: RequestId, location: Location) {
-        if self.properties_request != Some(request_id) {
+        if self.properties.request != Some(request_id) {
             self.stop_properties();
-            self.properties_request = Some(request_id);
+            self.properties.request = Some(request_id);
         }
-        self.properties_location = Some(location);
+        self.properties.location = Some(location);
     }
 
     pub(crate) fn stop_properties_of(&mut self, session: SessionId) {
-        if self.properties_location == Some(Location::Session(session)) {
+        if self.properties.location == Some(Location::Session(session)) {
             self.stop_properties();
-            self.properties_request = None;
-            self.properties_location = None;
+            self.properties.clear();
         }
     }
 
@@ -131,10 +143,9 @@ impl Engine {
     }
 
     pub(crate) fn cancel_properties(&mut self, request_id: RequestId) {
-        if self.properties_request == Some(request_id) {
+        if self.properties.request == Some(request_id) {
             self.stop_properties();
-            self.properties_request = None;
-            self.properties_location = None;
+            self.properties.clear();
         }
     }
 }

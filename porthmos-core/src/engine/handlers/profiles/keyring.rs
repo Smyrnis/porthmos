@@ -1,7 +1,11 @@
 use crate::i18n;
-use std::{collections::BTreeMap, future::Future, pin::Pin};
+use std::{
+    collections::{BTreeMap, HashMap},
+    future::Future,
+    pin::Pin,
+};
 
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use zeroize::Zeroizing;
 
 use super::super::super::{Engine, Internal};
@@ -20,7 +24,20 @@ pub(crate) struct KeyringDone {
     pub(crate) errors: Vec<String>,
 }
 
-pub(crate) type KeyringJob = Pin<Box<dyn Future<Output = Internal> + Send>>;
+type KeyringJob = Pin<Box<dyn Future<Output = Internal> + Send>>;
+
+#[derive(Default)]
+pub(crate) struct KeyringState {
+    queue: Option<UnboundedSender<KeyringJob>>,
+    last_id: u64,
+    pub(in crate::engine) latest: HashMap<String, u64>,
+}
+
+impl KeyringState {
+    pub(crate) fn close_queue(&mut self) {
+        self.queue = None;
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SecretOwner {
@@ -94,12 +111,12 @@ impl SecretChanges {
 
 impl Engine {
     fn enqueue_keyring_job(&mut self, owner: &SecretOwner, job: impl FnOnce(u64) -> KeyringJob) {
-        self.next_keyring_job += 1;
-        let id = self.next_keyring_job;
-        self.latest_keyring_job.insert(owner.key(), id);
+        self.keyring.last_id += 1;
+        let id = self.keyring.last_id;
+        self.keyring.latest.insert(owner.key(), id);
         let internal = self.internal.clone();
         let tasks = self.tasks.clone();
-        let queue = self.keyring_jobs.get_or_insert_with(|| {
+        let queue = self.keyring.queue.get_or_insert_with(|| {
             let (queue, mut jobs) = unbounded_channel::<KeyringJob>();
             tasks.spawn("keyring-queue", Scope::Background, move |_| async move {
                 while let Some(job) = jobs.recv().await {
@@ -315,9 +332,9 @@ impl Engine {
 
     pub(crate) fn finish_keyring_job(&mut self, done: KeyringDone) {
         let KeyringDone { job, owner, rollback, restore, errors } = done;
-        let latest = self.latest_keyring_job.get(&owner.key()) == Some(&job);
+        let latest = self.keyring.latest.get(&owner.key()) == Some(&job);
         if latest {
-            self.latest_keyring_job.remove(&owner.key());
+            self.keyring.latest.remove(&owner.key());
         }
         for error in errors {
             self.report(Severity::Error, error);
