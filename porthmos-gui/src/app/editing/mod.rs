@@ -7,10 +7,9 @@ use porthmos_core::edit::{EditChoice, EditQuestionKind, EditorCommand, EditorExi
 use porthmos_core::{Command, Message, Severity};
 
 use super::App;
-use crate::editing::CommandSpec;
-use crate::editing::{EditorKind, Platform, classify, default_app_spec, editor_spec};
 use crate::modal::{DiffPane, Modal};
 use crate::processes::{ProcessEvent, ProcessJob};
+use porthmos_core::edit::launch::{CommandSpec, EditorKind, Platform, classify, default_app_spec, editor_spec};
 
 #[derive(Debug, Clone, Copy)]
 pub enum JobRole {

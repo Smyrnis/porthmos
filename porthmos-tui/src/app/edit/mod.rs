@@ -1,13 +1,11 @@
 use porthmos_core::i18n;
-use std::{
-    path::{Path, PathBuf},
-    process::ExitStatus,
-};
+use std::path::PathBuf;
 
 use std::sync::Arc;
 
 use porthmos_core::Message;
 use porthmos_core::diff::DiffOutcome;
+use porthmos_core::edit::launch::{editor_exit, editor_spec};
 use porthmos_core::edit::{EditorCommand, EditorExit};
 
 use super::*;
@@ -26,20 +24,6 @@ pub(super) struct EditPrompt {
 const CONFLICT_CHOICES: [&str; 4] =
     ["edit.conflict.show", "edit.conflict.overwrite", "edit.conflict.keep", "edit.conflict.cancel"];
 const KEEP_COPY_INDEX: usize = 2;
-
-pub(super) fn editor_process(editor: &EditorCommand, file: &Path) -> std::process::Command {
-    let mut command = std::process::Command::new(&editor.program);
-    command.args(&editor.args).arg(file);
-    command
-}
-
-pub(super) fn editor_exit(result: std::io::Result<ExitStatus>) -> EditorExit {
-    match result {
-        Ok(status) if status.success() => EditorExit::Success,
-        Ok(status) => EditorExit::Status(status.code().unwrap_or(-1)),
-        Err(err) => EditorExit::LaunchFailed(err.to_string()),
-    }
-}
 
 impl App {
     pub(super) fn start_edit(&mut self) {
@@ -210,7 +194,7 @@ impl App {
             self.core.send(Command::FinishEdit { edit_id, exit: EditorExit::LaunchFailed(err.to_string()) });
             return Err(err);
         }
-        let result = tokio::task::spawn_blocking(move || editor_process(&editor, &file).status()).await;
+        let result = tokio::task::spawn_blocking(move || editor_spec(&editor, &file).to_command().status()).await;
         let restored = terminal::init();
         let exit = match result {
             Ok(result) => editor_exit(result),

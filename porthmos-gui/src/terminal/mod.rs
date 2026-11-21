@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use porthmos_core::edit::{Backslash, split_command_as};
 
-use crate::editing::{CommandSpec, Platform, program_name};
+use porthmos_core::edit::launch::{CommandSpec, Platform, program_name};
 
 const TERMINAL_TABLE: [&str; 8] =
     ["gnome-terminal", "ptyxis", "xfce4-terminal", "kitty", "alacritty", "foot", "wezterm", "xterm"];

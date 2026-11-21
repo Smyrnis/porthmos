@@ -9,6 +9,8 @@ use std::{
 use chrono::DateTime;
 use porthmos_vfs::Environment;
 
+pub mod launch;
+
 pub const MAX_EDIT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[cfg(unix)]

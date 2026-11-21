@@ -11,8 +11,8 @@ use iced::futures::stream::unfold;
 use porthmos_core::edit::EditorExit;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::editing::{CommandSpec, Platform, editor_exit};
 use crate::terminal::{TerminalChoice, TerminalError, TerminalLaunch, launch};
+use porthmos_core::edit::launch::{CommandSpec, Platform, editor_exit};
 
 #[derive(Clone)]
 pub struct ProcessJob {

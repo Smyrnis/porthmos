@@ -1,4 +1,4 @@
-use crate::editing::{CommandSpec, Platform};
+use porthmos_core::edit::launch::{CommandSpec, Platform};
 use std::ffi::OsString;
 
 use super::{TerminalChoice, TerminalError, TerminalLaunch, launch, quote_for_shell};

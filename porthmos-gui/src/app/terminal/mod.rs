@@ -4,8 +4,8 @@ use porthmos_core::{Command, Severity, ShellInvocation};
 
 use super::editing::JobRole;
 use super::{App, PanelSide};
-use crate::editing::CommandSpec;
 use crate::processes::ProcessJob;
+use porthmos_core::edit::launch::CommandSpec;
 
 impl App {
     pub fn terminal_possible(&self) -> bool {

@@ -7,13 +7,13 @@ use porthmos_core::{Command, CoreHandle, Event, PanelKind, ProtocolInfo, VfsPath
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app::{App, Message};
-use crate::editing::Platform;
 use crate::native::{Attached, EventLog, Native, NativeError, NativeEvent};
 use crate::processes::{Launcher, ProcessEvent, ProcessJob, Spawner};
 use crate::runtime::EventSource;
 use crate::settings_view::GuiSettings;
 use crate::shortcuts::Shortcuts;
 use crate::theme::{Palette, ThemeSettings};
+use porthmos_core::edit::launch::Platform;
 
 pub struct Harness {
     pub app: App,

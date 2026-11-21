@@ -1,4 +1,4 @@
-use crate::editing::CommandSpec;
+use porthmos_core::edit::launch::CommandSpec;
 use std::ffi::OsString;
 
 use super::ProcessJob;
