@@ -668,6 +668,8 @@ summary:
     one: "%{count} σφάλμα"
     other: "%{count} σφάλματα"
 connections:
+  none_yet: "Δεν υπάρχουν αποθηκευμένες συνδέσεις ακόμα"
+  press_import: "πατήστε %{key} για εισαγωγή από FileZilla, WinSCP ή PuTTY"
   no_keyring: "Οι κωδικοί δεν αποθηκεύονται: δεν υπάρχει keyring συστήματος. Διατηρούνται μέχρι να κλείσει το Porthmos."
   add_title: "Προσθήκη σύνδεσης"
   edit_title: "Επεξεργασία σύνδεσης"

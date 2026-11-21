@@ -74,11 +74,18 @@ struct Setup<'a> {
     lost: HashSet<&'a str>,
     failures: HashMap<String, porthmos_core::Message>,
     last_used: BTreeMap<String, DateTime<Utc>>,
+    empty_hint: Vec<String>,
 }
 
 impl<'a> Setup<'a> {
     fn new() -> Self {
-        Self { connected: HashSet::new(), lost: HashSet::new(), failures: HashMap::new(), last_used: BTreeMap::new() }
+        Self {
+            connected: HashSet::new(),
+            lost: HashSet::new(),
+            failures: HashMap::new(),
+            last_used: BTreeMap::new(),
+            empty_hint: Vec::new(),
+        }
     }
 
     fn draw(&self, view: &ConnectionsView, width: u16, height: u16) -> Terminal<TestBackend> {
@@ -90,6 +97,7 @@ impl<'a> Setup<'a> {
             failures: &self.failures,
             protocols: &protocols,
             last_used: &self.last_used,
+            empty_hint: &self.empty_hint,
             now: now(),
         };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -637,4 +645,48 @@ fn a_failure_with_context_and_cause_on_two_lines_still_shows_the_cause() {
 
     let line = row(&terminal, 2);
     assert!(line.contains("Connection refused (os error 111)"), "{line:?}");
+}
+
+fn hinted() -> Setup<'static> {
+    Setup { empty_hint: vec!["no saved connections yet".to_string(), "press n to add one".to_string()], ..Setup::new() }
+}
+
+#[test]
+fn an_empty_list_shows_the_hint_dim_below_the_rule() {
+    let theme = indexed();
+
+    let terminal = hinted().draw(&view_of(Vec::new()), 60, 8);
+
+    assert!(row(&terminal, 3).starts_with("no saved connections yet"), "{:?}", row(&terminal, 3));
+    assert!(row(&terminal, 4).starts_with("press n to add one"), "{:?}", row(&terminal, 4));
+    assert_eq!(cell_fg(&terminal, 0, 3), theme.fg_dim);
+}
+
+#[test]
+fn a_list_with_connections_does_not_show_the_hint() {
+    let terminal = hinted().draw(&view_of(vec![entry("web")]), 60, 8);
+
+    assert!(!screen(&terminal).contains("no saved connections yet"));
+}
+
+#[test]
+fn a_filter_that_matches_nothing_does_not_show_the_hint() {
+    let mut view = view_of(vec![entry("web")]);
+    view.start_filter();
+    for character in "zzz".chars() {
+        view.type_filter(character);
+    }
+
+    let terminal = hinted().draw(&view, 60, 8);
+
+    assert!(!screen(&terminal).contains("no saved connections yet"));
+}
+
+#[test]
+fn a_hint_line_wider_than_the_list_is_cut_with_an_ellipsis() {
+    let setup = Setup { empty_hint: vec!["x".repeat(80)], ..Setup::new() };
+
+    let terminal = setup.draw(&view_of(Vec::new()), 30, 8);
+
+    assert!(row(&terminal, 3).trim_end().ends_with('\u{2026}'), "{:?}", row(&terminal, 3));
 }

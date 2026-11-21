@@ -433,6 +433,18 @@ impl App {
         lines
     }
 
+    fn empty_connections_hint(&self) -> Vec<String> {
+        let mut lines = vec![i18n::text("connections.none_yet")];
+        let key_of = |action| self.key_bindings.key_for(input::Scope::Connections, action).map(input::format_key_spec);
+        if let Some(key) = key_of(Action::AddConnection) {
+            lines.push(i18n::text_with("placeholder.add_connection", &[("key", &key)]));
+        }
+        if let Some(key) = key_of(Action::ImportConnections) {
+            lines.push(i18n::text_with("connections.press_import", &[("key", &key)]));
+        }
+        lines
+    }
+
     fn render_connections(&self, frame: &mut Frame, area: Rect) {
         let name_set = |wanted: ConnectionState| -> std::collections::HashSet<&str> {
             self.connection_states
@@ -442,12 +454,14 @@ impl App {
                 .collect()
         };
         let (connected_names, lost_names) = (name_set(ConnectionState::Connected), name_set(ConnectionState::Lost));
+        let empty_hint = self.empty_connections_hint();
         let context = connections_list::ConnectionsContext {
             connected: &connected_names,
             lost: &lost_names,
             failures: &self.last_failure,
             protocols: self.core.protocols(),
             last_used: &self.last_used,
+            empty_hint: &empty_hint,
             now: self.clock.now().with_timezone(&chrono::Utc),
         };
         let layout = layout::connections_layout(area);

@@ -43,6 +43,7 @@ pub struct ConnectionsContext<'a> {
     pub failures: &'a HashMap<String, Message>,
     pub protocols: &'a [ProtocolInfo],
     pub last_used: &'a BTreeMap<String, DateTime<Utc>>,
+    pub empty_hint: &'a [String],
     pub now: DateTime<Utc>,
 }
 
@@ -76,6 +77,10 @@ pub fn render_connections_list(
     view.remember_page_rows(usize::from(body.height));
     let entries = view.entries();
     let width = usize::from(body.width);
+    if entries.is_empty() {
+        render_empty_hint(frame, body, context.empty_hint, theme);
+        return;
+    }
     let columns = columns_for(entries, context, width, deepest_indent(view));
 
     let mut items: Vec<ListItem> = Vec::new();
@@ -107,6 +112,16 @@ pub fn render_connections_list(
         state.select(Some(display_cursor));
     }
     frame.render_stateful_widget(list, body, &mut state);
+}
+
+fn render_empty_hint(frame: &mut Frame, body: Rect, lines: &[String], theme: &Theme) {
+    let width = usize::from(body.width);
+    let rows = lines.iter().take(usize::from(body.height).saturating_sub(1)).enumerate();
+    for (offset, text) in rows {
+        let y = body.y + 1 + u16::try_from(offset).unwrap_or(u16::MAX);
+        let line = Line::from(Span::styled(truncate_with_ellipsis(&printable(text), width), theme.dim()));
+        frame.render_widget(ratatui::widgets::Paragraph::new(line), Rect::new(body.x, y, body.width, 1));
+    }
 }
 
 fn is_hidden_label(entry: &ConnectionEntry) -> Option<String> {

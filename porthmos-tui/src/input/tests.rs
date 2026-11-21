@@ -72,6 +72,7 @@ fn default_keys() -> Vec<(Scope, Action, KeyEvent)> {
         (Scope::Files, Action::Mkdir, key(KeyCode::F(7))),
         (Scope::Files, Action::Delete, key(KeyCode::F(8))),
         (Scope::Connections, Action::Rename, key(KeyCode::F(2))),
+        (Scope::Connections, Action::ImportConnections, key(KeyCode::Char('i'))),
         (Scope::Connections, Action::Disconnect, key(KeyCode::F(8))),
         (Scope::Connections, Action::DeleteConnection, key(KeyCode::Delete)),
         (Scope::Transfers, Action::Delete, key(KeyCode::F(8))),
@@ -93,6 +94,15 @@ fn every_default_key_still_maps_to_its_action_on_the_screens_it_worked_on() {
             }
         }
     }
+}
+
+#[test]
+fn i_imports_connections_on_the_connections_screen_and_still_shows_properties_in_the_files() {
+    let bindings = KeyBindings::defaults();
+
+    assert_eq!(bindings.map_key(Scope::Connections, key(KeyCode::Char('i'))), Action::ImportConnections);
+    assert_eq!(bindings.map_key(Scope::Files, key(KeyCode::Char('i'))), Action::Properties);
+    assert_eq!(bindings.map_key(Scope::Transfers, key(KeyCode::Char('i'))), Action::Noop);
 }
 
 #[test]

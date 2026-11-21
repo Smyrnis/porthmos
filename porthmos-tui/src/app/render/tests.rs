@@ -1122,6 +1122,38 @@ fn the_connections_screen_shows_the_filter_line_and_a_row_at_120x24() {
     assert!(row_symbols(&terminal, 5).contains("deploy@backup.example.com"), "{:?}", row_symbols(&terminal, 5));
 }
 
+#[test]
+fn an_empty_connections_screen_tells_how_to_add_or_import_a_connection() {
+    let (mut app, _) = themed_app();
+    app.screen = Screen::Connections;
+
+    let terminal = render_app(&app, 100, 20);
+
+    assert!(find_text(&terminal, "press n to add a connection").is_some());
+    assert!(find_text(&terminal, "press i to import from FileZilla, WinSCP or PuTTY").is_some());
+}
+
+#[test]
+fn the_hint_names_the_keys_the_user_has_bound() {
+    let (mut app, _) = themed_app();
+    app.screen = Screen::Connections;
+    let overrides = std::collections::HashMap::from([("import_connections".to_string(), "f3".to_string())]);
+    app.key_bindings = input::KeyBindings::from_overrides(&overrides).0;
+
+    let terminal = render_app(&app, 100, 20);
+
+    assert!(find_text(&terminal, "press F3 to import").is_some());
+}
+
+#[test]
+fn a_connections_screen_with_connections_has_no_hint() {
+    let (app, _) = connections_app();
+
+    let terminal = render_app(&app, 100, 20);
+
+    assert!(find_text(&terminal, "to import from").is_none());
+}
+
 fn noon() -> chrono::DateTime<chrono::Local> {
     chrono::Local.with_ymd_and_hms(2026, 10, 22, 12, 0, 0).unwrap()
 }

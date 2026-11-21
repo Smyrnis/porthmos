@@ -407,6 +407,7 @@ fn defaults_table() -> Vec<(Scope, Action, Vec<KeySpec>)> {
         (Scope::Files, Action::OpenTransfers, vec![letter('t')]),
         (Scope::Connections, Action::Rename, vec![letter('e'), function(2)]),
         (Scope::Connections, Action::AddConnection, vec![letter('n')]),
+        (Scope::Connections, Action::ImportConnections, vec![letter('i')]),
         (Scope::Connections, Action::Disconnect, vec![letter('x'), function(8)]),
         (Scope::Connections, Action::DeleteConnection, vec![plain(KeyCode::Delete)]),
         (Scope::Connections, Action::ReopenConnections, vec![letter('o')]),

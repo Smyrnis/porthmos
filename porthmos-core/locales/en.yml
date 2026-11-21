@@ -668,6 +668,8 @@ summary:
     one: "%{count} error"
     other: "%{count} errors"
 connections:
+  none_yet: "No saved connections yet"
+  press_import: "press %{key} to import from FileZilla, WinSCP or PuTTY"
   no_keyring: "Passwords are not saved: no system keyring. They are kept until Porthmos quits."
   add_title: "Add connection"
   edit_title: "Edit connection"
