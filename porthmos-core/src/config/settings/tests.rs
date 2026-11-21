@@ -545,3 +545,60 @@ fn the_general_table_does_not_leak_into_the_frontend_settings() {
 
     assert!(!settings.frontend.contains_key("general"));
 }
+
+#[test]
+fn search_limits_default_to_sixteen_levels_and_a_thousand_results() {
+    let (settings, warnings) = parsed("");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!((settings.search.max_depth, settings.search.max_results), (16, 1000));
+    assert_eq!(Settings::default().search, settings.search);
+}
+
+#[test]
+fn search_limits_accept_their_smallest_and_largest_values() {
+    for (depth, results) in [(1, 10), (16, 1000), (64, 10000)] {
+        let (settings, warnings) = parsed(&format!("[search]\nmax_depth = {depth}\nmax_results = {results}\n"));
+
+        assert!(warnings.is_empty(), "{depth} {results}: {warnings:?}");
+        assert_eq!((settings.search.max_depth, settings.search.max_results), (depth, results));
+    }
+}
+
+#[test]
+fn a_search_depth_out_of_range_warns_and_uses_the_default() {
+    for depth in [0, -1, 65] {
+        let (settings, warnings) = parsed(&format!("[search]\nmax_depth = {depth}\n"));
+
+        assert_eq!(settings.search.max_depth, 16, "{depth}");
+        assert_eq!(warnings, vec!["search.max_depth must be between 1 and 64, using 16".to_string()], "{depth}");
+    }
+}
+
+#[test]
+fn a_search_result_count_out_of_range_warns_and_uses_the_default() {
+    for results in [0, 9, 10001] {
+        let (settings, warnings) = parsed(&format!("[search]\nmax_results = {results}\n"));
+
+        assert_eq!(settings.search.max_results, 1000, "{results}");
+        assert_eq!(
+            warnings,
+            vec!["search.max_results must be between 10 and 10000, using 1000".to_string()],
+            "{results}"
+        );
+    }
+}
+
+#[test]
+fn one_bad_search_limit_leaves_the_other_alone() {
+    let (settings, warnings) = parsed("[search]\nmax_depth = 99\nmax_results = 50\n");
+
+    assert_eq!((settings.search.max_depth, settings.search.max_results), (16, 50));
+    assert_eq!(warnings.len(), 1);
+}
+
+#[test]
+fn search_limits_of_the_wrong_type_do_not_parse() {
+    assert!(toml::from_str::<SettingsFile>("[search]\nmax_depth = \"deep\"\n").is_err());
+    assert!(toml::from_str::<SettingsFile>("[search]\nmax_results = 1.5\n").is_err());
+}

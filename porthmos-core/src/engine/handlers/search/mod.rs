@@ -25,6 +25,7 @@ impl Engine {
             return;
         };
         let events = self.events.clone();
+        let (max_depth, max_results) = (self.search.max_depth, self.search.max_results);
         let reporter = Reporter::new(events.clone());
         self.tasks.spawn("search", Scope::Search, move |cancel| async move {
             tokio::time::sleep(SEARCH_DEBOUNCE).await;
@@ -40,7 +41,8 @@ impl Engine {
                     let _ = events.send(event_for(request_id, search_event));
                 }
             };
-            tokio::join!(fs.search(SearchQuery::new(root, pattern), tx, cancel), forward);
+            let query = SearchQuery { max_depth, max_results, ..SearchQuery::new(root, pattern) };
+            tokio::join!(fs.search(query, tx, cancel), forward);
         });
     }
 

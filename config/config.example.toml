@@ -63,6 +63,12 @@ interval_hours = 24
 # results. The pane follows the cursor and scrolls (PageUp and PageDown in the
 # terminal app, the mouse wheel in the window app). Off by default.
 preview = false
+# How far a search goes. max_depth is how many folder levels below the starting
+# folder are read (1 to 64). max_results is how many matches are kept before the
+# search stops and says the list was cut short (10 to 10000). Folders such as
+# .git and node_modules are searched too.
+max_depth = 16
+max_results = 1000
 
 [startup]
 # Reopen the saved connections that were open when you last quit.

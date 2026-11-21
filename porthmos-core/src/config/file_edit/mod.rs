@@ -20,6 +20,8 @@ pub enum Edit {
     SetCompareLimitMib(u64),
     SetUpdateMode(UpdateMode),
     SetSearchPreview(bool),
+    SetSearchMaxDepth(u64),
+    SetSearchMaxResults(u64),
     SetReopenMode(ReopenMode),
     SetReconnect(bool),
     SetThemeBase(ThemeBase),
@@ -158,6 +160,12 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
         }
         Edit::SetThemeBase(base) => set_in(&mut document, &[], "base", Value::from(base.name()))?,
         Edit::SetSearchPreview(on) => set_in(&mut document, &["search"], "preview", Value::from(*on))?,
+        Edit::SetSearchMaxDepth(depth) => {
+            set_in(&mut document, &["search"], "max_depth", Value::from(i64::try_from(*depth).unwrap_or(i64::MAX)))?
+        }
+        Edit::SetSearchMaxResults(count) => {
+            set_in(&mut document, &["search"], "max_results", Value::from(i64::try_from(*count).unwrap_or(i64::MAX)))?
+        }
     }
     Ok(document.to_string())
 }

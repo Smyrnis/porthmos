@@ -462,3 +462,20 @@ fn set_language_to_automatic_writes_auto_and_keeps_other_settings() {
     assert!(written.starts_with("# mine\n[general]\nlanguage = \"auto\"\n"), "{written}");
     assert!(written.contains("[edit]\nauto_upload = false\n"), "{written}");
 }
+
+#[test]
+fn set_search_limits_write_whole_numbers_under_search() {
+    assert_eq!(apply("", &Edit::SetSearchMaxDepth(8)).unwrap(), "[search]\nmax_depth = 8\n");
+    assert_eq!(apply("", &Edit::SetSearchMaxResults(250)).unwrap(), "[search]\nmax_results = 250\n");
+    assert_eq!(apply("[search]\nmax_depth = 8\n", &Edit::SetSearchMaxDepth(3)).unwrap(), "[search]\nmax_depth = 3\n");
+}
+
+#[test]
+fn set_search_limits_keep_the_preview_setting_and_comments() {
+    let start = "# mine\n[search]\npreview = true # keep\n";
+
+    let written = apply(&apply(start, &Edit::SetSearchMaxDepth(5)).unwrap(), &Edit::SetSearchMaxResults(40)).unwrap();
+
+    assert!(written.starts_with(start), "{written}");
+    assert!(written.contains("max_depth = 5") && written.contains("max_results = 40"), "{written}");
+}

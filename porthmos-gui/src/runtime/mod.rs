@@ -77,6 +77,8 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         compare_limit_mib: settings.edit.compare_limit_mib,
         update_mode: settings.update.mode,
         search_preview: settings.search.preview,
+        search_max_depth: settings.search.max_depth,
+        search_max_results: settings.search.max_results,
         reopen: settings.startup.reopen,
         reconnect: settings.connection.reconnect,
         theme_base: porthmos_core::theme::file::read_base(&paths.theme_file()),

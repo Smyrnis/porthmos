@@ -165,6 +165,8 @@ pub(crate) struct LiveSession {
 
 struct SearchState {
     generation: Arc<AtomicU64>,
+    max_depth: usize,
+    max_results: usize,
 }
 
 pub(crate) struct Graces {
@@ -230,6 +232,7 @@ pub(crate) struct EngineParts {
     pub(crate) history: History,
     pub(crate) last_used: crate::last_used::LastUsed,
     pub(crate) edit: EditSettings,
+    pub(crate) search: crate::config::SearchSettings,
     pub(crate) update: crate::config::UpdateSettings,
     pub(crate) reopen: crate::config::ReopenMode,
     pub(crate) reconnect: bool,
@@ -285,7 +288,11 @@ impl Engine {
             work: transfer_work::TransferWork::new(parts.publish_interval),
             max_parallel: parts.transfers.max_parallel,
             on_conflict: parts.transfers.on_conflict,
-            search: SearchState { generation: Arc::new(AtomicU64::new(0)) },
+            search: SearchState {
+                generation: Arc::new(AtomicU64::new(0)),
+                max_depth: parts.search.max_depth,
+                max_results: parts.search.max_results,
+            },
             bookmarks: parts.bookmarks,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),

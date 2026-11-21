@@ -94,6 +94,8 @@ fn opening_shows_the_saved_editor() {
         auto_upload: false,
         compare_limit_mib: 1,
         search_preview: false,
+        search_max_depth: 16,
+        search_max_results: 1000,
         update_mode: UpdateMode::Off,
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
@@ -1035,4 +1037,87 @@ mod categories {
 
         assert!(harness.app.settings_state().is_none());
     }
+}
+
+#[test]
+fn the_search_limit_fields_start_from_the_saved_values() {
+    let mut harness = Harness::with_gui_settings(GuiSettings {
+        search_max_depth: 4,
+        search_max_results: 70,
+        ..GuiSettings::default()
+    });
+    open(&mut harness);
+
+    assert_eq!(state(&harness).search_depth_text, "4");
+    assert_eq!(state(&harness).search_results_text, "70");
+}
+
+#[test]
+fn applying_a_valid_search_depth_saves_it_and_asks_for_a_restart() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsSearchDepthTyped(" 9 ".to_string()));
+    harness.press(Message::SettingsSearchDepthApplied);
+
+    assert!(config_text(&harness).contains("max_depth = 9"), "{}", config_text(&harness));
+    assert_eq!(harness.app.gui_settings().search_max_depth, 9);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(RESTART_NOTE.to_string())));
+}
+
+#[test]
+fn applying_a_valid_search_result_count_saves_it_and_asks_for_a_restart() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsSearchResultsTyped("2500".to_string()));
+    harness.press(Message::SettingsSearchResultsApplied);
+
+    assert!(config_text(&harness).contains("max_results = 2500"), "{}", config_text(&harness));
+    assert_eq!(harness.app.gui_settings().search_max_results, 2500);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(RESTART_NOTE.to_string())));
+}
+
+#[test]
+fn an_invalid_search_depth_is_refused_with_a_message_and_not_saved() {
+    for text in ["", "0", "65", "abc", "1.5", "-2"] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsSearchDepthTyped(text.to_string()));
+        harness.press(Message::SettingsSearchDepthApplied);
+
+        assert_eq!(error_of(&harness), "Enter a whole number from 1 to 64.", "{text:?}");
+        assert_eq!(config_text(&harness), "", "{text:?}");
+        assert_eq!(harness.app.gui_settings().search_max_depth, 16, "{text:?}");
+    }
+}
+
+#[test]
+fn an_invalid_search_result_count_is_refused_with_a_message_and_not_saved() {
+    for text in ["", "9", "10001", "abc", "2.5", "-20"] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsSearchResultsTyped(text.to_string()));
+        harness.press(Message::SettingsSearchResultsApplied);
+
+        assert_eq!(error_of(&harness), "Enter a whole number from 10 to 10000.", "{text:?}");
+        assert_eq!(config_text(&harness), "", "{text:?}");
+        assert_eq!(harness.app.gui_settings().search_max_results, 1000, "{text:?}");
+    }
+}
+
+#[test]
+fn the_search_limit_messages_name_the_real_limits() {
+    use porthmos_core::config::settings::{MAX_SEARCH_DEPTH, MAX_SEARCH_RESULTS, MIN_SEARCH_DEPTH, MIN_SEARCH_RESULTS};
+
+    let depth = super::search_depth_text();
+    let results = super::search_results_text();
+
+    assert!(depth.contains(&MIN_SEARCH_DEPTH.to_string()) && depth.contains(&MAX_SEARCH_DEPTH.to_string()), "{depth}");
+    assert!(
+        results.contains(&MIN_SEARCH_RESULTS.to_string()) && results.contains(&MAX_SEARCH_RESULTS.to_string()),
+        "{results}"
+    );
 }

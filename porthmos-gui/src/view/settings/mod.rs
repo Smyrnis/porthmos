@@ -40,6 +40,19 @@ fn compare_limit_help() -> String {
     tr("When an edited file changed on the server, Show differences compares files up to this size.")
 }
 const COMPARE_LIMIT_FIELD_WIDTH: f32 = 80.0;
+const SEARCH_DEPTH_PLACEHOLDER: &str = "16";
+const SEARCH_RESULTS_PLACEHOLDER: &str = "1000";
+fn search_depth_label() -> String {
+    tr("Deepest folder level to search (1 to 64)")
+}
+fn search_results_label() -> String {
+    tr("Most results to show (10 to 10000)")
+}
+fn search_limits_help() -> String {
+    tr(
+        "A search stops at these limits and says the results were cut short. Folders such as .git and node_modules are searched too.",
+    )
+}
 fn editor_help() -> String {
     tr("Leave empty to use $VISUAL, $EDITOR or the system default.")
 }
@@ -224,14 +237,43 @@ fn editing_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
     .into()
 }
 
-fn search_section<'a>(app: &'a App) -> Element<'a, Message> {
+fn search_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
     let palette = app.palette();
     let preview = checkbox(app.gui_settings().search_preview)
         .label(tr("Show a preview of the file under the cursor"))
         .text_size(13.0)
         .on_toggle(Message::SettingsSearchPreviewToggled)
         .style(crate::view::checkbox::style(palette));
-    column![section(&tr("Search"), palette), preview].spacing(8).into()
+    let depth = text_input(SEARCH_DEPTH_PLACEHOLDER, &state.search_depth_text)
+        .style(crate::view::input::style(palette))
+        .on_input(Message::SettingsSearchDepthTyped)
+        .on_submit(Message::SettingsSearchDepthApplied)
+        .size(13.0)
+        .width(Length::Fixed(COMPARE_LIMIT_FIELD_WIDTH))
+        .font(Font::DEFAULT);
+    let results = text_input(SEARCH_RESULTS_PLACEHOLDER, &state.search_results_text)
+        .style(crate::view::input::style(palette))
+        .on_input(Message::SettingsSearchResultsTyped)
+        .on_submit(Message::SettingsSearchResultsApplied)
+        .size(13.0)
+        .width(Length::Fixed(COMPARE_LIMIT_FIELD_WIDTH))
+        .font(Font::DEFAULT);
+    column![
+        section(&tr("Search"), palette),
+        preview,
+        wrapped_label(search_depth_label(), palette.fg),
+        row![depth, text_button(&tr("Apply"), Some(Message::SettingsSearchDepthApplied), Look::Normal, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        wrapped_label(search_results_label(), palette.fg),
+        row![results, text_button(&tr("Apply"), Some(Message::SettingsSearchResultsApplied), Look::Normal, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        wrapped_label(search_limits_help(), palette.fg_dim),
+        restart_line(palette),
+    ]
+    .spacing(8)
+    .into()
 }
 
 fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
@@ -304,7 +346,7 @@ fn section_view<'a>(app: &'a App, state: &'a SettingsState, which: SettingsSecti
         SettingsSection::Appearance => appearance_section(app),
         SettingsSection::Editing => editing_section(app, state),
         SettingsSection::Terminal => terminal_section(app, state),
-        SettingsSection::Search => search_section(app),
+        SettingsSection::Search => search_section(app, state),
         SettingsSection::Language => language_section(app),
         SettingsSection::Startup => startup_section(app),
         SettingsSection::Connections => connection_section(app),

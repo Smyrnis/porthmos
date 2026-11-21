@@ -199,6 +199,10 @@ pub enum Message {
     SettingsAutoUploadToggled(bool),
     SettingsCompareLimitTyped(String),
     SettingsCompareLimitApplied,
+    SettingsSearchDepthTyped(String),
+    SettingsSearchDepthApplied,
+    SettingsSearchResultsTyped(String),
+    SettingsSearchResultsApplied,
     SettingsSearchPreviewToggled(bool),
     SearchPreviewScrolled(f32),
     SettingsUpdateModeChosen(porthmos_core::UpdateMode),
@@ -1275,6 +1279,10 @@ impl App {
             | Message::SettingsAutoUploadToggled(_)
             | Message::SettingsCompareLimitTyped(_)
             | Message::SettingsCompareLimitApplied
+            | Message::SettingsSearchDepthTyped(_)
+            | Message::SettingsSearchDepthApplied
+            | Message::SettingsSearchResultsTyped(_)
+            | Message::SettingsSearchResultsApplied
             | Message::SettingsSearchPreviewToggled(_)
             | Message::SettingsClosed
             | Message::SettingsUpdateModeChosen(_)

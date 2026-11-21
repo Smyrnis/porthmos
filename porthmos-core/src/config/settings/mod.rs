@@ -64,9 +64,24 @@ impl Default for UpdateSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub const DEFAULT_SEARCH_DEPTH: usize = 16;
+pub const MIN_SEARCH_DEPTH: usize = 1;
+pub const MAX_SEARCH_DEPTH: usize = 64;
+pub const DEFAULT_SEARCH_RESULTS: usize = 1000;
+pub const MIN_SEARCH_RESULTS: usize = 10;
+pub const MAX_SEARCH_RESULTS: usize = 10000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchSettings {
     pub preview: bool,
+    pub max_depth: usize,
+    pub max_results: usize,
+}
+
+impl Default for SearchSettings {
+    fn default() -> Self {
+        Self { preview: false, max_depth: DEFAULT_SEARCH_DEPTH, max_results: DEFAULT_SEARCH_RESULTS }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -163,6 +178,8 @@ pub(crate) struct TransferSettingsFile {
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub(crate) struct SearchSettingsFile {
     pub preview: Option<bool>,
+    pub max_depth: Option<i64>,
+    pub max_results: Option<i64>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -279,6 +296,28 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let search_depth = match file.search.max_depth {
+        None => DEFAULT_SEARCH_DEPTH,
+        Some(depth) if (MIN_SEARCH_DEPTH as i64..=MAX_SEARCH_DEPTH as i64).contains(&depth) => depth as usize,
+        Some(_) => {
+            warnings.push(format!(
+                "search.max_depth must be between {MIN_SEARCH_DEPTH} and {MAX_SEARCH_DEPTH}, using {DEFAULT_SEARCH_DEPTH}"
+            ));
+            DEFAULT_SEARCH_DEPTH
+        }
+    };
+
+    let search_results = match file.search.max_results {
+        None => DEFAULT_SEARCH_RESULTS,
+        Some(count) if (MIN_SEARCH_RESULTS as i64..=MAX_SEARCH_RESULTS as i64).contains(&count) => count as usize,
+        Some(_) => {
+            warnings.push(format!(
+                "search.max_results must be between {MIN_SEARCH_RESULTS} and {MAX_SEARCH_RESULTS}, using {DEFAULT_SEARCH_RESULTS}"
+            ));
+            DEFAULT_SEARCH_RESULTS
+        }
+    };
+
     let reopen = match file.startup.reopen.as_deref() {
         None | Some("off") => ReopenMode::Off,
         Some("ask") => ReopenMode::Ask,
@@ -316,7 +355,11 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
                     .filter(|command| !command.is_empty()),
             },
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
-            search: SearchSettings { preview: file.search.preview.unwrap_or(false) },
+            search: SearchSettings {
+                preview: file.search.preview.unwrap_or(false),
+                max_depth: search_depth,
+                max_results: search_results,
+            },
             startup: StartupSettings { reopen },
             connection: ConnectionSettings { reconnect: file.connection.reconnect.unwrap_or(false) },
             language,

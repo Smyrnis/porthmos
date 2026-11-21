@@ -344,6 +344,7 @@ impl CoreBuilder {
             history,
             last_used,
             edit: self.settings.edit,
+            search: self.settings.search,
             update_timing: update::UpdateTiming::for_settings(&self.settings.update),
             update: self.settings.update,
             reopen: self.settings.startup.reopen,

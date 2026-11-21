@@ -1,6 +1,6 @@
 use porthmos_core::UpdateMode;
 
-use super::{GuiSettings, SettingsState, editor_from_text};
+use super::{GuiSettings, SettingsState, editor_from_text, search_depth_from_text, search_results_from_text};
 
 fn settings(editor: Option<&str>) -> GuiSettings {
     GuiSettings {
@@ -10,6 +10,8 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         compare_limit_mib: 1,
         update_mode: UpdateMode::Notify,
         search_preview: false,
+        search_max_depth: 16,
+        search_max_results: 1000,
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
         theme_base: porthmos_core::theme::ThemeBase::Dark,
@@ -110,4 +112,37 @@ mod categories {
             ]
         );
     }
+}
+
+#[test]
+fn the_search_limit_fields_start_from_the_saved_values() {
+    let state = SettingsState::new(&GuiSettings { search_max_depth: 7, search_max_results: 90, ..settings(None) });
+
+    assert_eq!((state.search_depth_text.as_str(), state.search_results_text.as_str()), ("7", "90"));
+}
+
+#[test]
+fn search_depth_text_accepts_one_to_sixty_four() {
+    assert_eq!(search_depth_from_text(" 1 "), Some(1));
+    assert_eq!(search_depth_from_text("64"), Some(64));
+    for text in ["", "0", "65", "-1", "1.5", "deep"] {
+        assert_eq!(search_depth_from_text(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn search_results_text_accepts_ten_to_ten_thousand() {
+    assert_eq!(search_results_from_text(" 10 "), Some(10));
+    assert_eq!(search_results_from_text("10000"), Some(10000));
+    for text in ["", "9", "10001", "-10", "1e3", "many"] {
+        assert_eq!(search_results_from_text(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn the_search_limit_defaults_match_the_core_defaults() {
+    let defaults = GuiSettings::default();
+    let core = porthmos_core::config::SearchSettings::default();
+
+    assert_eq!((defaults.search_max_depth, defaults.search_max_results), (core.max_depth, core.max_results));
 }

@@ -176,3 +176,61 @@ async fn every_event_of_a_search_carries_the_request_id_it_was_started_with() {
         .collect();
     assert_eq!(ids, [42, 42]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_configured_result_limit_caps_the_search_and_marks_it_truncated() {
+    let mut t = test_engine();
+    t.engine.search.max_results = 1;
+    let (session, remote) = t.add_session("srv");
+    remote.file("/home/user/aaa.log", b"", None).file("/home/user/bbb.log", b"", None);
+
+    t.engine.handle_command(Command::Search {
+        request_id: 1,
+        location: Location::Session(session),
+        root: VfsPath::from("/home/user"),
+        pattern: "*.log".to_string(),
+    });
+
+    let mut events = Vec::new();
+    loop {
+        let event = t.next_event().await;
+        let done = matches!(event, Event::SearchDone { .. });
+        events.push(event);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(found_names(&events).len(), 1);
+    assert!(matches!(events.last(), Some(Event::SearchDone { truncated: true, .. })), "{events:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_configured_depth_limit_keeps_the_search_out_of_deeper_folders() {
+    let mut t = test_engine();
+    t.engine.search.max_depth = 1;
+    let (session, remote) = t.add_session("srv");
+    remote.file("/home/user/top.log", b"", None).file("/home/user/a/near.log", b"", None).file(
+        "/home/user/a/b/deep.log",
+        b"",
+        None,
+    );
+
+    t.engine.handle_command(Command::Search {
+        request_id: 1,
+        location: Location::Session(session),
+        root: VfsPath::from("/home/user"),
+        pattern: "*.log".to_string(),
+    });
+
+    let mut events = Vec::new();
+    loop {
+        let event = t.next_event().await;
+        let done = matches!(event, Event::SearchDone { .. });
+        events.push(event);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(found_names(&events).len(), 2);
+    assert!(!found_names(&events).contains(&"deep.log".to_string()));
+}

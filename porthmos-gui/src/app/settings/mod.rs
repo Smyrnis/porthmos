@@ -11,7 +11,10 @@ use porthmos_core::theme::{self, ThemeBase};
 use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
-use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text};
+use crate::settings_view::{
+    GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text, search_depth_from_text,
+    search_results_from_text,
+};
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
 use crate::theme::{Palette, ThemeSettings};
 use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
@@ -28,6 +31,12 @@ fn reserved_text() -> String {
 }
 fn compare_limit_text() -> String {
     tr("Enter a whole number from 1 to 64.")
+}
+fn search_depth_text() -> String {
+    tr("Enter a whole number from 1 to 64.")
+}
+fn search_results_text() -> String {
+    tr("Enter a whole number from 10 to 10000.")
 }
 fn no_config_text() -> String {
     tr("The location of the configuration file is unknown.")
@@ -259,6 +268,42 @@ impl App {
                         });
                     }
                     None => self.show_settings_message(Some(SettingsMessage::Error(compare_limit_text()))),
+                }
+            }
+            Message::SettingsSearchDepthTyped(text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.search_depth_text = text;
+                }
+            }
+            Message::SettingsSearchDepthApplied => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                match search_depth_from_text(&state.search_depth_text) {
+                    Some(depth) => {
+                        self.core_setting_saved(Edit::SetSearchMaxDepth(depth as u64), |settings| {
+                            settings.search_max_depth = depth
+                        });
+                    }
+                    None => self.show_settings_message(Some(SettingsMessage::Error(search_depth_text()))),
+                }
+            }
+            Message::SettingsSearchResultsTyped(text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.search_results_text = text;
+                }
+            }
+            Message::SettingsSearchResultsApplied => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                match search_results_from_text(&state.search_results_text) {
+                    Some(count) => {
+                        self.core_setting_saved(Edit::SetSearchMaxResults(count as u64), |settings| {
+                            settings.search_max_results = count
+                        });
+                    }
+                    None => self.show_settings_message(Some(SettingsMessage::Error(search_results_text()))),
                 }
             }
             Message::SettingsTerminalTyped(text) => {

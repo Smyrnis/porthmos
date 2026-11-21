@@ -49,6 +49,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         history,
         last_used,
         edit: crate::config::settings::EditSettings::default(),
+        search: crate::config::SearchSettings::default(),
         update: crate::config::UpdateSettings { mode: crate::config::UpdateMode::Off, ..Default::default() },
         reopen: crate::config::ReopenMode::Off,
         reconnect: false,

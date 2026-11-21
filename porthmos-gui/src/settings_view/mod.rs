@@ -12,6 +12,8 @@ pub struct GuiSettings {
     pub compare_limit_mib: u64,
     pub update_mode: UpdateMode,
     pub search_preview: bool,
+    pub search_max_depth: usize,
+    pub search_max_results: usize,
     pub reopen: ReopenMode,
     pub reconnect: bool,
     pub theme_base: ThemeBase,
@@ -27,6 +29,8 @@ impl Default for GuiSettings {
             compare_limit_mib: porthmos_core::config::settings::DEFAULT_COMPARE_LIMIT_MIB,
             update_mode: UpdateMode::Auto,
             search_preview: false,
+            search_max_depth: porthmos_core::config::settings::DEFAULT_SEARCH_DEPTH,
+            search_max_results: porthmos_core::config::settings::DEFAULT_SEARCH_RESULTS,
             reopen: ReopenMode::Off,
             reconnect: false,
             theme_base: ThemeBase::Dark,
@@ -105,6 +109,8 @@ pub struct SettingsState {
     pub capturing: Option<Action>,
     pub editor_text: String,
     pub compare_limit_text: String,
+    pub search_depth_text: String,
+    pub search_results_text: String,
     pub terminal_text: String,
     pub message: Option<SettingsMessage>,
 }
@@ -116,6 +122,8 @@ impl SettingsState {
             capturing: None,
             editor_text: settings.editor.clone().unwrap_or_default(),
             compare_limit_text: settings.compare_limit_mib.to_string(),
+            search_depth_text: settings.search_max_depth.to_string(),
+            search_results_text: settings.search_max_results.to_string(),
             terminal_text: settings.terminal.clone().unwrap_or_default(),
             message: None,
         }
@@ -125,6 +133,16 @@ impl SettingsState {
 pub fn compare_limit_from_text(text: &str) -> Option<u64> {
     use porthmos_core::config::settings::{MAX_COMPARE_LIMIT_MIB, MIN_COMPARE_LIMIT_MIB};
     text.trim().parse::<u64>().ok().filter(|mib| (MIN_COMPARE_LIMIT_MIB..=MAX_COMPARE_LIMIT_MIB).contains(mib))
+}
+
+pub fn search_depth_from_text(text: &str) -> Option<usize> {
+    use porthmos_core::config::settings::{MAX_SEARCH_DEPTH, MIN_SEARCH_DEPTH};
+    text.trim().parse::<usize>().ok().filter(|depth| (MIN_SEARCH_DEPTH..=MAX_SEARCH_DEPTH).contains(depth))
+}
+
+pub fn search_results_from_text(text: &str) -> Option<usize> {
+    use porthmos_core::config::settings::{MAX_SEARCH_RESULTS, MIN_SEARCH_RESULTS};
+    text.trim().parse::<usize>().ok().filter(|count| (MIN_SEARCH_RESULTS..=MAX_SEARCH_RESULTS).contains(count))
 }
 
 pub fn editor_from_text(text: &str) -> Option<String> {
