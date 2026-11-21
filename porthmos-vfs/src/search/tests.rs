@@ -204,7 +204,7 @@ async fn search_finds_names_that_look_like_windows_paths() {
     assert_eq!(paths, vec!["/root/a\\b.log", "/root/con.log", "/root/x:1.log"]);
 }
 
-async fn search_outcome(fs: &FakeFs, root: &str) -> (Vec<String>, bool) {
+async fn search_outcome(fs: &FakeFs, root: &str) -> (Vec<String>, usize) {
     let (tx, mut rx) = mpsc::unbounded_channel();
     walk_search(
         fs,
@@ -217,7 +217,7 @@ async fn search_outcome(fs: &FakeFs, root: &str) -> (Vec<String>, bool) {
     while let Some(event) = rx.recv().await {
         match event {
             SearchEvent::Found(entry) => names.push(entry.name),
-            SearchEvent::Done { incomplete, .. } => return (names, incomplete),
+            SearchEvent::Done { unreadable, .. } => return (names, unreadable),
             SearchEvent::Failed(message) => panic!("search failed: {message}"),
         }
     }
@@ -229,23 +229,23 @@ async fn a_search_that_reads_every_folder_is_complete() {
     let fs = FakeFs::new();
     fs.file("/root/a.log", b"x", None).file("/root/sub/b.log", b"x", None);
 
-    let (_, incomplete) = search_outcome(&fs, "/root").await;
+    let (_, unreadable) = search_outcome(&fs, "/root").await;
 
-    assert!(!incomplete);
+    assert_eq!(unreadable, 0);
 }
 
 #[tokio::test]
-async fn folders_that_cannot_be_listed_make_the_search_incomplete_but_the_rest_is_still_searched() {
+async fn folders_that_cannot_be_listed_are_counted_but_the_rest_is_still_searched() {
     let fs = FakeFs::new();
     fs.file("/root/a.log", b"x", None).file("/root/ok/b.log", b"x", None);
     fs.dir("/root/locked").fail_read_dir("/root/locked");
     fs.dir("/root/ok/deep-locked").fail_read_dir("/root/ok/deep-locked");
 
-    let (mut names, incomplete) = search_outcome(&fs, "/root").await;
+    let (mut names, unreadable) = search_outcome(&fs, "/root").await;
 
     names.sort();
     assert_eq!(names, ["a.log", "b.log"]);
-    assert!(incomplete);
+    assert_eq!(unreadable, 2);
 }
 
 #[tokio::test]

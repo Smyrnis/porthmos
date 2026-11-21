@@ -16,7 +16,7 @@ pub(crate) fn search_tree(
     let mut truncated = false;
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     let mut is_root = true;
-    let mut incomplete = false;
+    let mut unreadable = 0usize;
 
     while let Some((dir, depth)) = stack.pop() {
         if cancel.load(Ordering::Relaxed) {
@@ -33,7 +33,7 @@ pub(crate) fn search_tree(
                     let _ = tx.send(SearchEvent::Failed(explain(err).to_string()));
                     return;
                 }
-                incomplete = true;
+                unreadable += 1;
                 continue;
             }
         };
@@ -84,7 +84,7 @@ pub(crate) fn search_tree(
         }
     }
 
-    let _ = tx.send(SearchEvent::Done { truncated, incomplete });
+    let _ = tx.send(SearchEvent::Done { truncated, unreadable });
 }
 
 #[cfg(test)]

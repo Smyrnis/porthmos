@@ -55,7 +55,7 @@ pub enum Event {
     ConflictsFound { batch_id: u64, files: Vec<ConflictInfo> },
     ConflictsWithdrawn { batch_ids: Vec<u64> },
     SearchFound { request_id: RequestId, entry: Entry },
-    SearchDone { request_id: RequestId, truncated: bool, incomplete: bool },
+    SearchDone { request_id: RequestId, truncated: bool, unreadable: usize },
     SearchFailed { request_id: RequestId, message: Message },
     KeyringStatus { available: bool },
     KeyringWaiting { waiting: bool },

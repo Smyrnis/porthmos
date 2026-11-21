@@ -148,9 +148,9 @@ impl App {
         self.sync_search_preview();
     }
 
-    pub(in crate::app) fn search_done(&mut self, request_id: u64, truncated: bool, incomplete: bool) {
+    pub(in crate::app) fn search_done(&mut self, request_id: u64, truncated: bool, unreadable: usize) {
         if let Some(state) = self.current_search(request_id) {
-            state.finished(truncated, incomplete);
+            state.finished(truncated, unreadable);
         }
     }
 

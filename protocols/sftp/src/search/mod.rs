@@ -5,7 +5,7 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -44,9 +44,37 @@ impl Drop for OwnedChannel {
     }
 }
 
+#[derive(Default)]
+struct StderrCounter {
+    splitter: LineSplitter,
+    lines: Arc<AtomicUsize>,
+}
+
+impl StderrCounter {
+    fn push(&mut self, chunk: &[u8]) {
+        let complaints = self.splitter.push(chunk).iter().filter(|line| is_complaint(line)).count();
+        self.lines.fetch_add(complaints, Ordering::Relaxed);
+    }
+
+    fn finish(&mut self) {
+        if self.splitter.finish().is_some_and(|line| is_complaint(&line)) {
+            self.lines.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn shared(&self) -> Arc<AtomicUsize> {
+        self.lines.clone()
+    }
+}
+
+fn is_complaint(line: &str) -> bool {
+    line.starts_with("find:") && !line.contains("warning:")
+}
+
 struct FindOutput {
     channel: OwnedChannel,
     splitter: LineSplitter,
+    complaints: StderrCounter,
     queued: VecDeque<String>,
     ended: bool,
     quiet_since: Option<Instant>,
@@ -62,9 +90,11 @@ pub async fn search_remote(
     let SearchQuery { pattern, max_depth, max_results, .. } = &query;
     let (max_depth, max_results) = (*max_depth, *max_results);
     let exit = Arc::new(AtomicI64::new(EXIT_UNKNOWN));
+    let complaints = StderrCounter::default();
+    let complaint_lines = complaints.shared();
 
     if let Some(channel) = start_find(session, &root, pattern, max_depth).await {
-        let paths = Box::pin(find_paths(channel, cancel.clone(), exit.clone()));
+        let paths = Box::pin(find_paths(channel, cancel.clone(), exit.clone(), complaints));
         let outcome =
             stream_hits(paths, |path| describe(sftp, identities, path), LOOKUP_CONCURRENCY, max_results, &tx, &cancel)
                 .await;
@@ -72,7 +102,8 @@ pub async fn search_remote(
             Outcome::Cancelled | Outcome::ReceiverGone => return,
             Outcome::Finished { found, truncated } => {
                 if found > 0 || find_completed(&exit) {
-                    let _ = tx.send(SearchEvent::Done { truncated, incomplete: find_incomplete(&exit) });
+                    let unreadable = find_unreadable(&exit, complaint_lines.load(Ordering::Relaxed));
+                    let _ = tx.send(SearchEvent::Done { truncated, unreadable });
                     return;
                 }
             }
@@ -86,8 +117,8 @@ fn find_completed(exit: &AtomicI64) -> bool {
     matches!(exit.load(Ordering::Relaxed), 0..=FIND_PARTIAL_FAILURE)
 }
 
-fn find_incomplete(exit: &AtomicI64) -> bool {
-    exit.load(Ordering::Relaxed) == FIND_PARTIAL_FAILURE
+fn find_unreadable(exit: &AtomicI64, complaint_lines: usize) -> usize {
+    if exit.load(Ordering::Relaxed) == FIND_PARTIAL_FAILURE { complaint_lines.max(1) } else { 0 }
 }
 
 async fn describe(sftp: &SftpSession, identities: &Identities, path: String) -> Option<Entry> {
@@ -114,10 +145,13 @@ async fn start_find(session: &Session, root: &str, pattern: &str, max_depth: usi
     Some(OwnedChannel { channel: Some(channel) })
 }
 
-fn find_paths(channel: OwnedChannel, cancel: Arc<AtomicBool>, exit: Arc<AtomicI64>) -> impl Stream<Item = String> {
+fn find_paths(
+    channel: OwnedChannel, cancel: Arc<AtomicBool>, exit: Arc<AtomicI64>, complaints: StderrCounter,
+) -> impl Stream<Item = String> {
     let state = FindOutput {
         channel,
         splitter: LineSplitter::default(),
+        complaints,
         queued: VecDeque::new(),
         ended: false,
         quiet_since: None,
@@ -134,6 +168,7 @@ fn find_paths(channel: OwnedChannel, cancel: Arc<AtomicBool>, exit: Arc<AtomicI6
             }
             if state.quiet_since.is_some_and(|since| since.elapsed() >= EXIT_GRACE) {
                 state.queued.extend(state.splitter.finish());
+                state.complaints.finish();
                 state.ended = true;
                 continue;
             }
@@ -144,12 +179,14 @@ fn find_paths(channel: OwnedChannel, cancel: Arc<AtomicBool>, exit: Arc<AtomicI6
             };
             match message {
                 Some(ChannelMsg::Data { data }) => state.queued.extend(state.splitter.push(&data)),
+                Some(ChannelMsg::ExtendedData { data, .. }) => state.complaints.push(&data),
                 Some(ChannelMsg::ExitStatus { exit_status }) => {
                     state.exit.store(i64::from(exit_status), Ordering::Relaxed)
                 }
                 Some(ChannelMsg::Eof) => state.quiet_since = Some(Instant::now()),
                 Some(ChannelMsg::Close) | None => {
                     state.queued.extend(state.splitter.finish());
+                    state.complaints.finish();
                     state.ended = true;
                 }
                 Some(_) => {}
@@ -167,7 +204,7 @@ async fn search_remote_walk(
     let glob = Glob::new(&pattern);
     let mut found = 0usize;
     let mut truncated = false;
-    let mut incomplete = false;
+    let mut unreadable = 0usize;
     let mut stack: Vec<(String, usize)> = vec![(root, 0)];
 
     while let Some((dir, depth)) = stack.pop() {
@@ -181,7 +218,7 @@ async fn search_remote_walk(
         let entries = match sftp.read_dir(&dir).await {
             Ok(read_dir) => read_dir.collect::<Vec<_>>(),
             Err(_) => {
-                incomplete = true;
+                unreadable += 1;
                 continue;
             }
         };
@@ -226,7 +263,7 @@ async fn search_remote_walk(
         }
     }
 
-    let _ = tx.send(SearchEvent::Done { truncated, incomplete });
+    let _ = tx.send(SearchEvent::Done { truncated, unreadable });
 }
 
 #[cfg(test)]

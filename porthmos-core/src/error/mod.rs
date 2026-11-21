@@ -34,8 +34,8 @@ pub fn connection_cancelled() -> String {
     i18n::text("connection.cancelled")
 }
 
-pub fn search_incomplete_note() -> String {
-    i18n::text("search.incomplete")
+pub fn search_incomplete_note(unreadable: usize) -> String {
+    i18n::plural("search.incomplete", unreadable)
 }
 
 pub fn connect_failure_message(error: &ProtocolError, name: &str, protocol_display: &str) -> Message {

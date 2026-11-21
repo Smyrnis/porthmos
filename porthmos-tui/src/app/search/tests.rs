@@ -48,7 +48,7 @@ fn typing_a_pattern_streams_matching_results_back_into_the_search_view() {
         test.app.apply_search_key(key(KeyCode::Char(c)));
     }
     search_found(&mut test, entry(&VfsPath::new("/d"), "target.log", false));
-    search_done(&mut test, false, false);
+    search_done(&mut test, false, 0);
 
     assert!(test.app.search.as_ref().unwrap().view.results.iter().any(|entry| entry.name == "target.log"));
     assert_eq!(
@@ -517,11 +517,11 @@ fn a_search_that_skipped_folders_warns_that_results_may_be_missing() {
     let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::OpenSearch);
 
-    search_done(&mut test, false, true);
+    search_done(&mut test, false, 2);
 
     let notice = test.app.notifications.current().unwrap();
     assert_eq!(notice.severity, Severity::Warning);
-    assert_eq!(notice.message, porthmos_core::search_incomplete_note());
+    assert_eq!(notice.message, "2 folders could not be read, so results may be missing");
 }
 
 #[test]
@@ -529,7 +529,7 @@ fn a_complete_search_says_nothing() {
     let mut test = test_app(&VfsPath::new("/d"));
     test.app.apply_action(Action::OpenSearch);
 
-    search_done(&mut test, false, false);
+    search_done(&mut test, false, 0);
 
     assert!(test.app.notifications.current().is_none());
 }
@@ -543,9 +543,9 @@ fn search_found(test: &mut crate::app::testing::TestApp, entry: porthmos_core::E
     test.app.apply_core_event(Event::SearchFound { request_id, entry });
 }
 
-fn search_done(test: &mut crate::app::testing::TestApp, truncated: bool, incomplete: bool) {
+fn search_done(test: &mut crate::app::testing::TestApp, truncated: bool, unreadable: usize) {
     let request_id = current_search(test);
-    test.app.apply_core_event(Event::SearchDone { request_id, truncated, incomplete });
+    test.app.apply_core_event(Event::SearchDone { request_id, truncated, unreadable });
 }
 
 #[test]
@@ -560,7 +560,7 @@ fn a_late_result_of_an_earlier_search_is_ignored() {
         request_id: stale,
         entry: entry(&VfsPath::new("/d"), "old.log", false),
     });
-    test.app.apply_core_event(Event::SearchDone { request_id: stale, truncated: true, incomplete: true });
+    test.app.apply_core_event(Event::SearchDone { request_id: stale, truncated: true, unreadable: 5 });
 
     let view = &test.app.search.as_ref().unwrap().view;
     assert!(view.results.is_empty());

@@ -12,7 +12,7 @@ const TOP_FOLDER: &str = "(top folder)";
 pub enum SearchStatus {
     Idle,
     Searching,
-    Done { truncated: bool, incomplete: bool },
+    Done { truncated: bool, unreadable: usize },
     Failed(Message),
 }
 
@@ -177,9 +177,9 @@ impl SearchState {
         };
     }
 
-    pub fn finished(&mut self, truncated: bool, incomplete: bool) {
+    pub fn finished(&mut self, truncated: bool, unreadable: usize) {
         if self.status == SearchStatus::Searching {
-            self.status = SearchStatus::Done { truncated, incomplete };
+            self.status = SearchStatus::Done { truncated, unreadable };
         }
     }
 
@@ -234,13 +234,17 @@ impl SearchState {
             SearchStatus::Idle => format!("Type a name to search under {}", self.root),
             SearchStatus::Searching if count == 0 => "Searching…".to_string(),
             SearchStatus::Searching => format!("Searching… {count} found"),
-            SearchStatus::Done { truncated, incomplete } => {
+            SearchStatus::Done { truncated, unreadable } => {
                 let summary = match (*truncated, count) {
                     (true, 1..) => format!("Showing the first {count} matches; narrow the search"),
                     (_, 0) => "Nothing found".to_string(),
                     _ => format!("{count} found"),
                 };
-                if *incomplete { format!("{summary}. {}", porthmos_core::search_incomplete_note()) } else { summary }
+                if *unreadable > 0 {
+                    format!("{summary}. {}", porthmos_core::search_incomplete_note(*unreadable))
+                } else {
+                    summary
+                }
             }
             SearchStatus::Failed(message) => format!("Search failed: {}", printable(&message.one_line())),
         }

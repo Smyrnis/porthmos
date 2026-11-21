@@ -11,18 +11,18 @@ use crate::{LocalFs, from_os_path};
 struct Outcome {
     found: Vec<Entry>,
     truncated: Option<bool>,
-    incomplete: Option<bool>,
+    unreadable: Option<usize>,
     failure: Option<String>,
 }
 
 fn collect(mut rx: mpsc::UnboundedReceiver<SearchEvent>) -> Outcome {
-    let mut outcome = Outcome { found: Vec::new(), truncated: None, incomplete: None, failure: None };
+    let mut outcome = Outcome { found: Vec::new(), truncated: None, unreadable: None, failure: None };
     while let Ok(event) = rx.try_recv() {
         match event {
             SearchEvent::Found(entry) => outcome.found.push(entry),
-            SearchEvent::Done { truncated, incomplete } => {
+            SearchEvent::Done { truncated, unreadable } => {
                 outcome.truncated = Some(truncated);
-                outcome.incomplete = Some(incomplete);
+                outcome.unreadable = Some(unreadable);
             }
             SearchEvent::Failed(message) => outcome.failure = Some(message),
         }
@@ -230,15 +230,15 @@ async fn search_skips_a_folder_it_cannot_read() {
     assert!(outcome.found.iter().any(|entry| entry.name == "a.txt"));
     if !readable_anyway {
         assert!(!outcome.found.iter().any(|entry| entry.name == "hidden.txt"));
-        assert_eq!(outcome.incomplete, Some(true));
+        assert_eq!(outcome.unreadable, Some(1));
     }
 }
 
 #[tokio::test]
-async fn a_search_that_reads_every_folder_is_not_marked_incomplete() {
+async fn a_search_that_reads_every_folder_counts_none_unreadable() {
     let dir = sample_tree();
 
     let outcome = run(query(dir.path(), "*.txt")).await;
 
-    assert_eq!(outcome.incomplete, Some(false));
+    assert_eq!(outcome.unreadable, Some(0));
 }

@@ -27,7 +27,7 @@ impl SearchQuery {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchEvent {
     Found(Entry),
-    Done { truncated: bool, incomplete: bool },
+    Done { truncated: bool, unreadable: usize },
     Failed(String),
 }
 
@@ -93,7 +93,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
     let mut truncated = false;
     let mut stack: Vec<(VfsPath, usize)> = vec![(root, 0)];
     let mut is_root = true;
-    let mut incomplete = false;
+    let mut unreadable = 0usize;
 
     while let Some((dir, depth)) = stack.pop() {
         if cancel.load(Ordering::Relaxed) {
@@ -110,7 +110,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
                     let _ = tx.send(SearchEvent::Failed(err.to_string()));
                     return;
                 }
-                incomplete = true;
+                unreadable += 1;
                 continue;
             }
         };
@@ -152,7 +152,7 @@ pub async fn walk_search<F: FileSystem + ?Sized>(
         }
     }
 
-    let _ = tx.send(SearchEvent::Done { truncated, incomplete });
+    let _ = tx.send(SearchEvent::Done { truncated, unreadable });
 }
 
 #[cfg(test)]

@@ -888,8 +888,8 @@ impl App {
             Event::History(entries) => self.history_arrived(entries),
             Event::Bookmarks(items) => self.bookmarks_arrived(items),
             Event::SearchFound { request_id, entry } => self.search_found(request_id, entry),
-            Event::SearchDone { request_id, truncated, incomplete } => {
-                self.search_done(request_id, truncated, incomplete)
+            Event::SearchDone { request_id, truncated, unreadable } => {
+                self.search_done(request_id, truncated, unreadable)
             }
             Event::SearchFailed { request_id, message } => self.search_failed(request_id, message),
             Event::PreviewReady { request_id, result, .. } => self.preview_arrived(request_id, result),

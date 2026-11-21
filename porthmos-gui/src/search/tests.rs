@@ -66,8 +66,8 @@ fn found_entries_accumulate_and_the_first_is_selected_on_arrival() {
 #[test]
 fn finished_marks_done_and_truncated_is_remembered() {
     let mut state = searching();
-    state.finished(true, false);
-    assert_eq!(state.status(), &SearchStatus::Done { truncated: true, incomplete: false });
+    state.finished(true, 0);
+    assert_eq!(state.status(), &SearchStatus::Done { truncated: true, unreadable: 0 });
 }
 
 #[test]
@@ -107,16 +107,16 @@ fn status_text_for_every_status() {
     assert_eq!(state.status_text(), "Searching…");
     state.found(hit("/data/a.txt"));
     assert_eq!(state.status_text(), "Searching… 1 found");
-    state.finished(false, false);
+    state.finished(false, 0);
     assert_eq!(state.status_text(), "1 found");
-    state.finished(true, false);
+    state.finished(true, 0);
     assert_eq!(state.status_text(), "1 found");
 }
 
 #[test]
 fn a_finished_search_with_nothing_says_so() {
     let mut state = searching();
-    state.finished(false, false);
+    state.finished(false, 0);
     assert_eq!(state.status_text(), "Nothing found");
 }
 
@@ -125,7 +125,7 @@ fn a_truncated_search_asks_to_narrow_it() {
     let mut state = searching();
     state.found(hit("/data/a.txt"));
     state.found(hit("/data/b.txt"));
-    state.finished(true, false);
+    state.finished(true, 0);
     assert_eq!(state.status_text(), "Showing the first 2 matches; narrow the search");
 }
 
@@ -141,7 +141,7 @@ fn late_results_after_a_blank_pattern_are_dropped() {
     let mut state = searching();
     state.set_pattern(String::new());
     state.found(hit("/data/late.txt"));
-    state.finished(false, false);
+    state.finished(false, 0);
     state.failed("late".into());
     assert!(state.results().is_empty());
     assert_eq!(state.status(), &SearchStatus::Idle);
@@ -286,27 +286,28 @@ fn the_scope_names_the_place_and_the_folder_searched() {
 }
 
 #[test]
-fn a_search_that_skipped_folders_says_the_results_may_be_incomplete() {
+fn a_search_that_skipped_folders_says_how_many_and_that_the_results_may_be_incomplete() {
     let mut state = searching();
     state.found(hit("/data/a.txt"));
-    state.finished(false, true);
+    state.finished(false, 3);
 
-    assert_eq!(state.status_text(), format!("1 found. {}", porthmos_core::search_incomplete_note()));
+    assert_eq!(state.status_text(), "1 found. 3 folders could not be read, so results may be missing");
+    state.finished(false, 3);
 }
 
 #[test]
 fn an_empty_incomplete_search_does_not_claim_there_is_nothing() {
     let mut state = searching();
-    state.finished(false, true);
+    state.finished(false, 1);
 
-    assert_eq!(state.status_text(), format!("Nothing found. {}", porthmos_core::search_incomplete_note()));
+    assert_eq!(state.status_text(), "Nothing found. 1 folder could not be read, so results may be missing");
 }
 
 #[test]
 fn a_complete_search_has_no_note() {
     let mut state = searching();
     state.found(hit("/data/a.txt"));
-    state.finished(false, false);
+    state.finished(false, 0);
 
     assert_eq!(state.status_text(), "1 found");
 }

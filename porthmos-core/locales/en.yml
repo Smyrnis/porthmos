@@ -163,7 +163,9 @@ update:
 place:
   this_computer: "this computer"
 search:
-  incomplete: "Some folders could not be read, so results may be missing"
+  incomplete:
+    one: "%{count} folder could not be read, so results may be missing"
+    other: "%{count} folders could not be read, so results may be missing"
   type_to_search: "type to search"
 engine:
   task_failed: "A background task failed: %{name}"

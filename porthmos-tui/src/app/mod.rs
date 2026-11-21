@@ -528,11 +528,11 @@ impl App {
                     self.sync_search_pane();
                 }
             }
-            Event::SearchDone { request_id, truncated, incomplete } => {
+            Event::SearchDone { request_id, truncated, unreadable } => {
                 if let Some(search) = self.search.as_mut().filter(|search| search.request_id == request_id) {
                     search.view.finish(truncated);
-                    if incomplete {
-                        self.notifications.push(Severity::Warning, porthmos_core::search_incomplete_note());
+                    if unreadable > 0 {
+                        self.notifications.push(Severity::Warning, porthmos_core::search_incomplete_note(unreadable));
                     }
                 }
             }

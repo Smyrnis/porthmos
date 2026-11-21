@@ -10,7 +10,7 @@ pub(crate) const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 fn event_for(request_id: RequestId, search_event: SearchEvent) -> Event {
     match search_event {
         SearchEvent::Found(entry) => Event::SearchFound { request_id, entry },
-        SearchEvent::Done { truncated, incomplete } => Event::SearchDone { request_id, truncated, incomplete },
+        SearchEvent::Done { truncated, unreadable } => Event::SearchDone { request_id, truncated, unreadable },
         SearchEvent::Failed(message) => Event::SearchFailed { request_id, message: Message::parse(&message) },
     }
 }

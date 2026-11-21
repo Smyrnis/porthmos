@@ -61,9 +61,9 @@ fn found(harness: &mut Harness, path: &str) {
     harness.feed(Event::SearchFound { request_id, entry: hit(path) });
 }
 
-fn search_done(harness: &mut Harness, truncated: bool, incomplete: bool) {
+fn search_done(harness: &mut Harness, truncated: bool, unreadable: usize) {
     let request_id = current_search(harness);
-    harness.feed(Event::SearchDone { request_id, truncated, incomplete });
+    harness.feed(Event::SearchDone { request_id, truncated, unreadable });
 }
 
 fn search_failed(harness: &mut Harness, message: &str) {
@@ -348,7 +348,7 @@ fn late_search_events_after_closing_are_ignored() {
     named(&mut harness, Named::Escape);
 
     harness.feed(Event::SearchFound { request_id, entry: hit("/home/tester/a") });
-    harness.feed(Event::SearchDone { request_id, truncated: true, incomplete: false });
+    harness.feed(Event::SearchDone { request_id, truncated: true, unreadable: 0 });
     harness.feed(Event::SearchFailed { request_id, message: "late".into() });
 
     assert!(harness.app.search_state().is_none());
@@ -371,7 +371,7 @@ fn done_failed_and_truncated_events_reach_the_status_line() {
     let mut harness = Harness::new();
     open_search(&mut harness);
     search(&mut harness, "a");
-    search_done(&mut harness, false, false);
+    search_done(&mut harness, false, 0);
     assert_eq!(search_state(&harness).status_text(), "Nothing found");
 
     search(&mut harness, "b");
@@ -1103,7 +1103,7 @@ fn results_of_an_earlier_pattern_are_ignored_after_a_newer_search_started() {
     search(&mut harness, "ab");
 
     harness.feed(Event::SearchFound { request_id: stale, entry: hit("/home/tester/old") });
-    harness.feed(Event::SearchDone { request_id: stale, truncated: false, incomplete: false });
+    harness.feed(Event::SearchDone { request_id: stale, truncated: false, unreadable: 0 });
 
     assert!(search_state(&harness).results().is_empty());
     assert_eq!(search_state(&harness).status(), &SearchStatus::Searching);

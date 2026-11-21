@@ -102,16 +102,16 @@ async fn a_new_search_stops_the_previous_one_so_only_the_latest_streams_results(
     assert_eq!(found_names(&events), vec!["beta.log".to_string()]);
 }
 
-async fn search_done(t: &mut crate::engine::testing::TestEngine) -> (bool, bool) {
+async fn search_done(t: &mut crate::engine::testing::TestEngine) -> (bool, usize) {
     loop {
-        if let Event::SearchDone { truncated, incomplete, .. } = t.next_event().await {
-            return (truncated, incomplete);
+        if let Event::SearchDone { truncated, unreadable, .. } = t.next_event().await {
+            return (truncated, unreadable);
         }
     }
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_search_that_could_not_read_a_folder_says_the_results_may_be_incomplete() {
+async fn a_search_that_could_not_read_a_folder_counts_it() {
     let mut t = test_engine();
     let (session, remote) = t.add_session("srv");
     remote.file("/home/user/a.log", b"", None);
@@ -124,11 +124,11 @@ async fn a_search_that_could_not_read_a_folder_says_the_results_may_be_incomplet
         pattern: "*.log".to_string(),
     });
 
-    assert_eq!(search_done(&mut t).await, (false, true));
+    assert_eq!(search_done(&mut t).await, (false, 1));
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_search_that_read_everything_is_not_marked_incomplete() {
+async fn a_search_that_read_everything_counts_no_unreadable_folders() {
     let mut t = test_engine();
     let (session, remote) = t.add_session("srv");
     remote.file("/home/user/a.log", b"", None);
@@ -140,7 +140,7 @@ async fn a_search_that_read_everything_is_not_marked_incomplete() {
         pattern: "*.log".to_string(),
     });
 
-    assert_eq!(search_done(&mut t).await, (false, false));
+    assert_eq!(search_done(&mut t).await, (false, 0));
 }
 
 #[tokio::test(start_paused = true)]
