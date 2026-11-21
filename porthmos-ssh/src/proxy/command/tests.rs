@@ -1,6 +1,9 @@
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::{Tokens, expand as expand_tokens, spawn, spawn_with};
+use super::{Tokens, expand as expand_tokens};
+#[cfg(unix)]
+use super::{spawn, spawn_with};
 
 fn expand(command: &str, host: &str, port: u16, user: &str) -> Result<String, String> {
     expand_tokens(command, &Tokens { host, port, user, name: "alias", local_user: "me" })
