@@ -1,4 +1,4 @@
-use porthmos_core::UpdateMode;
+use crate::config::UpdateMode;
 
 use super::{Edit, apply, save};
 
@@ -344,20 +344,19 @@ fn save_reports_an_unreadable_path_by_name() {
 
 #[test]
 fn set_reopen_mode_writes_the_mode_name_under_startup() {
-    use porthmos_core::ReopenMode;
+    use crate::ReopenMode;
     for (mode, name) in [(ReopenMode::Off, "off"), (ReopenMode::Ask, "ask"), (ReopenMode::Auto, "auto")] {
         assert_eq!(apply("", &Edit::SetReopenMode(mode)).unwrap(), format!("[startup]\nreopen = \"{name}\"\n"));
     }
     assert_eq!(
-        apply("[startup]\nreopen = \"ask\"\n", &Edit::SetReopenMode(porthmos_core::ReopenMode::Auto)).unwrap(),
+        apply("[startup]\nreopen = \"ask\"\n", &Edit::SetReopenMode(crate::ReopenMode::Auto)).unwrap(),
         "[startup]\nreopen = \"auto\"\n"
     );
 }
 
 #[test]
 fn set_reopen_mode_keeps_the_other_tables_and_comments() {
-    let kept =
-        apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetReopenMode(porthmos_core::ReopenMode::Ask)).unwrap();
+    let kept = apply("# mine\n[edit]\nauto_upload = false\n", &Edit::SetReopenMode(crate::ReopenMode::Ask)).unwrap();
 
     assert!(kept.starts_with("# mine\n[edit]\nauto_upload = false\n"), "{kept}");
     assert!(kept.contains("[startup]\nreopen = \"ask\"\n"), "{kept}");
@@ -381,7 +380,7 @@ fn set_reconnect_keeps_the_other_tables_and_comments() {
 }
 
 mod theme_base {
-    use porthmos_core::theme::ThemeBase;
+    use crate::theme::ThemeBase;
 
     use super::{Edit, apply};
 
@@ -411,10 +410,10 @@ mod theme_base {
         let colors_at = written.find("[colors]").unwrap();
         assert!(base_at < colors_at, "{written}");
         assert!(written.contains("# my colours") && written.contains("fg = \"#123456\" # keep"), "{written}");
-        let (parsed, warnings) = porthmos_core::theme::file::parse(&written, None);
+        let (parsed, warnings) = crate::theme::file::parse(&written, None);
         assert!(warnings.is_empty(), "{warnings:?}");
-        assert_eq!(parsed.fg, porthmos_core::theme::Rgb(0x12, 0x34, 0x56));
-        assert_eq!(parsed.bg, porthmos_core::theme::ColorScheme::high_contrast().bg);
+        assert_eq!(parsed.fg, crate::theme::Rgb(0x12, 0x34, 0x56));
+        assert_eq!(parsed.bg, crate::theme::ColorScheme::high_contrast().bg);
     }
 
     #[test]

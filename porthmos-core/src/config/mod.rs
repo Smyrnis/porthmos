@@ -1,4 +1,5 @@
 pub mod bookmarks;
+pub mod file_edit;
 pub mod settings;
 
 use std::{fs, path::Path};

@@ -2,8 +2,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use porthmos_core::theme::ThemeBase;
-use porthmos_core::{ReopenMode, UpdateMode};
+use super::{ReopenMode, UpdateMode};
+use crate::theme::ThemeBase;
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, Value};
 
 const FILE_NAME: &str = "config.toml";
@@ -186,7 +186,7 @@ pub fn save(path: &Path, edit: &Edit) -> Result<(), String> {
     if let Some(folder) = path.parent().filter(|folder| !folder.as_os_str().is_empty()) {
         fs::create_dir_all(folder).map_err(|error| format!("could not create {}: {error}", folder.display()))?;
     }
-    porthmos_core::persist::write_atomic(path, updated.as_bytes(), mode_of(path))
+    crate::persist::write_atomic(path, updated.as_bytes(), mode_of(path))
         .map_err(|error| format!("could not write {}: {error:#}", path.display()))
 }
 

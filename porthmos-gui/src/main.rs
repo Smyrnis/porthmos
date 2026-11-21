@@ -10,7 +10,6 @@ mod app;
 mod bookmarks;
 mod breadcrumbs;
 mod cli;
-mod config_file;
 mod conflicts;
 mod connections;
 mod console;

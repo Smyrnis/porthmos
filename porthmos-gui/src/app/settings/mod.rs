@@ -11,11 +11,11 @@ use porthmos_core::theme::{self, ThemeBase};
 use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
-use crate::config_file::{self, Edit};
 use crate::settings_view::{GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text};
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
 use crate::theme::{Palette, ThemeSettings};
 use crate::windows::{SETTINGS_WINDOW_SIZE, WindowKind};
+use porthmos_core::config::file_edit::{self, Edit};
 
 fn restart_note() -> String {
     tr("Saved. Takes effect the next time Porthmos starts.")
@@ -121,7 +121,7 @@ impl App {
             self.show_settings_message(Some(SettingsMessage::Error(no_config_text())));
             return false;
         };
-        match config_file::save(&path, &edit) {
+        match file_edit::save(&path, &edit) {
             Ok(()) => true,
             Err(message) => {
                 self.show_settings_message(Some(SettingsMessage::Error(message)));
@@ -139,7 +139,7 @@ impl App {
             self.show_settings_message(Some(SettingsMessage::Error(no_config_text())));
             return;
         };
-        if let Err(message) = config_file::save(&path, &Edit::SetThemeBase(base)) {
+        if let Err(message) = file_edit::save(&path, &Edit::SetThemeBase(base)) {
             self.show_settings_message(Some(SettingsMessage::Error(message)));
             return;
         }
