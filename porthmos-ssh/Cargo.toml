@@ -13,6 +13,7 @@ testing = ["dep:tempfile", "tokio/process"]
 anyhow.workspace = true
 porthmos-vfs.workspace = true
 russh.workspace = true
+base64 = "0.22"
 gethostname = "1.1"
 sha1 = "0.10"
 tokio = { workspace = true, features = ["net", "process", "io-util"] }

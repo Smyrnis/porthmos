@@ -1014,6 +1014,8 @@ label:
   Jump_host: "Jump host"
   Proxy: "Proxy"
   Proxy_command: "Proxy command"
+  Proxy_user: "Proxy user"
+  Proxy_password: "Proxy password"
   Security: "Security"
   Passive_mode: "Passive mode"
   Root_path: "Root path"

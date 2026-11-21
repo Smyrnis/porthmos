@@ -16,6 +16,7 @@ use tokio::{
 #[derive(Clone, Copy)]
 enum Dialect {
     Socks5,
+    Socks5Login,
     Socks4,
     Http,
     Refusing,
@@ -43,12 +44,35 @@ async fn read_until_nul(stream: &mut TcpStream) -> Vec<u8> {
     }
 }
 
-async fn serve_socks5(client: &mut TcpStream) -> (String, u16) {
+const PROXY_USER: &str = "alice";
+const PROXY_PASSWORD: &str = "secret";
+
+async fn demand_login(client: &mut TcpStream) -> bool {
+    client.write_all(&[5, 2]).await.unwrap();
+    let mut head = [0u8; 2];
+    client.read_exact(&mut head).await.unwrap();
+    let mut user = vec![0u8; usize::from(head[1])];
+    client.read_exact(&mut user).await.unwrap();
+    let length = client.read_u8().await.unwrap();
+    let mut password = vec![0u8; usize::from(length)];
+    client.read_exact(&mut password).await.unwrap();
+    let accepted = user == PROXY_USER.as_bytes() && password == PROXY_PASSWORD.as_bytes();
+    client.write_all(&[1, u8::from(!accepted)]).await.unwrap();
+    accepted
+}
+
+async fn serve_socks5(client: &mut TcpStream, login: bool) -> Option<(String, u16)> {
     let mut head = [0u8; 2];
     client.read_exact(&mut head).await.unwrap();
     let mut methods = vec![0u8; usize::from(head[1])];
     client.read_exact(&mut methods).await.unwrap();
-    client.write_all(&[5, 0]).await.unwrap();
+    if login {
+        if !demand_login(client).await {
+            return None;
+        }
+    } else {
+        client.write_all(&[5, 0]).await.unwrap();
+    }
     let mut request = [0u8; 4];
     client.read_exact(&mut request).await.unwrap();
     let host = match request[3] {
@@ -67,7 +91,7 @@ async fn serve_socks5(client: &mut TcpStream) -> (String, u16) {
     };
     let port = client.read_u16().await.unwrap();
     client.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
-    (host, port)
+    Some((host, port))
 }
 
 async fn serve_socks4(client: &mut TcpStream) -> (String, u16) {
@@ -109,7 +133,11 @@ async fn start_proxy(dialect: Dialect) -> FakeProxy {
             let seen = seen.clone();
             tokio::spawn(async move {
                 let (host, requested_port) = match dialect {
-                    Dialect::Socks5 => serve_socks5(&mut client).await,
+                    Dialect::Socks5 => serve_socks5(&mut client, false).await.unwrap(),
+                    Dialect::Socks5Login => match serve_socks5(&mut client, true).await {
+                        Some(requested) => requested,
+                        None => return,
+                    },
                     Dialect::Socks4 => serve_socks4(&mut client).await,
                     Dialect::Http => serve_http(&mut client).await,
                     Dialect::Refusing => {
@@ -155,6 +183,66 @@ async fn a_socks5_proxy_carries_the_session_and_is_asked_for_the_host_by_name() 
 
     assert_eq!(echo_through(&session).await, "proxied");
     assert_eq!(proxy.requests(), [format!("files.invalid:{}", server.port)]);
+}
+
+#[tokio::test]
+async fn a_socks5_proxy_that_wants_a_login_gets_the_user_and_password() {
+    let server = SshServer::start(Options::default()).await;
+    let proxy = start_proxy(Dialect::Socks5Login).await;
+    let target = behind(
+        &server,
+        "files.invalid",
+        &[
+            ("proxy", format!("socks5://127.0.0.1:{}", proxy.port)),
+            ("proxy_user", PROXY_USER.to_string()),
+            ("proxy_password", PROXY_PASSWORD.to_string()),
+        ],
+    );
+    let mut prompter = testing::answers(vec![Some(Answer::Confirmed)]);
+
+    let session = connect(&target, &mut prompter, &server.connect_options()).await.expect("the login is accepted");
+
+    assert_eq!(echo_through(&session).await, "proxied");
+    assert_eq!(proxy.requests(), [format!("files.invalid:{}", server.port)]);
+}
+
+#[tokio::test]
+async fn a_wrong_proxy_password_is_a_connect_error_that_never_repeats_it() {
+    let server = SshServer::start(Options::default()).await;
+    let proxy = start_proxy(Dialect::Socks5Login).await;
+    let target = behind(
+        &server,
+        "files.invalid",
+        &[
+            ("proxy", format!("socks5://127.0.0.1:{}", proxy.port)),
+            ("proxy_user", PROXY_USER.to_string()),
+            ("proxy_password", "hunter2".to_string()),
+        ],
+    );
+
+    let error = connect(&target, &mut testing::answers(vec![]), &server.connect_options())
+        .await
+        .err()
+        .expect("the login is refused");
+
+    assert_eq!(error.kind(), ErrorKind::Connect);
+    assert!(error.to_string().contains("refused the login"), "{error}");
+    assert!(!format!("{error:?}").contains("hunter2"), "{error:?}");
+    assert!(proxy.requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_proxy_that_wants_a_login_when_none_is_set_says_where_to_enter_it() {
+    let server = SshServer::start(Options::default()).await;
+    let proxy = start_proxy(Dialect::Socks5Login).await;
+    let target = behind(&server, "files.invalid", &[("proxy", format!("socks5://127.0.0.1:{}", proxy.port))]);
+
+    let error = connect(&target, &mut testing::answers(vec![]), &server.connect_options())
+        .await
+        .err()
+        .expect("a login is needed");
+
+    assert!(error.to_string().contains("Proxy user"), "{error}");
 }
 
 #[tokio::test]
@@ -232,7 +320,7 @@ async fn declining_the_host_key_behind_a_proxy_cancels() {
 }
 
 #[tokio::test]
-async fn a_proxy_together_with_a_jump_host_is_refused_before_anything_connects() {
+async fn a_proxy_together_with_a_jump_host_reaches_the_jump_host_through_the_proxy() {
     let target_server = SshServer::start(Options::default()).await;
     let jump = SshServer::start(Options { forwarding: true, ..Options::default() }).await;
     let proxy = start_proxy(Dialect::Socks5).await;
@@ -243,16 +331,50 @@ async fn a_proxy_together_with_a_jump_host_is_refused_before_anything_connects()
         ]),
         ..target_server.target()
     };
+    let mut prompter = testing::answers(vec![
+        Some(Answer::Confirmed),
+        Some(Answer::Password(testing::PASSWORD.to_string())),
+        Some(Answer::Confirmed),
+    ]);
 
-    let error = connect(&target, &mut testing::answers(vec![]), &target_server.connect_options())
+    let session = connect(&target, &mut prompter, &target_server.connect_options())
         .await
-        .err()
-        .expect("the combination is refused");
+        .expect("the proxy leads to the jump host, which leads to the target");
 
-    assert_eq!(error.kind(), ErrorKind::Connect);
-    assert!(error.to_string().contains("jump host"), "{error}");
-    assert!(proxy.requests().is_empty());
-    assert_eq!(jump.forwarded_connections(), 0);
+    assert_eq!(echo_through(&session).await, "proxied");
+    assert_eq!(proxy.requests(), [format!("jump.invalid:{}", jump.port)]);
+    assert_eq!(jump.forwarded_connections(), 1);
+}
+
+#[tokio::test]
+async fn the_proxy_is_used_for_the_first_hop_only() {
+    let target_server = SshServer::start(Options::default()).await;
+    let first = SshServer::start(Options { forwarding: true, ..Options::default() }).await;
+    let second = SshServer::start(Options { forwarding: true, ..Options::default() }).await;
+    let proxy = start_proxy(Dialect::Socks5).await;
+    let target = Target {
+        options: BTreeMap::from([
+            ("proxy".to_string(), format!("socks5://127.0.0.1:{}", proxy.port)),
+            (
+                "proxy_jump".to_string(),
+                format!("{user}@first.invalid:{},{user}@127.0.0.1:{}", first.port, second.port, user = testing::USER),
+            ),
+        ]),
+        ..target_server.target()
+    };
+    let password = || Some(Answer::Password(testing::PASSWORD.to_string()));
+    let mut prompter = testing::answers(vec![
+        Some(Answer::Confirmed),
+        password(),
+        Some(Answer::Confirmed),
+        password(),
+        Some(Answer::Confirmed),
+    ]);
+
+    connect(&target, &mut prompter, &target_server.connect_options()).await.expect("two hops behind a proxy");
+
+    assert_eq!(proxy.requests(), [format!("first.invalid:{}", first.port)]);
+    assert_eq!((first.forwarded_connections(), second.forwarded_connections()), (1, 1));
 }
 
 #[tokio::test]
@@ -263,11 +385,11 @@ async fn a_proxy_address_with_a_login_is_refused_before_anything_connects() {
     let error = connect(&target, &mut testing::answers(vec![]), &server.connect_options())
         .await
         .err()
-        .expect("a login is not supported");
+        .expect("a login in the address is refused");
 
     assert_eq!(error.kind(), ErrorKind::Connect);
     let text = error.to_string();
-    assert!(text.contains("login") && !text.contains("secret"), "{text}");
+    assert!(text.contains("Proxy user") && !text.contains("secret"), "{text}");
 }
 
 #[tokio::test]

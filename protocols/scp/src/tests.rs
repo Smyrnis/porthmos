@@ -35,6 +35,15 @@ fn the_form_offers_the_same_optional_proxy_and_proxy_command() {
 }
 
 #[test]
+fn the_form_offers_a_proxy_login_with_the_password_kept_secret() {
+    let form = Scp::default().connection_form();
+
+    assert_eq!(form.option("proxy_user"), Some(&porthmos_ssh::PROXY_USER_FIELD));
+    assert_eq!(form.option("proxy_password"), Some(&porthmos_ssh::PROXY_PASSWORD_FIELD));
+    assert_eq!(porthmos_ssh::PROXY_PASSWORD_FIELD.kind, porthmos_vfs::OptionKind::Secret);
+}
+
+#[test]
 fn scp_does_not_discover_hosts() {
     assert!(Scp::default().discover(&Environment::default()).unwrap().is_empty());
 }

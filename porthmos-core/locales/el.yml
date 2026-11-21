@@ -1014,6 +1014,8 @@ label:
   Jump_host: "Διακομιστής μεταπήδησης"
   Proxy: "Διακομιστής proxy"
   Proxy_command: "Εντολή proxy"
+  Proxy_user: "Χρήστης proxy"
+  Proxy_password: "Κωδικός proxy"
   Security: "Ασφάλεια"
   Passive_mode: "Παθητική λειτουργία"
   Root_path: "Ριζική διαδρομή"

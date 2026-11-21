@@ -75,6 +75,8 @@ impl Protocol for Scp {
         });
         form.options.push(porthmos_ssh::PROXY_JUMP_FIELD);
         form.options.push(porthmos_ssh::PROXY_FIELD);
+        form.options.push(porthmos_ssh::PROXY_USER_FIELD);
+        form.options.push(porthmos_ssh::PROXY_PASSWORD_FIELD);
         form.options.push(porthmos_ssh::PROXY_COMMAND_FIELD);
         form
     }

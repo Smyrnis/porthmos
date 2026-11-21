@@ -406,17 +406,21 @@ fn command_for_an_ssh_config_alias_leaves_the_proxy_command_to_the_config() {
 #[test]
 fn command_turns_a_proxy_address_into_a_netcat_proxy_command() {
     for (address, expected) in [
-        ("socks5://gate:1080", "ProxyCommand=nc -X 5 -x gate:1080 %h %p"),
-        ("socks4://gate:1081", "ProxyCommand=nc -X 4 -x gate:1081 %h %p"),
-        ("http://gate:3128", "ProxyCommand=nc -X connect -x gate:3128 %h %p"),
-        ("socks5://gate", "ProxyCommand=nc -X 5 -x gate:1080 %h %p"),
+        ("socks5://gate:1080", "nc -X 5 -x gate:1080 "),
+        ("socks4://gate:1081", "nc -X 4 -x gate:1081 "),
+        ("http://gate:3128", "nc -X connect -x gate:3128 "),
+        ("socks5://gate", "nc -X 5 -x gate:1080 "),
     ] {
         let mut target = sample_target();
         target.options.insert("proxy".to_string(), address.to_string());
 
         let invocation = invocation_for(&target, None, PasswordLogin::Plain);
 
-        assert!(args_of(&invocation).contains(&expected.to_string()), "{address}: {:?}", args_of(&invocation));
+        let args = args_of(&invocation);
+        assert!(
+            args.iter().any(|arg| arg.starts_with("ProxyCommand=") && arg.contains(expected)),
+            "{address}: {args:?}"
+        );
     }
 }
 

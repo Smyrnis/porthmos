@@ -1,6 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 use super::connect;
+use crate::proxy::Login;
 
 async fn run(host: &str, port: u16, reply: &'static [u8]) -> (Result<(), String>, String, tokio::io::DuplexStream) {
     let (mut client, mut server) = duplex(4096);
@@ -14,7 +15,7 @@ async fn run(host: &str, port: u16, reply: &'static [u8]) -> (Result<(), String>
         server.write_all(reply).await.unwrap();
         (String::from_utf8(seen).unwrap(), server)
     });
-    let result = connect(&mut client, host, port).await;
+    let result = connect(&mut client, host, port, None).await;
     let (request, _server) = task.await.unwrap();
     (result, request, client)
 }
@@ -76,7 +77,7 @@ async fn a_proxy_that_wants_a_login_is_explained() {
     let (result, _, _) = run("h", 22, b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
 
     let error = result.unwrap_err();
-    assert!(error.contains("407") && error.contains("login"), "{error}");
+    assert!(error.contains("407") && error.contains("Proxy user"), "{error}");
 }
 
 #[tokio::test]
@@ -99,7 +100,7 @@ async fn control_characters_in_the_status_text_are_not_passed_on() {
 async fn a_host_with_a_line_break_is_never_sent() {
     let (mut client, mut server) = duplex(1024);
 
-    let error = connect(&mut client, "evil\r\nHost: x", 22).await.unwrap_err();
+    let error = connect(&mut client, "evil\r\nHost: x", 22, None).await.unwrap_err();
 
     assert!(error.contains("host"), "{error}");
     drop(client);
@@ -120,7 +121,7 @@ async fn headers_that_never_end_are_cut_off() {
         server
     });
 
-    let error = connect(&mut client, "h", 22).await.unwrap_err();
+    let error = connect(&mut client, "h", 22, None).await.unwrap_err();
     let _server = task.await.unwrap();
 
     assert!(error.contains("too long"), "{error}");
@@ -131,7 +132,65 @@ async fn a_proxy_that_hangs_up_is_reported() {
     let (mut client, server) = duplex(64);
     drop(server);
 
-    let error = connect(&mut client, "h", 22).await.unwrap_err();
+    let error = connect(&mut client, "h", 22, None).await.unwrap_err();
 
     assert!(!error.is_empty());
+}
+
+async fn run_with_login(login: Login, reply: &'static [u8]) -> (Result<(), String>, String) {
+    let (mut client, mut server) = duplex(4096);
+    let task = tokio::spawn(async move {
+        let mut seen = Vec::new();
+        let mut byte = [0u8; 1];
+        while !seen.ends_with(b"\r\n\r\n") {
+            server.read_exact(&mut byte).await.unwrap();
+            seen.push(byte[0]);
+        }
+        server.write_all(reply).await.unwrap();
+        String::from_utf8(seen).unwrap()
+    });
+    let result = connect(&mut client, "files.example", 22, Some(&login)).await;
+    (result, task.await.unwrap())
+}
+
+fn login(user: &str, password: Option<&str>) -> Login {
+    Login { user: user.to_string(), password: password.map(str::to_string) }
+}
+
+#[tokio::test]
+async fn a_login_is_sent_as_basic_proxy_authorization() {
+    let (result, request) =
+        run_with_login(login("alice", Some("secret")), b"HTTP/1.1 200 Connection established\r\n\r\n").await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(
+        request,
+        "CONNECT files.example:22 HTTP/1.1\r\nHost: files.example:22\r\nProxy-Authorization: Basic YWxpY2U6c2VjcmV0\r\n\r\n"
+    );
+}
+
+#[tokio::test]
+async fn a_user_without_a_password_is_sent_with_an_empty_password() {
+    let (_, request) = run_with_login(login("alice", None), b"HTTP/1.1 200 OK\r\n\r\n").await;
+
+    assert!(request.contains("Proxy-Authorization: Basic YWxpY2U6\r\n"), "{request}");
+}
+
+#[tokio::test]
+async fn a_407_after_sending_a_login_says_the_login_was_refused_and_never_repeats_it() {
+    let (result, _) =
+        run_with_login(login("alice", Some("hunter2")), b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
+
+    let error = result.unwrap_err();
+    assert!(error.contains("407") && error.contains("refused the login"), "{error}");
+    assert!(!error.contains("hunter2") && !error.contains("alice"), "{error}");
+}
+
+#[tokio::test]
+async fn a_user_name_with_a_colon_is_refused_because_basic_authorization_cannot_carry_it() {
+    let (mut client, _server) = duplex(4096);
+
+    let error = connect(&mut client, "h", 22, Some(&login("a:b", Some("p")))).await.unwrap_err();
+
+    assert!(error.contains("colon"), "{error}");
 }

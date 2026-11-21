@@ -2,16 +2,23 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+use super::Login;
+
 const SOCKS5: u8 = 5;
 const SOCKS4: u8 = 4;
 const CONNECT: u8 = 1;
 const NO_AUTHENTICATION: u8 = 0;
+const USER_PASSWORD: u8 = 2;
+const LOGIN_VERSION: u8 = 1;
+const MAX_FIELD: usize = 255;
 const ADDRESS_IPV4: u8 = 1;
 const ADDRESS_DOMAIN: u8 = 3;
 const ADDRESS_IPV6: u8 = 4;
 const GRANTED_V4: u8 = 90;
 const PLACEHOLDER_ADDRESS: [u8; 4] = [0, 0, 0, 1];
-const LOGIN_NEEDED: &str = "the proxy wants a login, which Porthmos does not support yet";
+const LOGIN_NEEDED: &str = "the proxy wants a login: fill in Proxy user and Proxy password";
+const LOGIN_REFUSED: &str = "the proxy refused the login (wrong user name or password)";
+const METHOD_UNSUPPORTED: &str = "the proxy asked for an authentication method that Porthmos does not support";
 
 fn io_text(error: std::io::Error) -> String {
     match error.kind() {
@@ -53,19 +60,49 @@ fn address_v5(host: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-pub(crate) async fn socks5<S>(stream: &mut S, host: &str, port: u16) -> Result<(), String>
+async fn log_in<S>(stream: &mut S, login: &Login) -> Result<(), String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let password = login.password.as_deref().unwrap_or_default();
+    let mut message = vec![LOGIN_VERSION, login.user.len() as u8];
+    message.extend_from_slice(login.user.as_bytes());
+    message.push(password.len() as u8);
+    message.extend_from_slice(password.as_bytes());
+    stream.write_all(&message).await.map_err(io_text)?;
+    let mut reply = [0u8; 2];
+    stream.read_exact(&mut reply).await.map_err(io_text)?;
+    if reply[0] != LOGIN_VERSION || reply[1] != 0 {
+        return Err(LOGIN_REFUSED.to_string());
+    }
+    Ok(())
+}
+
+pub(crate) async fn socks5<S>(stream: &mut S, host: &str, port: u16, login: Option<&Login>) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let address = address_v5(host)?;
-    stream.write_all(&[SOCKS5, 1, NO_AUTHENTICATION]).await.map_err(io_text)?;
+    if login.is_some_and(|login| {
+        login.user.len() > MAX_FIELD || login.password.as_deref().is_some_and(|password| password.len() > MAX_FIELD)
+    }) {
+        return Err("the proxy user or password is too long for SOCKS5 (255 bytes at most)".to_string());
+    }
+    let greeting: &[u8] = match login {
+        Some(_) => &[SOCKS5, 2, NO_AUTHENTICATION, USER_PASSWORD],
+        None => &[SOCKS5, 1, NO_AUTHENTICATION],
+    };
+    stream.write_all(greeting).await.map_err(io_text)?;
     let mut method = [0u8; 2];
     stream.read_exact(&mut method).await.map_err(io_text)?;
     if method[0] != SOCKS5 {
         return Err("the proxy did not answer as a SOCKS5 server (not a SOCKS5 proxy)".to_string());
     }
-    if method[1] != NO_AUTHENTICATION {
-        return Err(LOGIN_NEEDED.to_string());
+    match (method[1], login) {
+        (NO_AUTHENTICATION, _) => {}
+        (USER_PASSWORD, Some(login)) => log_in(stream, login).await?,
+        (_, None) => return Err(LOGIN_NEEDED.to_string()),
+        (_, Some(_)) => return Err(METHOD_UNSUPPORTED.to_string()),
     }
     let mut request = vec![SOCKS5, CONNECT, 0];
     request.extend_from_slice(&address);
@@ -95,7 +132,7 @@ where
     Ok(())
 }
 
-pub(crate) async fn socks4a<S>(stream: &mut S, host: &str, port: u16) -> Result<(), String>
+pub(crate) async fn socks4a<S>(stream: &mut S, host: &str, port: u16, login: Option<&Login>) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -105,6 +142,12 @@ where
         Ok(IpAddr::V4(address)) => request.extend_from_slice(&address.octets()),
         Ok(IpAddr::V6(_)) => return Err("SOCKS4 cannot reach an IPv6 address".to_string()),
         Err(_) => request.extend_from_slice(&PLACEHOLDER_ADDRESS),
+    }
+    if let Some(login) = login {
+        if login.user.contains('\0') || login.user.len() > MAX_FIELD {
+            return Err("the proxy user cannot be used with SOCKS4: no NUL bytes and 255 bytes at most".to_string());
+        }
+        request.extend_from_slice(login.user.as_bytes());
     }
     request.push(0);
     if host.parse::<Ipv4Addr>().is_err() {

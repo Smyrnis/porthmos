@@ -189,9 +189,10 @@ async fn connect_through(
     let hops = jump_targets(target, hosts, fallback_user)?;
     let refused = |reason: String| ProtocolError::new(ErrorKind::Connect, anyhow!(reason));
     let target_route = proxy::route_for(target, hosts).map_err(refused)?;
-    let first_route = match hops.first() {
-        Some(first_hop) => proxy::route_for(first_hop, hosts).map_err(refused)?,
-        None => target_route,
+    let first_route = match (target_route, hops.first()) {
+        (Some(explicit), _) => Some(explicit),
+        (None, Some(first_hop)) => proxy::route_for(first_hop, hosts).map_err(refused)?,
+        (None, None) => None,
     };
     let mut jumps: Vec<Handle<PorthmosHandler>> = Vec::new();
     for hop in &hops {

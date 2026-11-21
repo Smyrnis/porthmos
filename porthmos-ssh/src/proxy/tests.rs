@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use porthmos_vfs::Target;
 
-use super::{ProxyKind, Route, parse_proxy, route_for};
+use super::{Login, ProxyKind, Route, parse_proxy, route_for};
 use crate::ssh_config::SshConfigHost;
 
 fn proxy(kind: ProxyKind, host: &str, port: u16) -> Route {
-    Route::Proxy { kind, host: host.to_string(), port }
+    Route::Proxy { kind, host: host.to_string(), port, login: None }
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn a_login_in_the_address_is_refused_so_no_password_is_saved_in_a_profile() {
     for text in ["socks5://user:secret@gate:1080", "http://user@gate", "socks4://@gate"] {
         let error = parse_proxy(text).unwrap_err();
 
-        assert!(error.contains("login"), "{text}: {error}");
+        assert!(error.contains("Proxy user") && error.contains("Proxy password"), "{text}: {error}");
         assert!(!error.contains("secret"), "{text}: {error}");
     }
 }
@@ -194,7 +194,7 @@ fn blank_settings_count_as_no_proxy() {
 async fn a_proxy_that_never_answers_is_given_up_on() {
     let (mut client, _silent) = tokio::io::duplex(64);
 
-    let error = super::handshake(ProxyKind::Socks5, &mut client, "h", 22, std::time::Duration::from_millis(40))
+    let error = super::handshake(ProxyKind::Socks5, &mut client, "h", 22, None, std::time::Duration::from_millis(40))
         .await
         .unwrap_err();
 
@@ -214,7 +214,7 @@ async fn each_kind_runs_its_own_handshake() {
             first[0]
         });
 
-        let _ = super::handshake(kind, &mut client, "h", 22, std::time::Duration::from_secs(1)).await;
+        let _ = super::handshake(kind, &mut client, "h", 22, None, std::time::Duration::from_secs(1)).await;
 
         assert_eq!(task.await.unwrap(), first_byte);
         let _ = client.write_all(b"").await;
@@ -238,7 +238,7 @@ fn a_terminal_gets_nothing_without_proxy_settings() {
 fn a_terminal_proxy_command_for_an_ipv6_proxy_keeps_its_brackets() {
     let command = super::terminal_command(&target(&[("proxy", "socks5://[::1]:1080")]));
 
-    assert_eq!(command.as_deref(), Some("nc -X 5 -x [::1]:1080 %h %p"));
+    assert!(command.as_deref().is_some_and(|text| text.contains("nc -X 5 -x [::1]:1080 ")), "{command:?}");
 }
 
 #[test]
@@ -251,26 +251,32 @@ fn a_terminal_never_gets_a_proxy_host_the_shell_would_read_as_code() {
 }
 
 #[test]
-fn a_proxy_together_with_a_jump_host_is_refused() {
-    for options in [
-        vec![("proxy", "socks5://gate:1080"), ("proxy_jump", "bastion")],
-        vec![("proxy_command", "nc %h %p"), ("proxy_jump", "bastion")],
-    ] {
-        let error = route_for(&target(&options), &[]).unwrap_err();
-
-        assert!(error.contains("jump host"), "{error}");
-    }
+fn a_proxy_together_with_a_jump_host_is_the_way_to_reach_the_first_hop() {
+    assert_eq!(
+        route_for(&target(&[("proxy", "socks5://gate:1080"), ("proxy_jump", "bastion")]), &[]),
+        Ok(Some(Route::Proxy { kind: ProxyKind::Socks5, host: "gate".to_string(), port: 1080, login: None }))
+    );
+    assert_eq!(
+        route_for(&target(&[("proxy_command", "nc %h %p"), ("proxy_jump", "bastion")]), &[]),
+        Ok(Some(Route::Command("nc %h %p".to_string())))
+    );
 }
 
 #[test]
-fn a_proxy_together_with_a_jump_host_taken_from_the_config_alias_is_refused() {
+fn a_proxy_together_with_a_jump_host_taken_from_the_config_alias_is_used_too() {
     let mut alias = alias_with_command("unused");
     alias.proxy_command = None;
     alias.proxy_jump = Some("bastion".to_string());
 
-    let error = route_for(&target(&[("proxy", "socks5://gate:1080")]), &[alias]).unwrap_err();
+    assert_eq!(
+        route_for(&target(&[("proxy", "socks5://gate:1080")]), &[alias]),
+        Ok(Some(Route::Proxy { kind: ProxyKind::Socks5, host: "gate".to_string(), port: 1080, login: None }))
+    );
+}
 
-    assert!(error.contains("jump host"), "{error}");
+#[test]
+fn a_jump_host_alone_has_no_route_of_its_own() {
+    assert_eq!(route_for(&target(&[("proxy_jump", "bastion")]), &[]), Ok(None));
 }
 
 #[test]
@@ -278,4 +284,177 @@ fn a_command_inherited_from_the_alias_is_not_used_when_the_target_names_its_own_
     let hosts = [alias_with_command("corp-gate %h %p")];
 
     assert_eq!(route_for(&target(&[("proxy_jump", "bastion")]), &hosts), Ok(None));
+}
+
+fn login_of(route: Result<Option<Route>, String>) -> Option<Login> {
+    match route {
+        Ok(Some(Route::Proxy { login, .. })) => login,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_proxy_user_and_password_become_the_proxy_login() {
+    let options = [("proxy", "http://gate:8080"), ("proxy_user", "alice"), ("proxy_password", "secret")];
+
+    let login = login_of(route_for(&target(&options), &[])).unwrap();
+
+    assert_eq!((login.user.as_str(), login.password.as_deref()), ("alice", Some("secret")));
+}
+
+#[test]
+fn a_proxy_user_alone_is_a_login_without_a_password() {
+    let login = login_of(route_for(&target(&[("proxy", "socks5://gate"), ("proxy_user", "alice")]), &[])).unwrap();
+
+    assert_eq!((login.user.as_str(), login.password), ("alice", None));
+}
+
+#[test]
+fn a_proxy_without_a_user_has_no_login() {
+    assert_eq!(login_of(route_for(&target(&[("proxy", "socks5://gate")]), &[])), None);
+}
+
+#[test]
+fn blank_proxy_user_and_password_count_as_no_login() {
+    let options = [("proxy", "socks5://gate"), ("proxy_user", "  "), ("proxy_password", "")];
+
+    assert_eq!(login_of(route_for(&target(&options), &[])), None);
+}
+
+#[test]
+fn a_proxy_password_without_a_user_is_an_error() {
+    let error = route_for(&target(&[("proxy", "http://gate"), ("proxy_password", "secret")]), &[]).unwrap_err();
+
+    assert!(error.contains("Proxy user"), "{error}");
+    assert!(!error.contains("secret"), "{error}");
+}
+
+#[test]
+fn socks4_has_no_password_so_a_password_is_refused() {
+    let options = [("proxy", "socks4://gate"), ("proxy_user", "alice"), ("proxy_password", "secret")];
+
+    let error = route_for(&target(&options), &[]).unwrap_err();
+
+    assert!(error.contains("SOCKS4"), "{error}");
+    assert!(!error.contains("secret"), "{error}");
+}
+
+#[test]
+fn a_proxy_login_without_a_proxy_is_an_error() {
+    for options in [
+        vec![("proxy_user", "alice")],
+        vec![("proxy_user", "alice"), ("proxy_command", "nc %h %p")],
+        vec![("proxy_password", "secret")],
+    ] {
+        let error = route_for(&target(&options), &[]).unwrap_err();
+
+        assert!(error.contains("Proxy"), "{error}");
+        assert!(!error.contains("secret"), "{error}");
+    }
+}
+
+#[test]
+fn a_proxy_login_next_to_a_proxy_that_is_switched_off_is_ignored() {
+    assert_eq!(route_for(&target(&[("proxy", "none"), ("proxy_user", "alice")]), &[]), Ok(None));
+}
+
+#[test]
+fn the_debug_output_of_a_route_never_shows_the_password() {
+    let options = [("proxy", "http://gate"), ("proxy_user", "alice"), ("proxy_password", "hunter2")];
+
+    let shown = format!("{:?}", route_for(&target(&options), &[]));
+
+    assert!(!shown.contains("hunter2"), "{shown}");
+}
+
+#[test]
+fn a_terminal_cannot_carry_a_proxy_login_so_it_fails_instead_of_connecting_without_it() {
+    let options = [("proxy", "socks5://gate:1080"), ("proxy_user", "alice")];
+
+    assert_eq!(super::terminal_command(&target(&options)).as_deref(), Some("false"));
+}
+
+#[cfg(unix)]
+mod guarded_netcat {
+    use std::{os::unix::fs::PermissionsExt, path::Path, process::Command};
+
+    use super::*;
+
+    fn fake_nc(directory: &Path, usage: &str) {
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"-h\" ]; then echo \"{usage}\" >&2; exit 1; fi\necho \"$@\" > '{}'\n",
+            directory.join("record").display()
+        );
+        let path = directory.join("nc");
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn run(directory: &Path, address: &str) -> std::process::Output {
+        let command = super::super::terminal_command(&target(&[("proxy", address)])).unwrap();
+        let command = command.replace("%h", "files.example").replace("%p", "22");
+        let path = format!("{}:/usr/bin:/bin", directory.display());
+        Command::new("sh").arg("-c").arg(command).env("PATH", path).output().unwrap()
+    }
+
+    #[test]
+    fn an_openbsd_nc_is_run_with_the_proxy_options_and_the_host_and_port() {
+        let directory = tempfile::tempdir().unwrap();
+        fake_nc(directory.path(), "usage: nc [-46bCDdFhklNnrStUuvZz] [-X proxy_protocol] [-x proxy_address[:port]]");
+
+        let output = run(directory.path(), "socks5://gate:1080");
+
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let seen = std::fs::read_to_string(directory.path().join("record")).unwrap();
+        assert_eq!(seen.trim(), "-X 5 -x gate:1080 files.example 22");
+    }
+
+    #[test]
+    fn a_netcat_without_proxy_support_stops_with_a_message_and_is_never_run() {
+        let directory = tempfile::tempdir().unwrap();
+        fake_nc(directory.path(), "GNU netcat 0.7.1, a rewrite of the famous networking tool.");
+
+        let output = run(directory.path(), "socks5://gate:1080");
+
+        assert!(!output.status.success());
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(message.contains("OpenBSD") && message.contains("Proxy command"), "{message}");
+        assert!(!directory.path().join("record").exists());
+    }
+
+    #[test]
+    fn the_host_reaches_nc_as_one_argument_even_when_it_has_odd_characters() {
+        let directory = tempfile::tempdir().unwrap();
+        fake_nc(directory.path(), "usage: nc [-X proxy_protocol]");
+        let command = super::super::terminal_command(&target(&[("proxy", "http://gate:3128")])).unwrap();
+        let command = command.replace("%h", "'files example'").replace("%p", "22");
+
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .env("PATH", format!("{}:/usr/bin:/bin", directory.path().display()))
+            .status()
+            .unwrap();
+
+        assert!(status.success());
+        let seen = std::fs::read_to_string(directory.path().join("record")).unwrap();
+        assert_eq!(seen.trim(), "-X connect -x gate:3128 files example 22");
+    }
+}
+
+#[test]
+fn a_password_of_only_spaces_is_still_a_password() {
+    let options = [("proxy", "http://gate:8080"), ("proxy_user", "alice"), ("proxy_password", "  ")];
+
+    let route = route_for(&target(&options), &[]).unwrap().unwrap();
+
+    let Route::Proxy { login: Some(login), .. } = route else { panic!("{route:?}") };
+    assert_eq!(login.password.as_deref(), Some("  "));
+}
+
+#[test]
+fn a_whitespace_password_does_not_slip_past_the_socks4_refusal() {
+    let options = [("proxy", "socks4://gate"), ("proxy_user", "alice"), ("proxy_password", " ")];
+
+    assert!(route_for(&target(&options), &[]).is_err());
 }

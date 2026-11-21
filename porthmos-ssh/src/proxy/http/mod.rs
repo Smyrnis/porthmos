@@ -1,6 +1,9 @@
 use std::net::IpAddr;
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+use super::Login;
 
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 const MAX_STATUS_TEXT: usize = 120;
@@ -41,12 +44,24 @@ where
     Ok(head)
 }
 
-pub(crate) async fn connect<S>(stream: &mut S, host: &str, port: u16) -> Result<(), String>
+fn authorization(login: Option<&Login>) -> Result<String, String> {
+    let Some(login) = login else {
+        return Ok(String::new());
+    };
+    if login.user.contains(':') {
+        return Err("the proxy user cannot contain a colon: HTTP proxies split the login at it".to_string());
+    }
+    let credentials = format!("{}:{}", login.user, login.password.as_deref().unwrap_or_default());
+    Ok(format!("Proxy-Authorization: Basic {}\r\n", STANDARD.encode(credentials)))
+}
+
+pub(crate) async fn connect<S>(stream: &mut S, host: &str, port: u16, login: Option<&Login>) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let authority = authority(host, port)?;
-    let request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+    let authorization = authorization(login)?;
+    let request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n{authorization}\r\n");
     stream.write_all(request.as_bytes()).await.map_err(|error| format!("the proxy handshake failed: {error}"))?;
 
     let head = read_head(stream).await?;
@@ -59,8 +74,12 @@ where
     };
     match code.parse::<u16>() {
         Ok(200..=299) => Ok(()),
+        Ok(407) if login.is_some() => Err(format!(
+            "the proxy answered 407 {}: it refused the login (wrong user name or password)",
+            printable(reason)
+        )),
         Ok(407) => Err(format!(
-            "the proxy answered 407 {}: it wants a login, which Porthmos does not support yet",
+            "the proxy answered 407 {}: it wants a login; fill in Proxy user and Proxy password",
             printable(reason)
         )),
         Ok(status) => Err(format!("the proxy refused the connection: {status} {}", printable(reason))),

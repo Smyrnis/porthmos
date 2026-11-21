@@ -5442,6 +5442,7 @@ version = "2026.5.0-dev.4"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "gethostname",
  "libc",
  "porthmos-ssh",

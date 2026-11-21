@@ -24,6 +24,20 @@ pub const PROXY_FIELD: porthmos_vfs::OptionField = porthmos_vfs::OptionField {
     kind: porthmos_vfs::OptionKind::Text { default: "" },
 };
 
+pub const PROXY_USER_FIELD: porthmos_vfs::OptionField = porthmos_vfs::OptionField {
+    key: "proxy_user",
+    label: "Proxy user",
+    required: false,
+    kind: porthmos_vfs::OptionKind::Text { default: "" },
+};
+
+pub const PROXY_PASSWORD_FIELD: porthmos_vfs::OptionField = porthmos_vfs::OptionField {
+    key: "proxy_password",
+    label: "Proxy password",
+    required: false,
+    kind: porthmos_vfs::OptionKind::Secret,
+};
+
 pub const PROXY_COMMAND_FIELD: porthmos_vfs::OptionField = porthmos_vfs::OptionField {
     key: "proxy_command",
     label: "Proxy command",

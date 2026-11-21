@@ -1,6 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 use super::{socks4a, socks5};
+use crate::proxy::Login;
 
 async fn serve(mut server: tokio::io::DuplexStream, expect: Vec<u8>, reply: Vec<u8>) -> Vec<u8> {
     let mut seen = vec![0u8; expect.len()];
@@ -37,7 +38,7 @@ async fn run_v5(host: &str, port: u16, method_reply: [u8; 2], request: Vec<u8>, 
         assert_eq!(seen, request);
         server.write_all(&reply).await.unwrap();
     });
-    let result = socks5(&mut client, host, port).await;
+    let result = socks5(&mut client, host, port, None).await;
     task.await.unwrap();
     result
 }
@@ -85,7 +86,7 @@ async fn socks5_reads_a_whole_reply_with_a_host_name_so_nothing_after_it_is_lost
         server.write_all(&reply).await.unwrap();
     });
 
-    socks5(&mut client, "h", 22).await.unwrap();
+    socks5(&mut client, "h", 22, None).await.unwrap();
     task.await.unwrap();
 
     let mut rest = vec![0u8; 13];
@@ -94,10 +95,10 @@ async fn socks5_reads_a_whole_reply_with_a_host_name_so_nothing_after_it_is_lost
 }
 
 #[tokio::test]
-async fn socks5_refuses_a_proxy_that_wants_a_login() {
+async fn socks5_tells_where_to_fill_in_a_login_when_the_proxy_wants_one_and_none_is_set() {
     let error = run_v5("h", 22, [5, 2], Vec::new(), Vec::new()).await.unwrap_err();
 
-    assert!(error.contains("login") || error.contains("authentication"), "{error}");
+    assert!(error.contains("Proxy user") && error.contains("Proxy password"), "{error}");
 }
 
 #[tokio::test]
@@ -145,7 +146,7 @@ async fn socks5_reports_a_proxy_that_hangs_up() {
     let (mut client, server) = duplex(64);
     drop(server);
 
-    let error = socks5(&mut client, "h", 22).await.unwrap_err();
+    let error = socks5(&mut client, "h", 22, None).await.unwrap_err();
 
     assert!(!error.is_empty());
 }
@@ -155,7 +156,7 @@ async fn socks5_refuses_a_host_name_too_long_to_send_without_writing_anything() 
     let (mut client, mut server) = duplex(1024);
     let long = "a".repeat(256);
 
-    let error = socks5(&mut client, &long, 22).await.unwrap_err();
+    let error = socks5(&mut client, &long, 22, None).await.unwrap_err();
 
     assert!(error.contains("too long"), "{error}");
     drop(client);
@@ -172,7 +173,7 @@ async fn socks4a_sends_the_host_name_after_a_placeholder_address() {
     expect.push(0);
     let task = tokio::spawn(serve(server, expect.clone(), vec![0, 90, 0, 0, 0, 0, 0, 0]));
 
-    assert_eq!(socks4a(&mut client, "files.example", 22).await, Ok(()));
+    assert_eq!(socks4a(&mut client, "files.example", 22, None).await, Ok(()));
     assert_eq!(task.await.unwrap(), expect);
 }
 
@@ -182,7 +183,7 @@ async fn socks4a_sends_an_ipv4_address_directly() {
     let expect = vec![4, 1, 0x08, 0xae, 10, 1, 2, 3, 0];
     let task = tokio::spawn(serve(server, expect.clone(), vec![0, 90, 0, 0, 0, 0, 0, 0]));
 
-    assert_eq!(socks4a(&mut client, "10.1.2.3", 2222).await, Ok(()));
+    assert_eq!(socks4a(&mut client, "10.1.2.3", 2222, None).await, Ok(()));
     assert_eq!(task.await.unwrap(), expect);
 }
 
@@ -190,7 +191,7 @@ async fn socks4a_sends_an_ipv4_address_directly() {
 async fn socks4a_cannot_carry_an_ipv6_address() {
     let (mut client, _server) = duplex(1024);
 
-    let error = socks4a(&mut client, "::1", 22).await.unwrap_err();
+    let error = socks4a(&mut client, "::1", 22, None).await.unwrap_err();
 
     assert!(error.contains("IPv6"), "{error}");
 }
@@ -204,7 +205,7 @@ async fn socks4a_reports_a_rejected_request() {
         expect.push(0);
         let task = tokio::spawn(serve(server, expect, vec![0, code, 0, 0, 0, 0, 0, 0]));
 
-        let error = socks4a(&mut client, "h", 22).await.unwrap_err();
+        let error = socks4a(&mut client, "h", 22, None).await.unwrap_err();
         task.await.unwrap();
 
         assert!(error.contains("rejected") || error.contains("refused") || error.contains("identd"), "{code}: {error}");
@@ -219,8 +220,131 @@ async fn socks4a_rejects_a_reply_that_is_not_socks4() {
     expect.push(0);
     let task = tokio::spawn(serve(server, expect, vec![5, 90, 0, 0, 0, 0, 0, 0]));
 
-    let error = socks4a(&mut client, "h", 22).await.unwrap_err();
+    let error = socks4a(&mut client, "h", 22, None).await.unwrap_err();
     task.await.unwrap();
 
     assert!(error.contains("not a SOCKS4"), "{error}");
+}
+
+fn login(user: &str, password: Option<&str>) -> Login {
+    Login { user: user.to_string(), password: password.map(str::to_string) }
+}
+
+async fn run_v5_with_login(login: Login, method_reply: [u8; 2], auth_reply: [u8; 2]) -> (Result<(), String>, Vec<u8>) {
+    let (mut client, mut server) = duplex(1024);
+    let task = tokio::spawn(async move {
+        let mut greeting = [0u8; 4];
+        server.read_exact(&mut greeting).await.unwrap();
+        assert_eq!(greeting, [5, 2, 0, 2]);
+        server.write_all(&method_reply).await.unwrap();
+        if method_reply[1] != 2 {
+            return Vec::new();
+        }
+        let mut head = [0u8; 2];
+        server.read_exact(&mut head).await.unwrap();
+        let mut user = vec![0u8; usize::from(head[1])];
+        server.read_exact(&mut user).await.unwrap();
+        let mut length = [0u8; 1];
+        server.read_exact(&mut length).await.unwrap();
+        let mut password = vec![0u8; usize::from(length[0])];
+        server.read_exact(&mut password).await.unwrap();
+        server.write_all(&auth_reply).await.unwrap();
+        if auth_reply[1] != 0 {
+            return [head.to_vec(), user, length.to_vec(), password].concat();
+        }
+        let mut request = vec![0u8; 4 + 1 + 1 + 2];
+        server.read_exact(&mut request).await.unwrap();
+        server.write_all(&ok_reply()).await.unwrap();
+        [head.to_vec(), user, length.to_vec(), password].concat()
+    });
+    let result = socks5(&mut client, "h", 22, Some(&login)).await;
+    (result, task.await.unwrap())
+}
+
+#[tokio::test]
+async fn socks5_offers_the_login_method_and_sends_the_user_and_password() {
+    let (result, sent) = run_v5_with_login(login("alice", Some("secret")), [5, 2], [1, 0]).await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(sent, [&[1u8, 5][..], b"alice", &[6], b"secret"].concat());
+}
+
+#[tokio::test]
+async fn socks5_sends_an_empty_password_when_only_a_user_is_set() {
+    let (result, sent) = run_v5_with_login(login("alice", None), [5, 2], [1, 0]).await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(sent, [&[1u8, 5][..], b"alice", &[0]].concat());
+}
+
+#[tokio::test]
+async fn socks5_says_the_login_was_refused_and_never_repeats_the_password() {
+    let (result, _) = run_v5_with_login(login("alice", Some("hunter2")), [5, 2], [1, 1]).await;
+
+    let error = result.unwrap_err();
+    assert!(error.contains("refused the login"), "{error}");
+    assert!(!error.contains("hunter2") && !error.contains("alice"), "{error}");
+}
+
+#[tokio::test]
+async fn socks5_goes_on_without_a_login_when_the_proxy_picks_no_authentication() {
+    let (client, mut server) = duplex(1024);
+    let mut client = client;
+    let task = tokio::spawn(async move {
+        let mut greeting = [0u8; 4];
+        server.read_exact(&mut greeting).await.unwrap();
+        server.write_all(&[5, 0]).await.unwrap();
+        let mut request = vec![0u8; 8];
+        server.read_exact(&mut request).await.unwrap();
+        server.write_all(&ok_reply()).await.unwrap();
+    });
+
+    let result = socks5(&mut client, "h", 22, Some(&login("alice", Some("secret")))).await;
+
+    task.await.unwrap();
+    assert_eq!(result, Ok(()));
+}
+
+#[tokio::test]
+async fn socks5_refuses_a_user_or_password_longer_than_the_protocol_allows_without_writing() {
+    let (mut client, mut server) = duplex(1024);
+
+    let long_user = socks5(&mut client, "h", 22, Some(&login(&"u".repeat(256), Some("p")))).await.unwrap_err();
+    let long_password = socks5(&mut client, "h", 22, Some(&login("u", Some(&"p".repeat(256))))).await.unwrap_err();
+
+    assert!(long_user.contains("too long"), "{long_user}");
+    assert!(long_password.contains("too long"), "{long_password}");
+    drop(client);
+    let mut written = Vec::new();
+    server.read_to_end(&mut written).await.unwrap();
+    assert!(written.is_empty());
+}
+
+#[tokio::test]
+async fn socks4a_sends_the_user_as_the_user_id() {
+    let (mut client, server) = duplex(1024);
+    let mut expect = vec![4, 1, 0, 22, 10, 1, 2, 3];
+    expect.extend_from_slice(b"alice");
+    expect.push(0);
+    let task = tokio::spawn(serve(server, expect.clone(), vec![0, 90, 0, 0, 0, 0, 0, 0]));
+
+    let result = socks4a(&mut client, "10.1.2.3", 22, Some(&login("alice", None))).await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(task.await.unwrap(), expect);
+}
+
+#[tokio::test]
+async fn socks4a_refuses_a_user_with_a_nul_byte_or_one_that_is_too_long_and_sends_nothing() {
+    for user in ["al\0ice".to_string(), "a".repeat(256)] {
+        let (mut client, mut server) = duplex(1024);
+
+        let error = socks4a(&mut client, "10.1.2.3", 22, Some(&login(&user, None))).await.unwrap_err();
+
+        assert!(error.contains("user"), "{error}");
+        drop(client);
+        let mut written = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut server, &mut written).await.unwrap();
+        assert!(written.is_empty());
+    }
 }
