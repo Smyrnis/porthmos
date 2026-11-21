@@ -73,13 +73,34 @@ fn chmod_writes_the_mode_in_octal_and_quotes_the_path() {
 
     let command = chmod(&VfsPath::new("/srv/it's a $dir/run.sh"), 0o755);
 
-    assert_eq!(command, format!("chmod -- 755 {quoted}"));
+    assert_eq!(command, format!("chmod -- 00755 {quoted}"));
 }
 
 #[test]
-fn chmod_keeps_a_leading_zero_so_a_private_mode_is_not_misread() {
-    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o600), "chmod -- 600 '/srv/f'");
-    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o007), "chmod -- 007 '/srv/f'");
+fn chmod_keeps_leading_zeros_so_a_private_mode_is_not_misread() {
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o600), "chmod -- 00600 '/srv/f'");
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o007), "chmod -- 00007 '/srv/f'");
+}
+
+#[test]
+fn chmod_sends_the_setuid_setgid_and_sticky_bits() {
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o4755), "chmod -- 04755 '/srv/f'");
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o2775), "chmod -- 02775 '/srv/f'");
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o1777), "chmod -- 01777 '/srv/f'");
+}
+
+#[test]
+fn chmod_has_five_digits_so_gnu_chmod_clears_the_special_bits_of_a_folder_too() {
+    let command = chmod(&VfsPath::new("/srv/dir"), 0o755);
+
+    let mode = command.split(' ').nth(2).unwrap();
+    assert_eq!(mode.len(), 5, "{command}");
+    assert!(mode.starts_with("00"), "{command}");
+}
+
+#[test]
+fn chmod_ignores_bits_above_the_permission_bits() {
+    assert_eq!(chmod(&VfsPath::new("/srv/f"), 0o100644), "chmod -- 00644 '/srv/f'");
 }
 
 #[test]

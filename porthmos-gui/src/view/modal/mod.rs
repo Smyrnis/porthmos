@@ -56,6 +56,7 @@ fn name_prompt<'a>(value: &str, error: &Option<String>, palette: &Palette) -> El
 
 const PERMISSION_CLASSES: [(&str, u32); 3] = [("User", 0o100), ("Group", 0o010), ("Other", 0o001)];
 const PERMISSION_KINDS: [(&str, u32); 3] = [("Read", 4), ("Write", 2), ("Execute", 1)];
+const PERMISSION_SPECIALS: [(&str, u32); 3] = [("Set user ID", 0o4000), ("Set group ID", 0o2000), ("Sticky", 0o1000)];
 const PERMISSION_LABEL_WIDTH: f32 = 60.0;
 const PERMISSION_CELL_WIDTH: f32 = 80.0;
 
@@ -103,7 +104,18 @@ fn permissions_grid<'a>(mode: u32, palette: &Palette) -> Element<'a, Message> {
         }
         rows = rows.push(line);
     }
-    column![rows, label(format!("{}   {}", mode_text(mode), symbolic(mode)), palette.fg_dim)].spacing(12).into()
+    let mut specials = column![].spacing(6);
+    for (name, bit) in PERMISSION_SPECIALS {
+        specials = specials.push(
+            checkbox(mode & bit != 0)
+                .label(tr(name))
+                .on_toggle(move |on| Message::PermissionToggled(bit, on))
+                .style(crate::view::checkbox::style(palette)),
+        );
+    }
+    column![rows, specials, label(format!("{}   {}", mode_text(mode), symbolic(mode)), palette.fg_dim)]
+        .spacing(12)
+        .into()
 }
 
 fn buttons<'a>(accept: &str, decline: &str, palette: &Palette) -> Element<'a, Message> {

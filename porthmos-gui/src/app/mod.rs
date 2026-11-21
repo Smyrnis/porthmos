@@ -53,7 +53,7 @@ use crate::update_view::UpdateView;
 use crate::view::toolbar::ToolbarState;
 use crate::windows::Windows;
 
-const PERMISSION_BITS: u32 = 0o777;
+const PERMISSION_BITS: u32 = 0o7777;
 const UNKNOWN_MODE: u32 = 0o644;
 const NOTICE_LIMIT: usize = 50;
 const DROP_BATCH_WINDOW: Duration = Duration::from_millis(80);

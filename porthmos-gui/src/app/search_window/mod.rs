@@ -180,7 +180,7 @@ impl App {
         }
     }
 
-    fn open_search_result(&mut self) -> Task<Message> {
+    fn open_search_result(&mut self, raise_main: bool) -> Task<Message> {
         let Some(state) = &self.search else {
             return Task::none();
         };
@@ -193,7 +193,7 @@ impl App {
             return Task::none();
         }
         self.reveal(location, parent, entry.path);
-        window::gain_focus(self.windows.main())
+        if raise_main { window::gain_focus(self.windows.main()) } else { Task::none() }
     }
 
     fn move_search_selection(&mut self, down: bool) {
@@ -222,7 +222,7 @@ impl App {
     pub(in crate::app) fn search_window_key(&mut self, press: &KeyPress) -> Task<Message> {
         match &press.key {
             Key::Named(Named::Escape) => return self.close_search(),
-            Key::Named(Named::Enter) => return self.open_search_result(),
+            Key::Named(Named::Enter) => return self.open_search_result(!press.modifiers.shift()),
             Key::Named(direction @ (Named::ArrowDown | Named::ArrowUp)) => {
                 self.move_search_selection(*direction == Named::ArrowDown);
                 return self.reveal_search_selection();
@@ -281,9 +281,9 @@ impl App {
             Message::SearchRowPressed(row) => self.select_search_row(row),
             Message::SearchRowActivated(row) => {
                 self.select_search_row(row);
-                return self.open_search_result();
+                return self.open_search_result(true);
             }
-            Message::SearchOpenPressed => return self.open_search_result(),
+            Message::SearchOpenPressed => return self.open_search_result(true),
             Message::SearchPreviewScrolled(offset) => self.search_preview_scroll = offset,
             _ => {}
         }

@@ -4336,18 +4336,6 @@ fn unticking_a_box_clears_only_that_bit() {
 }
 
 #[test]
-fn the_special_bits_of_the_entry_are_not_part_of_the_boxes() {
-    let mut harness = Harness::new();
-    let folder = harness.start_folder();
-    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o104755)]);
-    plain(&mut harness, Named::ArrowDown);
-
-    shift_p(&mut harness);
-
-    assert_eq!(permission_mode(&harness), 0o755);
-}
-
-#[test]
 fn permissions_start_at_644_when_the_mode_is_unknown() {
     let mut harness = Harness::new();
     fill_local(&mut harness, &["a"]);
@@ -4424,6 +4412,30 @@ fn cancelling_the_permissions_prompt_sends_nothing() {
 
     assert!(harness.app.modal().is_none());
     assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn the_setuid_setgid_and_sticky_bits_are_kept_and_can_be_cleared() {
+    let mut harness = Harness::new();
+    let folder = harness.start_folder();
+    fill_local_with(&mut harness, vec![entry_with_mode(&folder, "a", 0o107755)]);
+    plain(&mut harness, Named::ArrowDown);
+    harness.sent();
+
+    shift_p(&mut harness);
+    assert_eq!(permission_mode(&harness), 0o7755);
+    toggle_permission(&mut harness, 0o2000, false);
+    assert_eq!(permission_mode(&harness), 0o5755);
+    toggle_permission(&mut harness, 0o2000, true);
+    toggle_permission(&mut harness, 0o4000, false);
+    toggle_permission(&mut harness, 0o1000, false);
+    harness.press(Message::ModalAccepted);
+
+    let mode = harness.sent().into_iter().find_map(|command| match command {
+        Command::SetPermissions { mode, .. } => Some(mode),
+        _ => None,
+    });
+    assert_eq!(mode, Some(0o2755));
 }
 
 #[test]

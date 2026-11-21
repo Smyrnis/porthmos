@@ -237,6 +237,69 @@ fn pressing_a_row_selects_it_and_the_open_button_opens_it() {
     assert!(harness.app.search_state().is_some());
 }
 
+fn enter_in_search(harness: &mut Harness, modifiers: Modifiers) -> usize {
+    let id = harness.search_id().unwrap();
+    let key = Key::Named(Named::Enter);
+    let press = KeyPress { key: key.clone(), modified_key: key, modifiers, text: None };
+    harness.app.update(Message::WindowKey(id, press)).units()
+}
+
+fn searched_with_a_selected_result() -> Harness {
+    let mut harness = Harness::new();
+    open_search(&mut harness);
+    search(&mut harness, "a");
+    found(&mut harness, "/home/tester/x/a1");
+    harness.sent();
+    harness
+}
+
+#[test]
+fn enter_shows_the_result_and_raises_the_main_window() {
+    let mut harness = searched_with_a_selected_result();
+
+    let units = enter_in_search(&mut harness, Modifiers::empty());
+
+    assert_eq!(units, 1);
+    assert!(
+        harness
+            .sent()
+            .contains(&Command::Reveal { location: Location::Local, path: VfsPath::new("/home/tester/x/a1") })
+    );
+}
+
+#[test]
+fn shift_enter_shows_the_result_without_raising_the_main_window() {
+    let mut harness = searched_with_a_selected_result();
+
+    let units = enter_in_search(&mut harness, Modifiers::SHIFT);
+
+    assert_eq!(units, 0);
+    assert!(
+        harness
+            .sent()
+            .contains(&Command::Reveal { location: Location::Local, path: VfsPath::new("/home/tester/x/a1") })
+    );
+    assert!(harness.app.search_state().is_some());
+}
+
+#[test]
+fn shift_enter_lets_the_next_result_be_shown_straight_after() {
+    let mut harness = searched_with_a_selected_result();
+    found(&mut harness, "/home/tester/y/a2");
+    harness.sent();
+
+    enter_in_search(&mut harness, Modifiers::SHIFT);
+    harness.sent();
+    named(&mut harness, Named::ArrowDown);
+    enter_in_search(&mut harness, Modifiers::SHIFT);
+
+    assert!(
+        harness
+            .sent()
+            .contains(&Command::Reveal { location: Location::Local, path: VfsPath::new("/home/tester/y/a2") })
+    );
+}
+
 #[test]
 fn esc_closes_and_cancels_the_search() {
     let mut harness = Harness::new();
