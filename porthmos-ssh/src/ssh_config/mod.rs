@@ -83,13 +83,14 @@ fn split_into_blocks(contents: &str) -> Vec<Block> {
     let mut blocks = vec![Block { applies: Applies::Everywhere, directives: Vec::new() }];
 
     for line in contents.lines() {
-        let line = strip_comment(line).trim();
-        if line.is_empty() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let Some((keyword, value)) = split_directive(line) else {
             continue;
         };
+        let value = strip_comment(value).trim();
 
         match keyword.to_ascii_lowercase().as_str() {
             "host" => {
@@ -193,11 +194,25 @@ fn is_pattern(alias: &str) -> bool {
     alias.contains(['*', '?', '!'])
 }
 
-fn strip_comment(line: &str) -> &str {
-    match line.find('#') {
-        Some(index) => &line[..index],
-        None => line,
+fn strip_comment(text: &str) -> &str {
+    let mut open_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut previous_is_space = true;
+    for (index, character) in text.char_indices() {
+        if escaped {
+            escaped = false;
+        } else {
+            match (character, open_quote) {
+                ('\\', _) => escaped = true,
+                ('"' | '\'', None) => open_quote = Some(character),
+                (quote, Some(open)) if quote == open => open_quote = None,
+                ('#', None) if previous_is_space => return &text[..index],
+                _ => {}
+            }
+        }
+        previous_is_space = character.is_whitespace();
     }
+    text
 }
 
 fn split_directive(line: &str) -> Option<(&str, &str)> {

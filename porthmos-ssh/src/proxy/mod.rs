@@ -2,7 +2,7 @@ mod command;
 mod http;
 mod socks;
 
-pub(crate) use command::Tokens;
+pub(crate) use command::{Local, Tokens};
 
 use std::time::Duration;
 

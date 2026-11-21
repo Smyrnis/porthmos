@@ -87,8 +87,14 @@ async fn reach_directly_or_by_proxy(
     let Some(route) = route else {
         return client::connect(host_key).await;
     };
-    let tokens =
-        proxy::Tokens { host: &target.host, port: target.port, user: &target.username, name: &target.name, local_user };
+    let local = proxy::Local::detect(local_user);
+    let tokens = proxy::Tokens {
+        host: &target.host,
+        port: target.port,
+        user: &target.username,
+        name: &target.name,
+        local: &local,
+    };
     let opened =
         proxy::open_route(route, &tokens).await.map_err(|reason| anyhow!("Couldn't use the proxy: {reason}"))?;
     let diagnostics = opened.diagnostics.clone();

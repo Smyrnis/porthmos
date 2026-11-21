@@ -51,6 +51,64 @@ Host a b
 }
 
 #[test]
+fn a_hash_inside_a_proxy_command_is_part_of_the_command() {
+    let config = "\
+Host quoted
+    ProxyCommand sh -c \"printf '#'; exec nc %h %p\"
+
+Host spaced
+    ProxyCommand nc %h %p # via the gate
+
+Host glued
+    ProxyCommand ssh -W %h:%p -o ControlPath=/tmp/a#b jump
+";
+    let hosts = parse(config, Some(Path::new("/home/test")));
+    let command = |name: &str| hosts.iter().find(|host| host.name == name).unwrap().proxy_command.clone();
+
+    assert_eq!(command("quoted").as_deref(), Some("sh -c \"printf '#'; exec nc %h %p\""));
+    assert_eq!(command("spaced").as_deref(), Some("nc %h %p"));
+    assert_eq!(command("glued").as_deref(), Some("ssh -W %h:%p -o ControlPath=/tmp/a#b jump"));
+}
+
+#[test]
+fn a_trailing_comment_on_a_proxy_command_line_is_left_out_so_its_percent_signs_never_count() {
+    let config = "\
+Host a
+    ProxyCommand nc %h %p # 100% sure, see %x
+
+Host b
+    ProxyCommand sh -c 'echo # not a comment; exec nc %h %p' # but this is
+
+Host c
+    ProxyCommand printf \\# ; nc %h %p
+";
+    let hosts = parse(config, Some(Path::new("/home/test")));
+    let command = |name: &str| hosts.iter().find(|host| host.name == name).unwrap().proxy_command.clone();
+
+    assert_eq!(command("a").as_deref(), Some("nc %h %p"));
+    assert_eq!(command("b").as_deref(), Some("sh -c 'echo # not a comment; exec nc %h %p'"));
+    assert_eq!(command("c").as_deref(), Some("printf \\# ; nc %h %p"));
+}
+
+#[test]
+fn a_comment_starts_only_at_a_hash_that_begins_a_word_outside_quotes() {
+    let config = "\
+   # an indented comment
+Host box # the box
+    HostName a#b.example # the real name
+    User \"dep #1\" # comment
+    Port 2222#not-a-comment
+";
+    let hosts = parse(config, Some(Path::new("/home/test")));
+
+    assert_eq!(hosts.len(), 1);
+    assert_eq!(hosts[0].name, "box");
+    assert_eq!(hosts[0].host_name.as_deref(), Some("a#b.example"));
+    assert_eq!(hosts[0].user.as_deref(), Some("\"dep #1\""));
+    assert_eq!(hosts[0].port, None);
+}
+
+#[test]
 fn ignores_comments_and_blank_lines() {
     let config = "\
 # a comment

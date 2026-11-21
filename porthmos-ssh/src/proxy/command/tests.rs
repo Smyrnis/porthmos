@@ -1,12 +1,21 @@
 #[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::{Tokens, expand as expand_tokens};
+use super::{Local, Tokens, expand as expand_tokens};
 #[cfg(unix)]
 use super::{spawn, spawn_with};
 
+fn local() -> Local {
+    Local {
+        user: "me".to_string(),
+        host: "laptop.home.lan".to_string(),
+        home: "/home/me".to_string(),
+        uid: "1000".to_string(),
+    }
+}
+
 fn expand(command: &str, host: &str, port: u16, user: &str) -> Result<String, String> {
-    expand_tokens(command, &Tokens { host, port, user, name: "alias", local_user: "me" })
+    expand_tokens(command, &Tokens { host, port, user, name: "alias", local: &local() })
 }
 
 #[test]
@@ -185,7 +194,8 @@ async fn what_a_command_prints_before_it_stalls_is_still_reported() {
 
 #[test]
 fn the_name_and_the_local_user_have_their_own_tokens() {
-    let tokens = Tokens { host: "10.0.0.5", port: 22, user: "bob", name: "gw", local_user: "alice" };
+    let local = Local { user: "alice".to_string(), ..local() };
+    let tokens = Tokens { host: "10.0.0.5", port: 22, user: "bob", name: "gw", local: &local };
 
     assert_eq!(
         expand_tokens("ssh -W %h:%p -l %r gate.%n.corp # %u", &tokens).unwrap(),
@@ -196,16 +206,17 @@ fn the_name_and_the_local_user_have_their_own_tokens() {
 #[test]
 fn a_name_or_local_user_the_shell_would_read_as_code_is_refused() {
     for name in ["a;b", "a b", "$(id)", "-x", ""] {
-        let tokens = Tokens { host: "h", port: 22, user: "u", name, local_user: "me" };
+        let tokens = Tokens { host: "h", port: 22, user: "u", name, local: &local() };
         let error = expand_tokens("gate %n", &tokens).unwrap_err();
 
         assert!(error.contains("name"), "{name:?}: {error}");
     }
-    for local in ["a;b", "a b", "-x", ""] {
-        let tokens = Tokens { host: "h", port: 22, user: "u", name: "n", local_user: local };
+    for user in ["a;b", "a b", "-x", ""] {
+        let local = Local { user: user.to_string(), ..local() };
+        let tokens = Tokens { host: "h", port: 22, user: "u", name: "n", local: &local };
         let error = expand_tokens("gate %u", &tokens).unwrap_err();
 
-        assert!(error.contains("local user"), "{local:?}: {error}");
+        assert!(error.contains("local user"), "{user:?}: {error}");
     }
 }
 
@@ -232,4 +243,61 @@ async fn the_time_limit_stops_applying_once_the_command_has_sent_something() {
     stream.read_to_end(&mut both).await.unwrap();
 
     assert_eq!(both, b"ab");
+}
+
+#[test]
+fn the_local_host_user_id_and_home_have_their_own_tokens() {
+    assert_eq!(
+        expand("a %l b %L c %i d %d e %k f %j g", "files.example", 22, "alice").unwrap(),
+        "a laptop.home.lan b laptop c 1000 d /home/me e files.example f  g"
+    );
+}
+
+#[test]
+fn the_connection_hash_is_the_sha1_of_local_host_remote_host_port_and_user() {
+    let local = Local { host: "laptop".to_string(), ..local() };
+    let tokens = Tokens { host: "files.example", port: 22, user: "alice", name: "n", local: &local };
+
+    assert_eq!(expand_tokens("/tmp/%C", &tokens).unwrap(), "/tmp/085bfa754c130d953ce07de396d640485818259d");
+}
+
+#[test]
+fn a_local_fact_that_is_not_known_or_unsafe_is_refused_by_the_token_that_needs_it() {
+    for (token, local, word) in [
+        ("%l", Local { host: String::new(), ..local() }, "host"),
+        ("%L", Local { host: "a b".to_string(), ..local() }, "host"),
+        ("%d", Local { home: String::new(), ..local() }, "home"),
+        ("%d", Local { home: "/home/my folder".to_string(), ..local() }, "home"),
+        ("%d", Local { home: "$(id)".to_string(), ..local() }, "home"),
+        ("%i", Local { uid: String::new(), ..local() }, "user ID"),
+    ] {
+        let tokens = Tokens { host: "h", port: 22, user: "u", name: "n", local: &local };
+        let error = expand_tokens(&format!("gate {token}"), &tokens).unwrap_err();
+
+        assert!(error.contains(word), "{token}: {error}");
+    }
+}
+
+#[test]
+fn a_token_that_is_not_used_never_needs_its_local_fact() {
+    let local = Local { user: String::new(), host: String::new(), home: String::new(), uid: String::new() };
+    let tokens = Tokens { host: "h", port: 22, user: "u", name: "n", local: &local };
+
+    assert_eq!(expand_tokens("gate %h %p", &tokens).unwrap(), "gate h 22");
+}
+
+#[test]
+fn a_windows_home_folder_is_allowed() {
+    let local = Local { home: "C:\\Users\\me".to_string(), ..local() };
+    let tokens = Tokens { host: "h", port: 22, user: "u", name: "n", local: &local };
+
+    assert_eq!(expand_tokens("gate %d", &tokens).unwrap(), "gate C:\\Users\\me");
+}
+
+#[test]
+fn detecting_the_local_facts_gives_the_user_that_was_passed_in() {
+    let detected = Local::detect("someone");
+
+    assert_eq!(detected.user, "someone");
+    assert!(!detected.host.is_empty());
 }

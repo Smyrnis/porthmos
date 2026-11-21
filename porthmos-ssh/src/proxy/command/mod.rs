@@ -28,20 +28,67 @@ pub(super) fn safe_in_a_command(value: &str, extra: &[char]) -> bool {
         && value.chars().all(|character| character.is_ascii_alphanumeric() || extra.contains(&character))
 }
 
+pub(crate) struct Local {
+    pub(crate) user: String,
+    pub(crate) host: String,
+    pub(crate) home: String,
+    pub(crate) uid: String,
+}
+
+impl Local {
+    pub(crate) fn detect(user: &str) -> Self {
+        Self {
+            user: user.to_string(),
+            host: gethostname::gethostname().to_string_lossy().into_owned(),
+            home: porthmos_vfs::Environment::from_process()
+                .home
+                .map(|home| home.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            uid: local_uid(),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn local_uid() -> String {
+    unsafe { libc::getuid() }.to_string()
+}
+
+#[cfg(not(unix))]
+fn local_uid() -> String {
+    String::new()
+}
+
 pub(crate) struct Tokens<'a> {
     pub(crate) host: &'a str,
     pub(crate) port: u16,
     pub(crate) user: &'a str,
     pub(crate) name: &'a str,
-    pub(crate) local_user: &'a str,
+    pub(crate) local: &'a Local,
 }
 
+const NAME_CHARACTERS: &[char] = &['.', '-', '_'];
+const HOST_CHARACTERS: &[char] = &['.', '-', '_', ':'];
+const PATH_CHARACTERS: &[char] = &['.', '-', '_', '/', '\\', ':', '~'];
+
 fn checked<'a>(value: &'a str, extra: &[char], what: &str, token: char) -> Result<&'a str, String> {
-    if safe_in_a_command(value, extra) {
+    if value.is_empty() {
+        Err(format!("the {what} is not known here, so %{token} cannot be used"))
+    } else if safe_in_a_command(value, extra) {
         Ok(value)
     } else {
         Err(format!("the {what} has characters the shell would treat as code, so %{token} cannot be used"))
     }
+}
+
+fn connection_hash(tokens: &Tokens) -> String {
+    use sha1::{Digest, Sha1};
+    let mut hasher = Sha1::new();
+    hasher.update(tokens.local.host.as_bytes());
+    hasher.update(tokens.host.as_bytes());
+    hasher.update(tokens.port.to_string().as_bytes());
+    hasher.update(tokens.user.as_bytes());
+    hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub(crate) fn expand(command: &str, tokens: &Tokens) -> Result<String, String> {
@@ -52,13 +99,24 @@ pub(crate) fn expand(command: &str, tokens: &Tokens) -> Result<String, String> {
             expanded.push(character);
             continue;
         }
+        let local = tokens.local;
         match characters.next() {
             Some('%') => expanded.push('%'),
             Some('p') => expanded.push_str(&tokens.port.to_string()),
-            Some('h') => expanded.push_str(checked(tokens.host, &['.', '-', '_', ':'], "host name", 'h')?),
-            Some('r') => expanded.push_str(checked(tokens.user, &['.', '-', '_'], "user name", 'r')?),
-            Some('n') => expanded.push_str(checked(tokens.name, &['.', '-', '_'], "name", 'n')?),
-            Some('u') => expanded.push_str(checked(tokens.local_user, &['.', '-', '_'], "local user name", 'u')?),
+            Some('h') => expanded.push_str(checked(tokens.host, HOST_CHARACTERS, "host name", 'h')?),
+            Some('k') => expanded.push_str(checked(tokens.host, HOST_CHARACTERS, "host name", 'k')?),
+            Some('r') => expanded.push_str(checked(tokens.user, NAME_CHARACTERS, "user name", 'r')?),
+            Some('n') => expanded.push_str(checked(tokens.name, NAME_CHARACTERS, "name", 'n')?),
+            Some('u') => expanded.push_str(checked(&local.user, NAME_CHARACTERS, "local user name", 'u')?),
+            Some('l') => expanded.push_str(checked(&local.host, HOST_CHARACTERS, "local host name", 'l')?),
+            Some('L') => {
+                let full = checked(&local.host, HOST_CHARACTERS, "local host name", 'L')?;
+                expanded.push_str(full.split('.').next().unwrap_or(full));
+            }
+            Some('d') => expanded.push_str(checked(&local.home, PATH_CHARACTERS, "home folder", 'd')?),
+            Some('i') => expanded.push_str(checked(&local.uid, &[], "local user ID", 'i')?),
+            Some('j') => {}
+            Some('C') => expanded.push_str(&connection_hash(tokens)),
             Some(other) => return Err(format!("the proxy command uses %{other}, which is not known")),
             None => return Err("the proxy command ends with a lone %".to_string()),
         }
