@@ -13,7 +13,7 @@ testing = ["dep:tempfile", "tokio/process"]
 anyhow.workspace = true
 porthmos-vfs.workspace = true
 russh.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["net", "process", "io-util"] }
 tracing.workspace = true
 tempfile = { workspace = true, optional = true }
 

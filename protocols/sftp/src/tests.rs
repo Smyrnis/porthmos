@@ -230,9 +230,21 @@ fn the_sftp_form_offers_an_optional_jump_host_after_the_identity_file() {
     let form = Sftp.connection_form();
 
     let keys: Vec<&str> = form.options.iter().map(|field| field.key).collect();
-    assert_eq!(keys, ["identity_file", "proxy_jump"]);
+    assert_eq!(keys, ["identity_file", "proxy_jump", "proxy", "proxy_command"]);
     let jump = form.option("proxy_jump").expect("a jump host field");
     assert_eq!((jump.label, jump.required), ("Jump host", false));
+}
+
+#[test]
+fn the_sftp_form_offers_an_optional_proxy_and_proxy_command() {
+    let form = Sftp.connection_form();
+
+    let proxy = form.option("proxy").expect("a proxy field");
+    assert_eq!((proxy.label, proxy.required), ("Proxy", false));
+    assert_eq!(proxy, &porthmos_ssh::PROXY_FIELD);
+    let command = form.option("proxy_command").expect("a proxy command field");
+    assert_eq!((command.label, command.required), ("Proxy command", false));
+    assert_eq!(command, &porthmos_ssh::PROXY_COMMAND_FIELD);
 }
 
 #[test]

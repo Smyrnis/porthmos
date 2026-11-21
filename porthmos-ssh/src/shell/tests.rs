@@ -347,3 +347,121 @@ fn command_for_an_ssh_config_alias_leaves_the_jump_to_the_config() {
 
     assert!(!args_of(&invocation).contains(&"-J".to_string()));
 }
+
+#[test]
+fn command_passes_a_proxy_command_to_ssh_as_an_option() {
+    let mut target = sample_target();
+    target.options.insert("proxy_command".to_string(), "corp-gate %h %p".to_string());
+
+    let invocation = invocation_for(&target, None, PasswordLogin::Plain);
+
+    assert_eq!(
+        args_of(&invocation),
+        vec![
+            "-p",
+            "2222",
+            "-i",
+            "/home/user/.ssh/id_ed25519",
+            "-o",
+            "ProxyCommand=corp-gate %h %p",
+            "deploy@server.example.com"
+        ]
+    );
+}
+
+#[test]
+fn command_overrides_a_config_proxy_command_when_the_field_says_none() {
+    for value in ["none", "NONE", " none "] {
+        let mut target = sample_target();
+        target.options.insert("proxy_command".to_string(), value.to_string());
+
+        let args = args_of(&invocation_for(&target, None, PasswordLogin::Plain));
+
+        assert!(args.contains(&"ProxyCommand=none".to_string()), "{value:?}: {args:?}");
+    }
+}
+
+#[test]
+fn command_adds_no_proxy_option_for_a_blank_field() {
+    for value in ["", "  "] {
+        let mut target = sample_target();
+        target.options.insert("proxy_command".to_string(), value.to_string());
+
+        let invocation = invocation_for(&target, None, PasswordLogin::Plain);
+
+        assert!(!args_of(&invocation).iter().any(|arg| arg.starts_with("ProxyCommand")), "{value:?}");
+    }
+}
+
+#[test]
+fn command_for_an_ssh_config_alias_leaves_the_proxy_command_to_the_config() {
+    let mut target = sample_target();
+    target.options.insert("proxy_command".to_string(), "corp-gate %h %p".to_string());
+
+    let invocation = invocation_for(&target, Some("production"), PasswordLogin::Plain);
+
+    assert!(!args_of(&invocation).iter().any(|arg| arg.starts_with("ProxyCommand")));
+}
+
+#[test]
+fn command_turns_a_proxy_address_into_a_netcat_proxy_command() {
+    for (address, expected) in [
+        ("socks5://gate:1080", "ProxyCommand=nc -X 5 -x gate:1080 %h %p"),
+        ("socks4://gate:1081", "ProxyCommand=nc -X 4 -x gate:1081 %h %p"),
+        ("http://gate:3128", "ProxyCommand=nc -X connect -x gate:3128 %h %p"),
+        ("socks5://gate", "ProxyCommand=nc -X 5 -x gate:1080 %h %p"),
+    ] {
+        let mut target = sample_target();
+        target.options.insert("proxy".to_string(), address.to_string());
+
+        let invocation = invocation_for(&target, None, PasswordLogin::Plain);
+
+        assert!(args_of(&invocation).contains(&expected.to_string()), "{address}: {:?}", args_of(&invocation));
+    }
+}
+
+#[test]
+fn command_never_connects_directly_when_the_proxy_cannot_be_used() {
+    for options in [
+        vec![("proxy", "gate:1080")],
+        vec![("proxy", "socks5://alice:secret@gate")],
+        vec![("proxy", "socks5://gate"), ("proxy_command", "nc %h %p")],
+    ] {
+        let mut target = sample_target();
+        for (key, value) in options {
+            target.options.insert(key.to_string(), value.to_string());
+        }
+
+        let invocation = invocation_for(&target, None, PasswordLogin::Plain);
+
+        let args = args_of(&invocation);
+        assert!(args.contains(&"ProxyCommand=false".to_string()), "{args:?}");
+        assert!(!args.iter().any(|arg| arg.contains("secret")), "{args:?}");
+    }
+}
+
+#[test]
+fn a_none_proxy_command_does_not_get_in_the_way_of_a_jump_host() {
+    let mut target = sample_target();
+    target.options.insert("proxy_jump".to_string(), "bastion".to_string());
+    target.options.insert("proxy_command".to_string(), "none".to_string());
+
+    let args = args_of(&invocation_for(&target, None, PasswordLogin::Plain));
+
+    assert!(args.contains(&"-J".to_string()), "{args:?}");
+    assert!(!args.iter().any(|arg| arg.starts_with("ProxyCommand")), "{args:?}");
+}
+
+#[test]
+fn a_proxy_together_with_a_jump_host_never_connects_directly() {
+    for (key, value) in [("proxy_command", "corp-gate %h %p"), ("proxy", "socks5://gate:1080")] {
+        let mut target = sample_target();
+        target.options.insert("proxy_jump".to_string(), "bastion".to_string());
+        target.options.insert(key.to_string(), value.to_string());
+
+        let args = args_of(&invocation_for(&target, None, PasswordLogin::Plain));
+
+        assert!(args.contains(&"ProxyCommand=false".to_string()), "{key}: {args:?}");
+        assert!(!args.contains(&"-J".to_string()), "{key}: {args:?}");
+    }
+}

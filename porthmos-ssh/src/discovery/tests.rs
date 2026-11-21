@@ -62,3 +62,90 @@ fn a_profile_with_another_jump_than_its_alias_no_longer_matches_the_alias() {
     target.options.insert("proxy_jump".to_string(), "elsewhere".to_string());
     assert!(!matches_its_ssh_config_alias(&target, &env));
 }
+
+#[test]
+fn a_discovered_host_carries_its_proxy_command() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n  ProxyCommand nc -X 5 -x gate:1080 %h %p\n");
+
+    let targets = discover(&env).unwrap();
+
+    assert_eq!(targets[0].option("proxy_command"), Some("nc -X 5 -x gate:1080 %h %p"));
+    assert_eq!(targets[0].option("proxy_jump"), None);
+}
+
+#[test]
+fn a_discovered_host_without_a_proxy_command_has_no_such_option() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n");
+
+    assert_eq!(discover(&env).unwrap()[0].option("proxy_command"), None);
+}
+
+#[test]
+fn a_profile_that_says_nothing_about_a_proxy_command_still_matches_its_alias() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n  ProxyCommand gate %h %p\n");
+    let mut target = discover(&env).unwrap().remove(0);
+    target.options.remove("proxy_command");
+
+    assert!(matches_its_ssh_config_alias(&target, &env));
+}
+
+#[test]
+fn a_profile_with_another_proxy_command_than_its_alias_no_longer_matches_the_alias() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n  ProxyCommand gate %h %p\n");
+    let mut target = discover(&env).unwrap().remove(0);
+
+    assert!(matches_its_ssh_config_alias(&target, &env));
+    target.options.insert("proxy_command".to_string(), "other %h %p".to_string());
+    assert!(!matches_its_ssh_config_alias(&target, &env));
+}
+
+#[test]
+fn a_profile_with_a_proxy_address_no_longer_matches_its_alias_because_the_config_cannot_carry_it() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n");
+    let mut target = discover(&env).unwrap().remove(0);
+
+    assert!(matches_its_ssh_config_alias(&target, &env));
+    target.options.insert("proxy".to_string(), "socks5://gate:1080".to_string());
+    assert!(!matches_its_ssh_config_alias(&target, &env));
+}
+
+#[test]
+fn a_proxy_on_a_profile_whose_config_alias_has_a_jump_host_never_connects_directly() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n  ProxyJump bastion\n");
+    let mut target = discover(&env).unwrap().remove(0);
+    target.options.remove("proxy_jump");
+    target.options.insert("proxy".to_string(), "socks5://gate:1080".to_string());
+
+    let invocation = shell_command(&target, &env);
+
+    let args: Vec<String> = invocation.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+    assert!(args.contains(&"ProxyCommand=false".to_string()), "{args:?}");
+    assert!(!args.contains(&"-J".to_string()), "{args:?}");
+}
+
+#[test]
+fn a_blank_proxy_command_still_matches_an_alias_that_has_none() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n");
+    let mut target = discover(&env).unwrap().remove(0);
+    target.options.insert("proxy_command".to_string(), String::new());
+
+    assert!(matches_its_ssh_config_alias(&target, &env));
+}
+
+#[test]
+fn a_blank_proxy_command_does_not_match_an_alias_that_has_one() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n  ProxyCommand gate %h %p\n");
+    let mut target = discover(&env).unwrap().remove(0);
+    target.options.insert("proxy_command".to_string(), "  ".to_string());
+
+    assert!(!matches_its_ssh_config_alias(&target, &env));
+}
+
+#[test]
+fn a_proxy_of_none_still_matches_the_alias() {
+    let (_dir, env) = home_with("Host box\n  HostName 10.0.0.2\n");
+    let mut target = discover(&env).unwrap().remove(0);
+    target.options.insert("proxy".to_string(), "none".to_string());
+
+    assert!(matches_its_ssh_config_alias(&target, &env));
+}

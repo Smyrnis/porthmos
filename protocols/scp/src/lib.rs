@@ -74,6 +74,8 @@ impl Protocol for Scp {
             kind: OptionKind::Text { default: "" },
         });
         form.options.push(porthmos_ssh::PROXY_JUMP_FIELD);
+        form.options.push(porthmos_ssh::PROXY_FIELD);
+        form.options.push(porthmos_ssh::PROXY_COMMAND_FIELD);
         form
     }
 

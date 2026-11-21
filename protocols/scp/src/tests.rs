@@ -27,6 +27,14 @@ fn the_form_offers_the_same_optional_jump_host() {
 }
 
 #[test]
+fn the_form_offers_the_same_optional_proxy_and_proxy_command() {
+    let form = Scp::default().connection_form();
+
+    assert_eq!(form.option("proxy"), Some(&porthmos_ssh::PROXY_FIELD));
+    assert_eq!(form.option("proxy_command"), Some(&porthmos_ssh::PROXY_COMMAND_FIELD));
+}
+
+#[test]
 fn scp_does_not_discover_hosts() {
     assert!(Scp::default().discover(&Environment::default()).unwrap().is_empty());
 }

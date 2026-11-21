@@ -9,6 +9,7 @@ use crate::{
     client::{self, HostKeyCheck, HostKeyDeclined, HostKeyQuestion, PorthmosHandler, ServerId},
     discovery::{FALLBACK_USERNAME, identity_path},
     jump::{effective_jump, resolve_chain},
+    proxy::{self, Route},
     ssh_config::{self, SshConfigHost},
 };
 
@@ -80,8 +81,28 @@ struct Via<'a> {
     name: &'a str,
 }
 
+async fn reach_directly_or_by_proxy(
+    target: &Target, route: Option<&Route>, local_user: &str, host_key: HostKeyCheck,
+) -> anyhow::Result<(Handle<PorthmosHandler>, ServerId)> {
+    let Some(route) = route else {
+        return client::connect(host_key).await;
+    };
+    let tokens =
+        proxy::Tokens { host: &target.host, port: target.port, user: &target.username, name: &target.name, local_user };
+    let opened =
+        proxy::open_route(route, &tokens).await.map_err(|reason| anyhow!("Couldn't use the proxy: {reason}"))?;
+    let diagnostics = opened.diagnostics.clone();
+    match client::connect_over(opened.stream, host_key).await {
+        Err(error) if error.downcast_ref::<HostKeyDeclined>().is_none() => {
+            Err(proxy::explain(diagnostics, error).await)
+        }
+        other => other,
+    }
+}
+
 async fn open(
-    target: &Target, via: Option<Via<'_>>, prompter: &mut dyn Prompter, options: &ConnectOptions,
+    target: &Target, via: Option<Via<'_>>, route: Option<&Route>, local_user: &str, prompter: &mut dyn Prompter,
+    options: &ConnectOptions,
 ) -> Result<(Handle<PorthmosHandler>, ServerId), ProtocolError> {
     let (questions, mut asked) = mpsc::channel(1);
     let known_hosts = options.known_hosts.clone().or_else(client::default_known_hosts);
@@ -97,7 +118,7 @@ async fn open(
                     })?;
                 client::connect_over(channel.into_stream(), host_key).await
             }
-            None => client::connect(host_key).await,
+            None => reach_directly_or_by_proxy(target, route, local_user, host_key).await,
         }
     };
     let (mut handle, server) =
@@ -160,17 +181,27 @@ async fn connect_through(
     fallback_user: &str,
 ) -> Result<Session, ProtocolError> {
     let hops = jump_targets(target, hosts, fallback_user)?;
+    let refused = |reason: String| ProtocolError::new(ErrorKind::Connect, anyhow!(reason));
+    let target_route = proxy::route_for(target, hosts).map_err(refused)?;
+    let first_route = match hops.first() {
+        Some(first_hop) => proxy::route_for(first_hop, hosts).map_err(refused)?,
+        None => target_route,
+    };
     let mut jumps: Vec<Handle<PorthmosHandler>> = Vec::new();
     for hop in &hops {
         let via = jumps
             .last()
             .zip(jumps.len().checked_sub(1).and_then(|index| hops.get(index)))
             .map(|(handle, previous)| Via { handle, name: previous.name.as_str() });
-        let (handle, _) = open(hop, via, prompter, options).await.map_err(|error| reaching_jump(&hop.name, error))?;
+        let route = if jumps.is_empty() { first_route.as_ref() } else { None };
+        let (handle, _) = open(hop, via, route, fallback_user, prompter, options)
+            .await
+            .map_err(|error| reaching_jump(&hop.name, error))?;
         jumps.push(handle);
     }
     let via = jumps.last().zip(hops.last()).map(|(handle, last)| Via { handle, name: last.name.as_str() });
-    let (handle, server) = open(target, via, prompter, options).await?;
+    let route = if hops.is_empty() { first_route.as_ref() } else { None };
+    let (handle, server) = open(target, via, route, fallback_user, prompter, options).await?;
     Ok(Session { handle, server, _jumps: jumps })
 }
 

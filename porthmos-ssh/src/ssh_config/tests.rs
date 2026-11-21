@@ -227,3 +227,53 @@ fn the_first_identity_file_among_blocks_naming_the_host_wins() {
 
     assert_eq!(host.identity_file, Some(std::path::PathBuf::from("/home/test/.ssh/one")));
 }
+
+#[test]
+fn a_proxy_command_is_kept_as_written() {
+    let host = only("Host box\n  ProxyCommand nc -X 5 -x gate:1080 %h %p\n");
+
+    assert_eq!(host.proxy_command.as_deref(), Some("nc -X 5 -x gate:1080 %h %p"));
+    assert_eq!(host.proxy_jump, None);
+}
+
+#[test]
+fn a_host_without_a_proxy_command_has_none() {
+    assert_eq!(only("Host box\n  HostName h\n").proxy_command, None);
+}
+
+#[test]
+fn a_wildcard_proxy_command_applies_when_the_host_has_none() {
+    let host = only("Host box\n  HostName h\nHost *\n  ProxyCommand gate %h %p\n");
+
+    assert_eq!(host.proxy_command.as_deref(), Some("gate %h %p"));
+}
+
+#[test]
+fn the_hosts_own_proxy_command_wins_over_a_wildcard() {
+    let host = only("Host box\n  ProxyCommand mine\nHost *\n  ProxyCommand gate\n");
+
+    assert_eq!(host.proxy_command.as_deref(), Some("mine"));
+}
+
+#[test]
+fn proxy_command_none_switches_a_wildcard_command_off() {
+    let host = only("Host box\n  ProxyCommand none\nHost *\n  ProxyCommand gate\n");
+
+    assert_eq!(host.proxy_command, None);
+}
+
+#[test]
+fn whichever_of_proxy_jump_and_proxy_command_comes_first_wins() {
+    let jump_first = only("Host box\n  ProxyJump hop\n  ProxyCommand cmd\n");
+    let command_first = only("Host box\n  ProxyCommand cmd\n  ProxyJump hop\n");
+
+    assert_eq!((jump_first.proxy_jump.as_deref(), jump_first.proxy_command.as_deref()), (Some("hop"), None));
+    assert_eq!((command_first.proxy_jump.as_deref(), command_first.proxy_command.as_deref()), (None, Some("cmd")));
+}
+
+#[test]
+fn a_proxy_command_keeps_quotes_and_spaces() {
+    let host = only("Host box\n  ProxyCommand ssh -W %h:%p \"jump host\"\n");
+
+    assert_eq!(host.proxy_command.as_deref(), Some("ssh -W %h:%p \"jump host\""));
+}

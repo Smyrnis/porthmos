@@ -8,8 +8,11 @@ use porthmos_vfs::{ShellInvocation, Target};
 use crate::{
     askpass::{HELPER_SWITCH, PASSWORD_VARIABLE, USER_VARIABLE, usable_password},
     jump::declared_jump,
+    proxy::terminal_command,
     version::SshVersion,
 };
+
+const NO_PROXY_COMMAND: &str = "none";
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PasswordLogin {
@@ -75,11 +78,22 @@ pub fn invocation_for(target: &Target, ssh_config_alias: Option<&str>, login: Pa
         args.push(OsString::from("-i"));
         args.push(OsString::from(identity_file));
     }
-    if ssh_config_alias.is_none()
-        && let Some(jump) = declared_jump(target)
-    {
-        args.push(OsString::from("-J"));
-        args.push(OsString::from(jump));
+    if ssh_config_alias.is_none() {
+        match (declared_jump(target), terminal_command(target)) {
+            (Some(_), Some(command)) if command != NO_PROXY_COMMAND => {
+                args.push(OsString::from("-o"));
+                args.push(OsString::from("ProxyCommand=false"));
+            }
+            (Some(jump), _) => {
+                args.push(OsString::from("-J"));
+                args.push(OsString::from(jump));
+            }
+            (None, Some(command)) => {
+                args.push(OsString::from("-o"));
+                args.push(OsString::from(format!("ProxyCommand={command}")));
+            }
+            (None, None) => {}
+        }
     }
     match ssh_config_alias {
         Some(alias) => args.push(OsString::from(alias)),

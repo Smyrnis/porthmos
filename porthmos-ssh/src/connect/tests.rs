@@ -95,6 +95,7 @@ fn gate_alias(port: u16) -> SshConfigHost {
         port: Some(port),
         identity_file: None,
         proxy_jump: None,
+        proxy_command: None,
     }
 }
 
@@ -132,4 +133,58 @@ async fn a_target_without_a_jump_ignores_the_config_aliases() {
         .expect("a direct connection");
 
     assert_eq!(prompter.asked.len(), 1);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_jump_host_whose_config_alias_has_a_proxy_command_is_reached_through_it() {
+    let target_server = crate::testing::SshServer::start(crate::testing::Options::default()).await;
+    let jump =
+        crate::testing::SshServer::start(crate::testing::Options { forwarding: true, ..Default::default() }).await;
+    let mut gate = gate_alias(1);
+    gate.proxy_command =
+        Some(format!("bash -c 'exec 3<>/dev/tcp/127.0.0.1/{}; cat <&3 & cat >&3; kill $!'", jump.port));
+    let mut target = target_server.target();
+    target.options.insert("proxy_jump".to_string(), "gate".to_string());
+    let mut prompter = crate::testing::answers(vec![
+        Some(Answer::Confirmed),
+        Some(Answer::Password(crate::testing::PASSWORD.to_string())),
+        Some(Answer::Confirmed),
+    ]);
+
+    connect_through(&target, &mut prompter, &target_server.connect_options(), &[gate], "me")
+        .await
+        .expect("the jump host is reached through its proxy command, not directly");
+
+    assert_eq!(jump.forwarded_connections(), 1);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_second_jump_host_is_not_given_the_first_ones_proxy_command() {
+    let target_server = crate::testing::SshServer::start(crate::testing::Options::default()).await;
+    let first =
+        crate::testing::SshServer::start(crate::testing::Options { forwarding: true, ..Default::default() }).await;
+    let second =
+        crate::testing::SshServer::start(crate::testing::Options { forwarding: true, ..Default::default() }).await;
+    let mut gate = gate_alias(1);
+    gate.proxy_command =
+        Some(format!("bash -c 'exec 3<>/dev/tcp/127.0.0.1/{}; cat <&3 & cat >&3; kill $!'", first.port));
+    let mut inner = gate_alias(second.port);
+    inner.name = "inner".to_string();
+    let mut target = target_server.target();
+    target.options.insert("proxy_jump".to_string(), format!("gate,{}@127.0.0.1:{}", crate::testing::USER, second.port));
+    let mut prompter = crate::testing::answers(vec![
+        Some(Answer::Confirmed),
+        Some(Answer::Password(crate::testing::PASSWORD.to_string())),
+        Some(Answer::Confirmed),
+        Some(Answer::Password(crate::testing::PASSWORD.to_string())),
+        Some(Answer::Confirmed),
+    ]);
+
+    connect_through(&target, &mut prompter, &target_server.connect_options(), &[gate, inner], "me")
+        .await
+        .expect("only the first hop uses the command");
+
+    assert_eq!((first.forwarded_connections(), second.forwarded_connections()), (1, 1));
 }

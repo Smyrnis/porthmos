@@ -10,6 +10,7 @@ fn alias(name: &str, host_name: Option<&str>, user: Option<&str>, port: Option<u
         port,
         identity_file: None,
         proxy_jump: None,
+        proxy_command: None,
     }
 }
 

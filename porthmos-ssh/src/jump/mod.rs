@@ -19,28 +19,29 @@ pub(crate) fn declared_jump(target: &Target) -> Option<&str> {
     (!spec.is_empty() && !spec.eq_ignore_ascii_case("none")).then_some(spec)
 }
 
+pub(crate) fn matching_alias<'a>(target: &Target, hosts: &'a [SshConfigHost]) -> Option<&'a SshConfigHost> {
+    hosts.iter().find(|alias| {
+        alias.name.eq_ignore_ascii_case(&target.name)
+            && alias.host_name.as_deref().unwrap_or(&alias.name) == target.host
+            && alias.port.unwrap_or(DEFAULT_PORT) == target.port
+    })
+}
+
 pub(crate) fn effective_jump<'a>(target: &'a Target, hosts: &'a [SshConfigHost]) -> Option<&'a str> {
     if target.option("proxy_jump").is_some() {
         return declared_jump(target);
     }
-    hosts
-        .iter()
-        .find(|alias| {
-            alias.name.eq_ignore_ascii_case(&target.name)
-                && alias.host_name.as_deref().unwrap_or(&alias.name) == target.host
-                && alias.port.unwrap_or(DEFAULT_PORT) == target.port
-        })
-        .and_then(|alias| alias.proxy_jump.as_deref())
+    matching_alias(target, hosts).and_then(|alias| alias.proxy_jump.as_deref())
 }
 
-fn parse_port(text: &str) -> Result<u16, String> {
+pub(crate) fn parse_port(text: &str) -> Result<u16, String> {
     match text.parse::<u16>() {
         Ok(0) | Err(_) => Err(format!("\"{text}\" is not a valid port")),
         Ok(port) => Ok(port),
     }
 }
 
-fn host_and_port(text: &str) -> Result<(String, Option<u16>), String> {
+pub(crate) fn host_and_port(text: &str) -> Result<(String, Option<u16>), String> {
     if let Some(rest) = text.strip_prefix('[') {
         let (host, after) = rest.split_once(']').ok_or_else(|| format!("\"{text}\" is missing a closing bracket"))?;
         let port = match after.strip_prefix(':') {
