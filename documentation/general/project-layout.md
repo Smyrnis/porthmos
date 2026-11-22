@@ -6,8 +6,9 @@ The repository is a Cargo workspace:
   implements (`FileSystem`, `Protocol`, `Prompter`) and the shared file types.
 - `porthmos-lfs` — the local file system as a `FileSystem`.
 - `porthmos-ssh` — SSH connections (including hops through `ProxyJump`
-  bastion hosts), host keys, `~/.ssh/config` discovery and the `ssh` terminal
-  hand-off, shared by the SFTP and SCP protocols.
+  bastion hosts and connections through HTTP, SOCKS or command proxies), host
+  keys, `~/.ssh/config` discovery and the `ssh` terminal hand-off, shared by the
+  SFTP and SCP protocols.
 - `porthmos-tls` — certificate trust shared by the FTPS and WebDAV protocols.
 - `protocols/` — one crate per remote protocol:
   - `protocols/sftp` (`porthmos-sftp`) — SFTP.

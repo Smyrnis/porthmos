@@ -24,10 +24,13 @@
   (`sitemanager.xml`), WinSCP (`WinSCP.ini`) or PuTTY (its saved sessions, or a
   `.reg` export). You see a table of what was found, tick the rows you want, and
   rows whose name already exists are marked and left alone. Passwords are never
-  imported, so you type each one on first connect. In the terminal app choose
-  "Import connections" in the command palette (`Ctrl+P`) and press `Ctrl+T` to
-  complete the path; in the window app press Import… in the connection manager,
-  where Browse… opens a file chooser.
+  imported, so you type each one on first connect. A PuTTY or WinSCP session
+  that connects through a SOCKS4, SOCKS5 or HTTP proxy comes in with that
+  proxy and its user name (not its password, which you type in as well); other
+  proxy types are left out and the row says so. In the terminal app press `i`
+  on the Connections screen, or choose "Import connections" in the command
+  palette (`Ctrl+P`), and press `Ctrl+T` to complete the path; in the window app
+  press Import… in the connection manager, where Browse… opens a file chooser.
 - **Jump hosts** — an SFTP or SCP connection can reach a server that is only
   reachable through one or more bastion hosts. Fill in the connection's "Jump
   host" (`[user@]host[:port]`, comma-separated for several hops, or `none` to
@@ -35,7 +38,22 @@
   no jump host of its own uses the one of the `~/.ssh/config` entry with the same
   name, host and port. Every hop asks for its host key and password like a normal
   connection, and the terminal button passes the same chain to `ssh -J`.
-  `ProxyCommand` and HTTP or SOCKS proxies are not supported.
+- **Proxies** — an SFTP or SCP connection can go through an HTTP, SOCKS5 or
+  SOCKS4 proxy, or through a command. Fill in the connection's "Proxy"
+  (`http://host:port`, `socks5://host:port` or `socks4://host:port`; `none`
+  means no proxy), or "Proxy command" (a command that connects its standard
+  input and output to the server, such as `ssh -W %h:%p gate`), or set
+  `ProxyCommand` in `~/.ssh/config`. A proxy that wants a login uses "Proxy
+  user" and "Proxy password"; the password goes to the system keyring like the
+  other saved secrets. SOCKS4 has no password. A proxy together with a jump
+  host is used for the first connection only (to the first jump host). Setting
+  both Proxy and Proxy command is refused. In a proxy command `%h`, `%p`, `%r`,
+  `%n`, `%u`, `%%`, `%C`, `%d`, `%i`, `%j`, `%k`, `%L` and `%l` are filled in
+  like OpenSSH does; a value that the shell could read as code is refused. The
+  terminal button runs `ssh` with the same proxy through `nc` (the OpenBSD
+  version, `netcat-openbsd`); it does not connect, instead of going around the
+  proxy, when the proxy has a login or is combined with a jump host, or when
+  `nc` is the wrong version. See [Proxies](configuration.md#proxies).
 - **Reconnect** — off by default. With `[connection] reconnect = true` (also in
   the window app's Settings) a dropped connection is retried after 2, 5, 10, 20
   and 40 seconds and the remote panel returns to the folder it was in. It stops
@@ -71,11 +89,12 @@
   the window app. It measures the size of the chosen files and folders (with a
   progress count you can cancel) and calculates a file's SHA-256 checksum, which
   you can compare with a digest you paste.
-- **Permissions** — `P` on SFTP, SCP and the local panel. The terminal app takes
+- **Permissions** — `P` on SFTP, SCP, FTP and FTPS (when the server accepts
+  `SITE CHMOD`) and the local panel. The terminal app takes
   an octal mode; add `-R` (`755 -R`) to change everything inside the chosen
-  folders too. The window app has read, write and execute boxes and an "Apply to
-  everything inside folders" box. Links are not followed. WebDAV and S3 have no
-  modes.
+  folders too. The window app has read, write and execute boxes, boxes for set
+  user ID, set group ID and sticky, and an "Apply to everything inside folders"
+  box. Links are not followed. WebDAV and S3 have no modes.
 - **Compare folders** — `=` (or "Compare folders" in the palette) marks, in both
   panels, what differs between the two folders shown: only on this side, newer,
   older, a different size, or a file against a folder. It compares names, then
@@ -87,7 +106,12 @@
 - **Search** — recursive filename search on either side, and a live filter
   (`/`) for the folder you are in. With `[search] preview` turned on (a
   checkbox in the window app's Settings), a pane below the results shows the
-  start of the file under the cursor.
+  start of the file under the cursor. A search reads up to `[search] max_depth`
+  folder levels and keeps `[search] max_results` matches, then says the list
+  was cut short. When it could not read some folders it says how many, because
+  the results may be missing files. In the window app's Search window,
+  `Shift+Enter` shows the result in the main window and keeps the focus in the
+  Search window, so you can step through the results with the keyboard.
 - **History** — a log of past transfers.
 - **Bookmarks** — jump back to a local or remote folder on a given host.
 - **Command palette** — `Ctrl+P` finds actions and hosts to connect or

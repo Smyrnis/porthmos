@@ -92,6 +92,44 @@ saved connections are remembered, in the order you opened them. Changing the
 setting in the window app's Settings applies at once; in the terminal app edit
 `config.toml` and restart.
 
+## Proxies
+
+An SFTP or SCP connection keeps its proxy settings in `connections.toml` with
+the other options of the connection: `proxy` (`http://host:port`,
+`socks5://host:port` or `socks4://host:port`; the port defaults to 8080 for HTTP
+and 1080 for SOCKS), `proxy_user`, `proxy_command` and `proxy_jump`. `none` in
+`proxy` means no proxy, `none` in `proxy_command` stops the connection from
+using the `ProxyCommand` of its `~/.ssh/config` entry, and `none` in
+`proxy_jump` stops it from using that entry's `ProxyJump`. The proxy
+password is never written to `connections.toml`: it goes to the system keyring
+under the connection's name, or is kept until Porthmos quits when there is no
+keyring.
+
+A saved connection with no proxy and no jump host of its own uses the
+`ProxyCommand` of the `~/.ssh/config` entry that has the same name, host and
+port. When a connection has a jump host, that wins over a `ProxyCommand` from
+`~/.ssh/config`. Setting `proxy` and `proxy_command` together is an error, and
+so is a proxy user or password without a proxy.
+
+A proxy command runs in your shell (`sh -c`, or `cmd /C` on Windows). Porthmos
+gives up when the command sends nothing for 30 seconds and shows what it
+printed to standard error. A value filled into the command (`%h`, `%r`, and so
+on) is refused when it holds anything but letters, digits and a few safe
+punctuation marks, or starts with `-`.
+
+The terminal button (`F4` on the remote panel) cannot take a proxy login or a
+proxy together with a jump host, so it does not connect then. For an HTTP or
+SOCKS proxy without a login it runs `ssh` with `ProxyCommand=nc -X ... -x ...`,
+which needs the OpenBSD `nc` (`netcat-openbsd`); on Linux and macOS Porthmos
+checks first and says so when `nc` is another version.
+
+## Search limits
+
+`[search] max_depth` (1 to 64, default 16) is how many folder levels below the
+starting folder a search reads, and `max_results` (10 to 10000, default 1000) is
+how many matches it keeps before it stops and says the list was cut short.
+Folders such as `.git` and `node_modules` are searched too.
+
 ## Sorting
 
 `[panel] sort_key` is `"name"`, `"size"`, `"modified"` or `"type"` (the file

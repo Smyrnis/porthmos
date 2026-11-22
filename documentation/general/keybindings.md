@@ -61,9 +61,9 @@ on, `PageUp` / `PageDown` scroll the preview instead of the list.
 
 **Connections:** `n` / `F6` add, `e` / `F2` edit, `x` / `F8` disconnect,
 `Delete` delete the saved connection, `o` reopen the last connections (when
-`[startup] reopen` offers them). Importing connections has no default key; use
-"Import connections" in the command palette, and `Ctrl+T` completes the path in
-its form.
+`[startup] reopen` offers them), `i` import connections from FileZilla, WinSCP
+or PuTTY (also "Import connections" in the command palette); `Ctrl+T` completes
+the path in its form. An empty Connections screen hints at `i`.
 
 **Sync review:** `↑` `↓` move, `Space` tick or untick a row, `a` tick all, `n`
 tick none, `f` flip the direction of the row under the cursor (where either way is possible), `/` filter, `Enter` run what is ticked.
@@ -109,7 +109,7 @@ path, click the empty part of a panel's path bar. The defaults are below. On mac
 | `p` | Preview |
 | `F4` | Open a terminal here: your shell on the local panel, `ssh` on the remote panel |
 | `Ctrl+T` | Show or hide transfers |
-| `Ctrl+F` | Search |
+| `Ctrl+F` | Search (in its window, `Enter` raises the main window, `Shift+Enter` keeps the focus in Search) |
 | `Ctrl+B` / `Ctrl+D` | Bookmarks / bookmark this folder |
 | `Ctrl+Y` | Transfer history |
 | `Ctrl+U` | Synchronize |
