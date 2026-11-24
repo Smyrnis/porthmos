@@ -1,3 +1,2 @@
 [alias]
-tui = "run -p porthmos-tui"
 gui = "run -p porthmos-gui"
