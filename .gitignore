@@ -1,7 +1,28 @@
+# Rust target generated file
 /target
+
+# Ignore worktrees
 .worktrees/
+
+# Ignore docs/
+# docs dir is used for personal plans e.t.c
+# For the docs we have the Documentation
 docs/
+
+# Ignore superpowers
 .superpowers/
-Roadmap.md
+
+# Ignore the dir that the generated icons get stored from scripts/icons/generateIcons.sh
 assets/icon/png/*
 !assets/icon/png/.gitkeep
+
+# Ignore .claude
+.claude
+
+# Ignore editor specific hidden dirs. (Add more based from the editor of your preference)
+.idea
+.vscode
+.zed
+
+# Ignore zetetic , the plan / research folder . 
+zetetic/
