@@ -14,14 +14,15 @@ fail() {
 
 usage() {
   cat << 'USAGE'
-Usage: install.sh [--gui] [--preview]
+Usage: install.sh [--preview] [--gui]
 
-Installs Porthmos into $PORTHMOS_INSTALL_DIR (default ~/.local/share/porthmos)
-and links it from $PORTHMOS_BIN_DIR (default ~/.local/bin).
+Installs the Porthmos window app (porthmos-gui) into $PORTHMOS_INSTALL_DIR
+(default ~/.local/share/porthmos) and links it from $PORTHMOS_BIN_DIR
+(default ~/.local/bin).
 
-  --gui       install the window app (porthmos-gui) instead of the terminal
-              app (porthmos). The two are separate programs: installing one
-              never touches the other.
+  --gui       accepted and ignored: the window app is the only app. It stays
+              so that install commands written before the terminal app was
+              retired keep working.
   --preview   install the preview build instead of the stable one. Preview
               builds come from the development branch, get new features
               first, and may be less polished. They update from the preview
@@ -136,15 +137,12 @@ install_launcher() {
 
 main() {
   channel=stable
-  product=tui
-  program=porthmos
+  product=gui
+  program=porthmos-gui
   for argument in "$@"; do
     case $argument in
       --preview) channel=preview ;;
-      --gui)
-        product=gui
-        program=porthmos-gui
-        ;;
+      --gui) ;;
       --help | -h)
         usage
         exit 0
@@ -186,9 +184,7 @@ main() {
 
   mkdir "$temp/extract"
   tar -xzf "$temp/$archive" -C "$temp/extract" "$program" || fail "the archive does not contain the $program program"
-  if [ "$product" = gui ]; then
-    tar -xzf "$temp/$archive" -C "$temp/extract" "$program.svg" > /dev/null 2>&1 || true
-  fi
+  tar -xzf "$temp/$archive" -C "$temp/extract" "$program.svg" > /dev/null 2>&1 || true
 
   mkdir -p "$install_dir" "$bin_dir" || fail "couldn't create $install_dir or $bin_dir"
   staged=$install_dir/.porthmos.new.$$
@@ -197,9 +193,7 @@ main() {
     fail "couldn't install into $install_dir"
   fi
   ln -sf "$install_dir/$program" "$bin_dir/$program" || fail "couldn't link $bin_dir/$program"
-  if [ "$product" = gui ]; then
-    install_launcher "$program" "$install_dir/$program" "$temp/extract/$program.svg"
-  fi
+  install_launcher "$program" "$install_dir/$program" "$temp/extract/$program.svg"
 
   version=$("$install_dir/$program" --version 2> /dev/null || true)
   say "Installed ${version:-$program} in $install_dir and linked it as $bin_dir/$program"

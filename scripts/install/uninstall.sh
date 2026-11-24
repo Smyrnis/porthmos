@@ -14,8 +14,8 @@ usage() {
   cat << 'USAGE'
 Usage: uninstall.sh [--purge] [--yes]
 
-Removes the Porthmos programs that install.sh put in place, the terminal app
-(porthmos) and the window app (porthmos-gui), whichever are installed: the
+Removes the Porthmos window app (porthmos-gui) that install.sh put in place, and
+the old terminal app (porthmos) if an earlier install left it behind: the
 programs in $PORTHMOS_INSTALL_DIR (default ~/.local/share/porthmos) and their
 links in $PORTHMOS_BIN_DIR (default ~/.local/bin).
 
