@@ -9,15 +9,16 @@ usage() {
 Usage: channel.sh parse TAG
        channel.sh check TAG COMMIT
 
-A release tag is the app's version with a letter after the year and the dash
-written as a dot:
+A release tag is the window app's version with the letter G after the year and
+the dash written as a dot:
 
-  2026T.5.0          terminal app, stable release of version 2026.5.0
-  2026G.5.0          window app, stable release of version 2026.5.0
-  2026T.5.0.dev.1    terminal app, preview release of version 2026.5.0-dev.1
-  2026G.5.0.rc.1     window app, candidate of version 2026.5.0-rc.1
+  2026G.5.0          stable release of version 2026.5.0
+  2026G.5.0.dev.1    preview release of version 2026.5.0-dev.1
+  2026G.5.0.rc.1     candidate of version 2026.5.0-rc.1
 
-parse prints three lines, product=tui|gui, channel=stable|preview|candidate and
+The terminal app (letter T) is no longer released.
+
+parse prints three lines, product=gui, channel=stable|preview|candidate and
 version=<semver>, or explains why the tag is not a release tag.
 
 check does the same and also requires COMMIT to be on the branch that channel
@@ -34,12 +35,10 @@ fail() {
 
 parse_tag() {
   tag=$1
-  printf '%s\n' "$tag" | grep -Eq "^[1-9][0-9]{3}[TG]\\.$NUM\\.$NUM(\\.$IDENTIFIER(\\.$IDENTIFIER)*)?\$" || return 1
+  printf '%s\n' "$tag" | grep -Eq "^[1-9][0-9]{3}G\\.$NUM\\.$NUM(\\.$IDENTIFIER(\\.$IDENTIFIER)*)?\$" || return 1
 
-  year=${tag%%[TG]*}
-  letter=${tag#"$year"}
-  letter=${letter%"${letter#?}"}
-  rest=${tag#*[TG].}
+  year=${tag%%G*}
+  rest=${tag#*G.}
   minor=${rest%%.*}
   rest=${rest#*.}
   patch=${rest%%.*}
@@ -49,11 +48,7 @@ parse_tag() {
     suffix=${rest#*.}
   fi
 
-  case $letter in
-    T) product=tui ;;
-    G) product=gui ;;
-  esac
-
+  product=gui
   version=$year.$minor.$patch
   if [ -z "$suffix" ]; then
     channel=stable
@@ -91,7 +86,10 @@ main() {
       ;;
   esac
 
-  parse_tag "$tag" || fail "$tag is not a release tag: use the year, T or G, and the version, for example 2026T.5.0, 2026G.5.0.dev.1 or 2026T.5.0.rc.1"
+  if printf '%s\n' "$tag" | grep -Eq '^[1-9][0-9]{3}T\.'; then
+    fail "$tag names the terminal app, which is no longer released; use the window app tag letter G, for example 2026G.5.0"
+  fi
+  parse_tag "$tag" || fail "$tag is not a release tag: use the year, G, and the version, for example 2026G.5.0, 2026G.5.0.dev.1 or 2026G.5.0.rc.1"
 
   if [ "$action" = check ]; then
     [ $# -ge 3 ] || {

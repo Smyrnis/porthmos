@@ -2,14 +2,14 @@ name: Release
 
 on:
   push:
-    tags: ["[0-9][0-9][0-9][0-9][TG].*"]
+    tags: ["[0-9][0-9][0-9][0-9]G.*"]
   workflow_dispatch:
     inputs:
       product:
         description: Which app to build for the dry run
         type: choice
-        options: [tui, gui]
-        default: tui
+        options: [gui]
+        default: gui
 
 permissions:
   contents: read
@@ -58,7 +58,6 @@ jobs:
             tag=dry-run
           fi
           case $product in
-            tui) package=porthmos-tui program=porthmos ;;
             gui) package=porthmos-gui program=porthmos-gui ;;
             *) echo "unknown app '$product'"; exit 1 ;;
           esac
@@ -280,7 +279,6 @@ jobs:
           # notes.txt stays the bare tag message: it is what goes into latest.json.
           # page-notes.md is only the GitHub release page.
           flags=
-          [ "$PRODUCT" = gui ] && flags="$flags --gui"
           [ "$CHANNEL" = preview ] && flags="$flags --preview"
           platform() {
             case $1 in
@@ -309,7 +307,7 @@ jobs:
             echo "## Install"
             echo
             echo '```sh'
-            echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/tui-stable/install.sh | sh -s --$flags"
+            echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh | sh -s --$flags"
             echo '```'
             echo
             echo "Already installed? Porthmos updates itself on quit, or run \`$PROGRAM update\`."
@@ -339,13 +337,11 @@ jobs:
           PROGRAM: ${{ needs.plan.outputs.program }}
         run: |
           case $PRODUCT in
-            tui) label="Porthmos terminal app" ;;
             gui) label="Porthmos window app" ;;
           esac
           assets=(dist/* latest.json latest.json.sig scripts/install/install.sh scripts/install/uninstall.sh)
-          # The repo's "Latest release" badge follows the stable terminal app.
           page_flags=(--latest=false)
-          [ "$CHANNEL" = stable ] && [ "$PRODUCT" = tui ] && page_flags=(--latest)
+          [ "$CHANNEL" = stable ] && page_flags=(--latest)
           title="$label $VERSION"
           is_prerelease=false
           if [ "$CHANNEL" != stable ]; then

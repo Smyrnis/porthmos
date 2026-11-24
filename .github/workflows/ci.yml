@@ -32,15 +32,13 @@ jobs:
               exit 1
             fi
           }
-          forbid_dependency porthmos-core ratatui
-          forbid_dependency porthmos-core crossterm
           forbid_dependency porthmos-core russh --no-default-features
-          forbid_workspace_crates porthmos-vfs 'porthmos-(core|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|tui)'
-          forbid_workspace_crates porthmos-lfs 'porthmos-(core|tls|ssh|sftp|ftp|webdav|s3|scp|tui)'
-          forbid_workspace_crates porthmos-tls 'porthmos-(core|lfs|ssh|sftp|ftp|webdav|s3|scp|tui)'
-          forbid_workspace_crates porthmos-ssh 'porthmos-(core|lfs|tls|sftp|ftp|webdav|s3|scp|tui)'
-          forbid_workspace_crates porthmos-update 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|tui|release)'
-          forbid_workspace_crates porthmos-release 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|tui)'
+          forbid_workspace_crates porthmos-vfs 'porthmos-(core|lfs|tls|ssh|sftp|ftp|webdav|s3|scp)'
+          forbid_workspace_crates porthmos-lfs 'porthmos-(core|tls|ssh|sftp|ftp|webdav|s3|scp)'
+          forbid_workspace_crates porthmos-tls 'porthmos-(core|lfs|ssh|sftp|ftp|webdav|s3|scp)'
+          forbid_workspace_crates porthmos-ssh 'porthmos-(core|lfs|tls|sftp|ftp|webdav|s3|scp)'
+          forbid_workspace_crates porthmos-update 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|release)'
+          forbid_workspace_crates porthmos-release 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp)'
           for manifest in protocols/*/Cargo.toml; do
             crate=$(sed -n 's/^name = "\(.*\)"$/\1/p' "$manifest" | head -n 1)
             if [ "$(cargo tree -p "$crate" -e normal | grep -oE 'porthmos-[a-z0-9]+' | sort -u | grep -vxE "$crate|porthmos-vfs|porthmos-tls|porthmos-ssh")" != "" ]; then
@@ -48,13 +46,12 @@ jobs:
               exit 1
             fi
           done
-          for frontend in porthmos-tui porthmos-gui; do
+          for frontend in porthmos-gui; do
             if [ "$(cargo tree -p "$frontend" -e normal --depth 1 | grep -oE 'porthmos-[a-z0-9]+' | sort -u | grep -vx "$frontend" | tr '\n' ' ')" != "porthmos-core porthmos-ssh " ]; then
               echo "$frontend must depend on porthmos-core and porthmos-ssh only"
               exit 1
             fi
           done
-          forbid_dependency porthmos-gui porthmos-tui
           forbid_dependency porthmos-core iced
       - name: Installer
         run: |
@@ -79,17 +76,17 @@ jobs:
       - name: Long path manifest
         shell: pwsh
         run: |
-          cargo build -p porthmos-tui
-          if (-not (Select-String -Path target\debug\porthmos.exe -Pattern 'longPathAware' -SimpleMatch -Quiet)) { throw 'the manifest is not embedded' }
+          cargo build -p porthmos-gui
+          if (-not (Select-String -Path target\debug\porthmos-gui.exe -Pattern 'longPathAware' -SimpleMatch -Quiet)) { throw 'the manifest is not embedded' }
       - name: Version resource and icon
         shell: pwsh
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
-          $info = (Get-Item target\debug\porthmos.exe).VersionInfo
+          $version = (Select-String -Path porthmos-gui\Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $info = (Get-Item target\debug\porthmos-gui.exe).VersionInfo
           if ($info.ProductName -ne 'Porthmos') { throw "ProductName is '$($info.ProductName)'" }
           if ($info.ProductVersion -ne $version) { throw "ProductVersion is '$($info.ProductVersion)', expected $version" }
           if ($info.FileVersion -ne $version) { throw "FileVersion is '$($info.FileVersion)', expected $version" }
-          $exe = (Resolve-Path target\debug\porthmos.exe).Path
+          $exe = (Resolve-Path target\debug\porthmos-gui.exe).Path
           Add-Type -Namespace Native -Name Resources -MemberDefinition '[DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryEx(string file, IntPtr handle, uint flags); [DllImport("kernel32", SetLastError=true)] public static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);'
           $module = [Native.Resources]::LoadLibraryEx($exe, [IntPtr]::Zero, 2)
           if ($module -eq [IntPtr]::Zero) { throw 'the program could not be loaded as a data file' }
@@ -100,34 +97,23 @@ jobs:
         run: |
           cargo build -p porthmos-gui
           $target = 'x86_64-pc-windows-msvc'
-          $apps = @(
-            @{ Product = 'tui'; Program = 'porthmos'; Manifest = 'Cargo.toml'; Run = $true },
-            @{ Product = 'gui'; Program = 'porthmos-gui'; Manifest = 'porthmos-gui\Cargo.toml'; Run = $false }
-          )
-          foreach ($app in $apps) {
-            $program = $app.Program
-            $version = (Select-String -Path $app.Manifest -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
-            $out = "dist-$($app.Product)"
-            cargo run -p porthmos-release -- package --product $app.Product --target $target --version $version --binary "target\debug\$program.exe" --license LICENSE --out $out
-            foreach ($name in "$program-$version-$target.zip", "$program-$target.zip", "$program-$target.zip.sha256") {
-              if (-not (Test-Path "$out\$name")) { throw "missing $name" }
-            }
-            $expected = (Get-Content "$out\$program-$target.zip.sha256").Split(' ')[0]
-            $actual = (Get-FileHash "$out\$program-$target.zip" -Algorithm SHA256).Hash.ToLower()
-            if ($expected -ne $actual) { throw "the checksum file says $expected but the zip is $actual" }
-            Expand-Archive "$out\$program-$version-$target.zip" -DestinationPath "$out\unpacked"
-            if ($app.Run) {
-              $reported = (& "$out\unpacked\$program.exe" --version)
-              if ($reported -ne "$program $version") { throw "the unpacked program reports '$reported'" }
-            } else {
-              $embedded = (Get-Item "$out\unpacked\$program.exe").VersionInfo.ProductVersion
-              if ($embedded -ne $version) { throw "the unpacked program carries version '$embedded', expected $version" }
-              $captured = Join-Path $out 'version.txt'
-              Start-Process -FilePath "$out\unpacked\$program.exe" -ArgumentList '--version' -RedirectStandardOutput $captured -Wait -NoNewWindow
-              $reported = (Get-Content -Raw $captured).Trim()
-              if ($reported -ne "$program $version") { throw "the unpacked program reports '$reported'" }
-            }
+          $program = 'porthmos-gui'
+          $version = (Select-String -Path porthmos-gui\Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $out = 'dist-gui'
+          cargo run -p porthmos-release -- package --product gui --target $target --version $version --binary "target\debug\$program.exe" --license LICENSE --out $out
+          foreach ($name in "$program-$version-$target.zip", "$program-$target.zip", "$program-$target.zip.sha256") {
+            if (-not (Test-Path "$out\$name")) { throw "missing $name" }
           }
+          $expected = (Get-Content "$out\$program-$target.zip.sha256").Split(' ')[0]
+          $actual = (Get-FileHash "$out\$program-$target.zip" -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "the checksum file says $expected but the zip is $actual" }
+          Expand-Archive "$out\$program-$version-$target.zip" -DestinationPath "$out\unpacked"
+          $embedded = (Get-Item "$out\unpacked\$program.exe").VersionInfo.ProductVersion
+          if ($embedded -ne $version) { throw "the unpacked program carries version '$embedded', expected $version" }
+          $captured = Join-Path $out 'version.txt'
+          Start-Process -FilePath "$out\unpacked\$program.exe" -ArgumentList '--version' -RedirectStandardOutput $captured -Wait -NoNewWindow
+          $reported = (Get-Content -Raw $captured).Trim()
+          if ($reported -ne "$program $version") { throw "the unpacked program reports '$reported'" }
       - name: Windows installer
         shell: pwsh
         run: |
