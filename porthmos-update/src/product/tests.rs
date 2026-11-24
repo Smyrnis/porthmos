@@ -7,8 +7,8 @@ fn version(text: &str) -> Version {
 }
 
 #[test]
-fn ids_programs_and_letters_are_fixed() {
-    assert_eq!((Product::Gui.id(), Product::Gui.program(), Product::Gui.tag_letter()), ("gui", "porthmos-gui", 'G'));
+fn the_id_and_the_program_are_fixed() {
+    assert_eq!((Product::Gui.id(), Product::Gui.program()), ("gui", "porthmos-gui"));
 }
 
 #[test]
@@ -75,5 +75,4 @@ fn feed_release_joins_product_and_channel() {
 fn the_window_app_is_the_only_product() {
     assert_eq!(Product::from_id("gui"), Some(Product::Gui));
     assert_eq!(Product::from_id("tui"), None);
-    assert_eq!(Product::Gui.tag_letter(), 'G');
 }

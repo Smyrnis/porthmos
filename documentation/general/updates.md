@@ -41,16 +41,17 @@ release yet.
 
 | Channel | Built from | Tag | Good for |
 | --- | --- | --- | --- |
-| Stable | `main` | `2026G.5.0` | Everyday use (not published yet). |
-| Preview | `development` | `2026G.5.0.dev.1` | Trying new features early. May be less polished. |
+| Stable | `main` | `2026.5.0` | Everyday use (not published yet). |
+| Preview | `development` | `2026.5.0-dev` or `2026.5.0-dev.1` | Trying new features early. May be less polished. |
 
-A tag is the version with the letter `G` after the year and the dash written as
-a dot, so the tag `2026G.5.0.dev.1` is version `2026.5.0-dev.1`. The first
-number is the year. A tag ending in something other than `.dev` or `.dev.N`,
-such as `2026G.5.0.rc.1`, is a candidate: it is published as a pre-release but
-is not offered through any feed. To give a release notes, create an annotated
-tag (`git tag -a 2026G.5.0 -m "notes"`); the notes are the tag message. Tags
-with the letter `T` belonged to the terminal app, which is no longer released.
+A tag is the version itself, so the tag `2026.5.0-dev.1` is version
+`2026.5.0-dev.1`. The first number is the year. A suffix other than `-dev` or
+`-dev.N`, such as `2026.5.0-rc.1`, makes a candidate: it is published as a
+pre-release but is not offered through any feed. To give a release notes,
+create an annotated tag (`git tag -a 2026.5.0 -m "notes"`); the notes are the
+tag message. Older tags with a letter after the year (`2026G.5.0.dev.5`, and
+`2026T.…` for the terminal app, which is no longer released) belong to the old
+format; they stay as history and new ones are refused.
 
 All builds are made for Linux, macOS and Windows. A build only follows its own
 channel: a stable build is never offered a preview build. A preview build keeps

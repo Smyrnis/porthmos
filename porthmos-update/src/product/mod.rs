@@ -25,12 +25,6 @@ impl Product {
         if cfg!(windows) { format!("{}.exe", self.program()) } else { self.program().to_string() }
     }
 
-    pub fn tag_letter(self) -> char {
-        match self {
-            Product::Gui => 'G',
-        }
-    }
-
     pub fn from_id(id: &str) -> Option<Product> {
         [Product::Gui].into_iter().find(|product| product.id() == id)
     }

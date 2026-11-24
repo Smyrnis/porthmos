@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["[0-9][0-9][0-9][0-9]G.*"]
+    tags: ["[0-9][0-9][0-9][0-9]*"]
   workflow_dispatch:
     inputs:
       product:
@@ -306,11 +306,15 @@ jobs:
             fi
             echo "## Install"
             echo
-            echo '```sh'
-            echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh | sh -s --$flags"
-            echo '```'
-            echo
-            echo "Already installed? Porthmos updates itself on quit, or run \`$PROGRAM update\`."
+            if [ "$CHANNEL" = candidate ]; then
+              echo "install.sh installs from the \`gui-stable\` and \`gui-preview\` feeds, which do not carry candidates. Download the archive for your platform below and unpack it."
+            else
+              echo '```sh'
+              echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh | sh -s --$flags"
+              echo '```'
+              echo
+              echo "Already installed? Porthmos updates itself on quit, or run \`$PROGRAM update\`."
+            fi
             echo
             echo "## Downloads"
             echo
