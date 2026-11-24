@@ -18,14 +18,13 @@ release_tool() {
 }
 
 make_release() {
-  local dir=$1 marker=$2 product=${3:-gui} icon=${4:-icon} program=porthmos
+  local dir=$1 marker=$2 product=${3:-gui} icon=${4:-icon} program=porthmos-gui
   local icon_flags=()
-  [ "$product" = gui ] && program=porthmos-gui
   mkdir -p "$dir"
   printf '#!/bin/sh\necho "%s-stub %s"\n' "$program" "$marker" > "$dir/$program"
   chmod 755 "$dir/$program"
   printf 'MIT\n' > "$dir/LICENSE"
-  if [ "$product" = gui ] && [ "$icon" = icon ]; then
+  if [ "$icon" = icon ]; then
     printf '<svg>%s</svg>\n' "$marker" > "$dir/icon.svg"
     icon_flags=(--icon "$dir/icon.svg")
   fi

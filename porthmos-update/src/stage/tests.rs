@@ -46,7 +46,7 @@ impl Setup {
     }
 
     fn stager_for(&self, product: Product) -> Stager {
-        Stager::with_policy(product, self.dir(), "porthmos/9.9.9", false).unwrap()
+        Stager::with_policy(product, self.dir(), "porthmos-gui/9.9.9", false).unwrap()
     }
 
     fn entries(&self) -> Vec<String> {
@@ -225,7 +225,7 @@ async fn the_production_stager_refuses_plain_http_without_connecting() {
     let archive = stub_archive("0.5.0", &[]);
     let server = TestServer::start(vec![("/p.tar.gz", Route::Body(archive.clone()))]).await;
     let update = update_for(&server, "/p.tar.gz", "0.5.0", &archive);
-    let stager = Stager::new(Product::Gui, setup.dir().path(), "porthmos/9.9.9").unwrap();
+    let stager = Stager::new(Product::Gui, setup.dir().path(), "porthmos-gui/9.9.9").unwrap();
 
     let result = stager.stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
 

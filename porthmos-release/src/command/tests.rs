@@ -410,7 +410,7 @@ fn the_manifest_command_needs_a_product() {
             "--notes-file",
             &path(&directory, "notes.txt"),
             "--base-url",
-            "https://github.com/Smyrnis/porthmos/releases/download/2026T.5.0",
+            "https://github.com/Smyrnis/porthmos/releases/download/2026.5.0",
             "--artifacts",
             &path(&directory, "dist"),
             "--out",

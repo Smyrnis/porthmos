@@ -344,7 +344,7 @@ fn staged_for(version: &str, binary: PathBuf) -> porthmos_update::Staged {
 fn seed_staged(setup: &Setup, version: &str) -> porthmos_update::Staged {
     let folder = setup.t.engine.host.paths.update_dir().join("gui").join(version);
     std::fs::create_dir_all(&folder).unwrap();
-    let binary = folder.join("porthmos");
+    let binary = folder.join("porthmos-gui");
     std::fs::write(&binary, b"x").unwrap();
     let staged = staged_for(version, binary);
     porthmos_update::record_staged(
@@ -451,7 +451,10 @@ async fn startup_ignores_a_staged_update_in_notify_and_off_mode() {
         setup.t.engine.start_updates();
 
         assert!(updates(&setup.t.drain()).is_empty(), "{mode:?}");
-        assert!(setup.t.engine.host.paths.update_dir().join("gui").join("0.9.0").join("porthmos").exists(), "{mode:?}");
+        assert!(
+            setup.t.engine.host.paths.update_dir().join("gui").join("0.9.0").join("porthmos-gui").exists(),
+            "{mode:?}"
+        );
         assert!(setup.t.engine.update.staged.is_none());
     }
 }
