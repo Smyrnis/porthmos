@@ -17,6 +17,22 @@ There is no stable release yet, so install the
 curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/install.sh | sh -s -- --preview
 ```
 
+Before it changes anything, the script prints a plan: what it will download and
+from where, the checksum check, which files it will create and which version it
+replaces. It then asks `Continue? [y/N]`. The question is read from your
+terminal, so it works through the pipe above. Answer `y` to go on; anything else
+stops without changing anything. While it works it prints numbered steps and
+ends with where Porthmos went, how to start it and how to remove it.
+
+Two options change this. `--dry-run` prints the plan and stops: nothing is
+downloaded, nothing is written and nothing is asked, so you can read what the
+installer does first. `--yes` skips the question, which a script without a
+terminal needs; the plan and the steps are still printed.
+
+```sh
+curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/install.sh | sh -s -- --preview --dry-run
+```
+
 Older install commands that also pass `--gui` still work; the flag does
 nothing. A terminal app (`porthmos`) was released earlier and is no longer
 built; an old copy keeps working until you remove it, and `uninstall.sh`
@@ -84,12 +100,17 @@ install left it) from `~/.local/share/porthmos`, with the links in
 `~/.local/bin`, the launcher and icon if the installer added them, and any previous version
 an update left beside them, and keeps your settings, saved connections,
 bookmarks, history and saved passwords, telling you where they are. To remove
-those as well, add `--purge`; it lists what it will delete and asks first, or
-skips the question with `--yes` (needed when the script is piped, as above):
+those as well, add `--purge`. Like the installer, the script prints a plan of
+what it will remove and what it will leave, and asks `Continue? [y/N]` every
+time. `--dry-run` shows the plan and removes nothing, and `--yes` skips the
+question (needed when the script runs without a terminal):
 
 ```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/uninstall.sh | sh -s -- --purge --yes
+curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/uninstall.sh | sh -s -- --purge
 ```
+
+Add `--yes` only in a script that has no terminal: it skips the question that
+guards your saved data.
 
 On Windows, remove an installed copy from Apps and features. The uninstaller
 deletes the program, the Start Menu and desktop shortcuts, and the `.old` and
