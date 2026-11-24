@@ -38,8 +38,7 @@ app opens for `F4` and for editors that run in a terminal. Empty means
 the program with any arguments (`kitty --single-instance`). Put `{command}`
 where the command to run belongs when the program needs it somewhere other
 than the end (`wt.exe new-tab {command}`). The setting is also used on macOS
-and Windows. The Settings screen has a Terminal row that applies at once. The
-terminal app runs in the terminal you started it in and ignores the setting.
+and Windows. The Settings screen has a Terminal row that applies at once.
 
 ## What Porthmos remembers
 
@@ -49,8 +48,7 @@ Between runs Porthmos keeps, in the state folder:
   last-used time). A connection with a start folder set still opens there; the
   remembered folder is used when none is set, and after a lost connection the
   folder you were in is reopened first;
-- the last local folder (`state.toml`). The window app opens there; the
-  terminal app opens in the folder you start it from;
+- the last local folder (`state.toml`), where the app opens;
 - hidden files and sort order, separately for the local and the remote panel
   (`state.toml`, under `[local_panel]` and `[remote_panel]`). A choice you make
   in the interface wins over `[panel]` in `config.toml` for that panel. To go
@@ -79,8 +77,7 @@ A remembered folder that no longer exists is skipped without a message.
 connections that were open when you last quit:
 
 - `"off"` (the default) — nothing is remembered and nothing is offered.
-- `"ask"` — the empty remote panel shows a button (the terminal app shows a
-  note and a hint) naming them, and the command palette lists "Reopen last
+- `"ask"` — the empty remote panel shows a button naming them, and the command palette lists "Reopen last
   connections". Nothing connects until you choose it.
 - `"auto"` — they are opened one after another when the app starts.
 
@@ -89,8 +86,7 @@ questions come one by one as usual, and a connection that fails does not stop
 the ones after it. A connection whose password is saved in the keyring opens
 without a prompt, and each one returns to the folder it was last in. Only
 saved connections are remembered, in the order you opened them. Changing the
-setting in the window app's Settings applies at once; in the terminal app edit
-`config.toml` and restart.
+setting in Settings applies at once.
 
 ## Proxies
 
@@ -157,5 +153,4 @@ names stay in English.
 ## Notices
 
 Messages at the bottom of the screen disappear on their own: information after
-4 seconds, warnings after 8, errors after 15. In the terminal app `Esc`
-dismisses one early.
+4 seconds, warnings after 8, errors after 15.

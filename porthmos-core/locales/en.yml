@@ -1177,7 +1177,7 @@ label:
   No_saved_connections_Click_Add_to_create_one_: "No saved connections. Click Add to create one."
   Import_: "Import…"
   Used_by_Open_terminal_here_Leave_empty_to_use_TERMINAL_or_a_terminal_found_on_this_system_Put_command_where_the_command_to_run_belongs_if_the_program_needs_it_elsewhere_: "Used by Open terminal here. Leave empty to use $TERMINAL or a terminal found on this system. Put {command} where the command to run belongs if the program needs it elsewhere."
-  Colours_you_set_in_theme_toml_are_kept_and_applied_on_top_of_the_theme_you_pick_The_terminal_app_reads_theme_toml_when_it_starts_: "Colours you set in theme.toml are kept and applied on top of the theme you pick. The terminal app reads theme.toml when it starts."
+  Colours_you_set_in_theme_toml_are_kept_and_applied_on_top_of_the_theme_you_pick_: "Colours you set in theme.toml are kept and applied on top of the theme you pick."
   Largest_file_to_compare_in_MiB_1_to_64_: "Largest file to compare, in MiB (1 to 64)"
   When_an_edited_file_changed_on_the_server_Show_differences_compares_files_up_to_this_size_: "When an edited file changed on the server, Show differences compares files up to this size."
   Deepest_folder_level_to_search_1_to_64_: "Deepest folder level to search (1 to 64)"

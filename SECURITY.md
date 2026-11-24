@@ -2,8 +2,7 @@
 
 ## Supported versions
 
-Only the newest build on each channel (stable and preview, terminal app and
-window app) gets fixes. Porthmos updates itself, so staying current is the fix.
+Only the newest build on each channel (stable and preview) gets fixes. Porthmos updates itself, so staying current is the fix.
 
 ## Reporting a vulnerability
 

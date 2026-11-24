@@ -23,10 +23,8 @@ The repository is a Cargo workspace:
   `porthmos-core/locales`). A frontend drives it by sending commands and
   receiving events. Each protocol
   is a cargo feature, all on by default, as is `keyring`.
-- `porthmos-tui` — the terminal interface, built as the `porthmos`
-  binary.
 - `porthmos-gui` — the window interface, built as the `porthmos-gui`
-  binary. It drives the same `porthmos-core` engine as the terminal app.
+  binary. It drives the `porthmos-core` engine.
 - `porthmos-update` — the release manifest, signatures and digests shared by
   the release tool and the updater.
 - `porthmos-release` — the tool that packages, signs and verifies release

@@ -1177,7 +1177,7 @@ label:
   No_saved_connections_Click_Add_to_create_one_: "Δεν υπάρχουν αποθηκευμένες συνδέσεις. Πατήστε Προσθήκη για να δημιουργήσετε μία."
   Import_: "Εισαγωγή…"
   Used_by_Open_terminal_here_Leave_empty_to_use_TERMINAL_or_a_terminal_found_on_this_system_Put_command_where_the_command_to_run_belongs_if_the_program_needs_it_elsewhere_: "Χρησιμοποιείται από το Άνοιγμα τερματικού εδώ. Αφήστε το κενό για να χρησιμοποιηθεί το $TERMINAL ή ένα τερματικό που βρέθηκε σε αυτό το σύστημα. Βάλτε το {command} εκεί που ανήκει η εντολή προς εκτέλεση, αν το πρόγραμμα το χρειάζεται αλλού."
-  Colours_you_set_in_theme_toml_are_kept_and_applied_on_top_of_the_theme_you_pick_The_terminal_app_reads_theme_toml_when_it_starts_: "Τα χρώματα που ορίζετε στο theme.toml διατηρούνται και εφαρμόζονται πάνω από το θέμα που επιλέγετε. Η εφαρμογή τερματικού διαβάζει το theme.toml όταν ξεκινά."
+  Colours_you_set_in_theme_toml_are_kept_and_applied_on_top_of_the_theme_you_pick_: "Τα χρώματα που ορίζετε στο theme.toml διατηρούνται και εφαρμόζονται πάνω από το θέμα που επιλέγετε."
   Largest_file_to_compare_in_MiB_1_to_64_: "Μέγιστο μέγεθος αρχείου για σύγκριση, σε MiB (1 έως 64)"
   When_an_edited_file_changed_on_the_server_Show_differences_compares_files_up_to_this_size_: "Όταν ένα αρχείο που επεξεργάζεστε άλλαξε στον διακομιστή, η Εμφάνιση διαφορών συγκρίνει αρχεία έως αυτό το μέγεθος."
   Deepest_folder_level_to_search_1_to_64_: "Μέγιστο βάθος φακέλων αναζήτησης (1 έως 64)"

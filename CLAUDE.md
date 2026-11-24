@@ -11,7 +11,7 @@ Follow Conventional Commits for the subject line:
 ```
 
 - **type**: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `style` — pick the one that matches the change's nature.
-- **scope**: the area touched (e.g. `app`, `tui`, `connection`, `terminal`, `config`) — lowercase, matches the module/directory most affected.
+- **scope**: the area touched (e.g. `app`, `gui`, `connection`, `terminal`, `config`) — lowercase, matches the module/directory most affected.
 - **short description**: imperative mood, lowercase, no trailing period, fits on one line with the prefix.
 - **body**: explain *what changed* and *why it was needed* — the motivation, the problem being solved, the constraint being satisfied. Do not describe the mechanical process that produced the commit (e.g. "Fix final review findings", "Address review comments", "Apply requested changes") — a reader six months from now has no idea what "the review" was or what it found. State the actual change and its reason as if the review/discussion never happened.
 

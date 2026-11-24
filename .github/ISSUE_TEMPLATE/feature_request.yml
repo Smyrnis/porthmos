@@ -2,11 +2,6 @@ name: Feature request
 description: Suggest something Porthmos should do
 labels: ["enhancement"]
 body:
-  - type: dropdown
-    id: app
-    attributes:
-      label: App
-      options: ["Terminal app", "Window app", "Both"]
   - type: textarea
     id: problem
     attributes:

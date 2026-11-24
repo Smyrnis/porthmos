@@ -5,36 +5,24 @@
 The commands in this section are for Linux and macOS; see
 [Platforms](#platforms) for Windows.
 
-Porthmos comes as two programs: `porthmos`, which runs in the terminal, and
-`porthmos-gui`, which opens a window. They are released separately and can be
-installed side by side. On Linux and macOS, the install script downloads the
-build for your machine, checks it against its checksum, and puts it in
-`~/.local/share/porthmos` with a link in `~/.local/bin`.
+Porthmos is one program, `porthmos-gui`, which opens a window. On Linux and
+macOS, the install script downloads the build for your machine, checks it
+against its checksum, and puts it in `~/.local/share/porthmos` with a link in
+`~/.local/bin`.
 
-The terminal app:
-
-```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/tui-stable/install.sh | sh
-```
-
-The window app (add `--gui`):
+There is no stable release yet, so install the
+[preview build](updates.md#release-channels) (add `--preview`):
 
 ```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-stable/install.sh | sh -s -- --gui
+curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/install.sh | sh -s -- --preview
 ```
 
-To try the newest features before they are released, install the
-[preview build](updates.md#release-channels) instead (add `--preview`):
+Older install commands that also pass `--gui` still work; the flag does
+nothing. A terminal app (`porthmos`) was released earlier and is no longer
+built; an old copy keeps working until you remove it, and `uninstall.sh`
+removes it too.
 
-```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/tui-preview/install.sh | sh -s -- --preview
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/install.sh | sh -s -- --gui --preview
-```
-
-Run the script again without `--preview` to go back to the stable build.
-Installing one program never touches the other.
-
-On Linux, installing the window app also adds a launcher and an icon, so
+On Linux, installing also adds a launcher and an icon, so
 `Porthmos` appears in your applications menu. The programs go to
 `$PORTHMOS_INSTALL_DIR` and the links to `$PORTHMOS_BIN_DIR` if you set them.
 
@@ -46,10 +34,7 @@ Requires a Rust toolchain supporting the 2024 edition (stable is fine).
 cargo build --release
 ```
 
-The binary is written to `target/release/porthmos`.
-
-To build the window app instead, run `cargo build --release -p porthmos-gui`;
-the binary is `target/release/porthmos-gui`.
+The binary is written to `target/release/porthmos-gui`.
 
 The F4 terminal hand-off passes a saved profile password to `ssh` by itself
 when `ssh` is OpenSSH 8.4 or newer; no extra program is needed. With an older
@@ -67,8 +52,7 @@ Linux and macOS. Settings and state live in different folders on Windows; see
 
 The window app has an installer, `porthmos-gui-setup.exe`:
 
-- Stable: <https://github.com/Smyrnis/porthmos/releases/download/gui-stable/porthmos-gui-setup.exe>
-- Preview: <https://github.com/Smyrnis/porthmos/releases/download/gui-preview/porthmos-gui-setup.exe>
+<https://github.com/Smyrnis/porthmos/releases/download/gui-preview/porthmos-gui-setup.exe>
 
 Each release also carries a copy with the version in its name,
 `porthmos-gui-<version>-setup.exe`. The wizard shows a welcome page, the
@@ -83,9 +67,8 @@ default folder: the updater leaves programs under Program Files alone because
 it treats them as managed by something else, so a copy installed there stops
 updating itself.
 
-The terminal app has no installer. Download the `.zip` archive of the program
-you want from the release page and unpack it anywhere; the window app comes as
-a `.zip` too, for people who do not want the installer.
+The program also comes as a `.zip` archive on the release page, for people who
+do not want the installer; unpack it anywhere.
 
 ## Uninstalling
 
@@ -93,19 +76,19 @@ If you installed Porthmos with `install.sh`, run `uninstall.sh` from the same
 release:
 
 ```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/tui-stable/uninstall.sh | sh
+curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/uninstall.sh | sh
 ```
 
-It removes whichever of `porthmos` and `porthmos-gui` is installed from
-`~/.local/share/porthmos`, with their links in `~/.local/bin`, the window
-app's launcher and icon if the installer added them, and any previous version
+It removes `porthmos-gui` (and the old terminal app, `porthmos`, if an earlier
+install left it) from `~/.local/share/porthmos`, with the links in
+`~/.local/bin`, the launcher and icon if the installer added them, and any previous version
 an update left beside them, and keeps your settings, saved connections,
 bookmarks, history and saved passwords, telling you where they are. To remove
 those as well, add `--purge`; it lists what it will delete and asks first, or
 skips the question with `--yes` (needed when the script is piped, as above):
 
 ```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/tui-stable/uninstall.sh | sh -s -- --purge --yes
+curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/uninstall.sh | sh -s -- --purge --yes
 ```
 
 On Windows, remove an installed copy from Apps and features. The uninstaller

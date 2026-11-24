@@ -4,9 +4,8 @@
 
 [general]
 # Language of the menus, dialogs and messages: "auto" follows PORTHMOS_LANG,
-# LC_ALL or LANG; "en" (English) or "el" (Greek) chooses one. The window app
-# also has this in Settings and applies it at once; the terminal app reads it
-# when it starts.
+# LC_ALL or LANG; "en" (English) or "el" (Greek) chooses one. Settings has this
+# too and applies it at once.
 language = "auto"
 
 [panel]
@@ -44,8 +43,7 @@ editor = ""
 # $TERMINAL, then x-terminal-emulator, then a list of common terminals. Write the
 # program with any arguments ("kitty --single-instance"); the command to run
 # is added after them. Put {command} where it belongs when the program needs it
-# elsewhere: command = "wt.exe new-tab {command}". Not used by the terminal app,
-# which opens the shell in the terminal it runs in.
+# elsewhere: command = "wt.exe new-tab {command}".
 command = ""
 
 [update]
@@ -60,8 +58,8 @@ interval_hours = 24
 
 [search]
 # Show the start of the file under the cursor in a pane below the search
-# results. The pane follows the cursor and scrolls (PageUp and PageDown in the
-# terminal app, the mouse wheel in the window app). Off by default.
+# results. The pane follows the cursor and scrolls with the mouse wheel. Off by
+# default.
 preview = false
 # How far a search goes. max_depth is how many folder levels below the starting
 # folder are read (1 to 64). max_results is how many matches are kept before the

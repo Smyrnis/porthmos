@@ -8,7 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/Smyrnis/porthmos?label=release)](https://github.com/Smyrnis/porthmos/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A dual-panel file manager, as a terminal app and as a window app: local files
+A dual-panel file manager: local files
 in one panel, a remote connection in the other, with saved connection
 profiles, background transfers, search, folder sync and in-place editing. It
 talks SFTP, SCP, FTP and FTPS, WebDAV and S3-compatible storage.
@@ -30,11 +30,11 @@ See [all features](documentation/general/features.md).
 ## Quick install
 
 ```sh
-curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/tui-stable/install.sh | sh
+curl -fsSL https://github.com/Smyrnis/porthmos/releases/download/gui-preview/install.sh | sh -s -- --preview
 ```
 
-This installs the terminal app, `porthmos`. For the window app, the preview
-channel or building from source, see
+This installs the preview build of the window app, `porthmos-gui`. There is no
+stable release yet. For other ways to install or building from source, see
 [Installing and uninstalling](documentation/general/installation.md).
 
 ## Documentation
@@ -45,7 +45,7 @@ channel or building from source, see
 | [Installing and uninstalling](documentation/general/installation.md) | Install scripts, building from source, removal |
 | [Keybindings](documentation/general/keybindings.md) | Default keys for every screen |
 | [Configuration](documentation/general/configuration.md) | Where settings, connections and state live |
-| [Updates and release channels](documentation/general/updates.md) | Background updates, stable and preview channels |
+| [Updates and release channels](documentation/general/updates.md) | Background updates and the preview channel |
 | [Project layout](documentation/general/project-layout.md) | The Cargo workspace and its crates |
 
 ## License

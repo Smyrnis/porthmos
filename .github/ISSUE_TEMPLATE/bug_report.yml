@@ -2,19 +2,12 @@ name: Bug report
 description: Something in Porthmos doesn't work as it should
 labels: ["bug"]
 body:
-  - type: dropdown
-    id: app
-    attributes:
-      label: App
-      options: ["Terminal app (porthmos)", "Window app (porthmos-gui)"]
-    validations:
-      required: true
   - type: input
     id: version
     attributes:
       label: Version
-      description: Output of `porthmos --version` or `porthmos-gui --version`
-      placeholder: porthmos 2026.5.0-dev.3
+      description: Output of `porthmos-gui --version`
+      placeholder: porthmos-gui 2026.5.0-dev.3
     validations:
       required: true
   - type: dropdown

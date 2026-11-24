@@ -2,8 +2,7 @@
 
 - **Dual-panel browser** — the local filesystem on one side, the active
   connection on the other. Several connections can stay open at once and you
-  switch between them with `Ctrl+N` (the terminal app also has the number keys
-  `1`–`9`). Entries show size, modification time, owner and link targets, and
+  switch between them with `Ctrl+N`. Entries show size, modification time, owner and link targets, and
   the remote panel shows free space.
 - **Protocols** — SFTP and SCP (over SSH), FTP and FTPS, WebDAV, and S3 and
   S3-compatible stores (AWS, R2, MinIO, B2). SCP is for SSH servers without
@@ -12,9 +11,8 @@
   it; a certificate that has changed since is refused.
 - **Go to a path** — type a folder path instead of clicking through. `~` is
   your home folder, a relative path starts from the folder you are in, and `..`
-  goes up. In the terminal app press `Ctrl+'` on the file screen, type the path
-  and press `Enter` (`Esc` cancels). In the window app click the empty part of
-  the path bar, or click a folder in the breadcrumbs to jump to it.
+  goes up. Click the empty part of the path bar, or click a folder in the
+  breadcrumbs to jump to it.
 - **Saved connections** — host, port, username, identity file, start folder
   and optional password, alongside the hosts read from `~/.ssh/config`.
   Connections can be grouped and tagged, and the list can be filtered. Saved
@@ -27,10 +25,9 @@
   imported, so you type each one on first connect. A PuTTY or WinSCP session
   that connects through a SOCKS4, SOCKS5 or HTTP proxy comes in with that
   proxy and its user name (not its password, which you type in as well); other
-  proxy types are left out and the row says so. In the terminal app press `i`
-  on the Connections screen, or choose "Import connections" in the command
-  palette (`Ctrl+P`), and press `Ctrl+T` to complete the path; in the window app
-  press Import… in the connection manager, where Browse… opens a file chooser.
+  proxy types are left out and the row says so. Press Import… in the connection
+  manager, where Browse… opens a file chooser, or choose "Import connections"
+  in the command palette (`Ctrl+P`).
 - **Jump hosts** — an SFTP or SCP connection can reach a server that is only
   reachable through one or more bastion hosts. Fill in the connection's "Jump
   host" (`[user@]host[:port]`, comma-separated for several hops, or `none` to
@@ -85,16 +82,13 @@
   question offers "Show differences", which lists what the server's copy and
   yours differ by (files up to `[edit] compare_limit_mib`, 1 MiB by default).
 - **Preview** — see the start of a file without downloading it.
-- **Properties** — `i` in the terminal app, Alt+Enter or the context menu in
-  the window app. It measures the size of the chosen files and folders (with a
+- **Properties** — Alt+Enter or the context menu. It measures the size of the chosen files and folders (with a
   progress count you can cancel) and calculates a file's SHA-256 checksum, which
   you can compare with a digest you paste.
 - **Permissions** — `P` on SFTP, SCP, FTP and FTPS (when the server accepts
-  `SITE CHMOD`) and the local panel. The terminal app takes
-  an octal mode; add `-R` (`755 -R`) to change everything inside the chosen
-  folders too. The window app has read, write and execute boxes, boxes for set
-  user ID, set group ID and sticky, and an "Apply to everything inside folders"
-  box. Links are not followed. WebDAV and S3 have no modes.
+  `SITE CHMOD`) and the local panel. The dialog has read, write and execute
+  boxes, boxes for set user ID, set group ID and sticky, and an "Apply to
+  everything inside folders" box. Links are not followed. WebDAV and S3 have no modes.
 - **Compare folders** — `=` (or "Compare folders" in the palette) marks, in both
   panels, what differs between the two folders shown: only on this side, newer,
   older, a different size, or a file against a folder. It compares names, then
@@ -139,7 +133,6 @@
   the remote panel of an SFTP or SCP connection it opens a full `ssh` session
   in the folder you are looking at. A saved password is passed to `ssh`
   automatically when `ssh` is OpenSSH 8.4 or newer (or when `sshpass` is
-  installed); otherwise `ssh` asks for it. The terminal app suspends itself
-  and returns when you exit; the window app opens a separate terminal, which
+  installed); otherwise `ssh` asks for it. It opens a separate terminal, which
   you can choose with `[terminal] command` in `config.toml`, from the
   keyboard or from its two terminal buttons on the toolbar.

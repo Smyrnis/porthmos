@@ -28,9 +28,7 @@ fn terminal_help() -> String {
     )
 }
 fn theme_help() -> String {
-    tr(
-        "Colours you set in theme.toml are kept and applied on top of the theme you pick. The terminal app reads theme.toml when it starts.",
-    )
+    tr("Colours you set in theme.toml are kept and applied on top of the theme you pick.")
 }
 const COMPARE_LIMIT_PLACEHOLDER: &str = "1";
 fn compare_limit_label() -> String {
