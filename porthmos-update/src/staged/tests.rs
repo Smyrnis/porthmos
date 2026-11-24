@@ -209,21 +209,19 @@ fn recording_replaces_an_earlier_record_atomically() {
 }
 
 #[test]
-fn for_product_gives_each_app_its_own_folder() {
+fn for_product_keeps_the_staged_update_in_the_folder_of_the_product() {
     let root = tempfile::tempdir().unwrap();
-    let tui = UpdateDir::for_product(root.path(), crate::Product::Tui);
     let gui = UpdateDir::for_product(root.path(), crate::Product::Gui);
-    assert_eq!(tui.path(), root.path().join("tui"));
     assert_eq!(gui.path(), root.path().join("gui"));
 
-    let folder = tui.path().join("2026.5.0");
+    let folder = gui.path().join("2026.5.0");
     fs::create_dir_all(&folder).unwrap();
-    let binary = folder.join("porthmos");
+    let binary = folder.join("porthmos-gui");
     fs::write(&binary, b"abc").unwrap();
-    record_staged(&tui, &Staged { version: version("2026.5.0"), binary, sha256: HASH.to_string(), size: 3 }).unwrap();
+    record_staged(&gui, &Staged { version: version("2026.5.0"), binary, sha256: HASH.to_string(), size: 3 }).unwrap();
 
-    assert!(find_staged(&tui, &version("2026.4.0")).is_some());
-    assert_eq!(find_staged(&gui, &version("2026.4.0")), None);
+    assert!(find_staged(&gui, &version("2026.4.0")).is_some());
+    assert_eq!(find_staged(&UpdateDir::new(root.path().join("other")), &version("2026.4.0")), None);
 }
 
 fn legacy_root(fixture: &Fixture) -> PathBuf {
@@ -259,18 +257,31 @@ fn the_old_layout_is_removed_from_the_update_root() {
 }
 
 #[test]
-fn the_product_folders_survive_the_cleanup_of_the_old_layout() {
+fn the_product_folder_survives_the_cleanup_of_the_old_layout() {
     let fixture = Fixture::new();
     let root = legacy_root(&fixture);
-    let tui = product_folder_with_a_staged_update(&root, Product::Tui);
     let gui = product_folder_with_a_staged_update(&root, Product::Gui);
 
     remove_legacy_layout(&root);
 
-    for (folder, product) in [(&tui, Product::Tui), (&gui, Product::Gui)] {
-        assert!(folder.join("staged.toml").exists(), "{product:?}");
-        assert!(folder.join("2026.5.1").join(product.program()).exists(), "{product:?}");
-    }
+    assert!(gui.join("staged.toml").exists());
+    assert!(gui.join("2026.5.1").join(Product::Gui.program()).exists());
+    assert!(!root.join("0.4.0").exists());
+}
+
+#[test]
+fn the_folder_of_the_retired_terminal_app_survives_the_cleanup_of_the_old_layout() {
+    let fixture = Fixture::new();
+    let root = legacy_root(&fixture);
+    let retired = root.join("tui");
+    fs::create_dir_all(retired.join("download.4242")).unwrap();
+    fs::write(retired.join("staged.toml"), b"kept").unwrap();
+    fs::write(retired.join("download.4242").join("partial"), b"in progress").unwrap();
+
+    remove_legacy_layout(&root);
+
+    assert!(retired.join("staged.toml").exists());
+    assert!(retired.join("download.4242").join("partial").exists());
     assert!(!root.join("0.4.0").exists());
 }
 

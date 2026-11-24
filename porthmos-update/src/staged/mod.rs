@@ -35,6 +35,7 @@ pub struct Staged {
 }
 
 const RECORD_FILE: &str = "staged.toml";
+const RETIRED_PRODUCT_FOLDERS: [&str; 1] = ["tui"];
 const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Serialize, Deserialize)]
@@ -107,7 +108,10 @@ pub fn remove_legacy_layout(root: &Path) {
     let _ = fs::remove_file(root.join(format!("{RECORD_FILE}.tmp")));
     let Ok(entries) = fs::read_dir(root) else { return };
     for entry in entries.flatten() {
-        let is_product_folder = entry.file_name().to_str().and_then(Product::from_id).is_some();
+        let is_product_folder = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| Product::from_id(name).is_some() || RETIRED_PRODUCT_FOLDERS.contains(&name));
         let is_folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
         if is_folder && !is_product_folder && !is_another_process_at_work(&entry.path()) {
             let _ = fs::remove_dir_all(entry.path());

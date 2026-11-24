@@ -317,11 +317,11 @@ impl CoreBuilder {
         let (last_used, last_used_warning) = last_used::LastUsed::load(&paths);
         #[cfg(feature = "update")]
         let identity =
-            self.identity.unwrap_or_else(|| update::AppIdentity::new(update::Product::Tui, env!("CARGO_PKG_VERSION")));
+            self.identity.unwrap_or_else(|| update::AppIdentity::new(update::Product::Gui, env!("CARGO_PKG_VERSION")));
         #[cfg(feature = "update")]
         let product_id = identity.product.id();
         #[cfg(not(feature = "update"))]
-        let product_id = "tui";
+        let product_id = "gui";
         let (update_record, update_warning) = update::record::UpdateRecord::load(&paths, product_id);
         let (bookmarks, bookmark_warnings) = config::bookmarks::load(&paths)?;
         #[cfg(feature = "update")]

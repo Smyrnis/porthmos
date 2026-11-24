@@ -33,21 +33,24 @@ fn the_per_app_update_state_and_staged_files_are_kept() {
     let root = tempfile::tempdir().unwrap();
     let paths = Paths::in_dir(root.path());
     old_state(&paths);
-    for product in [Product::Tui, Product::Gui] {
-        fs::write(paths.update_state_file(product.id()), "last_failure = \"kept\"\n").unwrap();
-        let folder = paths.update_dir().join(product.id());
-        fs::create_dir_all(&folder).unwrap();
-        fs::write(folder.join("staged.toml"), b"kept").unwrap();
-    }
-    fs::write(paths.update_state_file("tui").with_extension("toml.broken"), "kept").unwrap();
+    fs::write(paths.update_state_file(Product::Gui.id()), "last_failure = \"kept\"\n").unwrap();
+    let folder = paths.update_dir().join(Product::Gui.id());
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("staged.toml"), b"kept").unwrap();
+    fs::write(paths.update_state_file("gui").with_extension("toml.broken"), "kept").unwrap();
+    fs::write(paths.update_state_file("tui"), "last_failure = \"kept\"\n").unwrap();
+    let retired = paths.update_dir().join("tui");
+    fs::create_dir_all(&retired).unwrap();
+    fs::write(retired.join("staged.toml"), b"kept").unwrap();
 
     remove(&paths);
 
-    for product in [Product::Tui, Product::Gui] {
-        assert!(paths.update_state_file(product.id()).exists(), "{product:?}");
-        assert!(paths.update_dir().join(product.id()).join("staged.toml").exists(), "{product:?}");
-    }
-    assert!(paths.update_state_file("tui").with_extension("toml.broken").exists());
+    assert!(paths.update_state_file("tui").exists());
+    assert!(retired.join("staged.toml").exists());
+
+    assert!(paths.update_state_file(Product::Gui.id()).exists());
+    assert!(paths.update_dir().join(Product::Gui.id()).join("staged.toml").exists());
+    assert!(paths.update_state_file("gui").with_extension("toml.broken").exists());
 }
 
 #[test]

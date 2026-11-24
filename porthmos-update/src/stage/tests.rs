@@ -22,7 +22,7 @@ use crate::{
 };
 
 #[cfg(unix)]
-const PROGRAM_FILE: &str = "porthmos";
+const PROGRAM_FILE: &str = "porthmos-gui";
 
 fn version(text: &str) -> Version {
     text.parse().unwrap()
@@ -42,7 +42,7 @@ impl Setup {
     }
 
     fn stager(&self) -> Stager {
-        self.stager_for(Product::Tui)
+        self.stager_for(Product::Gui)
     }
 
     fn stager_for(&self, product: Product) -> Stager {
@@ -225,13 +225,13 @@ async fn the_production_stager_refuses_plain_http_without_connecting() {
     let archive = stub_archive("0.5.0", &[]);
     let server = TestServer::start(vec![("/p.tar.gz", Route::Body(archive.clone()))]).await;
     let update = update_for(&server, "/p.tar.gz", "0.5.0", &archive);
-    let stager = Stager::new(Product::Tui, setup.dir().path(), "porthmos/9.9.9").unwrap();
+    let stager = Stager::new(Product::Gui, setup.dir().path(), "porthmos/9.9.9").unwrap();
 
     let result = stager.stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
 
     assert!(matches!(&result, Err(StageError::Download(text)) if text.contains("https")), "{result:?}");
     assert_eq!(server.request_count(), 0);
-    let product_folder = setup.dir().path().join(Product::Tui.id());
+    let product_folder = setup.dir().path().join(Product::Gui.id());
     let left_behind: Vec<_> = fs::read_dir(&product_folder).map(|read| read.collect()).unwrap_or_default();
     assert!(left_behind.is_empty(), "{left_behind:?}");
 }
@@ -302,7 +302,7 @@ async fn the_scratch_folder_is_named_after_this_process() {
 #[tokio::test]
 async fn a_staged_update_from_a_zip_is_stored_under_the_platform_program_name() {
     let setup = Setup::new();
-    let archive = zip_archive_with(&[(PROGRAM_FILE, &stub_script_for(Product::Tui, "0.5.0")), ("LICENSE", b"MIT")]);
+    let archive = zip_archive_with(&[(PROGRAM_FILE, &stub_script_for(Product::Gui, "0.5.0")), ("LICENSE", b"MIT")]);
     let server = TestServer::start(vec![("/p.zip", Route::Body(archive.clone()))]).await;
     let update = update_for(&server, "/p.zip", "0.5.0", &archive);
 
@@ -326,41 +326,11 @@ async fn a_gui_stager_unpacks_the_gui_program_from_a_gui_archive() {
     assert!(staged.binary.is_file());
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn a_gui_stager_refuses_an_archive_that_only_holds_the_tui_program() {
-    let setup = Setup::new();
-    let archive = stub_archive("2026.5.0", &[]);
-    let server = TestServer::start(vec![("/t.tar.gz", Route::Body(archive.clone()))]).await;
-    let update = update_for(&server, "/t.tar.gz", "2026.5.0", &archive);
-
-    let result = setup.stager_for(Product::Gui).stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
-
-    assert!(matches!(result, Err(StageError::Unpack(_))), "{result:?}");
-    assert_eq!(find_staged(&setup.dir(), &version("2026.4.0")), None);
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn a_gui_stager_refuses_a_program_that_answers_with_the_tui_name() {
-    let setup = Setup::new();
-    let wrong_answer = stub_script_for(Product::Tui, "2026.5.0");
-    let archive = archive_with(&[("porthmos-gui", &wrong_answer)]);
-    let server = TestServer::start(vec![("/w.tar.gz", Route::Body(archive.clone()))]).await;
-    let update = update_for(&server, "/w.tar.gz", "2026.5.0", &archive);
-
-    let result = setup.stager_for(Product::Gui).stage(&update, &AtomicBool::new(false), &mut |_, _| {}).await;
-
-    assert!(matches!(result, Err(StageError::HealthCheck(_))), "{result:?}");
-}
-
 #[test]
 fn a_new_stager_works_in_the_folder_of_its_product_under_the_update_root() {
     let root = tempfile::tempdir().unwrap();
-    for product in [Product::Tui, Product::Gui] {
-        let stager = Stager::new(product, root.path(), "test-agent").unwrap();
+    let stager = Stager::new(Product::Gui, root.path(), "test-agent").unwrap();
 
-        assert_eq!(stager.dir, UpdateDir::for_product(root.path(), product));
-        assert_eq!(stager.dir.path(), root.path().join(product.id()));
-    }
+    assert_eq!(stager.dir, UpdateDir::for_product(root.path(), Product::Gui));
+    assert_eq!(stager.dir.path(), root.path().join(Product::Gui.id()));
 }

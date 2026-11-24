@@ -94,13 +94,13 @@ impl World {
     }
 
     async fn run(&self, updater: &DiskUpdater, check_only: bool) -> Result<HeadlessUpdate, String> {
-        let identity = AppIdentity::new(Product::Tui, "0.3.0");
+        let identity = AppIdentity::new(Product::Gui, "0.3.0");
         run_update_with(updater, &self.paths, &self.executable(), Some(self.root.path()), &identity, check_only, BUDGET)
             .await
     }
 
     fn staged_files_exist(&self, version: &str) -> bool {
-        staged_dir(&self.paths, Product::Tui).path().join(version).join("porthmos").exists()
+        staged_dir(&self.paths, Product::Gui).path().join(version).join("porthmos-gui").exists()
     }
 }
 
@@ -134,7 +134,7 @@ async fn a_managed_executable_reports_the_reason_and_stages_nothing() {
     let executable = home.join(".cargo").join("bin").join("porthmos");
     write_program(&executable, "0.3.0");
     let updater = DiskUpdater::new(&world.paths, Ok(Outcome::Available(info("0.9.0"))));
-    let identity = AppIdentity::new(Product::Tui, "0.3.0");
+    let identity = AppIdentity::new(Product::Gui, "0.3.0");
 
     let report = run_update_with(&updater, &world.paths, &executable, Some(&home), &identity, false, BUDGET).await;
 
@@ -154,7 +154,7 @@ async fn an_available_update_is_staged_and_installed() {
 
     assert_eq!(report, Ok(HeadlessUpdate::Installed { version: "0.9.0".to_string() }));
     assert_eq!(updater.calls(), ["check", "stage 0.9.0"]);
-    assert_eq!(run_version(&world.executable()), "porthmos 0.9.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.9.0");
 }
 
 #[tokio::test]
@@ -167,7 +167,7 @@ async fn an_already_staged_version_is_installed_without_staging_again() {
 
     assert_eq!(report, Ok(HeadlessUpdate::Installed { version: "0.9.0".to_string() }));
     assert_eq!(updater.calls(), ["check"]);
-    assert_eq!(run_version(&world.executable()), "porthmos 0.9.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.9.0");
 }
 
 #[tokio::test]
@@ -189,14 +189,14 @@ async fn a_failed_stage_returns_the_error_text_and_leaves_the_executable_alone()
     let report = world.run(&updater, false).await;
 
     assert_eq!(report, Err("couldn't download the update: reset".to_string()));
-    assert_eq!(run_version(&world.executable()), "porthmos 0.3.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.3.0");
 }
 
 #[tokio::test]
 async fn a_failed_install_returns_the_message_and_keeps_the_staged_files() {
     let world = World::new();
     let updater = DiskUpdater::new(&world.paths, Ok(Outcome::Available(info("0.9.0"))));
-    let identity = AppIdentity::new(Product::Tui, "0.3.0");
+    let identity = AppIdentity::new(Product::Gui, "0.3.0");
 
     let report = run_update_with(
         &updater,
@@ -211,7 +211,7 @@ async fn a_failed_install_returns_the_message_and_keeps_the_staged_files() {
 
     assert!(matches!(&report, Err(message) if message.contains("too long")), "{report:?}");
     assert!(world.staged_files_exist("0.9.0"));
-    assert_eq!(run_version(&world.executable()), "porthmos 0.3.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.3.0");
 }
 
 #[tokio::test]

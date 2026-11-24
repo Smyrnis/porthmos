@@ -90,7 +90,7 @@ fn logged_by_default(directives: Option<&str>) -> String {
     tracing::subscriber::with_default(subscriber, || {
         tracing::warn!(target: "porthmos_core::engine::report", "core warning");
         tracing::info!(target: "porthmos_core::engine::report", "core chatter");
-        tracing::warn!(target: "porthmos_tui::app", "tui warning");
+        tracing::warn!(target: "porthmos_gui::app", "gui warning");
         tracing::warn!(target: "porthmos_sftp::session", "protocol warning");
         tracing::warn!(target: "porthmos_vfs", "vfs warning");
         tracing::info!(target: "porthmos_sftp::session", "protocol chatter");
@@ -106,7 +106,7 @@ fn without_a_setting_the_log_keeps_porthmos_warnings_and_every_error() {
     let logs = logged_by_default(None);
 
     assert!(logs.contains("core warning"), "{logs}");
-    assert!(logs.contains("tui warning"), "{logs}");
+    assert!(logs.contains("gui warning"), "{logs}");
     assert!(logs.contains("protocol warning"), "{logs}");
     assert!(logs.contains("vfs warning"), "{logs}");
     assert!(logs.contains("dependency error"), "{logs}");

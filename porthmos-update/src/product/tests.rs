@@ -8,15 +8,13 @@ fn version(text: &str) -> Version {
 
 #[test]
 fn ids_programs_and_letters_are_fixed() {
-    assert_eq!((Product::Tui.id(), Product::Tui.program(), Product::Tui.tag_letter()), ("tui", "porthmos", 'T'));
     assert_eq!((Product::Gui.id(), Product::Gui.program(), Product::Gui.tag_letter()), ("gui", "porthmos-gui", 'G'));
 }
 
 #[test]
 fn from_id_round_trips_and_rejects_unknown() {
-    assert_eq!(Product::from_id("tui"), Some(Product::Tui));
     assert_eq!(Product::from_id("gui"), Some(Product::Gui));
-    for unknown in ["", "TUI", "cli", "tui ", "porthmos"] {
+    for unknown in ["", "GUI", "cli", "tui", "gui ", "porthmos"] {
         assert_eq!(Product::from_id(unknown), None, "{unknown:?}");
     }
 }
@@ -24,7 +22,6 @@ fn from_id_round_trips_and_rejects_unknown() {
 #[test]
 fn program_file_has_exe_only_on_windows() {
     let suffix = if cfg!(windows) { ".exe" } else { "" };
-    assert_eq!(Product::Tui.program_file(), format!("porthmos{suffix}"));
     assert_eq!(Product::Gui.program_file(), format!("porthmos-gui{suffix}"));
 }
 
@@ -54,12 +51,6 @@ fn channel_ids_are_stable_and_preview() {
 #[test]
 fn each_product_and_channel_has_its_own_feed_url() {
     let urls = [
-        (Product::Tui, "2026.5.0", "https://github.com/Smyrnis/porthmos/releases/download/tui-stable/latest.json"),
-        (
-            Product::Tui,
-            "2026.5.0-dev.1",
-            "https://github.com/Smyrnis/porthmos/releases/download/tui-preview/latest.json",
-        ),
         (Product::Gui, "2026.5.0", "https://github.com/Smyrnis/porthmos/releases/download/gui-stable/latest.json"),
         (
             Product::Gui,
@@ -71,11 +62,18 @@ fn each_product_and_channel_has_its_own_feed_url() {
         assert_eq!(manifest_url_for(product, &version(running)), expected, "{running}");
     }
     let unique: std::collections::HashSet<_> = urls.iter().map(|(_, _, url)| *url).collect();
-    assert_eq!(unique.len(), 4);
+    assert_eq!(unique.len(), 2);
 }
 
 #[test]
 fn feed_release_joins_product_and_channel() {
     assert_eq!(feed_release(Product::Gui, Channel::Preview), "gui-preview");
-    assert_eq!(feed_release(Product::Tui, Channel::Stable), "tui-stable");
+    assert_eq!(feed_release(Product::Gui, Channel::Stable), "gui-stable");
+}
+
+#[test]
+fn the_window_app_is_the_only_product() {
+    assert_eq!(Product::from_id("gui"), Some(Product::Gui));
+    assert_eq!(Product::from_id("tui"), None);
+    assert_eq!(Product::Gui.tag_letter(), 'G');
 }

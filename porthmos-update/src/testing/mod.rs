@@ -164,7 +164,7 @@ pub(crate) fn stub_script_for(product: crate::Product, version: &str) -> Vec<u8>
 }
 
 pub(crate) fn stub_archive(version: &str, extra_members: &[(&str, &[u8])]) -> Vec<u8> {
-    stub_archive_for(crate::Product::Tui, version, extra_members)
+    stub_archive_for(crate::Product::Gui, version, extra_members)
 }
 
 pub(crate) fn stub_archive_for(product: crate::Product, version: &str, extra_members: &[(&str, &[u8])]) -> Vec<u8> {

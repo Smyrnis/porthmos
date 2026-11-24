@@ -5,21 +5,18 @@ const PREVIEW_CHANNEL: &str = "dev";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
-    Tui,
     Gui,
 }
 
 impl Product {
     pub fn id(self) -> &'static str {
         match self {
-            Product::Tui => "tui",
             Product::Gui => "gui",
         }
     }
 
     pub fn program(self) -> &'static str {
         match self {
-            Product::Tui => "porthmos",
             Product::Gui => "porthmos-gui",
         }
     }
@@ -30,13 +27,12 @@ impl Product {
 
     pub fn tag_letter(self) -> char {
         match self {
-            Product::Tui => 'T',
             Product::Gui => 'G',
         }
     }
 
     pub fn from_id(id: &str) -> Option<Product> {
-        [Product::Tui, Product::Gui].into_iter().find(|product| product.id() == id)
+        [Product::Gui].into_iter().find(|product| product.id() == id)
     }
 }
 

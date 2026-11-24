@@ -3,7 +3,7 @@ use std::{fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
 use crate::Paths;
 
 pub(crate) fn script(version: &str) -> String {
-    format!("#!/bin/sh\necho \"porthmos {version}\"\n")
+    format!("#!/bin/sh\necho \"porthmos-gui {version}\"\n")
 }
 
 pub(crate) fn write_program(path: &Path, version: &str) {
@@ -31,7 +31,7 @@ pub(crate) fn staged_dir(paths: &Paths, product: porthmos_update::Product) -> po
 }
 
 pub(crate) fn stage_on_disk(paths: &Paths, version: &str) -> porthmos_update::Staged {
-    stage_on_disk_for(paths, porthmos_update::Product::Tui, version)
+    stage_on_disk_for(paths, porthmos_update::Product::Gui, version)
 }
 
 pub(crate) fn stage_on_disk_for(

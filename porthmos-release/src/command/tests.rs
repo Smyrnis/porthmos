@@ -221,7 +221,7 @@ fn the_manifest_subcommand_lists_what_the_package_subcommand_wrote() {
             &args(&[
                 "package",
                 "--product",
-                "tui",
+                "gui",
                 "--target",
                 target,
                 "--version",
@@ -242,7 +242,7 @@ fn the_manifest_subcommand_lists_what_the_package_subcommand_wrote() {
         &args(&[
             "manifest",
             "--product",
-            "tui",
+            "gui",
             "--version",
             "0.4.0",
             "--released",
@@ -264,7 +264,7 @@ fn the_manifest_subcommand_lists_what_the_package_subcommand_wrote() {
     assert_eq!(manifest.notes, "the notes");
     assert_eq!(manifest.targets.len(), 2);
     for (target, artifact) in &manifest.targets {
-        let archive = std::fs::read(Path::new(&out).join(format!("porthmos-0.4.0-{target}.tar.gz"))).unwrap();
+        let archive = std::fs::read(Path::new(&out).join(format!("porthmos-gui-0.4.0-{target}.tar.gz"))).unwrap();
         assert_eq!(artifact.sha256, sha256_hex(&archive));
     }
 }
@@ -297,7 +297,7 @@ fn the_package_command_reports_a_zip_for_windows() {
         &args(&[
             "package",
             "--product",
-            "tui",
+            "gui",
             "--target",
             "x86_64-pc-windows-msvc",
             "--version",
@@ -313,8 +313,8 @@ fn the_package_command_reports_a_zip_for_windows() {
     )
     .unwrap();
 
-    assert!(message.starts_with("wrote porthmos-0.4.0-x86_64-pc-windows-msvc.zip, "), "{message}");
-    assert!(message.contains("porthmos-x86_64-pc-windows-msvc.zip.sha256"), "{message}");
+    assert!(message.starts_with("wrote porthmos-gui-0.4.0-x86_64-pc-windows-msvc.zip, "), "{message}");
+    assert!(message.contains("porthmos-gui-x86_64-pc-windows-msvc.zip.sha256"), "{message}");
     assert!(!message.contains("tar.gz"), "{message}");
 }
 
@@ -351,7 +351,7 @@ fn the_package_command_needs_a_product_and_names_the_allowed_ones() {
     let unknown = run(&package_args(&directory, Some("cli")), &no_env).unwrap_err().to_string();
 
     assert!(missing.contains("--product"), "{missing}");
-    assert!(unknown.contains("cli") && unknown.contains("tui") && unknown.contains("gui"), "{unknown}");
+    assert!(unknown.contains("cli") && unknown.contains("gui") && !unknown.contains("tui"), "{unknown}");
 }
 
 #[test]

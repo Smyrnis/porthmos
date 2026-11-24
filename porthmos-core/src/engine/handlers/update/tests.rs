@@ -49,14 +49,14 @@ impl Setup {
         let mut t = test_engine();
         let fake = Arc::new(fake);
         let updater: Arc<dyn crate::update::Updater> = fake.clone();
-        let record = crate::update::record::UpdateRecord::load(&t.engine.host.paths, "tui").0;
+        let record = crate::update::record::UpdateRecord::load(&t.engine.host.paths, "gui").0;
         t.engine.update = UpdateEngine::new(
             UpdateSettings { mode, interval_hours: 1 },
             record,
             Some(updater),
             timing(),
             Some(PathBuf::from("/nonexistent/porthmos")),
-            crate::update::AppIdentity::new(crate::update::Product::Tui, "0.1.0"),
+            crate::update::AppIdentity::new(crate::update::Product::Gui, "0.1.0"),
         );
         Setup { t, fake, seeded_check: None }
     }
@@ -342,13 +342,13 @@ fn staged_for(version: &str, binary: PathBuf) -> porthmos_update::Staged {
 }
 
 fn seed_staged(setup: &Setup, version: &str) -> porthmos_update::Staged {
-    let folder = setup.t.engine.host.paths.update_dir().join("tui").join(version);
+    let folder = setup.t.engine.host.paths.update_dir().join("gui").join(version);
     std::fs::create_dir_all(&folder).unwrap();
     let binary = folder.join("porthmos");
     std::fs::write(&binary, b"x").unwrap();
     let staged = staged_for(version, binary);
     porthmos_update::record_staged(
-        &porthmos_update::UpdateDir::for_product(setup.t.engine.host.paths.update_dir(), porthmos_update::Product::Tui),
+        &porthmos_update::UpdateDir::for_product(setup.t.engine.host.paths.update_dir(), porthmos_update::Product::Gui),
         &staged,
     )
     .unwrap();
@@ -451,7 +451,7 @@ async fn startup_ignores_a_staged_update_in_notify_and_off_mode() {
         setup.t.engine.start_updates();
 
         assert!(updates(&setup.t.drain()).is_empty(), "{mode:?}");
-        assert!(setup.t.engine.host.paths.update_dir().join("tui").join("0.9.0").join("porthmos").exists(), "{mode:?}");
+        assert!(setup.t.engine.host.paths.update_dir().join("gui").join("0.9.0").join("porthmos").exists(), "{mode:?}");
         assert!(setup.t.engine.update.staged.is_none());
     }
 }
@@ -464,7 +464,7 @@ async fn startup_clears_a_staged_update_that_is_not_newer() {
     setup.t.engine.start_updates();
 
     assert!(updates(&setup.t.drain()).is_empty());
-    assert!(!setup.t.engine.host.paths.update_dir().join("tui").join("0.1.0").exists());
+    assert!(!setup.t.engine.host.paths.update_dir().join("gui").join("0.1.0").exists());
 }
 
 #[tokio::test]
@@ -548,7 +548,7 @@ async fn a_remembered_failure_is_reported_once_at_startup() {
         [(Severity::Warning, "Couldn't install the update: 0.9.0: boom".to_string())]
     );
     setup.t.engine.writer.flush().await;
-    let saved = std::fs::read_to_string(setup.t.engine.host.paths.update_state_file("tui")).unwrap_or_default();
+    let saved = std::fs::read_to_string(setup.t.engine.host.paths.update_state_file("gui")).unwrap_or_default();
     assert!(!saved.contains("boom"), "{saved}");
     setup.t.engine.start_updates();
     assert!(notices(&setup.t.drain()).is_empty());

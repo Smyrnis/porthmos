@@ -166,7 +166,7 @@ fn the_update_paths_sit_in_the_state_folder() {
     let root = Path::new("/r");
     let paths = Paths::in_dir(root);
 
-    assert_eq!(paths.update_state_file("tui"), root.join("state").join("update-tui.toml"));
+    assert_eq!(paths.update_state_file("gui"), root.join("state").join("update-gui.toml"));
     assert_eq!(paths.update_state_file("gui"), root.join("state").join("update-gui.toml"));
     assert_eq!(paths.update_dir(), root.join("state").join("update"));
 }

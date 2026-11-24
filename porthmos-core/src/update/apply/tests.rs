@@ -39,17 +39,17 @@ impl World {
             mode,
             &self.executable(),
             Some(self.root.path()),
-            &identity(Product::Tui, "0.3.0"),
+            &identity(Product::Gui, "0.3.0"),
             budget,
         )
     }
 
     fn record(&self) -> UpdateRecord {
-        UpdateRecord::load(&self.paths, "tui").0
+        UpdateRecord::load(&self.paths, "gui").0
     }
 
     fn staged_files_exist(&self, version: &str) -> bool {
-        staged_dir(&self.paths, Product::Tui).path().join(version).join("porthmos").exists()
+        staged_dir(&self.paths, Product::Gui).path().join(version).join("porthmos-gui").exists()
     }
 }
 
@@ -62,7 +62,7 @@ fn a_staged_update_is_installed_and_reported() {
     let outcome = world.apply(UpdateMode::Auto, BUDGET);
 
     assert_eq!(outcome, ApplyOutcome::Installed { version: "0.9.0".to_string() });
-    assert_eq!(run_version(&world.executable()), "porthmos 0.9.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.9.0");
     assert!(!world.staged_files_exist("0.9.0"));
 }
 
@@ -72,7 +72,7 @@ fn nothing_staged_is_nothing() {
     write_program(&world.executable(), "0.3.0");
 
     assert_eq!(world.apply(UpdateMode::Auto, BUDGET), ApplyOutcome::Nothing);
-    assert_eq!(run_version(&world.executable()), "porthmos 0.3.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.3.0");
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn notify_and_off_modes_install_nothing_and_leave_everything() {
         world.stage("0.9.0");
 
         assert_eq!(world.apply(mode, BUDGET), ApplyOutcome::Nothing, "{mode:?}");
-        assert_eq!(run_version(&world.executable()), "porthmos 0.3.0", "{mode:?}");
+        assert_eq!(run_version(&world.executable()), "porthmos-gui 0.3.0", "{mode:?}");
         assert!(world.staged_files_exist("0.9.0"), "{mode:?}");
     }
 }
@@ -96,10 +96,10 @@ fn a_package_managed_executable_is_left_alone() {
     write_program(&executable, "0.3.0");
     world.stage("0.9.0");
     let outcome =
-        apply_with(&world.paths, UpdateMode::Auto, &executable, Some(&home), &identity(Product::Tui, "0.3.0"), BUDGET);
+        apply_with(&world.paths, UpdateMode::Auto, &executable, Some(&home), &identity(Product::Gui, "0.3.0"), BUDGET);
 
     assert_eq!(outcome, ApplyOutcome::Nothing);
-    assert_eq!(run_version(&executable), "porthmos 0.3.0");
+    assert_eq!(run_version(&executable), "porthmos-gui 0.3.0");
     assert!(world.staged_files_exist("0.9.0"));
 }
 
@@ -126,7 +126,7 @@ fn an_install_that_fails_is_reported_and_remembered() {
         "{outcome:?}"
     );
     assert!(world.record().last_failure().is_some_and(|text| text.contains("0.9.0") && text.contains("too long")));
-    assert_eq!(run_version(&world.executable()), "porthmos 0.3.0");
+    assert_eq!(run_version(&world.executable()), "porthmos-gui 0.3.0");
 }
 
 #[test]
@@ -140,29 +140,6 @@ fn a_later_success_clears_the_remembered_failure() {
 
     assert!(matches!(outcome, ApplyOutcome::Installed { .. }), "{outcome:?}");
     assert_eq!(world.record().last_failure(), None);
-}
-
-#[test]
-fn a_staged_tui_update_is_not_installed_by_the_gui_and_stays_for_the_tui() {
-    let world = World::new();
-    let gui = world.root.path().join("bin").join("porthmos-gui");
-    write_program(&gui, "2026.4.0");
-    stage_on_disk_for(&world.paths, Product::Tui, "2026.5.0");
-
-    let outcome = apply_with(
-        &world.paths,
-        UpdateMode::Auto,
-        &gui,
-        Some(world.root.path()),
-        &identity(Product::Gui, "2026.4.0"),
-        BUDGET,
-    );
-
-    assert_eq!(outcome, ApplyOutcome::Nothing);
-    assert_eq!(run_version(&gui), "porthmos 2026.4.0");
-    assert!(
-        porthmos_update::find_staged(&staged_dir(&world.paths, Product::Tui), &"2026.4.0".parse().unwrap()).is_some()
-    );
 }
 
 #[test]
@@ -182,5 +159,5 @@ fn a_staged_gui_update_is_installed_by_the_gui_with_its_own_failure_record() {
     );
 
     assert_eq!(outcome, ApplyOutcome::Installed { version: "2026.5.0".to_string() });
-    assert_eq!(UpdateRecord::load(&world.paths, "tui").0.last_failure(), None);
+    assert_eq!(UpdateRecord::load(&world.paths, "gui").0.last_failure(), None);
 }

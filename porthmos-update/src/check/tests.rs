@@ -63,7 +63,7 @@ fn checker_for(server: &TestServer, trusted_public_key: &str) -> Checker {
         &server.url("/latest.json"),
         vec![parse_public_key(trusted_public_key).unwrap()],
         TARGET,
-        "porthmos/9.9.9",
+        "porthmos-gui/9.9.9",
         false,
     )
     .unwrap()
@@ -202,33 +202,23 @@ async fn a_binary_signature_body_is_a_bad_encoding_error() {
 
 #[test]
 fn the_release_checker_reads_the_feed_of_the_running_channel() {
-    let stable = Checker::release(Product::Tui, &version("2026.5.0"), "porthmos/9.9.9").unwrap();
-    let preview = Checker::release(Product::Tui, &version("2026.5.0-dev.2"), "porthmos/9.9.9").unwrap();
+    let stable = Checker::release(Product::Gui, &version("2026.5.0"), "porthmos-gui/9.9.9").unwrap();
+    let preview = Checker::release(Product::Gui, &version("2026.5.0-dev.2"), "porthmos-gui/9.9.9").unwrap();
 
-    assert_eq!(stable.manifest_url(), "https://github.com/Smyrnis/porthmos/releases/download/tui-stable/latest.json");
-    assert_eq!(preview.manifest_url(), "https://github.com/Smyrnis/porthmos/releases/download/tui-preview/latest.json");
-}
-
-#[test]
-fn a_gui_checker_reads_the_gui_feed_and_a_tui_checker_the_tui_feed() {
-    let gui = Checker::release(Product::Gui, &version("2026.5.0-dev.1"), "porthmos-gui/9.9.9").unwrap();
-    let tui = Checker::release(Product::Tui, &version("2026.5.0-dev.1"), "porthmos/9.9.9").unwrap();
-
-    assert!(gui.manifest_url().contains("/gui-preview/"));
-    assert!(tui.manifest_url().contains("/tui-preview/"));
-    assert_ne!(gui.manifest_url(), tui.manifest_url());
+    assert_eq!(stable.manifest_url(), "https://github.com/Smyrnis/porthmos/releases/download/gui-stable/latest.json");
+    assert_eq!(preview.manifest_url(), "https://github.com/Smyrnis/porthmos/releases/download/gui-preview/latest.json");
 }
 
 #[test]
 fn the_release_checker_trusts_exactly_the_embedded_keys() {
-    let checker = Checker::release(Product::Tui, &version("2026.5.0"), "porthmos/9.9.9").unwrap();
+    let checker = Checker::release(Product::Gui, &version("2026.5.0"), "porthmos-gui/9.9.9").unwrap();
 
     assert_eq!(checker.trusted_count(), keys::trusted_keys().len());
 }
 
 #[test]
 fn the_preview_checker_trusts_exactly_the_embedded_keys_too() {
-    let checker = Checker::release(Product::Tui, &version("2026.5.0-dev.1"), "porthmos/9.9.9").unwrap();
+    let checker = Checker::release(Product::Gui, &version("2026.5.0-dev.1"), "porthmos-gui/9.9.9").unwrap();
 
     assert_eq!(checker.trusted_count(), keys::trusted_keys().len());
 }
@@ -262,7 +252,7 @@ async fn the_checker_asks_with_the_given_user_agent() {
 
     checker_for(&server, &release.public).check(&version("0.4.0")).await.unwrap();
 
-    assert_eq!(server.user_agents(), ["porthmos/9.9.9", "porthmos/9.9.9"]);
+    assert_eq!(server.user_agents(), ["porthmos-gui/9.9.9", "porthmos-gui/9.9.9"]);
 }
 
 #[tokio::test]
@@ -273,7 +263,7 @@ async fn the_production_checker_refuses_plain_http_without_connecting() {
         &server.url("/latest.json"),
         vec![parse_public_key(&release.public).unwrap()],
         TARGET,
-        "porthmos/9.9.9",
+        "porthmos-gui/9.9.9",
     )
     .unwrap();
 

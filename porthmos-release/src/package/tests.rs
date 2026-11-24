@@ -42,7 +42,7 @@ impl Fixture {
     }
 
     fn run(&self) -> Result<()> {
-        package(Product::Tui, TARGET, &Version::new(0, 4, 0), &self.binary(), &self.license(), None, &self.out())
+        package(Product::Gui, TARGET, &Version::new(0, 4, 0), &self.binary(), &self.license(), None, &self.out())
     }
 }
 
@@ -68,8 +68,8 @@ fn the_versioned_and_version_less_archives_are_identical() {
 
     fixture.run().unwrap();
 
-    let versioned = std::fs::read(fixture.out().join("porthmos-0.4.0-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
-    let plain = std::fs::read(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    let versioned = std::fs::read(fixture.out().join("porthmos-gui-0.4.0-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    let plain = std::fs::read(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
     assert_eq!(versioned, plain);
 }
 
@@ -78,10 +78,10 @@ fn the_archive_holds_only_the_binary_and_the_license() {
     let fixture = Fixture::new();
     fixture.run().unwrap();
 
-    let entries = entries_of(&fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz"));
+    let entries = entries_of(&fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz"));
 
     let names: Vec<&str> = entries.iter().map(|(name, _, _)| name.as_str()).collect();
-    assert_eq!(names, ["porthmos", "LICENSE"]);
+    assert_eq!(names, ["porthmos-gui", "LICENSE"]);
     assert_eq!(entries[1].2, LICENSE);
 }
 
@@ -92,7 +92,7 @@ fn the_binary_keeps_its_bytes_and_is_executable() {
     std::fs::set_permissions(fixture.binary(), std::fs::Permissions::from_mode(0o600)).unwrap();
     fixture.run().unwrap();
 
-    let entries = entries_of(&fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz"));
+    let entries = entries_of(&fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz"));
 
     assert_eq!(entries[0].2, BINARY);
     assert_eq!(entries[0].1 & 0o777, 0o755);
@@ -104,21 +104,21 @@ fn the_sidecar_checksum_matches_the_archive_and_has_the_exact_line_format() {
     fixture.run().unwrap();
 
     let sidecar =
-        std::fs::read_to_string(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz.sha256")).unwrap();
+        std::fs::read_to_string(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz.sha256")).unwrap();
 
-    let archive = std::fs::read(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
-    assert_eq!(sidecar, format!("{}  porthmos-x86_64-unknown-linux-gnu.tar.gz\n", sha256_hex(&archive)));
+    let archive = std::fs::read(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    assert_eq!(sidecar, format!("{}  porthmos-gui-x86_64-unknown-linux-gnu.tar.gz\n", sha256_hex(&archive)));
 }
 
 #[test]
 fn packaging_the_same_inputs_twice_gives_the_same_bytes() {
     let fixture = Fixture::new();
     fixture.run().unwrap();
-    let first = std::fs::read(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    let first = std::fs::read(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
 
     fixture.run().unwrap();
 
-    assert_eq!(std::fs::read(fixture.out().join("porthmos-x86_64-unknown-linux-gnu.tar.gz")).unwrap(), first);
+    assert_eq!(std::fs::read(fixture.out().join("porthmos-gui-x86_64-unknown-linux-gnu.tar.gz")).unwrap(), first);
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn a_missing_binary_is_an_error_naming_the_path_and_leaves_no_archive_behind() {
 const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 
 fn windows_run(fixture: &Fixture, out: &Path) -> Result<()> {
-    package(Product::Tui, WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), None, out)
+    package(Product::Gui, WINDOWS_TARGET, &Version::new(0, 4, 0), &fixture.binary(), &fixture.license(), None, out)
 }
 
 fn zip_members(archive: &Path) -> Vec<(String, Vec<u8>)> {
@@ -164,13 +164,13 @@ fn a_windows_target_is_packaged_as_a_zip_with_the_exe_and_the_license() {
     assert_eq!(
         names,
         [
-            "porthmos-0.4.0-x86_64-pc-windows-msvc.zip",
-            "porthmos-x86_64-pc-windows-msvc.zip",
-            "porthmos-x86_64-pc-windows-msvc.zip.sha256",
+            "porthmos-gui-0.4.0-x86_64-pc-windows-msvc.zip",
+            "porthmos-gui-x86_64-pc-windows-msvc.zip",
+            "porthmos-gui-x86_64-pc-windows-msvc.zip.sha256",
         ]
     );
-    let members = zip_members(&fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip"));
-    assert_eq!(members, [("porthmos.exe".to_string(), BINARY.to_vec()), ("LICENSE".to_string(), LICENSE.to_vec())]);
+    let members = zip_members(&fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip"));
+    assert_eq!(members, [("porthmos-gui.exe".to_string(), BINARY.to_vec()), ("LICENSE".to_string(), LICENSE.to_vec())]);
 }
 
 #[test]
@@ -182,8 +182,8 @@ fn a_windows_zip_is_byte_for_byte_reproducible() {
     windows_run(&fixture, &second).unwrap();
 
     assert_eq!(
-        std::fs::read(first.join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap(),
-        std::fs::read(second.join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap()
+        std::fs::read(first.join("porthmos-gui-x86_64-pc-windows-msvc.zip")).unwrap(),
+        std::fs::read(second.join("porthmos-gui-x86_64-pc-windows-msvc.zip")).unwrap()
     );
 }
 
@@ -192,10 +192,11 @@ fn the_windows_checksum_file_names_the_plain_zip() {
     let fixture = Fixture::new();
     windows_run(&fixture, &fixture.out()).unwrap();
 
-    let sidecar = std::fs::read_to_string(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip.sha256")).unwrap();
+    let sidecar =
+        std::fs::read_to_string(fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip.sha256")).unwrap();
 
-    let archive = std::fs::read(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap();
-    assert_eq!(sidecar, format!("{}  porthmos-x86_64-pc-windows-msvc.zip\n", sha256_hex(&archive)));
+    let archive = std::fs::read(fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip")).unwrap();
+    assert_eq!(sidecar, format!("{}  porthmos-gui-x86_64-pc-windows-msvc.zip\n", sha256_hex(&archive)));
 }
 
 #[test]
@@ -204,8 +205,8 @@ fn the_versioned_and_version_less_windows_zips_are_identical() {
     windows_run(&fixture, &fixture.out()).unwrap();
 
     assert_eq!(
-        std::fs::read(fixture.out().join("porthmos-0.4.0-x86_64-pc-windows-msvc.zip")).unwrap(),
-        std::fs::read(fixture.out().join("porthmos-x86_64-pc-windows-msvc.zip")).unwrap()
+        std::fs::read(fixture.out().join("porthmos-gui-0.4.0-x86_64-pc-windows-msvc.zip")).unwrap(),
+        std::fs::read(fixture.out().join("porthmos-gui-x86_64-pc-windows-msvc.zip")).unwrap()
     );
 }
 

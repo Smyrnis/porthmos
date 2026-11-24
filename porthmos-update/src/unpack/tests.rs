@@ -6,16 +6,16 @@ use crate::testing::{archive_with, raw_archive, stub_archive, zip_archive_with};
 const CAP: u64 = 1024 * 1024;
 
 #[cfg(windows)]
-const PROGRAM_FILE: &str = "porthmos.exe";
+const PROGRAM_FILE: &str = "porthmos-gui.exe";
 #[cfg(not(windows))]
-const PROGRAM_FILE: &str = "porthmos";
+const PROGRAM_FILE: &str = "porthmos-gui";
 
 fn extract_binary(archive: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
     extract_binary_named(archive, destination, max_bytes, PROGRAM_FILE)
 }
 
 fn health_check(binary: &Path, expected: &Version, timeout: Duration) -> Result<()> {
-    super::health_check(binary, expected, timeout, "porthmos")
+    super::health_check(binary, expected, timeout, "porthmos-gui")
 }
 
 fn version(text: &str) -> Version {
@@ -73,7 +73,7 @@ fn the_binary_is_extracted_executable_and_the_license_is_ignored() {
 
     extract_binary(&archive, &folder.destination(), CAP).unwrap();
 
-    assert_eq!(fs::read(folder.destination()).unwrap(), stub_script_for(Product::Tui, "0.5.0"));
+    assert_eq!(fs::read(folder.destination()).unwrap(), stub_script_for(Product::Gui, "0.5.0"));
     assert_eq!(fs::metadata(folder.destination()).unwrap().permissions().mode() & 0o777, 0o755);
     assert_eq!(folder.stage_listing(), [PROGRAM_FILE]);
 }
@@ -119,7 +119,7 @@ fn an_archive_without_the_binary_is_an_error_and_leaves_no_file() {
 
     let message = extract_binary(&archive, &folder.destination(), CAP).unwrap_err().to_string();
 
-    assert!(message.contains("porthmos"), "{message}");
+    assert!(message.contains("porthmos-gui"), "{message}");
     assert!(folder.stage_listing().is_empty());
 }
 
@@ -159,7 +159,7 @@ fn a_corrupt_archive_is_an_error_not_a_panic() {
 #[test]
 fn a_binary_that_prints_the_expected_version_passes() {
     let folder = Folder::new();
-    let binary = folder.script("good", "#!/bin/sh\necho \"porthmos 0.5.0\"\n", 0o755);
+    let binary = folder.script("good", "#!/bin/sh\necho \"porthmos-gui 0.5.0\"\n", 0o755);
 
     assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_ok());
 }
@@ -168,7 +168,7 @@ fn a_binary_that_prints_the_expected_version_passes() {
 #[test]
 fn a_binary_that_prints_another_version_fails() {
     let folder = Folder::new();
-    let binary = folder.script("other", "#!/bin/sh\necho \"porthmos 0.4.9\"\n", 0o755);
+    let binary = folder.script("other", "#!/bin/sh\necho \"porthmos-gui 0.4.9\"\n", 0o755);
 
     assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
 }
@@ -177,7 +177,7 @@ fn a_binary_that_prints_another_version_fails() {
 #[test]
 fn a_binary_that_exits_non_zero_fails() {
     let folder = Folder::new();
-    let binary = folder.script("bad", "#!/bin/sh\necho \"porthmos 0.5.0\"\nexit 3\n", 0o755);
+    let binary = folder.script("bad", "#!/bin/sh\necho \"porthmos-gui 0.5.0\"\nexit 3\n", 0o755);
 
     assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
 }
@@ -201,7 +201,7 @@ fn a_binary_that_hangs_is_killed_at_the_timeout() {
 #[test]
 fn a_file_that_is_not_executable_fails() {
     let folder = Folder::new();
-    let binary = folder.script("plain", "#!/bin/sh\necho \"porthmos 0.5.0\"\n", 0o644);
+    let binary = folder.script("plain", "#!/bin/sh\necho \"porthmos-gui 0.5.0\"\n", 0o644);
 
     assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
 }
@@ -210,7 +210,7 @@ fn a_file_that_is_not_executable_fails() {
 #[test]
 fn a_binary_with_extra_output_fails() {
     let folder = Folder::new();
-    let binary = folder.script("chatty", "#!/bin/sh\necho \"porthmos 0.5.0\"\necho more\n", 0o755);
+    let binary = folder.script("chatty", "#!/bin/sh\necho \"porthmos-gui 0.5.0\"\necho more\n", 0o755);
 
     assert!(health_check(&binary, &version("0.5.0"), Duration::from_secs(5)).is_err());
 }
@@ -241,7 +241,10 @@ fn only_the_member_named_exactly_porthmos_is_the_program() {
 #[test]
 fn an_archive_with_only_look_alike_members_has_no_program() {
     let folder = Folder::new();
-    let archive = folder.archive(&archive_with(&[("bin/porthmos", b"decoy"), ("../porthmos", b"decoy")]));
+    let archive = folder.archive(&archive_with(&[
+        (&format!("bin/{PROGRAM_FILE}"), b"decoy"),
+        (&format!("../{PROGRAM_FILE}"), b"decoy"),
+    ]));
 
     assert!(extract_binary(&archive, &folder.destination(), CAP).is_err());
     assert!(folder.stage_listing().is_empty());
@@ -254,7 +257,7 @@ fn a_binary_that_is_still_being_closed_by_its_writer_is_retried() {
     let folder = Folder::new();
     let path = folder.root.path().join("fresh");
     let mut writer = fs::File::create(&path).unwrap();
-    writer.write_all(b"#!/bin/sh\necho \"porthmos 0.5.0\"\n").unwrap();
+    writer.write_all(b"#!/bin/sh\necho \"porthmos-gui 0.5.0\"\n").unwrap();
     writer.set_permissions(fs::Permissions::from_mode(0o755)).unwrap();
     let closer = thread::spawn(move || {
         thread::sleep(Duration::from_millis(150));
@@ -267,7 +270,7 @@ fn a_binary_that_is_still_being_closed_by_its_writer_is_retried() {
     assert!(result.is_ok(), "{result:?}");
 }
 
-const WINDOWS_PROGRAM: &str = "porthmos.exe";
+const WINDOWS_PROGRAM: &str = "porthmos-gui.exe";
 
 impl Folder {
     fn windows_destination(&self) -> std::path::PathBuf {
@@ -315,7 +318,7 @@ fn a_zip_without_the_program_is_refused() {
     let message =
         extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).unwrap_err().to_string();
 
-    assert!(message.contains("porthmos"), "{message}");
+    assert!(message.contains("porthmos-gui"), "{message}");
     assert!(folder.stage_listing().is_empty());
 }
 
@@ -323,20 +326,20 @@ fn a_zip_without_the_program_is_refused() {
 fn a_zip_member_named_with_a_parent_folder_is_never_extracted() {
     let folder = Folder::new();
     let archive = folder.archive(&zip_archive_with(&[
-        ("../porthmos.exe", b"bad"),
-        ("sub/porthmos.exe", b"bad"),
-        ("..\\porthmos.exe", b"bad"),
+        (&format!("../{WINDOWS_PROGRAM}"), b"bad"),
+        (&format!("sub/{WINDOWS_PROGRAM}"), b"bad"),
+        (&format!("..\\{WINDOWS_PROGRAM}"), b"bad"),
     ]));
 
     assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
     assert!(folder.stage_listing().is_empty());
-    assert!(!folder.root.path().join("porthmos.exe").exists());
+    assert!(!folder.root.path().join("porthmos-gui.exe").exists());
 }
 
 #[test]
 fn a_zip_member_that_is_a_folder_is_not_the_program() {
     let folder = Folder::new();
-    let archive = folder.archive(&zip_archive_with(&[("porthmos.exe/", b"")]));
+    let archive = folder.archive(&zip_archive_with(&[(&format!("{WINDOWS_PROGRAM}/"), b"")]));
 
     assert!(extract_binary_named(&archive, &folder.windows_destination(), CAP, WINDOWS_PROGRAM).is_err());
     assert!(folder.stage_listing().is_empty());

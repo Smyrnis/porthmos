@@ -25,7 +25,7 @@ fn info(version: &str) -> UpdateInfo {
 fn the_release_updater_builds_with_a_user_agent() {
     let dir = tempfile::tempdir().unwrap();
 
-    let identity = AppIdentity::new(Product::Tui, "2026.5.0");
+    let identity = AppIdentity::new(Product::Gui, "2026.5.0");
 
     assert!(ReleaseUpdater::new(&identity, dir.path().join("update")).is_ok());
 }

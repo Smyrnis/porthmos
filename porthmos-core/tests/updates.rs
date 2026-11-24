@@ -220,7 +220,7 @@ async fn apply_staged_update_with_nothing_staged_is_nothing_after_shutdown() {
     started.core.shutdown().await;
 
     assert_eq!(
-        apply_staged_update(&paths, UpdateMode::Auto, &AppIdentity::new(Product::Tui, "0.1.0")),
+        apply_staged_update(&paths, UpdateMode::Auto, &AppIdentity::new(Product::Gui, "0.1.0")),
         ApplyOutcome::Nothing
     );
 }

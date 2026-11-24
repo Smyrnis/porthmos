@@ -35,7 +35,7 @@ impl Flags {
 
     fn product(&self) -> Result<Product> {
         let id = self.required("product")?;
-        Product::from_id(id).ok_or_else(|| anyhow!("--product \"{id}\" is not known; expected one of: tui, gui"))
+        Product::from_id(id).ok_or_else(|| anyhow!("--product \"{id}\" is not known; expected: gui"))
     }
 }
 
