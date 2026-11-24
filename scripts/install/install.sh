@@ -7,14 +7,35 @@ say() {
   printf '%s\n' "$*"
 }
 
+step_open=0
+
 fail() {
+  if [ "$step_open" -eq 1 ]; then
+    say "failed"
+    step_open=0
+  fi
   printf 'porthmos install: %s\n' "$*" >&2
   exit 1
 }
 
+step() {
+  step_number=$((step_number + 1))
+  step_open=1
+  label="[$step_number/$step_total] $1 "
+  while [ "${#label}" -lt 32 ]; do
+    label="$label."
+  done
+  printf '%s ' "$label"
+}
+
+step_done() {
+  step_open=0
+  say "$1"
+}
+
 usage() {
   cat << 'USAGE'
-Usage: install.sh [--preview] [--gui]
+Usage: install.sh [--preview] [--dry-run] [--yes] [--gui]
 
 Installs the Porthmos window app (porthmos-gui) into $PORTHMOS_INSTALL_DIR
 (default ~/.local/share/porthmos) and links it from $PORTHMOS_BIN_DIR
@@ -28,7 +49,15 @@ Installs the Porthmos window app (porthmos-gui) into $PORTHMOS_INSTALL_DIR
               first, and may be less polished. They update from the preview
               feed. Run this script again without --preview to go back to
               the stable build.
+  --dry-run   print what the installer would do and change nothing: no
+              download, no file written, no question.
+  --yes, -y   do not ask before installing. Needed when the script is run
+              without a terminal. The plan is still printed.
   --help      show this text.
+
+Before it changes anything the installer prints a plan and asks whether to
+continue. The question is read from the terminal, so it works through
+curl | sh as well.
 USAGE
 }
 
@@ -53,7 +82,7 @@ detect_target() {
 }
 
 download() {
-  curl -fsSL "$@" || return 1
+  curl -fsSL "$@"
 }
 
 verify_checksum() {
@@ -68,21 +97,32 @@ verify_checksum() {
   fi
 }
 
+download_release_files() {
+  for name in "$archive" "$archive.sha256"; do
+    code=0
+    download "$@" -o "$temp/$name" "$base/$name" || code=$?
+    [ "$code" -eq 0 ] && continue
+    if [ "$code" -eq 22 ] && [ "$channel" = stable ]; then
+      fail "couldn't download $name from $base. If no stable release has been published yet, run again with --preview for the preview build."
+    fi
+    fail "couldn't download $name from $base"
+  done
+}
+
 fetch_verified() {
-  temp=$1
-  base=$2
-  archive=$3
-  shift 3
+  step "Downloading"
+  download_release_files "$@"
+  step_done "done"
+  step "Checking SHA-256"
   attempt=1
-  while :; do
-    download "$@" -o "$temp/$archive" "$base/$archive" || fail "couldn't download $archive from $base"
-    download "$@" -o "$temp/$archive.sha256" "$base/$archive.sha256" || fail "couldn't download $archive.sha256 from $base"
-    verify_checksum "$temp" "$archive.sha256" && return 0
+  until verify_checksum "$temp" "$archive.sha256"; do
     [ "$attempt" -lt 2 ] || fail "the download does not match its checksum; nothing was installed"
-    say "The download does not match its checksum; the release may be mid-upload. Trying once more."
+    printf 'no match, fetching again ... '
     attempt=$((attempt + 1))
     sleep "${PORTHMOS_RETRY_DELAY:-3}"
+    download_release_files "$@"
   done
+  step_done "matches"
 }
 
 data_home() {
@@ -112,12 +152,14 @@ install_launcher() {
   program=$1
   executable=$2
   icon=$3
-  [ "$(uname -s)" = Linux ] || return 0
-  [ -f "$icon" ] || return 0
+  if [ ! -f "$icon" ]; then
+    say "the release has no icon"
+    return 1
+  fi
   case $executable in
     *'"'* | *'$'* | *'`'* | *\\* | *'%'*)
-      say "Couldn't add the launcher: the install path has a character a launcher can't hold."
-      return 0
+      say "the install path has a character a launcher can't hold"
+      return 1
       ;;
   esac
   data=$(data_home)
@@ -125,24 +167,76 @@ install_launcher() {
   app_dir=$data/applications
   pending=$app_dir/.$program.desktop.$$
   if ! { mkdir -p "$icon_dir" "$app_dir" && cp "$icon" "$icon_dir/$program.svg" &&
-    write_launcher "$executable" "$program" > "$pending" && mv -f "$pending" "$app_dir/$program.desktop"; }; then
+    write_launcher "$executable" "$program" > "$pending" && mv -f "$pending" "$app_dir/$program.desktop"; } 2> /dev/null; then
     rm -f "$pending"
-    say "Couldn't add the launcher to the applications menu; $program still runs from the command line."
-    return 0
+    say "it could not be written; $program still runs from the command line"
+    return 1
   fi
   if command -v update-desktop-database > /dev/null 2>&1; then
     update-desktop-database "$app_dir" > /dev/null 2>&1 || true
   fi
+  return 0
+}
+
+tilde() {
+  case $1 in
+    "$HOME"/*) printf '~/%s\n' "${1#"$HOME"/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+existing_version() {
+  [ -f "$1" ] || return 0
+  found=$("$1" --version 2> /dev/null < /dev/null || true)
+  found=${found#"$2 "}
+  if [ -n "$found" ]; then
+    printf 'replaces %s\n' "$found"
+  else
+    printf 'replaces the existing copy\n'
+  fi
+}
+
+print_plan() {
+  if [ "$channel" = preview ]; then
+    say "Porthmos installer (preview build, from the development channel; it may be less stable than a release)"
+  else
+    say "Porthmos installer (stable build)"
+  fi
+  say ""
+  say "This will:"
+  say "  download  $base/$archive"
+  say "  check     its SHA-256 against the $archive.sha256 file in the same release"
+  say "  install   $(tilde "$install_dir/$program")   (${existing:-new install})"
+  say "  link      $(tilde "$bin_dir/$program")"
+  if [ "$(uname -s)" = Linux ]; then
+    say "  add       a launcher and icon in $(tilde "$(data_home)/applications"), if the release includes one"
+  fi
+  say "It needs no root. Your settings and saved connections are not touched."
+  say ""
+}
+
+agree() {
+  tty=${PORTHMOS_INSTALL_TTY:-/dev/tty}
+  printf 'Continue? [y/N] ' >&2
+  answer=$(head -n 1 2> /dev/null < "$tty") || fail "can't ask for confirmation without a terminal; add --yes to confirm"
+  case $answer in
+    [yY] | [yY][eE][sS]) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 main() {
   channel=stable
+  dry_run=0
+  yes=0
   product=gui
   program=porthmos-gui
   for argument in "$@"; do
     case $argument in
       --preview) channel=preview ;;
       --gui) ;;
+      --dry-run) dry_run=1 ;;
+      --yes | -y) yes=1 ;;
       --help | -h)
         usage
         exit 0
@@ -164,9 +258,8 @@ main() {
     file://*) set -- --proto '=file' ;;
     *) fail "the release location must start with https://" ;;
   esac
-  command -v curl > /dev/null 2>&1 || fail "curl is required"
-  if [ "$channel" = preview ]; then
-    say "Installing the preview build of $program from the development channel. It may be less stable than the release."
+  if [ "$dry_run" -eq 0 ]; then
+    command -v curl > /dev/null 2>&1 || fail "curl is required"
   fi
 
   if [ -n "${PORTHMOS_TARGET:-}" ]; then
@@ -175,17 +268,32 @@ main() {
     target=$(detect_target "$(uname -s)" "$(uname -m)") || exit 1
   fi
 
+  archive=$program-$target.tar.gz
+  existing=$(existing_version "$install_dir/$program" "$program")
+  print_plan
+  if [ "$dry_run" -eq 1 ]; then
+    say "Dry run: nothing was downloaded or changed."
+    exit 0
+  fi
+  if [ "$yes" -eq 0 ] && ! agree; then
+    say "Stopped; nothing was changed."
+    exit 1
+  fi
+
   temp=$(mktemp -d "${TMPDIR:-/tmp}/porthmos-install.XXXXXX") || fail "couldn't create a temporary folder"
   trap 'rm -rf "$temp"' EXIT
   trap 'exit 1' HUP INT TERM
 
-  archive=$program-$target.tar.gz
-  fetch_verified "$temp" "$base" "$archive" "$@"
+  step_number=0
+  step_total=3
+  [ "$(uname -s)" = Linux ] && step_total=4
 
+  fetch_verified "$@"
+
+  step "Installing"
   mkdir "$temp/extract"
   tar -xzf "$temp/$archive" -C "$temp/extract" "$program" || fail "the archive does not contain the $program program"
   tar -xzf "$temp/$archive" -C "$temp/extract" "$program.svg" > /dev/null 2>&1 || true
-
   mkdir -p "$install_dir" "$bin_dir" || fail "couldn't create $install_dir or $bin_dir"
   staged=$install_dir/.porthmos.new.$$
   if ! { cp "$temp/extract/$program" "$staged" && chmod 755 "$staged" && mv -f "$staged" "$install_dir/$program"; }; then
@@ -193,10 +301,29 @@ main() {
     fail "couldn't install into $install_dir"
   fi
   ln -sf "$install_dir/$program" "$bin_dir/$program" || fail "couldn't link $bin_dir/$program"
-  install_launcher "$program" "$install_dir/$program" "$temp/extract/$program.svg"
+  step_done "done"
+
+  launcher_added=0
+  if [ "$step_total" -eq 4 ]; then
+    step "Adding the launcher"
+    if reason=$(install_launcher "$program" "$install_dir/$program" "$temp/extract/$program.svg"); then
+      launcher_added=1
+      step_done "done"
+    else
+      step_done "skipped ($reason)"
+    fi
+  fi
 
   version=$("$install_dir/$program" --version 2> /dev/null || true)
-  say "Installed ${version:-$program} in $install_dir and linked it as $bin_dir/$program"
+  say ""
+  say "Installed ${version:-$program}"
+  say "  where:     $(tilde "$install_dir/$program"), linked as $(tilde "$bin_dir/$program")"
+  if [ "$launcher_added" -eq 1 ]; then
+    say "  start it:  $program, or \"Porthmos\" in your applications menu"
+  else
+    say "  start it:  $program"
+  fi
+  say "  remove it: curl -fsSL $base/uninstall.sh | sh"
   # shellcheck disable=SC2016
   case ":$PATH:" in
     *":$bin_dir:"*) ;;

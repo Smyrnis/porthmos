@@ -12,7 +12,7 @@ fail() {
 
 usage() {
   cat << 'USAGE'
-Usage: uninstall.sh [--purge] [--yes]
+Usage: uninstall.sh [--purge] [--dry-run] [--yes]
 
 Removes the Porthmos window app (porthmos-gui) that install.sh put in place, and
 the old terminal app (porthmos) if an earlier install left it behind: the
@@ -25,9 +25,15 @@ kept unless you ask for them to go too.
   --purge   also remove the settings and state folders (including the old
             termconnect ones) and the saved passwords in the system keyring.
             ~/.ssh/known_hosts is never touched.
-  --yes     do not ask before --purge removes anything. Needed when the script
-            is run without a terminal, for example through a pipe.
+  --dry-run print what would be removed and change nothing: no question,
+            nothing removed.
+  --yes     do not ask before removing. Needed when the script is run without
+            a terminal, for example through a pipe. The plan is still printed.
   --help    show this text.
+
+Before it removes anything the script prints a plan and asks whether to
+continue. The question is read from the terminal, so it works through
+curl | sh as well.
 
 Programs installed another way (a package manager, Homebrew, cargo install)
 are removed with that tool, not with this script.
@@ -43,9 +49,10 @@ xdg_or() {
 
 confirm() {
   tty=${PORTHMOS_UNINSTALL_TTY:-/dev/tty}
+  printf 'Continue? [y/N] ' >&2
   answer=$(head -n 1 2> /dev/null < "$tty") || fail "can't ask for confirmation without a terminal; add --yes to confirm"
   case $answer in
-    y | Y | yes | YES | Yes) return 0 ;;
+    [yY] | [yY][eE][sS]) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -75,36 +82,57 @@ clear_keyring() {
 }
 
 PROGRAMS="porthmos porthmos-gui"
+tab=$(printf '\t')
+nl='
+'
+actions=
+found=0
 
-remove_one_program() {
+tilde() {
+  case $1 in
+    "$HOME"/*) printf '~/%s\n' "${1#"$HOME"/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+refuse_odd_name() {
+  case $1 in
+    *"$tab"* | *"$nl"*) fail "can't handle a path or folder name with a tab or a line break in it: $(printf '%s' "$1" | sed 's/^/ /' | head -n 1)" ;;
+  esac
+}
+
+add_action() {
+  refuse_odd_name "$2"
+  actions="$actions$1$tab$2$tab$3
+"
+  found=1
+}
+
+collect_program() {
   name=$1
   link=$bin_dir/$name
   program=$install_dir/$name
 
   if [ -L "$link" ]; then
     target=$(readlink "$link")
+    case $target in
+      *"$tab"* | *"$nl"*) target="somewhere else" ;;
+    esac
     if [ "$target" = "$program" ]; then
-      rm -f "$link"
-      say "Removed $link"
-      found=1
+      add_action remove "$link" "the link"
     else
-      say "Left $link alone: it points to $target, not to the program the installer put in $install_dir."
-      found=1
+      add_action leave "$link" "it points to $target, not to the program the installer put in $install_dir"
     fi
   elif [ -e "$link" ]; then
-    say "Left $link alone: it is not the link the installer made."
-    found=1
+    add_action leave "$link" "it is not the link the installer made"
   fi
 
   if [ -e "$program" ] || [ -L "$program" ]; then
-    rm -f "$program"
-    say "Removed $program"
-    found=1
+    add_action remove "$program" "the program"
   fi
 
   if [ -e "$program.old" ] || [ -L "$program.old" ]; then
-    rm -f "$program.old"
-    found=1
+    add_action remove "$program.old" "a previous version"
   fi
 }
 
@@ -112,39 +140,86 @@ data_home() {
   xdg_or "${XDG_DATA_HOME:-}" "$HOME/.local/share"
 }
 
-remove_launcher() {
+collect_launcher() {
   name=$1
   data=$(data_home)
   launcher=$data/applications/$name.desktop
   if [ -f "$launcher" ]; then
     case $(cat "$launcher" 2> /dev/null) in
       *X-Porthmos-Installer=install.sh*)
-        rm -f "$launcher"
-        say "Removed $launcher"
-        found=1
-        rm -f "$data/icons/hicolor/scalable/apps/$name.svg"
-        if command -v update-desktop-database > /dev/null 2>&1; then
-          update-desktop-database "$data/applications" > /dev/null 2>&1 || true
+        add_action remove "$launcher" "the launcher"
+        if [ -e "$data/icons/hicolor/scalable/apps/$name.svg" ]; then
+          add_action remove "$data/icons/hicolor/scalable/apps/$name.svg" "the launcher icon"
         fi
         ;;
-      *) say "Left $launcher alone: the installer did not write it." ;;
+      *)
+        found_before=$found
+        add_action leave "$launcher" "the installer did not write it"
+        found=$found_before
+        ;;
     esac
   fi
 }
 
-remove_program() {
-  found=0
+collect_actions() {
   for name in $PROGRAMS; do
-    remove_one_program "$name"
+    collect_program "$name"
   done
-  remove_launcher porthmos-gui
+  collect_launcher porthmos-gui
 
   for leftover in "$install_dir"/.porthmos.*; do
     [ -e "$leftover" ] || continue
-    rm -f "$leftover"
-    found=1
+    add_action remove "$leftover" "left by an interrupted install or update"
   done
 
+  if [ -d "$install_dir" ]; then
+    actions="$actions""remove$tab$install_dir${tab}the folder, once nothing else is in it
+"
+  fi
+}
+
+print_plan() {
+  say "Porthmos uninstaller"
+  say ""
+  say "This will:"
+  while IFS=$tab read -r verb path note; do
+    [ -n "$verb" ] || continue
+    printf '  %-7s %s   (%s)\n' "$verb" "$(tilde "$path")" "$note"
+  done << PLAN
+$actions
+PLAN
+  if [ "$purge" -eq 1 ]; then
+    printf '%s' "$data_dirs" | while IFS= read -r directory; do
+      [ -n "$directory" ] || continue
+      printf '  %-7s %s   (%s)\n' remove "$(tilde "$directory")" "your settings and saved data, for good"
+    done
+    say "  remove  the saved passwords in the system keyring"
+    say "  leave   ~/.ssh/known_hosts   (other programs use it)"
+  else
+    say "Your settings and saved connections are kept."
+  fi
+  say ""
+}
+
+apply_actions() {
+  launcher_removed=0
+  while IFS=$tab read -r verb path note; do
+    [ -n "$verb" ] || continue
+    case $verb in
+      leave) say "Left $path alone: $note." ;;
+      remove)
+        [ "$path" = "$install_dir" ] && continue
+        rm -f -- "$path"
+        say "Removed $path"
+        case $path in *.desktop) launcher_removed=1 ;; esac
+        ;;
+    esac
+  done << APPLY
+$actions
+APPLY
+  if [ "$launcher_removed" -eq 1 ] && command -v update-desktop-database > /dev/null 2>&1; then
+    update-desktop-database "$(data_home)/applications" > /dev/null 2>&1 || true
+  fi
   if [ -d "$install_dir" ]; then
     if ! rmdir "$install_dir" 2> /dev/null; then
       say "Left $install_dir in place: it still holds files that are not Porthmos's."
@@ -155,10 +230,12 @@ remove_program() {
 main() {
   purge=0
   yes=0
+  dry_run=0
   for argument in "$@"; do
     case $argument in
       --purge) purge=1 ;;
       --yes | -y) yes=1 ;;
+      --dry-run) dry_run=1 ;;
       --help | -h)
         usage
         exit 0
@@ -179,24 +256,32 @@ main() {
   data_dirs=
   for candidate in "$config_base/porthmos" "$config_base/termconnect" "$state_base/porthmos" "$state_base/termconnect"; do
     [ -d "$candidate" ] || continue
+    refuse_odd_name "$candidate"
     data_dirs="$data_dirs$candidate
 "
   done
 
-  if [ "$purge" -eq 1 ] && [ "$yes" -eq 0 ]; then
-    say "This will also remove, for good:"
-    printf '%s' "$data_dirs" | sed 's/^/  /'
-    say "  and the saved passwords in the system keyring"
-    printf 'Remove them? [y/N] '
-    confirm || fail "stopped; nothing was removed"
-  fi
-
-  remove_program
+  collect_actions
 
   if [ "$found" -eq 0 ]; then
     if [ "$purge" -eq 0 ] || [ -z "$data_dirs" ]; then
       fail "nothing to remove: no Porthmos program in $install_dir. If you installed Porthmos with a package manager, Homebrew or cargo install, remove it with that tool."
     fi
+  fi
+
+  print_plan
+  if [ "$dry_run" -eq 1 ]; then
+    say "Dry run: nothing was removed."
+    exit 0
+  fi
+  if [ "$yes" -eq 0 ] && ! confirm; then
+    say "Stopped; nothing was removed."
+    exit 1
+  fi
+
+  apply_actions
+
+  if [ "$found" -eq 0 ]; then
     say "No program found in $install_dir; removing only the saved data."
   fi
 

@@ -35,13 +35,36 @@ make_release() {
 run_install() {
   local home=$1 base=$2
   shift 2
-  HOME="$home" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" "$@" sh "$INSTALL_SH"
+  HOME="$home" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" "$@" sh "$INSTALL_SH" --yes
 }
 
 run_install_channel() {
   local home=$1 stable=$2 preview=$3
   shift 3
-  HOME="$home" PORTHMOS_RELEASE_BASE="$stable" PORTHMOS_PREVIEW_BASE="$preview" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" sh "$INSTALL_SH" "$@"
+  HOME="$home" PORTHMOS_RELEASE_BASE="$stable" PORTHMOS_PREVIEW_BASE="$preview" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" sh "$INSTALL_SH" --yes "$@"
+}
+
+run_install_raw() {
+  local home=$1 base=$2
+  shift 2
+  HOME="$home" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_PREVIEW_BASE="$base" PORTHMOS_TARGET="$TARGET" PORTHMOS_INSTALL_TTY="$WORK/no-terminal" TMPDIR="$WORK/tmp" sh "$INSTALL_SH" "$@"
+}
+
+run_install_asking() {
+  local home=$1 base=$2 answer_file=$3
+  shift 3
+  HOME="$home" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_PREVIEW_BASE="$base" PORTHMOS_TARGET="$TARGET" PORTHMOS_INSTALL_TTY="$answer_file" TMPDIR="$WORK/tmp" sh "$INSTALL_SH" "$@"
+}
+
+shadow_curl_that_records_calls() {
+  mkdir -p "$FAKE_BIN"
+  : > "$WORK/curl-calls"
+  cat > "$FAKE_BIN/curl" << SHADOW
+#!/bin/sh
+echo "\$*" >> "$WORK/curl-calls"
+exit 1
+SHADOW
+  chmod 755 "$FAKE_BIN/curl"
 }
 
 fresh_home() {
@@ -80,7 +103,7 @@ test_fresh_install_places_the_binary_links_it_and_it_runs() {
   [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
   [ -x "$home/.local/share/porthmos/porthmos-gui" ]
   [ "$(readlink "$home/.local/bin/porthmos-gui")" = "$home/.local/share/porthmos/porthmos-gui" ]
-  grep -q "$home/.local/share/porthmos" "$WORK/out-fresh"
+  grep -q '~/.local/share/porthmos' "$WORK/out-fresh"
 }
 
 test_running_it_again_upgrades_in_place() {
@@ -160,7 +183,7 @@ SHADOW
 
 run_install_with_shadowed_curl() {
   local home=$1 base=$2
-  HOME="$home" PATH="$FAKE_BIN:$PATH" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_TARGET="$TARGET" PORTHMOS_RETRY_DELAY=0 TMPDIR="$WORK/tmp" sh "$INSTALL_SH"
+  HOME="$home" PATH="$FAKE_BIN:$PATH" PORTHMOS_RELEASE_BASE="$base" PORTHMOS_TARGET="$TARGET" PORTHMOS_RETRY_DELAY=0 TMPDIR="$WORK/tmp" sh "$INSTALL_SH" --yes
 }
 
 test_an_archive_caught_between_two_uploads_is_fetched_again() {
@@ -279,6 +302,8 @@ test_install_help_describes_the_preview_flag_and_installs_nothing() {
   mkdir -p "$home"
   run_install_channel "$home" "file://$WORK/none" "file://$WORK/none" --help > "$WORK/out-chan-help" 2>&1
   grep -q -- '--preview' "$WORK/out-chan-help"
+  grep -q -- '--dry-run' "$WORK/out-chan-help"
+  grep -q -- '--yes' "$WORK/out-chan-help"
   [ ! -e "$home/.local/bin/porthmos-gui" ]
 }
 
@@ -402,6 +427,13 @@ guard_keyring() {
 }
 
 run_uninstall() {
+  local home=$1
+  shift
+  guard_keyring
+  HOME="$home" PATH="$FAKE_BIN:$PATH" PORTHMOS_UNINSTALL_TTY="$WORK/no-terminal" TMPDIR="$WORK/tmp" sh "$UNINSTALL_SH" --yes "$@"
+}
+
+run_uninstall_raw() {
   local home=$1
   shift
   guard_keyring
@@ -702,7 +734,7 @@ test_purge_without_yes_and_without_a_terminal_removes_nothing() {
   home=$(fresh_home un-noterm)
   fake_install "$home"
   fake_data "$home"
-  if run_uninstall "$home" --purge > "$WORK/out-un-noterm" 2>&1; then return 1; fi
+  if run_uninstall_raw "$home" --purge > "$WORK/out-un-noterm" 2>&1; then return 1; fi
   [ -f "$home/.config/porthmos/connections.toml" ]
   [ -x "$home/.local/share/porthmos/porthmos" ]
   grep -q -- '--yes' "$WORK/out-un-noterm"
@@ -808,6 +840,7 @@ test_uninstall_help_describes_the_options_and_exits_cleanly() {
   run_uninstall "$home" --help > "$WORK/out-un-help" 2>&1
   grep -q -- '--purge' "$WORK/out-un-help"
   grep -q -- '--yes' "$WORK/out-un-help"
+  grep -q -- '--dry-run' "$WORK/out-un-help"
   [ -x "$home/.local/share/porthmos/porthmos" ]
 }
 
@@ -908,7 +941,7 @@ test_a_launcher_that_cannot_be_written_does_not_fail_the_install() {
   make_release "$WORK/rel-launcher-blocked" one gui
   install_gui "$home" "file://$WORK/rel-launcher-blocked/dist" > "$WORK/out-launcher-blocked" 2>&1
   [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
-  grep -q "Couldn't add the launcher" "$WORK/out-launcher-blocked"
+  grep -q 'Adding the launcher .*skipped (it could not be written' "$WORK/out-launcher-blocked"
 }
 
 test_installing_again_keeps_one_launcher_that_points_at_the_program() {
@@ -955,9 +988,425 @@ test_uninstall_removes_the_launcher_with_only_basic_tools_on_the_path() {
   [ -f "$(desktop_file "$home")" ]
   [ -f "$(icon_file "$home")" ]
   bin=$(bare_path)
-  HOME="$home" PATH="$bin" PORTHMOS_UNINSTALL_TTY="$WORK/no-terminal" TMPDIR="$WORK/tmp" /bin/sh "$UNINSTALL_SH" > "$WORK/out-un-launcher-bare" 2>&1
+  HOME="$home" PATH="$bin" PORTHMOS_UNINSTALL_TTY="$WORK/no-terminal" TMPDIR="$WORK/tmp" /bin/sh "$UNINSTALL_SH" --yes > "$WORK/out-un-launcher-bare" 2>&1
   [ ! -e "$(desktop_file "$home")" ]
   [ ! -e "$(icon_file "$home")" ]
+}
+
+test_the_plan_names_every_file_and_the_feed_before_anything_happens() {
+  local home
+  home=$(fresh_home plan)
+  make_release "$WORK/rel-plan" one
+  run_install_raw "$home" "file://$WORK/rel-plan/dist" --dry-run > "$WORK/out-plan" 2>&1
+  grep -q 'This will:' "$WORK/out-plan"
+  grep -q "file://$WORK/rel-plan/dist/porthmos-gui-$TARGET.tar.gz" "$WORK/out-plan"
+  grep -q 'SHA-256' "$WORK/out-plan"
+  grep -q '~/.local/share/porthmos/porthmos-gui' "$WORK/out-plan"
+  grep -q '~/.local/bin/porthmos-gui' "$WORK/out-plan"
+  grep -q '(new install)' "$WORK/out-plan"
+  grep -q 'needs no root' "$WORK/out-plan"
+  grep -q 'stable build' "$WORK/out-plan"
+}
+
+test_a_dry_run_downloads_nothing_and_changes_nothing() {
+  local home
+  home=$(fresh_home dry)
+  shadow_curl_that_records_calls
+  PATH="$FAKE_BIN:$PATH" run_install_raw "$home" "file://$WORK/rel-dry/dist" --dry-run --yes > "$WORK/out-dry" 2>&1
+  rm -f "$FAKE_BIN/curl"
+  grep -q 'Dry run: nothing was downloaded or changed.' "$WORK/out-dry"
+  [ ! -s "$WORK/curl-calls" ]
+  [ ! -e "$home/.local" ]
+  [ -z "$(ls -A "$WORK/tmp")" ]
+}
+
+test_a_no_stops_before_anything_is_changed() {
+  local home
+  home=$(fresh_home answer-no)
+  make_release "$WORK/rel-answer-no" one
+  printf 'n\n' > "$WORK/answer-install-no"
+  if run_install_asking "$home" "file://$WORK/rel-answer-no/dist" "$WORK/answer-install-no" > "$WORK/out-answer-no" 2>&1; then return 1; fi
+  grep -q 'Stopped; nothing was changed.' "$WORK/out-answer-no"
+  [ ! -e "$home/.local" ]
+}
+
+test_a_yes_installs() {
+  local home answer
+  home=$(fresh_home answer-yes)
+  make_release "$WORK/rel-answer-yes" one
+  for answer in y YES Yes yes; do
+    rm -rf "$home/.local"
+    printf '%s\n' "$answer" > "$WORK/answer-install-yes"
+    run_install_asking "$home" "file://$WORK/rel-answer-yes/dist" "$WORK/answer-install-yes" > /dev/null 2>&1
+    [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
+  done
+}
+
+test_an_empty_answer_counts_as_no() {
+  local home
+  home=$(fresh_home answer-empty)
+  make_release "$WORK/rel-answer-empty" one
+  : > "$WORK/answer-install-empty"
+  if run_install_asking "$home" "file://$WORK/rel-answer-empty/dist" "$WORK/answer-install-empty" > /dev/null 2>&1; then return 1; fi
+  [ ! -e "$home/.local" ]
+}
+
+test_without_a_terminal_and_without_yes_it_refuses_and_changes_nothing() {
+  local home
+  home=$(fresh_home no-terminal)
+  make_release "$WORK/rel-no-terminal" one
+  if run_install_raw "$home" "file://$WORK/rel-no-terminal/dist" > "$WORK/out-no-terminal" 2>&1; then return 1; fi
+  grep -q -- '--yes' "$WORK/out-no-terminal"
+  [ ! -e "$home/.local" ]
+}
+
+test_the_question_goes_to_stderr_and_the_plan_to_stdout() {
+  local home
+  home=$(fresh_home streams)
+  make_release "$WORK/rel-streams" one
+  printf 'n\n' > "$WORK/answer-streams"
+  run_install_asking "$home" "file://$WORK/rel-streams/dist" "$WORK/answer-streams" > "$WORK/streams-out" 2> "$WORK/streams-err" || true
+  grep -q 'Continue? \[y/N\]' "$WORK/streams-err"
+  if grep -q 'Continue?' "$WORK/streams-out"; then return 1; fi
+  grep -q 'This will:' "$WORK/streams-out"
+}
+
+test_the_plan_says_which_version_it_replaces() {
+  local home
+  home=$(fresh_home replaces)
+  make_release "$WORK/rel-replaces-1" one
+  make_release "$WORK/rel-replaces-2" two
+  run_install "$home" "file://$WORK/rel-replaces-1/dist" > /dev/null 2>&1
+  run_install_raw "$home" "file://$WORK/rel-replaces-2/dist" --dry-run > "$WORK/out-replaces" 2>&1
+  grep -q '(replaces porthmos-gui-stub one)' "$WORK/out-replaces"
+}
+
+test_a_program_that_cannot_report_its_version_is_still_replaced() {
+  local home
+  home=$(fresh_home broken-version)
+  mkdir -p "$home/.local/share/porthmos"
+  printf '#!/bin/sh\nexit 1\n' > "$home/.local/share/porthmos/porthmos-gui"
+  chmod 755 "$home/.local/share/porthmos/porthmos-gui"
+  run_install_raw "$home" "file://$WORK/rel-broken-version/dist" --dry-run > "$WORK/out-broken-version" 2>&1
+  grep -q '(replaces the existing copy)' "$WORK/out-broken-version"
+}
+
+test_the_plan_names_the_channel_and_the_launcher_only_on_linux() {
+  local home bin
+  home=$(fresh_home plan-channel)
+  run_install_raw "$home" "file://$WORK/rel-x/dist" --dry-run --preview > "$WORK/out-plan-preview" 2>&1
+  grep -q 'preview build' "$WORK/out-plan-preview"
+  grep -q 'development' "$WORK/out-plan-preview"
+  grep -qi 'launcher' "$WORK/out-plan-preview"
+  bin="$WORK/darwin-bin-plan"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\necho Darwin\n' > "$bin/uname"
+  chmod 755 "$bin/uname"
+  PATH="$bin:$PATH" PORTHMOS_TARGET=aarch64-apple-darwin run_install_raw "$home" "file://$WORK/rel-x/dist" --dry-run > "$WORK/out-plan-mac" 2>&1
+  ! grep -qi 'launcher' "$WORK/out-plan-mac"
+}
+
+test_the_plan_works_when_home_contains_a_space() {
+  local home
+  home="$WORK/home with space"
+  mkdir -p "$WORK/tmp"
+  run_install_raw "$home" "file://$WORK/rel-x/dist" --dry-run > "$WORK/out-plan-space" 2>&1
+  grep -q '~/.local/share/porthmos/porthmos-gui' "$WORK/out-plan-space"
+}
+
+test_progress_is_numbered_in_order_after_the_plan() {
+  local home
+  home=$(fresh_home progress)
+  make_release "$WORK/rel-progress" one
+  run_install "$home" "file://$WORK/rel-progress/dist" > "$WORK/out-progress" 2>&1
+  grep -q '^\[1/4\] Downloading' "$WORK/out-progress"
+  grep -q '^\[2/4\] Checking SHA-256 .*matches' "$WORK/out-progress"
+  grep -q '^\[3/4\] Installing' "$WORK/out-progress"
+  grep -q '^\[4/4\] Adding the launcher' "$WORK/out-progress"
+  [ "$(grep -n 'This will:' "$WORK/out-progress" | cut -d: -f1)" -lt "$(grep -n '^\[1/4\]' "$WORK/out-progress" | cut -d: -f1)" ]
+}
+
+test_without_a_launcher_step_the_count_is_three() {
+  local home bin
+  home=$(fresh_home progress-mac)
+  bin="$WORK/darwin-bin-progress"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\necho Darwin\n' > "$bin/uname"
+  chmod 755 "$bin/uname"
+  make_release "$WORK/rel-progress-mac" one
+  PATH="$bin:$PATH" run_install "$home" "file://$WORK/rel-progress-mac/dist" > "$WORK/out-progress-mac" 2>&1
+  grep -q '^\[3/3\] Installing' "$WORK/out-progress-mac"
+  ! grep -q '^\[4/' "$WORK/out-progress-mac"
+}
+
+test_a_release_without_an_icon_reports_the_launcher_step_as_skipped() {
+  local home
+  home=$(fresh_home progress-noicon)
+  make_release "$WORK/rel-progress-noicon" one gui noicon
+  run_install "$home" "file://$WORK/rel-progress-noicon/dist" > "$WORK/out-progress-noicon" 2>&1
+  grep -q '^\[4/4\] Adding the launcher .*skipped' "$WORK/out-progress-noicon"
+}
+
+test_the_report_says_what_was_installed_how_to_start_and_how_to_remove_it() {
+  local home
+  home=$(fresh_home report)
+  make_release "$WORK/rel-report" one
+  run_install "$home" "file://$WORK/rel-report/dist" > "$WORK/out-report" 2>&1
+  grep -q 'Installed porthmos-gui-stub one' "$WORK/out-report"
+  grep -q 'start it:' "$WORK/out-report"
+  grep -q 'applications menu' "$WORK/out-report"
+  grep -q "remove it: curl -fsSL file://$WORK/rel-report/dist/uninstall.sh | sh" "$WORK/out-report"
+}
+
+test_a_failing_step_ends_its_line_with_failed_and_installs_nothing() {
+  local home
+  home=$(fresh_home progress-fail)
+  make_release "$WORK/rel-progress-fail" one
+  corrupt "$WORK/rel-progress-fail"
+  if run_install "$home" "file://$WORK/rel-progress-fail/dist" > "$WORK/out-progress-fail" 2>&1; then return 1; fi
+  grep -q '^\[2/4\] Checking SHA-256 .*failed$' "$WORK/out-progress-fail"
+  [ ! -e "$home/.local/bin/porthmos-gui" ]
+}
+
+test_a_missing_stable_release_gets_a_hint_about_preview() {
+  local home
+  home=$(fresh_home stable-hint)
+  mkdir -p "$FAKE_BIN"
+  printf '#!/bin/sh\nexit 22\n' > "$FAKE_BIN/curl"
+  chmod 755 "$FAKE_BIN/curl"
+  if PATH="$FAKE_BIN:$PATH" run_install "$home" "https://example.invalid/gui-stable" > "$WORK/out-hint" 2>&1; then rm -f "$FAKE_BIN/curl"; return 1; fi
+  rm -f "$FAKE_BIN/curl"
+  grep -q "couldn't download" "$WORK/out-hint"
+  grep -q 'run again with --preview' "$WORK/out-hint"
+  [ ! -e "$home/.local/bin/porthmos-gui" ]
+}
+
+test_other_download_failures_and_the_preview_channel_get_no_hint() {
+  local home
+  home=$(fresh_home no-hint)
+  mkdir -p "$FAKE_BIN"
+  printf '#!/bin/sh\nexit 6\n' > "$FAKE_BIN/curl"
+  chmod 755 "$FAKE_BIN/curl"
+  PATH="$FAKE_BIN:$PATH" run_install "$home" "https://example.invalid/gui-stable" > "$WORK/out-no-hint-dns" 2>&1 || true
+  printf '#!/bin/sh\nexit 22\n' > "$FAKE_BIN/curl"
+  PATH="$FAKE_BIN:$PATH" run_install_channel "$home" "https://example.invalid/s" "https://example.invalid/p" --preview > "$WORK/out-no-hint-preview" 2>&1 || true
+  rm -f "$FAKE_BIN/curl"
+  if grep -q 'run again with --preview' "$WORK/out-no-hint-dns"; then return 1; fi
+  if grep -q 'run again with --preview' "$WORK/out-no-hint-preview"; then return 1; fi
+  grep -q "couldn't download" "$WORK/out-no-hint-dns"
+  grep -q "couldn't download" "$WORK/out-no-hint-preview"
+}
+
+test_progress_and_report_work_when_home_contains_a_space() {
+  local home
+  home="$WORK/home with space progress"
+  mkdir -p "$WORK/tmp"
+  make_release "$WORK/rel-progress-space" one
+  run_install "$home" "file://$WORK/rel-progress-space/dist" > "$WORK/out-progress-space" 2>&1
+  grep -q '^\[3/4\] Installing' "$WORK/out-progress-space"
+  grep -q 'Installed porthmos-gui-stub one' "$WORK/out-progress-space"
+}
+
+test_the_uninstall_plan_lists_what_it_removes_and_what_it_leaves() {
+  local home
+  home=$(fresh_home un-plan)
+  fake_install_gui "$home"
+  fake_data "$home"
+  run_uninstall_raw "$home" --dry-run > "$WORK/out-un-plan" 2>&1
+  grep -q 'This will:' "$WORK/out-un-plan"
+  grep -Eq 'remove +~/.local/share/porthmos/porthmos-gui' "$WORK/out-un-plan"
+  grep -Eq 'remove +~/.local/bin/porthmos-gui' "$WORK/out-un-plan"
+  grep -q 'settings and saved connections are kept' "$WORK/out-un-plan"
+  grep -q 'Dry run: nothing was removed.' "$WORK/out-un-plan"
+  [ -x "$home/.local/share/porthmos/porthmos-gui" ]
+  [ -L "$home/.local/bin/porthmos-gui" ]
+  [ -f "$home/.config/porthmos/connections.toml" ]
+}
+
+test_the_plan_leaves_a_link_and_a_launcher_that_are_not_porthmoss() {
+  local home desktop
+  home=$(fresh_home un-plan-leave)
+  fake_install_gui "$home"
+  rm "$home/.local/bin/porthmos-gui"
+  ln -s /bin/sh "$home/.local/bin/porthmos-gui"
+  desktop=$(desktop_file "$home")
+  mkdir -p "$(dirname "$desktop")"
+  printf '[Desktop Entry]\nName=Mine\n' > "$desktop"
+  run_uninstall_raw "$home" --dry-run > "$WORK/out-un-plan-leave" 2>&1
+  grep -Eq 'leave +~/.local/bin/porthmos-gui' "$WORK/out-un-plan-leave"
+  grep -Eq 'leave +~/.local/share/applications/porthmos-gui.desktop' "$WORK/out-un-plan-leave"
+}
+
+test_every_removal_in_the_plan_happens_and_every_leave_stays() {
+  local home path line
+  home=$(fresh_home un-drift)
+  make_release "$WORK/rel-un-drift" one gui
+  install_gui "$home" "file://$WORK/rel-un-drift/dist" > /dev/null 2>&1
+  touch "$home/.local/share/porthmos/stranger.txt"
+  run_uninstall_raw "$home" --dry-run > "$WORK/out-un-drift-plan" 2>&1
+  run_uninstall "$home" > /dev/null 2>&1
+  grep -E '^ +remove +' "$WORK/out-un-drift-plan" | grep -q .
+  while IFS= read -r line; do
+    path=$(printf '%s\n' "$line" | sed -E 's/^ +remove +//; s/ .*$//; s|^~|'"$home"'|')
+    case $path in
+      "$home/.local/share/porthmos") ;;
+      *) { [ ! -e "$path" ] && [ ! -L "$path" ]; } || return 1 ;;
+    esac
+  done < <(grep -E '^ +remove +' "$WORK/out-un-drift-plan")
+  [ -f "$home/.local/share/porthmos/stranger.txt" ]
+}
+
+test_uninstall_now_asks_even_without_purge() {
+  local home
+  home=$(fresh_home un-asks)
+  fake_install_gui "$home"
+  printf 'n\n' > "$WORK/answer-un-no"
+  if run_uninstall_asking "$home" "$WORK/answer-un-no" > "$WORK/out-un-no" 2>&1; then return 1; fi
+  grep -q 'Stopped; nothing was removed.' "$WORK/out-un-no"
+  [ -x "$home/.local/share/porthmos/porthmos-gui" ]
+  printf 'y\n' > "$WORK/answer-un-yes"
+  run_uninstall_asking "$home" "$WORK/answer-un-yes" > /dev/null 2>&1
+  [ ! -e "$home/.local/share/porthmos/porthmos-gui" ]
+}
+
+test_uninstall_without_a_terminal_and_without_yes_refuses_and_removes_nothing() {
+  local home
+  home=$(fresh_home un-noterm-plain)
+  fake_install_gui "$home"
+  if run_uninstall_raw "$home" > "$WORK/out-un-noterm-plain" 2>&1; then return 1; fi
+  grep -q -- '--yes' "$WORK/out-un-noterm-plain"
+  [ -x "$home/.local/share/porthmos/porthmos-gui" ]
+}
+
+test_the_uninstall_question_goes_to_stderr() {
+  local home
+  home=$(fresh_home un-streams)
+  fake_install_gui "$home"
+  printf 'n\n' > "$WORK/answer-un-streams"
+  run_uninstall_asking "$home" "$WORK/answer-un-streams" > "$WORK/un-streams-out" 2> "$WORK/un-streams-err" || true
+  grep -q 'Continue? \[y/N\]' "$WORK/un-streams-err"
+  ! grep -q 'Continue?' "$WORK/un-streams-out"
+}
+
+test_nothing_to_remove_is_reported_without_asking() {
+  local home
+  home=$(fresh_home un-nothing-plan)
+  if run_uninstall_raw "$home" > "$WORK/out-un-nothing-plan" 2>&1; then return 1; fi
+  grep -q 'nothing to remove' "$WORK/out-un-nothing-plan"
+  ! grep -q -- '--yes' "$WORK/out-un-nothing-plan"
+}
+
+test_the_purge_plan_lists_the_data_and_one_answer_covers_everything() {
+  local home keyring_before
+  home=$(fresh_home un-purge-plan)
+  fake_install_gui "$home"
+  fake_data "$home"
+  keyring_before=$(wc -c < "$KEYRING_LOG")
+  run_uninstall_raw "$home" --purge --dry-run > "$WORK/out-un-purge-plan" 2>&1
+  grep -q '~/.config/porthmos' "$WORK/out-un-purge-plan"
+  grep -q 'saved passwords' "$WORK/out-un-purge-plan"
+  [ "$(wc -c < "$KEYRING_LOG")" = "$keyring_before" ]
+  [ -f "$home/.config/porthmos/connections.toml" ]
+  printf 'y\n' > "$WORK/answer-un-purge-once"
+  run_uninstall_asking "$home" "$WORK/answer-un-purge-once" --purge > /dev/null 2>&1
+  [ ! -e "$home/.config/porthmos" ]
+}
+
+test_a_tab_in_the_install_folder_is_refused_and_nothing_else_is_removed() {
+  local home tab dir
+  home=$(fresh_home un-tab)
+  tab=$(printf '\t')
+  dir="$home/in${tab}st"
+  mkdir -p "$dir" "$home/.local/bin"
+  printf '#!/bin/sh\n' > "$dir/porthmos-gui"
+  chmod 755 "$dir/porthmos-gui"
+  printf 'precious\n' > "$home/in"
+  if PORTHMOS_INSTALL_DIR="$dir" run_uninstall "$home" > "$WORK/out-un-tab" 2>&1; then return 1; fi
+  grep -q 'tab or a line break' "$WORK/out-un-tab"
+  [ "$(cat "$home/in")" = precious ]
+  [ -x "$dir/porthmos-gui" ]
+}
+
+test_a_line_break_in_a_link_target_cannot_add_removals() {
+  local home nl tab
+  home=$(fresh_home un-newline-target)
+  nl='
+'
+  tab=$(printf '\t')
+  mkdir -p "$home/.local/bin" "$home/.local/share/porthmos"
+  printf 'precious\n' > "$home/victim"
+  ln -s "x${nl}remove${tab}$home/victim${tab}y" "$home/.local/bin/porthmos-gui"
+  run_uninstall "$home" > "$WORK/out-un-newline-target" 2>&1 || true
+  [ "$(cat "$home/victim")" = precious ]
+}
+
+test_a_line_break_in_a_data_folder_name_is_refused_and_nothing_is_removed() {
+  local home nl
+  home=$(fresh_home un-newline-xdg)
+  nl='
+'
+  fake_install_gui "$home"
+  mkdir -p "$home/conf${nl}ig/porthmos" "$home/conf"
+  printf 'precious\n' > "$home/conf/keep"
+  if XDG_CONFIG_HOME="$home/conf${nl}ig" run_uninstall "$home" --purge > "$WORK/out-un-newline-xdg" 2>&1; then return 1; fi
+  [ "$(cat "$home/conf/keep")" = precious ]
+  [ -x "$home/.local/share/porthmos/porthmos-gui" ]
+}
+
+test_a_launcher_that_is_not_ours_alone_means_nothing_to_remove() {
+  local home desktop
+  home=$(fresh_home un-foreign-only)
+  desktop=$(desktop_file "$home")
+  mkdir -p "$(dirname "$desktop")"
+  printf '[Desktop Entry]\nName=Mine\n' > "$desktop"
+  if run_uninstall_raw "$home" > "$WORK/out-un-foreign-only" 2>&1; then return 1; fi
+  grep -q 'nothing to remove' "$WORK/out-un-foreign-only"
+  ! grep -q -- '--yes' "$WORK/out-un-foreign-only"
+}
+
+test_the_plan_lists_an_icon_only_when_there_is_one() {
+  local home desktop
+  home=$(fresh_home un-no-icon)
+  fake_install_gui "$home"
+  desktop=$(desktop_file "$home")
+  mkdir -p "$(dirname "$desktop")"
+  printf '[Desktop Entry]\nX-Porthmos-Installer=install.sh\n' > "$desktop"
+  run_uninstall_raw "$home" --dry-run > "$WORK/out-un-no-icon" 2>&1
+  grep -q 'the launcher)' "$WORK/out-un-no-icon"
+  ! grep -q 'launcher icon' "$WORK/out-un-no-icon"
+}
+
+test_yes_is_accepted_in_any_case_by_both_scripts() {
+  local home answer
+  home=$(fresh_home any-case)
+  make_release "$WORK/rel-any-case" one
+  for answer in yEs yeS Y; do
+    rm -rf "$home/.local"
+    printf '%s\n' "$answer" > "$WORK/answer-any-case"
+    run_install_asking "$home" "file://$WORK/rel-any-case/dist" "$WORK/answer-any-case" > /dev/null 2>&1
+    [ -x "$home/.local/share/porthmos/porthmos-gui" ]
+    run_uninstall_asking "$home" "$WORK/answer-any-case" > /dev/null 2>&1
+    [ ! -e "$home/.local/share/porthmos/porthmos-gui" ]
+  done
+}
+
+test_a_dry_run_does_not_need_curl() {
+  local home bin
+  home=$(fresh_home dry-no-curl)
+  bin=$(bare_path)
+  HOME="$home" PATH="$bin" PORTHMOS_TARGET="$TARGET" TMPDIR="$WORK/tmp" /bin/sh "$INSTALL_SH" --dry-run > "$WORK/out-dry-no-curl" 2>&1
+  grep -q 'Dry run: nothing was downloaded or changed.' "$WORK/out-dry-no-curl"
+}
+
+test_a_dry_run_never_runs_the_installed_program_with_the_terminal() {
+  local home
+  home=$(fresh_home dry-stdin)
+  mkdir -p "$home/.local/share/porthmos"
+  printf '#!/bin/sh\nif [ -t 0 ] || read -r _line; then echo "read stdin" > "%s"; fi\necho shown\n' "$WORK/dry-stdin-marker" > "$home/.local/share/porthmos/porthmos-gui"
+  chmod 755 "$home/.local/share/porthmos/porthmos-gui"
+  rm -f "$WORK/dry-stdin-marker"
+  printf 'typed\n' | run_install_raw "$home" "file://$WORK/rel-x/dist" --dry-run > "$WORK/out-dry-stdin" 2>&1
+  [ ! -e "$WORK/dry-stdin-marker" ]
 }
 
 make_fake_keyring
