@@ -37,6 +37,9 @@ jobs:
           forbid_workspace_crates porthmos-lfs 'porthmos-(core|tls|ssh|sftp|ftp|webdav|s3|scp)'
           forbid_workspace_crates porthmos-tls 'porthmos-(core|lfs|ssh|sftp|ftp|webdav|s3|scp)'
           forbid_workspace_crates porthmos-ssh 'porthmos-(core|lfs|tls|sftp|ftp|webdav|s3|scp)'
+          forbid_workspace_crates porthmos-term 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|update|release|gui)'
+          forbid_dependency porthmos-term iced
+          forbid_dependency porthmos-term russh
           forbid_workspace_crates porthmos-update 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|release)'
           forbid_workspace_crates porthmos-release 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp)'
           for manifest in protocols/*/Cargo.toml; do
@@ -47,8 +50,8 @@ jobs:
             fi
           done
           for frontend in porthmos-gui; do
-            if [ "$(cargo tree -p "$frontend" -e normal --depth 1 | grep -oE 'porthmos-[a-z0-9]+' | sort -u | grep -vx "$frontend" | tr '\n' ' ')" != "porthmos-core porthmos-ssh " ]; then
-              echo "$frontend must depend on porthmos-core and porthmos-ssh only"
+            if [ "$(cargo tree -p "$frontend" -e normal --depth 1 | grep -oE 'porthmos-[a-z0-9]+' | sort -u | grep -vxE "$frontend|porthmos-core|porthmos-ssh|porthmos-term")" != "" ]; then
+              echo "$frontend must depend on porthmos-core, porthmos-ssh and porthmos-term only"
               exit 1
             fi
           done
