@@ -36,6 +36,7 @@ fn screen_lines(session: &TerminalSession) -> Vec<String> {
     (0..snapshot.size.rows).map(|row| snapshot.row_text(row)).collect()
 }
 
+#[cfg(target_os = "linux")]
 async fn wait_until(mut condition: impl FnMut() -> bool) {
     for _ in 0..100 {
         if condition() {
