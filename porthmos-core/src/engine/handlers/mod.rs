@@ -7,6 +7,7 @@ mod health;
 mod history;
 mod import;
 mod last_used;
+mod monitor;
 mod moves;
 mod pause;
 mod preview;
@@ -33,6 +34,7 @@ pub(crate) use edit::{EditEvent, EditState};
 pub(crate) use history::HistoryLog;
 pub(crate) use import::ImportState;
 pub(crate) use last_used::LastUsedLog;
+pub(crate) use monitor::{MonitorRun, MonitorUpdate};
 pub(crate) use moves::{MoveBatch, without_symlinks};
 pub(crate) use preview::PreviewSlots;
 #[cfg(test)]

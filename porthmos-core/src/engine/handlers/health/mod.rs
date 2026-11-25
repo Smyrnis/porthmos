@@ -62,6 +62,7 @@ impl Engine {
         } else {
             self.book.lost_sessions.insert(session);
             self.stop_tunnels_of(session);
+            self.stop_monitor(session);
             self.report(Severity::Warning, i18n::text_with("connection.lost", &[("name", &name)]));
             self.begin_reconnect(name.clone());
         }

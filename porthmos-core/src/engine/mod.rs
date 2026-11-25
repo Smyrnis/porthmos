@@ -15,7 +15,7 @@ use std::{
 };
 
 pub use command::{Command, Location, RequestId, SessionId, TerminalId};
-pub use event::{Event, TunnelInfo, TunnelStatus};
+pub use event::{Event, MonitorState, TunnelInfo, TunnelStatus};
 use host::Host;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
@@ -110,6 +110,11 @@ pub(crate) enum Internal {
         result: Result<porthmos_tunnel::RunningTunnel, porthmos_tunnel::StartError>,
     },
     TunnelTick,
+    Monitor {
+        session: SessionId,
+        generation: u64,
+        update: handlers::MonitorUpdate,
+    },
     SessionHealth {
         session: SessionId,
         healthy: bool,
@@ -213,6 +218,7 @@ pub(crate) struct Engine {
     reopen: handlers::ReopenState,
     reconnect: handlers::ReconnectState,
     tunnel_run: handlers::TunnelRun,
+    monitor_run: handlers::MonitorRun,
     previews: handlers::PreviewSlots,
     properties: handlers::PropertiesState,
     history: handlers::HistoryLog,
@@ -301,6 +307,7 @@ impl Engine {
             reopen: handlers::ReopenState::new(parts.reopen),
             reconnect: handlers::ReconnectState::new(parts.reconnect),
             tunnel_run: handlers::TunnelRun::default(),
+            monitor_run: handlers::MonitorRun::default(),
             previews: handlers::PreviewSlots::default(),
             properties: handlers::PropertiesState::default(),
             history: handlers::HistoryLog::new(parts.history),
@@ -404,6 +411,10 @@ impl Engine {
             Command::StartTunnel { key } => self.start_tunnel(&key),
             Command::StopTunnel { key } => self.stop_tunnel(&key),
             Command::RestartTunnel { key } => self.restart_tunnel(&key),
+            Command::StartMonitor { session } => self.start_monitor(session),
+            Command::StopMonitor { session } => self.stop_monitor(session),
+            Command::SignalProcess { session, pid, name, signal } => self.signal_process(session, pid, &name, signal),
+            Command::ReniceProcess { session, pid, name, nice } => self.renice_process(session, pid, &name, nice),
             Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
             Command::RememberOpenGroups { groups } => self.remember_open_groups(groups),
             Command::List { location, path } => self.list(location, path),
@@ -513,6 +524,7 @@ impl Engine {
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
             Internal::TunnelStarted { key, session, start, result } => self.tunnel_started(key, session, start, result),
             Internal::TunnelTick => self.tunnel_tick(),
+            Internal::Monitor { session, generation, update } => self.monitor_update(session, generation, update),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::FolderShown { location, path } => self.remember_folder(location, path),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),

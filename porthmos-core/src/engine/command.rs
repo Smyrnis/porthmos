@@ -99,5 +99,9 @@ pub enum Command {
     StartTunnel { key: TunnelKey },
     StopTunnel { key: TunnelKey },
     RestartTunnel { key: TunnelKey },
+    StartMonitor { session: SessionId },
+    StopMonitor { session: SessionId },
+    SignalProcess { session: SessionId, pid: u32, name: String, signal: crate::ProcessSignal },
+    ReniceProcess { session: SessionId, pid: u32, name: String, nice: crate::Nice },
     Shutdown,
 }

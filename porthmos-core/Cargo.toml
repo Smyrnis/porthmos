@@ -29,6 +29,7 @@ sha2 = "0.10"
 similar.workspace = true
 porthmos-lfs.workspace = true
 porthmos-vfs.workspace = true
+porthmos-monitor.workspace = true
 porthmos-tunnel.workspace = true
 porthmos-sftp = { workspace = true, optional = true }
 porthmos-ftp = { workspace = true, optional = true }

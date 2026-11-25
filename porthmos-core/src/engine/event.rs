@@ -41,6 +41,13 @@ pub struct TunnelInfo {
 }
 
 #[derive(Debug, Clone)]
+pub enum MonitorState {
+    Snapshot(Box<crate::HealthSnapshot>),
+    Unavailable(Message),
+    Failing(Message),
+}
+
+#[derive(Debug, Clone)]
 pub enum Event {
     Notice { severity: Severity, message: Message },
     Connecting { name: String },
@@ -100,4 +107,5 @@ pub enum Event {
     Tunnels(Vec<TunnelInfo>),
     TunnelStatus { key: TunnelKey, status: TunnelStatus },
     TunnelStats(Vec<(TunnelKey, StatsSnapshot)>),
+    Monitor { session: SessionId, state: MonitorState },
 }
