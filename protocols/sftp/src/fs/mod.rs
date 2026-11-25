@@ -123,6 +123,16 @@ impl FileSystem for SftpFs {
         self.session.server_version()
     }
 
+    fn can_open_shell(&self) -> bool {
+        true
+    }
+
+    async fn open_shell(
+        &self, term: &str, size: porthmos_vfs::ShellSize, env: &[(&str, &str)],
+    ) -> Result<porthmos_vfs::ShellStream, ProtocolError> {
+        porthmos_ssh::open_shell_stream(&self.session, term, size, env).await
+    }
+
     async fn connection_alive(&self) -> Option<bool> {
         Some(!self.session.is_closed())
     }
