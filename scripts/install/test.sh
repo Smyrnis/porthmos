@@ -102,6 +102,7 @@ test_fresh_install_places_the_binary_links_it_and_it_runs() {
   [ "$("$home/.local/bin/porthmos-gui")" = "porthmos-gui-stub one" ]
   [ -x "$home/.local/share/porthmos/porthmos-gui" ]
   [ "$(readlink "$home/.local/bin/porthmos-gui")" = "$home/.local/share/porthmos/porthmos-gui" ]
+  # shellcheck disable=SC2088
   grep -q '~/.local/share/porthmos' "$WORK/out-fresh"
 }
 
@@ -1000,7 +1001,9 @@ test_the_plan_names_every_file_and_the_feed_before_anything_happens() {
   grep -q 'This will:' "$WORK/out-plan"
   grep -q "file://$WORK/rel-plan/dist/porthmos-gui-$TARGET.tar.gz" "$WORK/out-plan"
   grep -q 'SHA-256' "$WORK/out-plan"
+  # shellcheck disable=SC2088
   grep -q '~/.local/share/porthmos/porthmos-gui' "$WORK/out-plan"
+  # shellcheck disable=SC2088
   grep -q '~/.local/bin/porthmos-gui' "$WORK/out-plan"
   grep -q '(new install)' "$WORK/out-plan"
   grep -q 'needs no root' "$WORK/out-plan"
@@ -1110,6 +1113,7 @@ test_the_plan_works_when_home_contains_a_space() {
   home="$WORK/home with space"
   mkdir -p "$WORK/tmp"
   run_install_raw "$home" "file://$WORK/rel-x/dist" --dry-run > "$WORK/out-plan-space" 2>&1
+  # shellcheck disable=SC2088
   grep -q '~/.local/share/porthmos/porthmos-gui' "$WORK/out-plan-space"
 }
 
@@ -1302,6 +1306,7 @@ test_the_purge_plan_lists_the_data_and_one_answer_covers_everything() {
   fake_data "$home"
   keyring_before=$(wc -c < "$KEYRING_LOG")
   run_uninstall_raw "$home" --purge --dry-run > "$WORK/out-un-purge-plan" 2>&1
+  # shellcheck disable=SC2088
   grep -q '~/.config/porthmos' "$WORK/out-un-purge-plan"
   grep -q 'saved passwords' "$WORK/out-un-purge-plan"
   [ "$(wc -c < "$KEYRING_LOG")" = "$keyring_before" ]

@@ -179,6 +179,7 @@ install_launcher() {
 }
 
 tilde() {
+  # shellcheck disable=SC2088
   case $1 in
     "$HOME"/*) printf '~/%s\n' "${1#"$HOME"/}" ;;
     *) printf '%s\n' "$1" ;;
