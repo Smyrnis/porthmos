@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    DirItem, Entry, ErrorKind, Metadata, NameRules, ProtocolError, SearchQuery, SearchSender, ShellSize, ShellStream,
-    VfsPath, search::walk_search,
+    DirItem, Entry, ErrorKind, Metadata, NameRules, PortForwarder, ProtocolError, SearchQuery, SearchSender, ShellSize,
+    ShellStream, VfsPath, search::walk_search,
 };
 
 pub type Reader = Box<dyn AsyncRead + Send + Unpin>;
@@ -46,6 +46,12 @@ pub trait FileSystem: Send + Sync {
         &self, _term: &str, _size: ShellSize, _env: &[(&str, &str)],
     ) -> Result<ShellStream, ProtocolError> {
         Err(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("this connection can't open a terminal")))
+    }
+    fn can_forward(&self) -> bool {
+        false
+    }
+    fn forwarder(&self) -> Option<Arc<dyn PortForwarder>> {
+        None
     }
     fn transfer_limit(&self) -> Option<usize> {
         None

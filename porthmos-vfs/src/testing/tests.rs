@@ -4,8 +4,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 use crate::{
-    Answer, ErrorKind, FileKind, FileSystem, Prompter, Protocol, Question, SearchEvent, SearchQuery, ShellSize, Target,
-    walk_search,
+    Answer, ErrorKind, FileKind, FileSystem, Prompter, Protocol, ProtocolError, Question, SearchEvent, SearchQuery,
+    ShellSize, Target, walk_search,
 };
 
 #[tokio::test]
@@ -782,4 +782,48 @@ async fn closing_the_fake_shell_writer_ends_the_reader_and_reports_exit_zero() {
 
     assert!(rest.is_empty());
     assert_eq!(shell.exit.await.unwrap(), Some(0));
+}
+
+struct EchoForwarder;
+
+#[async_trait::async_trait]
+impl crate::PortForwarder for EchoForwarder {
+    async fn connect(&self, host: &str, port: u16) -> Result<crate::ForwardStream, ProtocolError> {
+        if host == "refused" {
+            return Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("connection refused")));
+        }
+        let (client, mut server) = tokio::io::duplex(1024);
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 256];
+            while let Ok(count) = server.read(&mut buffer).await {
+                if count == 0 || server.write_all(&buffer[..count]).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let _ = port;
+        Ok(Box::new(client))
+    }
+}
+
+#[tokio::test]
+async fn the_default_file_system_cannot_forward() {
+    let fs = FakeFs::new();
+
+    assert!(!fs.can_forward());
+    assert!(fs.forwarder().is_none());
+}
+
+#[tokio::test]
+async fn a_fake_with_a_forwarder_hands_it_out() {
+    let fs = FakeFs::new().with_forwarder(std::sync::Arc::new(EchoForwarder));
+    assert!(fs.can_forward());
+
+    let mut stream = fs.forwarder().unwrap().connect("db", 5432).await.unwrap();
+    stream.write_all(b"ping").await.unwrap();
+    let mut received = [0u8; 4];
+    stream.read_exact(&mut received).await.unwrap();
+
+    assert_eq!(&received, b"ping");
+    assert!(fs.forwarder().unwrap().connect("refused", 1).await.is_err());
 }

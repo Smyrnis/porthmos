@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use crate::{
-    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, ShellSize,
-    ShellStream, VfsPath, Writer,
+    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, PortForwarder, ProtocolError, Reader,
+    ShellSize, ShellStream, VfsPath, Writer,
 };
 
 #[derive(Debug, Clone)]
@@ -107,6 +107,7 @@ pub struct FakeFs {
     name_rules: NameRules,
     remove_dir_support: bool,
     shell_sizes: Option<Arc<Mutex<Vec<ShellSize>>>>,
+    forwarder: Option<Arc<dyn PortForwarder>>,
 }
 
 impl Default for FakeFs {
@@ -128,6 +129,7 @@ impl FakeFs {
             name_rules: NameRules::Permissive,
             remove_dir_support: true,
             shell_sizes: None,
+            forwarder: None,
         };
         fs.dir("/home/user");
         fs
@@ -135,6 +137,11 @@ impl FakeFs {
 
     pub fn with_shell(mut self) -> Self {
         self.shell_sizes = Some(Arc::default());
+        self
+    }
+
+    pub fn with_forwarder(mut self, forwarder: Arc<dyn PortForwarder>) -> Self {
+        self.forwarder = Some(forwarder);
         self
     }
 
@@ -394,6 +401,14 @@ impl AsyncWrite for FakeWriter {
 
 #[async_trait]
 impl FileSystem for FakeFs {
+    fn can_forward(&self) -> bool {
+        self.forwarder.is_some()
+    }
+
+    fn forwarder(&self) -> Option<Arc<dyn PortForwarder>> {
+        self.forwarder.clone()
+    }
+
     fn can_open_shell(&self) -> bool {
         self.shell_sizes.is_some()
     }

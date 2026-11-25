@@ -1,6 +1,7 @@
 mod entry;
 mod error;
 mod form;
+mod forward;
 mod fs;
 mod names;
 mod path;
@@ -14,6 +15,7 @@ pub use async_trait::async_trait;
 pub use entry::{DirItem, Entry, FileKind, Metadata, PART_SUFFIX, join_remote};
 pub use error::{ErrorKind, ProtocolError};
 pub use form::{Choice, CommonField, ConnectionForm, OptionField, OptionKind, PortField, RESERVED_KEYS};
+pub use forward::{AsyncDuplex, ForwardStream, PortForwarder};
 pub use fs::{FileSystem, Reader, Writer};
 pub use names::{NameProblem, NameRules};
 pub use path::VfsPath;
