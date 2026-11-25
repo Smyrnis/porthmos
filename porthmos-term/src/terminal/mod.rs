@@ -203,6 +203,28 @@ impl Terminal {
         search::find(&self.term, query, from, direction)
     }
 
+    pub fn selection_match(&self) -> Option<Match> {
+        let range = self.term.selection.as_ref()?.to_range(&self.term)?;
+        Some(Match { start: search::to_grid_point(range.start), end: search::to_grid_point(range.end) })
+    }
+
+    pub fn display_offset(&self) -> usize {
+        self.term.grid().display_offset()
+    }
+
+    pub fn history(&self) -> usize {
+        self.term.history_size()
+    }
+
+    pub fn select_match(&mut self, found: Match) {
+        let start = search::to_point(&self.term, found.start);
+        let end = search::to_point(&self.term, found.end);
+        let mut selection = Selection::new(SelectionType::Simple, start, GridSide::Left);
+        selection.update(end, GridSide::Right);
+        self.term.selection = Some(selection);
+        self.term.scroll_to_point(start);
+    }
+
     pub fn reveal(&mut self, found: Match) {
         let point = search::to_point(&self.term, found.start);
         self.term.scroll_to_point(point);

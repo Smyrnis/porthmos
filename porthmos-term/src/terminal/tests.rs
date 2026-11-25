@@ -229,3 +229,75 @@ fn modes_match_the_snapshot_without_copying_the_screen() {
     assert!(modes.application_cursor && modes.bracketed_paste && modes.alternate_screen);
     assert_eq!(modes, terminal.snapshot().modes);
 }
+
+#[test]
+fn select_match_highlights_the_found_text() {
+    let mut terminal = terminal(40, 5);
+    terminal.feed(b"alpha beta gamma\r\n");
+
+    let found = terminal.search("beta", GridPoint { line: 0, column: 0 }, SearchDirection::Forward).unwrap();
+    terminal.select_match(found);
+
+    assert_eq!(terminal.selection_match(), Some(found));
+    assert_eq!(terminal.selected_text(), Some("beta".to_string()));
+    assert!(terminal.snapshot().cells.iter().any(|cell| cell.selected));
+}
+
+#[test]
+fn select_match_scrolls_a_match_in_the_history_into_view() {
+    let mut terminal = terminal(20, 5);
+    for number in 0..100 {
+        terminal.feed(format!("row {number:03}\r\n").as_bytes());
+    }
+
+    let found = terminal.search("row 003", GridPoint { line: -90, column: 0 }, SearchDirection::Forward).unwrap();
+    terminal.select_match(found);
+
+    let snapshot = terminal.snapshot();
+    assert!(snapshot.display_offset > 0);
+    assert!(snapshot.cells.iter().any(|cell| cell.selected));
+    assert_eq!(terminal.selected_text(), Some("row 003".to_string()));
+}
+
+#[test]
+fn selection_match_is_none_without_a_selection_and_after_clearing() {
+    let mut terminal = terminal(20, 5);
+    terminal.feed(b"hello\r\n");
+    assert_eq!(terminal.selection_match(), None);
+
+    terminal.start_selection(SelectionKind::Simple, ViewPoint { row: 0, column: 0 }, Side::Left);
+    terminal.update_selection(ViewPoint { row: 0, column: 3 }, Side::Right);
+    let range = terminal.selection_match().unwrap();
+    assert_eq!((range.start, range.end), (GridPoint { line: 0, column: 0 }, GridPoint { line: 0, column: 3 }));
+
+    terminal.clear_selection();
+    assert_eq!(terminal.selection_match(), None);
+}
+
+#[test]
+fn the_selection_match_follows_the_text_when_output_scrolls_it() {
+    let mut terminal = terminal(20, 5);
+    terminal.feed(b"alpha beta\r\n");
+    let found = terminal.search("beta", GridPoint { line: 0, column: 0 }, SearchDirection::Forward).unwrap();
+    terminal.select_match(found);
+
+    terminal.feed(b"x\r\ny\r\nz\r\nw\r\nv\r\n");
+
+    let moved = terminal.selection_match().unwrap();
+    assert_eq!(moved.start.line, found.start.line - 2);
+    assert_eq!(terminal.selected_text(), Some("beta".to_string()));
+}
+
+#[test]
+fn display_offset_and_history_report_the_scroll_state_without_copying_the_screen() {
+    let mut terminal = terminal(20, 5);
+    assert_eq!((terminal.display_offset(), terminal.history()), (0, 0));
+    for number in 0..30 {
+        terminal.feed(format!("row {number}\r\n").as_bytes());
+    }
+    terminal.scroll(4);
+
+    assert_eq!(terminal.display_offset(), 4);
+    assert_eq!(terminal.history(), terminal.snapshot().history);
+    assert!(terminal.history() >= 25);
+}

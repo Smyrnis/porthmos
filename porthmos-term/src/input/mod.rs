@@ -193,14 +193,15 @@ pub fn encode_mouse(event: MouseEvent, modes: Modes) -> Option<Vec<u8>> {
 }
 
 pub fn encode_paste(text: &str, modes: Modes) -> Vec<u8> {
+    let controls = |character: &char| *character == char::from(ESCAPE) || ('\u{80}'..='\u{9f}').contains(character);
+    let clean: String = text.chars().filter(|character| !controls(character)).collect();
     if modes.bracketed_paste {
         let mut encoded = PASTE_START.to_vec();
-        let controls = |character: &char| *character == char::from(ESCAPE) || ('\u{80}'..='\u{9f}').contains(character);
-        encoded.extend(text.chars().filter(|character| !controls(character)).collect::<String>().bytes());
+        encoded.extend(clean.bytes());
         encoded.extend_from_slice(PASTE_END);
         return encoded;
     }
-    text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
+    clean.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
 }
 
 #[cfg(test)]

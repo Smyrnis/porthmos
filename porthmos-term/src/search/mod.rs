@@ -25,7 +25,7 @@ pub(crate) fn to_point<T>(term: &Term<T>, point: GridPoint) -> Point {
     Point::new(Line(line), Column(usize::from(point.column).min(term.columns() - 1)))
 }
 
-fn to_grid_point(point: Point) -> GridPoint {
+pub(crate) fn to_grid_point(point: Point) -> GridPoint {
     GridPoint { line: point.line.0, column: point.column.0 as u16 }
 }
 

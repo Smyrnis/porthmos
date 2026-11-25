@@ -173,3 +173,8 @@ fn pasted_c1_controls_cannot_end_the_bracketed_paste() {
     assert!(!encoded.windows(2).any(|pair| pair[0] == 0xc2 && (0x80..=0x9f).contains(&pair[1])));
     assert!(String::from_utf8_lossy(&encoded).contains("a201~bc"));
 }
+
+#[test]
+fn non_bracketed_paste_strips_escape_and_c1_controls() {
+    assert_eq!(encode_paste("a\u{1b}[31mb\u{85}c", Modes::default()), b"a[31mbc".to_vec());
+}
