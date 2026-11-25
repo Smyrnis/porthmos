@@ -920,3 +920,124 @@ async fn ending_the_incoming_side_closes_the_receiver_without_marking_the_listen
     assert!(listener.incoming.recv().await.is_none());
     assert!(!remote.closed());
 }
+
+fn output(text: &str) -> crate::CommandOutput {
+    crate::CommandOutput { stdout: text.as_bytes().to_vec(), stderr: Vec::new(), status: Some(0) }
+}
+
+#[tokio::test]
+async fn the_default_file_system_has_no_runner() {
+    assert!(FakeFs::new().runner().is_none());
+}
+
+#[tokio::test]
+async fn a_fake_with_a_runner_hands_it_out() {
+    let runner = crate::testing::FakeRunner::new();
+    runner.push(Ok(output("hello")));
+    let fs = FakeFs::new().with_runner(runner.clone());
+
+    let answered = fs.runner().expect("a runner").run("echo hello").await.unwrap();
+
+    assert_eq!(answered.stdout, b"hello");
+}
+
+#[tokio::test]
+async fn the_fake_runner_answers_in_order_then_repeats_the_last() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+    runner.push(Ok(output("one")));
+    runner.push(Ok(output("two")));
+
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        seen.push(String::from_utf8(runner.run("x").await.unwrap().stdout).unwrap());
+    }
+
+    assert_eq!(seen, ["one", "two", "two", "two"]);
+}
+
+#[tokio::test]
+async fn the_fake_runner_records_every_command() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+    runner.push(Ok(output("")));
+
+    runner.run("first").await.unwrap();
+    runner.run("second").await.unwrap();
+
+    assert_eq!(runner.commands(), ["first", "second"]);
+    assert_eq!(runner.calls(), 2);
+}
+
+#[tokio::test]
+async fn a_hanging_fake_runner_never_answers() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+    runner.push(Ok(output("late")));
+    runner.hang();
+
+    let waited = tokio::time::timeout(std::time::Duration::from_millis(100), runner.run("slow")).await;
+
+    assert!(waited.is_err());
+    assert_eq!(runner.run("again").await.unwrap().stdout, b"late");
+}
+
+#[tokio::test]
+async fn an_error_answer_is_returned_as_an_error_and_repeats() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+    runner.push(Err(ProtocolError::new(ErrorKind::Connect, anyhow::anyhow!("channel refused"))));
+
+    for _ in 0..2 {
+        let error = runner.run("x").await.expect_err("an error");
+        assert_eq!(error.kind(), ErrorKind::Connect);
+        assert!(error.to_string().contains("channel refused"), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn a_runner_with_nothing_queued_answers_with_an_empty_success() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+
+    let answered = runner.run("x").await.unwrap();
+
+    assert_eq!(answered, crate::CommandOutput::default());
+}
+
+#[tokio::test]
+async fn a_responder_answers_from_the_command_text_and_beats_the_queue() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+    runner.push(Ok(output("queued")));
+    runner.respond_with(|command| Ok(output(&command.to_uppercase())));
+
+    let answered = runner.run("abc").await.unwrap();
+
+    assert_eq!(answered.stdout, b"ABC");
+    assert_eq!(runner.commands(), ["abc"]);
+}
+
+#[tokio::test]
+async fn input_sent_to_a_command_is_what_the_responder_and_the_record_see() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+    runner.respond_with(|text| Ok(output(&text.to_uppercase())));
+
+    let answered = runner.run_with_input("sh -s", b"echo hi\n").await.unwrap();
+
+    assert_eq!(answered.stdout, b"ECHO HI\n");
+    assert_eq!(runner.commands(), ["echo hi\n"]);
+    assert_eq!(runner.shells(), ["sh -s"]);
+}
+
+#[tokio::test]
+async fn a_plain_run_has_no_input_and_is_recorded_as_its_own_shell() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+
+    runner.run("uptime").await.unwrap();
+
+    assert_eq!(runner.commands(), ["uptime"]);
+    assert_eq!(runner.shells(), ["uptime"]);
+}

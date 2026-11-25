@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    DirItem, Entry, ErrorKind, Metadata, NameRules, PortForwarder, ProtocolError, SearchQuery, SearchSender, ShellSize,
-    ShellStream, VfsPath, search::walk_search,
+    CommandRunner, DirItem, Entry, ErrorKind, Metadata, NameRules, PortForwarder, ProtocolError, SearchQuery,
+    SearchSender, ShellSize, ShellStream, VfsPath, search::walk_search,
 };
 
 pub type Reader = Box<dyn AsyncRead + Send + Unpin>;
@@ -51,6 +51,9 @@ pub trait FileSystem: Send + Sync {
         false
     }
     fn forwarder(&self) -> Option<Arc<dyn PortForwarder>> {
+        None
+    }
+    fn runner(&self) -> Option<Arc<dyn CommandRunner>> {
         None
     }
     fn transfer_limit(&self) -> Option<usize> {

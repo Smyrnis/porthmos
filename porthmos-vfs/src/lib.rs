@@ -1,3 +1,4 @@
+mod command;
 mod entry;
 mod error;
 mod form;
@@ -12,6 +13,7 @@ mod server_text;
 mod shell;
 
 pub use async_trait::async_trait;
+pub use command::{CommandOutput, CommandRunner};
 pub use entry::{DirItem, Entry, FileKind, Metadata, PART_SUFFIX, join_remote};
 pub use error::{ErrorKind, ProtocolError};
 pub use form::{Choice, CommonField, ConnectionForm, OptionField, OptionKind, PortField, RESERVED_KEYS};
