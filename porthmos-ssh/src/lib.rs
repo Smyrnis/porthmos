@@ -17,7 +17,7 @@ pub use connect::{ConnectOptions, Session, connect};
 pub use discovery::{DEFAULT_PORT, discover, identity_path, shell_command};
 pub use exec::{ExecChannel, ExecInput, Output, exec, open_exec};
 pub use quote::shell_quote;
-pub use shell_channel::{ShellChannel, ShellInput, ShellSize, open_shell};
+pub use shell_channel::{ShellChannel, ShellInput, ShellSize, open_shell, open_shell_stream};
 
 pub const PROXY_FIELD: porthmos_vfs::OptionField = porthmos_vfs::OptionField {
     key: "proxy",

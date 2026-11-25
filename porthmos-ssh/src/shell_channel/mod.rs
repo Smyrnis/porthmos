@@ -1,17 +1,18 @@
-use std::io;
+use std::{io, sync::Arc};
 
 use anyhow::anyhow;
-use porthmos_vfs::{ErrorKind, ProtocolError};
+use porthmos_vfs::{ErrorKind, ProtocolError, ShellSize as VfsShellSize, ShellStream};
 use russh::{ChannelMsg, client::Msg};
 use tokio::{
-    io::{AsyncWriteExt, DuplexStream},
-    sync::watch,
+    io::{AsyncReadExt, AsyncWriteExt, DuplexStream},
+    sync::{oneshot, watch},
     task::JoinHandle,
 };
 
 use crate::{Session, exec::ExecInput};
 
 const OUTPUT_BUFFER: usize = 256 * 1024;
+const WRITE_CHUNK: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShellSize {
@@ -92,9 +93,63 @@ async fn accepted(channel: &mut russh::Channel<Msg>, request: &str) -> Result<()
     }
 }
 
+struct Parts {
+    input: ShellInput,
+    output: DuplexStream,
+    done: JoinHandle<Option<u32>>,
+}
+
 pub async fn open_shell(
     session: &Session, term: &str, size: ShellSize, env: &[(&str, &str)],
 ) -> Result<ShellChannel, ProtocolError> {
+    let Parts { input, output, done } = open_parts(session, term, size, env).await?;
+    Ok(ShellChannel { input, output, done: Some(done), finished: false })
+}
+
+pub async fn open_shell_stream(
+    session: &Session, term: &str, size: VfsShellSize, env: &[(&str, &str)],
+) -> Result<ShellStream, ProtocolError> {
+    let size = ShellSize { columns: size.columns, rows: size.rows };
+    let Parts { input, output, done } = open_parts(session, term, size, env).await?;
+    let input = Arc::new(input);
+    let (written, mut incoming) = tokio::io::duplex(OUTPUT_BUFFER);
+    let writing = input.clone();
+    tokio::spawn(async move {
+        let mut buffer = vec![0u8; WRITE_CHUNK];
+        while let Ok(count) = incoming.read(&mut buffer).await {
+            if count == 0 || writing.send(&buffer[..count]).await.is_err() {
+                break;
+            }
+        }
+        let _ = writing.close().await;
+    });
+    let (exit_sender, exit) = oneshot::channel();
+    tokio::spawn(async move {
+        let _ = exit_sender.send(done.await.unwrap_or_default());
+    });
+    let (latest, mut pending) = watch::channel(size);
+    let resizing = input;
+    tokio::spawn(async move {
+        while pending.changed().await.is_ok() {
+            let wanted = *pending.borrow_and_update();
+            if resizing.resize(wanted).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(ShellStream {
+        reader: Box::new(output),
+        writer: Box::new(written),
+        resize: Box::new(move |size| {
+            let _ = latest.send(ShellSize { columns: size.columns, rows: size.rows });
+        }),
+        exit,
+    })
+}
+
+async fn open_parts(
+    session: &Session, term: &str, size: ShellSize, env: &[(&str, &str)],
+) -> Result<Parts, ProtocolError> {
     let mut channel = session.handle().channel_open_session().await.map_err(shell_error)?;
     channel
         .request_pty(true, term, u32::from(size.columns), u32::from(size.rows), 0, 0, &[])
@@ -125,10 +180,5 @@ pub async fn open_shell(
         let _ = ended.send(true);
         status
     });
-    Ok(ShellChannel {
-        input: ShellInput { channel: ExecInput::new(write, closed) },
-        output,
-        done: Some(done),
-        finished: false,
-    })
+    Ok(Parts { input: ShellInput { channel: ExecInput::new(write, closed) }, output, done })
 }
