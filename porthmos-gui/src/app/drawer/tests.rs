@@ -6,8 +6,8 @@ use porthmos_term::{MouseButton, Side, TerminalEvent, ViewPoint};
 use tokio::io::AsyncReadExt;
 
 use crate::app::Message;
-use crate::drawer::pointer::PointerKind;
 use crate::drawer::TerminalSource;
+use crate::drawer::pointer::PointerKind;
 use crate::view::terminal_grid::PointerEvent;
 
 use super::{ClipboardRequest, PASTE_CHUNK, PRIMARY_SELECTION, paste_chunks};
