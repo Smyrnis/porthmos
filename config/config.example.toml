@@ -39,6 +39,10 @@ compare_limit_mib = 1
 editor = ""
 
 [terminal]
+# Open terminals inside the window (F4 on a connection or a local folder). Set
+# to false to always hand them to the program below instead.
+embedded = true
+
 # Terminal program the window app opens for "Open terminal here". Empty means
 # $TERMINAL, then x-terminal-emulator, then a list of common terminals. Write the
 # program with any arguments ("kitty --single-instance"); the command to run

@@ -7,6 +7,7 @@ pub mod edit;
 mod engine;
 pub mod error;
 pub mod folder_compare;
+mod handover;
 mod health;
 pub mod history;
 pub mod i18n;
@@ -43,10 +44,11 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
 pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
-pub use engine::{Command, Event, Location, RequestId, SessionId};
+pub use engine::{Command, Event, Location, RequestId, SessionId, TerminalId};
 pub use error::{
     Severity, connect_failure_message, connection_cancelled, failure_report, search_incomplete_note, user_message,
 };
+pub use handover::Handover;
 pub use message::Message;
 pub use panel_memory::PanelKind;
 pub use path_completion::{Completion, CompletionStep, MAX_SHOWN, complete, split_directory};
@@ -55,7 +57,7 @@ pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_vfs::{
     Answer, Choice, CommonField, ConnectionForm, DirItem, Entry, Environment, ErrorKind, FileKind, FileSystem,
     Metadata, OptionField, OptionKind, PortField, Protocol, ProtocolError, Question, SearchEvent, SearchQuery,
-    ShellInvocation, Target, VfsPath, glob_match,
+    ShellInvocation, ShellSize, ShellStream, Target, VfsPath, glob_match,
 };
 pub use protocol_info::ProtocolInfo;
 pub use reopen::offer_summary;

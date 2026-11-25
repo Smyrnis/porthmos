@@ -1023,7 +1023,7 @@ fn connecting_announces_whether_the_session_can_keep_times() {
         .drain()
         .into_iter()
         .filter_map(|event| match event {
-            Event::SessionCapabilities { session, preserves_times } => Some((session, preserves_times)),
+            Event::SessionCapabilities { session, preserves_times, .. } => Some((session, preserves_times)),
             _ => None,
         })
         .collect();
@@ -1040,7 +1040,7 @@ fn a_session_on_a_filesystem_without_time_support_says_so() {
     t.engine.connect("flat");
 
     assert!(t.drain().into_iter().any(
-        |event| matches!(event, Event::SessionCapabilities { session: id, preserves_times: false } if id == session)
+        |event| matches!(event, Event::SessionCapabilities { session: id, preserves_times: false, .. } if id == session)
     ));
 }
 

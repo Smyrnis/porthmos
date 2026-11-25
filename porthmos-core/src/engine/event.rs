@@ -2,11 +2,11 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use chrono::{DateTime, Utc};
 
-use porthmos_vfs::{Entry, Question, ShellInvocation, VfsPath};
+use porthmos_vfs::{Entry, Question, ShellInvocation, ShellStream, VfsPath};
 
-use super::{Location, RequestId, SessionId};
+use super::{Location, RequestId, SessionId, TerminalId};
 use crate::{
-    Completion, ConnectionState, Message, Severity,
+    Completion, ConnectionState, Handover, Message, Severity,
     config::bookmarks::Bookmark,
     delete_prompt::count::Contents,
     diff::DiffOutcome,
@@ -29,7 +29,7 @@ pub enum Event {
     ReopenOffer { names: Vec<String> },
     FocusConnection { name: String },
     Connected { session: SessionId, name: String, shell_available: bool },
-    SessionCapabilities { session: SessionId, preserves_times: bool },
+    SessionCapabilities { session: SessionId, preserves_times: bool, embedded_shell: bool },
     ConnectFailed { name: String, message: Message },
     Question { request_id: RequestId, question: Question },
     TestQuestion { test_id: u64, request_id: RequestId, question: Question },
@@ -39,6 +39,8 @@ pub enum Event {
     ConnectionState { name: String, state: ConnectionState },
     ShellReady { session: SessionId, invocation: ShellInvocation },
     LocalShellReady { invocation: ShellInvocation },
+    TerminalOpened { id: TerminalId, session: SessionId, stream: Handover<ShellStream> },
+    TerminalOpenFailed { id: TerminalId, message: Message },
     Listed { location: Location, path: VfsPath, entries: Vec<Entry> },
     Revealed { location: Location, folder: VfsPath, name: String },
     PathOpened { location: Location },

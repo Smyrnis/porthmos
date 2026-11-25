@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use porthmos_vfs::{Answer, Entry, VfsPath};
+use porthmos_vfs::{Answer, Entry, ShellSize, VfsPath};
 
 use crate::{
     config::settings::{PanelSettings, ReopenMode},
@@ -14,6 +14,7 @@ use crate::{
 };
 
 pub type SessionId = u64;
+pub type TerminalId = u64;
 pub type RequestId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,6 +36,7 @@ pub enum Command {
     Answer { request_id: RequestId, answer: Option<Answer>, save: bool },
     PrepareShell { session: SessionId, directory: Option<VfsPath> },
     PrepareLocalShell { directory: VfsPath },
+    OpenTerminal { id: TerminalId, session: SessionId, size: ShellSize },
     RememberPanel { kind: PanelKind, settings: PanelSettings },
     RememberOpenGroups { groups: Vec<String> },
     List { location: Location, path: Option<VfsPath> },

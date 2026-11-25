@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use command::{Command, Location, RequestId, SessionId};
+pub use command::{Command, Location, RequestId, SessionId, TerminalId};
 pub use event::Event;
 use host::Host;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
@@ -386,6 +386,7 @@ impl Engine {
             Command::Answer { request_id, answer, save } => self.questions.answer(request_id, answer, save),
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
             Command::PrepareLocalShell { directory } => self.prepare_local_shell(&directory),
+            Command::OpenTerminal { id, session, size } => self.open_terminal(id, session, size),
             Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
             Command::RememberOpenGroups { groups } => self.remember_open_groups(groups),
             Command::List { location, path } => self.list(location, path),

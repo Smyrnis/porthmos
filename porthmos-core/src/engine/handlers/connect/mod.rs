@@ -59,10 +59,17 @@ async fn secured_target(entry: &ConnectionEntry, secret_keys: &[&'static str], s
 
 impl Engine {
     fn emit_connected(&self, session: u64, name: String, shell_available: bool) {
-        let preserves_times = self.book.sessions.get(&session).is_some_and(|live| live.fs.can_set_modified());
         self.publish_connection_state(&name, ConnectionState::Connected);
         self.emit(Event::Connected { session, name, shell_available });
-        self.emit(Event::SessionCapabilities { session, preserves_times });
+        self.emit_capabilities(session);
+    }
+
+    pub(crate) fn emit_capabilities(&self, session: SessionId) {
+        let Some(live) = self.book.sessions.get(&session) else {
+            return;
+        };
+        let (preserves_times, embedded_shell) = (live.fs.can_set_modified(), live.fs.can_open_shell());
+        self.emit(Event::SessionCapabilities { session, preserves_times, embedded_shell });
     }
 
     pub(crate) fn connect(&mut self, profile: &str) {

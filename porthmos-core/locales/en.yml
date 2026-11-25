@@ -133,6 +133,7 @@ connection:
   disconnected: "Disconnected from %{name}"
   connect_first: "Connect to a server first"
   no_terminal: "This connection doesn't support a terminal session"
+  terminal_failed: "Couldn't open a terminal"
 profiles:
   no_protocol: "No \"%{protocol}\" protocol is available"
   name_taken: "A connection named \"%{name}\" already exists"
@@ -997,6 +998,11 @@ gui:
     connections: "Porthmos Connections"
     search: "Porthmos Search"
   terminal:
+    folder_unsafe: "The terminal opened in your home folder because this folder's name has control characters"
+    open_failed: "Couldn't open a terminal: %{error}"
+    empty_unbound: "Open the command palette to open a terminal here"
+    exited_with: "Exited (%{status})"
+    empty: "Press %{key} to open a terminal here"
     none_found: "No terminal program found. Set $TERMINAL to your terminal's command."
     prepare_failed: "Couldn't prepare the terminal command: %{message}"
 mark:
@@ -1325,6 +1331,12 @@ label:
   Previous_connection_tab: "Previous connection tab"
   Show_or_hide_transfers: "Show or hide transfers"
   Open_terminal_here: "Open terminal here"
+  Open_external_terminal_here: "Open external terminal here"
+  Open_terminals_inside_the_window: "Open terminals inside the window"
+  Show_or_hide_terminal: "Show or hide terminal"
+  Focus_terminal: "Focus terminal"
+  Exited: "Exited"
+  Close_terminal: "Close terminal"
   Compare_folders: "Compare folders"
   Connect_to_a_server_first: "Connect to a server first"
   This_connection_doesn_t_support_a_terminal_session: "This connection doesn't support a terminal session"

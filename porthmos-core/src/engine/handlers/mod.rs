@@ -20,6 +20,7 @@ mod search;
 mod secrets;
 mod speed_limit;
 mod sync;
+mod terminal;
 mod test_connection;
 mod transfer;
 mod ui_state;

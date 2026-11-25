@@ -277,7 +277,7 @@ fn the_terminal_command_is_unset_by_default() {
     let (settings, warnings) = settings_from_file(SettingsFile::default());
 
     assert!(warnings.is_empty());
-    assert_eq!(settings.terminal, TerminalSettings { command: None });
+    assert_eq!(settings.terminal, TerminalSettings { command: None, embedded: true });
 }
 
 #[test]
@@ -601,4 +601,18 @@ fn one_bad_search_limit_leaves_the_other_alone() {
 fn search_limits_of_the_wrong_type_do_not_parse() {
     assert!(toml::from_str::<SettingsFile>("[search]\nmax_depth = \"deep\"\n").is_err());
     assert!(toml::from_str::<SettingsFile>("[search]\nmax_results = 1.5\n").is_err());
+}
+
+#[test]
+fn the_built_in_terminal_is_on_unless_the_file_turns_it_off() {
+    let off: SettingsFile = toml::from_str("[terminal]\nembedded = false\n").unwrap();
+    let on: SettingsFile = toml::from_str("[terminal]\nembedded = true\n").unwrap();
+
+    assert!(!settings_from_file(off).0.terminal.embedded);
+    assert!(settings_from_file(on).0.terminal.embedded);
+}
+
+#[test]
+fn the_built_in_terminal_flag_of_the_wrong_type_does_not_parse() {
+    assert!(toml::from_str::<SettingsFile>("[terminal]\nembedded = \"yes\"\n").is_err());
 }

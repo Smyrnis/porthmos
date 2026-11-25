@@ -16,6 +16,7 @@ pub enum Edit {
     ResetKey { action: String },
     SetEditor(Option<String>),
     SetTerminal(Option<String>),
+    SetEmbeddedTerminal(bool),
     SetAutoUpload(bool),
     SetCompareLimitMib(u64),
     SetUpdateMode(UpdateMode),
@@ -144,6 +145,7 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
             Some(editor) => set_in(&mut document, &["edit"], "editor", Value::from(editor))?,
             None => remove_in(&mut document, &["edit"], "editor")?,
         },
+        Edit::SetEmbeddedTerminal(on) => set_in(&mut document, &["terminal"], "embedded", Value::from(*on))?,
         Edit::SetTerminal(command) => match command.as_deref().map(str::trim).filter(|command| !command.is_empty()) {
             Some(command) => set_in(&mut document, &["terminal"], "command", Value::from(command))?,
             None => remove_in(&mut document, &["terminal"], "command")?,

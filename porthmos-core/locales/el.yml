@@ -133,6 +133,7 @@ connection:
   disconnected: "Αποσυνδέθηκε από το %{name}"
   connect_first: "Συνδεθείτε πρώτα σε διακομιστή"
   no_terminal: "Αυτή η σύνδεση δεν υποστηρίζει συνεδρία τερματικού"
+  terminal_failed: "Δεν ήταν δυνατό το άνοιγμα τερματικού"
 profiles:
   no_protocol: "Το πρωτόκολλο «%{protocol}» δεν είναι διαθέσιμο"
   name_taken: "Υπάρχει ήδη σύνδεση με το όνομα «%{name}»"
@@ -997,6 +998,11 @@ gui:
     connections: "Συνδέσεις Porthmos"
     search: "Αναζήτηση Porthmos"
   terminal:
+    folder_unsafe: "Το τερματικό άνοιξε στον αρχικό φάκελο επειδή το όνομα αυτού του φακέλου έχει χαρακτήρες ελέγχου"
+    open_failed: "Δεν ήταν δυνατό το άνοιγμα τερματικού: %{error}"
+    empty_unbound: "Ανοίξτε την παλέτα εντολών για να ανοίξετε εδώ ένα τερματικό"
+    exited_with: "Τερματίστηκε (%{status})"
+    empty: "Πατήστε %{key} για να ανοίξετε εδώ ένα τερματικό"
     none_found: "Δεν βρέθηκε πρόγραμμα τερματικού. Ορίστε το $TERMINAL στην εντολή του τερματικού σας."
     prepare_failed: "Δεν ήταν δυνατή η προετοιμασία της εντολής τερματικού: %{message}"
 mark:
@@ -1325,6 +1331,12 @@ label:
   Previous_connection_tab: "Προηγούμενη καρτέλα σύνδεσης"
   Show_or_hide_transfers: "Εμφάνιση ή απόκρυψη μεταφορών"
   Open_terminal_here: "Άνοιγμα τερματικού εδώ"
+  Open_external_terminal_here: "Άνοιγμα εξωτερικού τερματικού εδώ"
+  Open_terminals_inside_the_window: "Άνοιγμα τερματικών μέσα στο παράθυρο"
+  Show_or_hide_terminal: "Εμφάνιση ή απόκρυψη τερματικού"
+  Focus_terminal: "Εστίαση στο τερματικό"
+  Exited: "Τερματίστηκε"
+  Close_terminal: "Κλείσιμο τερματικού"
   Compare_folders: "Σύγκριση φακέλων"
   Connect_to_a_server_first: "Συνδεθείτε πρώτα σε διακομιστή"
   This_connection_doesn_t_support_a_terminal_session: "Αυτή η σύνδεση δεν υποστηρίζει συνεδρία τερματικού"

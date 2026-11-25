@@ -35,9 +35,16 @@ impl EditSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalSettings {
     pub command: Option<String>,
+    pub embedded: bool,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> Self {
+        Self { command: None, embedded: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -208,6 +215,7 @@ pub(crate) struct EditSettingsFile {
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub(crate) struct TerminalSettingsFile {
     pub command: Option<String>,
+    pub embedded: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -353,6 +361,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
                     .command
                     .map(|command| command.trim().to_string())
                     .filter(|command| !command.is_empty()),
+                embedded: file.terminal.embedded.unwrap_or(true),
             },
             update: UpdateSettings { mode: update_mode, interval_hours: update_interval },
             search: SearchSettings {

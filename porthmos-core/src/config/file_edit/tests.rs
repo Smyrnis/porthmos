@@ -479,3 +479,16 @@ fn set_search_limits_keep_the_preview_setting_and_comments() {
     assert!(written.starts_with(start), "{written}");
     assert!(written.contains("max_depth = 5") && written.contains("max_results = 40"), "{written}");
 }
+
+#[test]
+fn set_embedded_terminal_writes_the_flag_next_to_the_command() {
+    let before = "[terminal]\ncommand = \"kitty\"\n";
+
+    let written = apply(before, &Edit::SetEmbeddedTerminal(false)).unwrap();
+
+    assert_eq!(written, "[terminal]\ncommand = \"kitty\"\nembedded = false\n");
+    assert_eq!(
+        apply(&written, &Edit::SetEmbeddedTerminal(true)).unwrap(),
+        "[terminal]\ncommand = \"kitty\"\nembedded = true\n"
+    );
+}
