@@ -70,6 +70,7 @@ impl Drop for RemoteListeners {
 struct Handler {
     remote: Arc<RemoteListeners>,
     sessions: Arc<Mutex<Vec<server::Handle>>>,
+    announced: bool,
     root: PathBuf,
     path: OsString,
     options: Options,
@@ -92,6 +93,7 @@ impl server::Server for Handler {
             channels: Arc::default(),
             open: Arc::default(),
             remote: RemoteListeners::new(self.remote.live.clone()),
+            announced: false,
             ..self.clone()
         }
     }
@@ -157,8 +159,12 @@ impl server::Handler for Handler {
     }
 
     async fn channel_open_session(
-        &mut self, channel: Channel<Msg>, reply: server::ChannelOpenHandle, _: &mut ServerSession,
+        &mut self, channel: Channel<Msg>, reply: server::ChannelOpenHandle, session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
+        if !self.announced {
+            self.announced = true;
+            self.sessions.lock().unwrap().push(session.handle());
+        }
         if self.options.max_sessions.is_some_and(|max| self.open.lock().unwrap().len() >= max) {
             reply.reject(ChannelOpenFailure::ResourceShortage).await;
             return Ok(());
@@ -205,7 +211,10 @@ impl server::Handler for Handler {
         let bound_port = u32::from(bound.port());
         *port = bound_port;
         let handle = session.handle();
-        self.sessions.lock().unwrap().push(handle.clone());
+        if !self.announced {
+            self.announced = true;
+            self.sessions.lock().unwrap().push(handle.clone());
+        }
         let address = address.to_string();
         let task = tokio::spawn(async move {
             while let Ok((mut stream, peer)) = listener.accept().await {
@@ -397,6 +406,7 @@ impl SshServer {
         let mut handler = Handler {
             remote: RemoteListeners::new(remote_live.clone()),
             sessions: sessions.clone(),
+            announced: false,
             root: root.path().to_path_buf(),
             path: search_path(options.hide_scp),
             options,

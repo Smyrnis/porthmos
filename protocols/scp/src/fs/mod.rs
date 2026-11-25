@@ -205,6 +205,10 @@ impl FileSystem for ScpFs {
         Some(Arc::new(porthmos_ssh::SshForwarder::new(self.session.clone())))
     }
 
+    fn runner(&self) -> Option<Arc<dyn porthmos_vfs::CommandRunner>> {
+        Some(Arc::new(porthmos_ssh::SshRunner::new(self.session.clone())))
+    }
+
     async fn open_shell(
         &self, term: &str, size: porthmos_vfs::ShellSize, env: &[(&str, &str)],
     ) -> Result<porthmos_vfs::ShellStream, ProtocolError> {

@@ -65,10 +65,16 @@ async fn a_forwarded_connection_reaches_a_local_echo_server() {
     assert_eq!(server.forwarded_connections(), 1);
 }
 
+fn refusing_port() -> (u16, tokio::net::TcpSocket) {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    (socket.local_addr().unwrap().port(), socket)
+}
+
 #[tokio::test]
 async fn a_refused_target_is_an_error_naming_the_target() {
     let server = SshServer::start(FORWARDING).await;
-    let port = closed_port().await;
+    let (port, _held) = refusing_port();
     let forwarder = SshForwarder::new(Arc::new(server.session().await));
 
     let error = forwarder.connect("127.0.0.1", port).await.err().expect("nothing listens there");

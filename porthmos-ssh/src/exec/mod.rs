@@ -12,6 +12,7 @@ use tokio::{
 use crate::Session;
 
 const OUTPUT_BUFFER: usize = 256 * 1024;
+const MAX_STDERR_BYTES: usize = 64 * 1024;
 const STDERR: u32 = 1;
 const CLOSED: &str = "the command's channel is closed";
 
@@ -118,7 +119,10 @@ pub async fn open_exec(session: &Session, command: &str) -> Result<ExecChannel, 
         while let Some(message) = read.wait().await {
             match message {
                 ChannelMsg::Data { data } if forwarding => forwarding = sink.write_all(&data).await.is_ok(),
-                ChannelMsg::ExtendedData { data, ext } if ext == STDERR => finished.stderr.extend_from_slice(&data),
+                ChannelMsg::ExtendedData { data, ext } if ext == STDERR => {
+                    let room = MAX_STDERR_BYTES.saturating_sub(finished.stderr.len());
+                    finished.stderr.extend_from_slice(&data[..data.len().min(room)]);
+                }
                 ChannelMsg::ExitStatus { exit_status } => finished.status = Some(exit_status),
                 ChannelMsg::Failure | ChannelMsg::Close => break,
                 _ => {}
