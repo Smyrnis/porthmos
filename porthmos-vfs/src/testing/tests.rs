@@ -4,7 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 use crate::{
-    Answer, ErrorKind, FileKind, FileSystem, Prompter, Protocol, Question, SearchEvent, SearchQuery, Target,
+    Answer, ErrorKind, FileKind, FileSystem, Prompter, Protocol, Question, SearchEvent, SearchQuery, ShellSize, Target,
     walk_search,
 };
 
@@ -734,4 +734,52 @@ async fn a_fake_without_remove_dir_reports_it_as_unsupported_and_keeps_the_folde
 
     assert_eq!(err.kind(), ErrorKind::Unsupported);
     assert!(fs.exists("/data/empty"));
+}
+
+const SIZE: ShellSize = ShellSize { columns: 80, rows: 24 };
+
+#[tokio::test]
+async fn a_filesystem_without_shell_support_says_so() {
+    let fs = FakeFs::new();
+
+    assert!(!fs.can_open_shell());
+    let error = fs.open_shell("xterm-256color", SIZE, &[]).await.err().expect("must fail");
+    assert_eq!(error.kind(), ErrorKind::Unsupported);
+}
+
+#[tokio::test]
+async fn the_fake_shell_echoes_what_is_written() {
+    let fs = FakeFs::new().with_shell();
+    assert!(fs.can_open_shell());
+
+    let mut shell = fs.open_shell("xterm-256color", SIZE, &[]).await.unwrap();
+    shell.writer.write_all(b"hi").await.unwrap();
+    let mut received = [0u8; 2];
+    shell.reader.read_exact(&mut received).await.unwrap();
+
+    assert_eq!(&received, b"hi");
+}
+
+#[tokio::test]
+async fn the_fake_shell_records_resizes_in_order() {
+    let fs = FakeFs::new().with_shell();
+    let shell = fs.open_shell("xterm-256color", SIZE, &[]).await.unwrap();
+
+    (shell.resize)(ShellSize { columns: 100, rows: 30 });
+    (shell.resize)(ShellSize { columns: 120, rows: 40 });
+
+    assert_eq!(fs.shell_sizes(), vec![ShellSize { columns: 100, rows: 30 }, ShellSize { columns: 120, rows: 40 }]);
+}
+
+#[tokio::test]
+async fn closing_the_fake_shell_writer_ends_the_reader_and_reports_exit_zero() {
+    let fs = FakeFs::new().with_shell();
+    let mut shell = fs.open_shell("xterm-256color", SIZE, &[]).await.unwrap();
+
+    shell.writer.shutdown().await.unwrap();
+    let mut rest = Vec::new();
+    shell.reader.read_to_end(&mut rest).await.unwrap();
+
+    assert!(rest.is_empty());
+    assert_eq!(shell.exit.await.unwrap(), Some(0));
 }

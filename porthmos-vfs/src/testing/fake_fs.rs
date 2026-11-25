@@ -7,10 +7,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use crate::{
-    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, VfsPath, Writer,
+    DirItem, Entry, ErrorKind, FileKind, FileSystem, Metadata, NameRules, ProtocolError, Reader, ShellSize,
+    ShellStream, VfsPath, Writer,
 };
 
 #[derive(Debug, Clone)]
@@ -105,6 +106,7 @@ pub struct FakeFs {
     holds_connection: bool,
     name_rules: NameRules,
     remove_dir_support: bool,
+    shell_sizes: Option<Arc<Mutex<Vec<ShellSize>>>>,
 }
 
 impl Default for FakeFs {
@@ -125,9 +127,19 @@ impl FakeFs {
             holds_connection: false,
             name_rules: NameRules::Permissive,
             remove_dir_support: true,
+            shell_sizes: None,
         };
         fs.dir("/home/user");
         fs
+    }
+
+    pub fn with_shell(mut self) -> Self {
+        self.shell_sizes = Some(Arc::default());
+        self
+    }
+
+    pub fn shell_sizes(&self) -> Vec<ShellSize> {
+        self.shell_sizes.as_ref().map(|sizes| sizes.lock().unwrap().clone()).unwrap_or_default()
     }
 
     pub fn denying_stat(&self, path: impl Into<VfsPath>) -> &Self {
@@ -382,6 +394,40 @@ impl AsyncWrite for FakeWriter {
 
 #[async_trait]
 impl FileSystem for FakeFs {
+    fn can_open_shell(&self) -> bool {
+        self.shell_sizes.is_some()
+    }
+
+    async fn open_shell(
+        &self, _term: &str, _size: ShellSize, _env: &[(&str, &str)],
+    ) -> Result<ShellStream, ProtocolError> {
+        let Some(sizes) = self.shell_sizes.clone() else {
+            return Err(ProtocolError::new(
+                ErrorKind::Unsupported,
+                anyhow::anyhow!("this connection can't open a terminal"),
+            ));
+        };
+        let (written, mut incoming) = tokio::io::duplex(64 * 1024);
+        let (mut outgoing, output) = tokio::io::duplex(64 * 1024);
+        let (exit_sender, exit) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 4096];
+            while let Ok(count) = incoming.read(&mut buffer).await {
+                if count == 0 || outgoing.write_all(&buffer[..count]).await.is_err() {
+                    break;
+                }
+            }
+            let _ = outgoing.shutdown().await;
+            let _ = exit_sender.send(Some(0));
+        });
+        Ok(ShellStream {
+            reader: Box::new(output),
+            writer: Box::new(written),
+            resize: Box::new(move |size| sizes.lock().unwrap().push(size)),
+            exit,
+        })
+    }
+
     async fn set_modified(&self, path: &VfsPath, seconds: u64) -> Result<(), ProtocolError> {
         if !self.time_support {
             return Err(ProtocolError::new(
