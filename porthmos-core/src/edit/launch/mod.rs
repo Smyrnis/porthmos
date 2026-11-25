@@ -86,6 +86,16 @@ pub fn default_app_spec(file: &Path, platform: Platform) -> CommandSpec {
     CommandSpec { program: OsString::from(program), args }
 }
 
+pub fn url_spec(url: &str, platform: Platform) -> CommandSpec {
+    let (program, mut args): (&str, Vec<OsString>) = match platform {
+        Platform::Linux => ("xdg-open", Vec::new()),
+        Platform::MacOs => ("open", Vec::new()),
+        Platform::Windows => ("rundll32", vec![OsString::from("url.dll,FileProtocolHandler")]),
+    };
+    args.push(OsString::from(url));
+    CommandSpec { program: OsString::from(program), args }
+}
+
 pub fn editor_exit(result: std::io::Result<ExitStatus>) -> EditorExit {
     match result {
         Ok(status) if status.success() => EditorExit::Success,

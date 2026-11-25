@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use super::{CommandSpec, EditorKind, Platform, classify, default_app_spec, editor_exit, editor_spec};
+use super::{CommandSpec, EditorKind, Platform, classify, default_app_spec, editor_exit, editor_spec, url_spec};
 use crate::edit::{EditorCommand, EditorExit};
 
 fn editor(program: &str, args: &[&str]) -> EditorCommand {
@@ -139,4 +139,17 @@ fn a_launch_error_keeps_its_message() {
     let error = std::io::Error::new(std::io::ErrorKind::NotFound, "no such program");
 
     assert_eq!(editor_exit(Err(error)), EditorExit::LaunchFailed("no such program".to_string()));
+}
+
+#[test]
+fn url_specs_per_platform_never_go_through_a_shell() {
+    let url = "https://example.org/?a=1&b=2";
+
+    let linux = url_spec(url, Platform::Linux);
+    assert_eq!((linux.program, strings(&linux.args)), (OsString::from("xdg-open"), vec![url.to_string()]));
+    let mac = url_spec(url, Platform::MacOs);
+    assert_eq!((mac.program, strings(&mac.args)), (OsString::from("open"), vec![url.to_string()]));
+    let windows = url_spec(url, Platform::Windows);
+    assert_eq!(windows.program, OsString::from("rundll32"));
+    assert_eq!(strings(&windows.args), ["url.dll,FileProtocolHandler", url]);
 }
