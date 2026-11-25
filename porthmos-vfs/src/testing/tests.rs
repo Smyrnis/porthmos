@@ -827,3 +827,96 @@ async fn a_fake_with_a_forwarder_hands_it_out() {
     assert_eq!(&received, b"ping");
     assert!(fs.forwarder().unwrap().connect("refused", 1).await.is_err());
 }
+
+struct ConnectOnly;
+
+#[async_trait::async_trait]
+impl crate::PortForwarder for ConnectOnly {
+    async fn connect(&self, _host: &str, _port: u16) -> Result<crate::ForwardStream, ProtocolError> {
+        Err(ProtocolError::new(ErrorKind::Other, anyhow::anyhow!("no")))
+    }
+}
+
+fn loopback() -> std::net::IpAddr {
+    std::net::IpAddr::from([127, 0, 0, 1])
+}
+
+fn pipe_end() -> crate::ForwardStream {
+    let (client, _server) = tokio::io::duplex(64);
+    Box::new(client)
+}
+
+#[tokio::test]
+async fn the_default_listen_is_unsupported() {
+    use crate::PortForwarder;
+
+    let error = ConnectOnly.listen(loopback(), 8080).await.err().expect("listening is not offered");
+
+    assert_eq!(error.kind(), ErrorKind::Unsupported);
+}
+
+#[tokio::test]
+async fn the_fake_remote_delivers_pushed_connections_and_reports_close() {
+    use crate::PortForwarder;
+    let remote = crate::testing::FakeRemote::new();
+    let mut listener = remote.listen(loopback(), 8080).await.unwrap();
+
+    remote.push(pipe_end(), "10.0.0.1:1000");
+    remote.push(pipe_end(), "10.0.0.2:2000");
+
+    assert_eq!(listener.incoming.recv().await.unwrap().origin, "10.0.0.1:1000");
+    assert_eq!(listener.incoming.recv().await.unwrap().origin, "10.0.0.2:2000");
+    assert!(!remote.closed());
+    listener.close().await;
+    assert!(remote.closed());
+}
+
+#[tokio::test]
+async fn the_fake_remote_allocates_for_port_zero_and_echoes_other_ports() {
+    use crate::PortForwarder;
+    let remote = crate::testing::FakeRemote::new();
+
+    assert_eq!(remote.listen(loopback(), 0).await.unwrap().port, 40000);
+    remote.allocate(41234);
+    assert_eq!(remote.listen(loopback(), 0).await.unwrap().port, 41234);
+    assert_eq!(remote.listen(loopback(), 8080).await.unwrap().port, 8080);
+    assert_eq!(remote.requests(), vec![(loopback(), 0), (loopback(), 0), (loopback(), 8080)]);
+}
+
+#[tokio::test]
+async fn a_refusing_fake_remote_fails_every_listen_with_its_text() {
+    use crate::PortForwarder;
+    let remote = crate::testing::FakeRemote::new();
+    remote.refuse_with("port in use");
+
+    for _ in 0..2 {
+        let error = remote.listen(loopback(), 8080).await.err().expect("refused");
+        assert_eq!(error.kind(), ErrorKind::Connect);
+        assert!(error.to_string().contains("port in use"), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn dropping_a_listener_without_closing_it_is_harmless_and_connect_is_unsupported() {
+    use crate::PortForwarder;
+    let remote = crate::testing::FakeRemote::new();
+    let listener = remote.listen(loopback(), 8080).await.unwrap();
+
+    drop(listener);
+    remote.push(pipe_end(), "x");
+
+    assert!(!remote.closed());
+    assert_eq!(remote.connect("h", 1).await.err().unwrap().kind(), ErrorKind::Unsupported);
+}
+
+#[tokio::test]
+async fn ending_the_incoming_side_closes_the_receiver_without_marking_the_listener_closed() {
+    use crate::PortForwarder;
+    let remote = crate::testing::FakeRemote::new();
+    let mut listener = remote.listen(loopback(), 8080).await.unwrap();
+
+    remote.end_incoming();
+
+    assert!(listener.incoming.recv().await.is_none());
+    assert!(!remote.closed());
+}
