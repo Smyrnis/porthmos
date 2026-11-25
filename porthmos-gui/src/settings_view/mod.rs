@@ -8,6 +8,7 @@ use crate::shortcuts::Action;
 pub struct GuiSettings {
     pub editor: Option<String>,
     pub terminal: Option<String>,
+    pub embedded_terminal: bool,
     pub auto_upload: bool,
     pub compare_limit_mib: u64,
     pub update_mode: UpdateMode,
@@ -25,6 +26,7 @@ impl Default for GuiSettings {
         Self {
             editor: None,
             terminal: None,
+            embedded_terminal: true,
             auto_upload: true,
             compare_limit_mib: porthmos_core::config::settings::DEFAULT_COMPARE_LIMIT_MIB,
             update_mode: UpdateMode::Auto,

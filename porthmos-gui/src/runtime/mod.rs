@@ -73,6 +73,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
     let gui_settings = GuiSettings {
         editor: settings.edit.editor.clone(),
         terminal: settings.terminal.command.clone(),
+        embedded_terminal: settings.terminal.embedded,
         auto_upload: settings.edit.auto_upload,
         compare_limit_mib: settings.edit.compare_limit_mib,
         update_mode: settings.update.mode,

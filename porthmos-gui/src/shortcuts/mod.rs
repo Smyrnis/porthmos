@@ -33,6 +33,9 @@ pub enum Action {
     Preview,
     Edit,
     Terminal,
+    TerminalExternal,
+    TerminalToggle,
+    TerminalFocus,
     Search,
     Bookmarks,
     BookmarkHere,
@@ -45,7 +48,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 39] = [
+const NAMES: [(Action, &str); 42] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -75,6 +78,9 @@ const NAMES: [(Action, &str); 39] = [
     (Action::Preview, "preview"),
     (Action::Edit, "edit"),
     (Action::Terminal, "terminal"),
+    (Action::TerminalExternal, "terminal_external"),
+    (Action::TerminalToggle, "terminal_toggle"),
+    (Action::TerminalFocus, "terminal_focus"),
     (Action::Search, "search"),
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
@@ -164,6 +170,9 @@ impl Action {
             Action::Preview => tr("Preview"),
             Action::Edit => tr("Edit"),
             Action::Terminal => tr("Open terminal here"),
+            Action::TerminalExternal => tr("Open external terminal here"),
+            Action::TerminalToggle => tr("Show or hide terminal"),
+            Action::TerminalFocus => tr("Focus terminal"),
             Action::Search => tr("Search\u{2026}"),
             Action::Bookmarks => tr("Bookmarks\u{2026}"),
             Action::BookmarkHere => tr("Bookmark this folder"),
@@ -302,6 +311,16 @@ pub struct KeyPress {
     pub modified_key: Key,
     pub modifiers: Modifiers,
     pub text: Option<String>,
+}
+
+pub fn latinized(key: Key, physical: iced::keyboard::key::Physical, modifiers: Modifiers) -> Key {
+    if !modifiers.control() {
+        return key;
+    }
+    match key.to_latin(physical) {
+        Some(letter) if key != Key::Character(letter.to_string().into()) => Key::Character(letter.to_string().into()),
+        _ => key,
+    }
 }
 
 pub fn effective(press: &KeyPress) -> (Key, Modifiers) {

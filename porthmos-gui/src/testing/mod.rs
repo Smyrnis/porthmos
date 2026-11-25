@@ -255,3 +255,25 @@ pub fn builtin_infos() -> Vec<ProtocolInfo> {
         .map(|protocol| ProtocolInfo::from_protocol(protocol.as_ref()))
         .collect()
 }
+
+pub struct ShellEnd {
+    pub to_client: tokio::io::DuplexStream,
+    pub from_client: tokio::io::DuplexStream,
+    pub sizes: Arc<Mutex<Vec<porthmos_core::ShellSize>>>,
+    pub exit: tokio::sync::oneshot::Sender<Option<u32>>,
+}
+
+pub fn shell_pipe() -> (porthmos_core::ShellStream, ShellEnd) {
+    let (to_client, reader) = tokio::io::duplex(64 * 1024);
+    let (writer, from_client) = tokio::io::duplex(64 * 1024);
+    let (exit_sender, exit) = tokio::sync::oneshot::channel();
+    let sizes: Arc<Mutex<Vec<porthmos_core::ShellSize>>> = Arc::default();
+    let recorded = sizes.clone();
+    let stream = porthmos_core::ShellStream {
+        reader: Box::new(reader),
+        writer: Box::new(writer),
+        resize: Box::new(move |size| recorded.lock().unwrap().push(size)),
+        exit,
+    };
+    (stream, ShellEnd { to_client, from_client, sizes, exit: exit_sender })
+}

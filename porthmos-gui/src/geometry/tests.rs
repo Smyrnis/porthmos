@@ -1,8 +1,9 @@
 use iced::{Point, Size};
 
 use super::{
-    CHROME_HEIGHT, COLUMN_HEADER_HEIGHT, Hit, LIST_TOP, PATH_BAR_HEIGHT, ROW_HEIGHT, STATUS_HEIGHT, TAB_HEIGHT,
-    TOOLBAR_HEIGHT, TRANSFER_COLUMN_WIDTH, hit_test, labels_visible, list_viewport, scroll_to_show, visible_range,
+    CHROME_HEIGHT, COLUMN_HEADER_HEIGHT, DRAWER_HEADER_HEIGHT, DRAWER_MIN_HEIGHT, DRAWER_WINDOW_SHARE, Hit, LIST_TOP,
+    PATH_BAR_HEIGHT, ROW_HEIGHT, STATUS_HEIGHT, TAB_HEIGHT, TOOLBAR_HEIGHT, TRANSFER_COLUMN_WIDTH, drawer_height,
+    hit_test, labels_visible, list_viewport, scroll_to_show, visible_range,
 };
 use crate::app::PanelSide;
 
@@ -188,4 +189,20 @@ fn a_nonsense_pointer_hits_nothing() {
     let nan = hit_test(window(), Point::new(f32::NAN, f32::NAN), (0.0, 0.0), (10, 10), 0.0);
 
     assert_eq!(nan, None);
+}
+
+#[test]
+fn the_drawer_takes_a_share_of_the_window_but_never_less_than_its_minimum() {
+    assert_eq!(drawer_height(1000.0), 1000.0 * DRAWER_WINDOW_SHARE);
+    assert_eq!(drawer_height(400.0), DRAWER_MIN_HEIGHT);
+    assert_eq!(drawer_height(f32::NAN), DRAWER_MIN_HEIGHT);
+}
+
+#[test]
+fn the_drawer_always_leaves_room_for_the_chrome_and_one_file_row() {
+    for window in [320.0_f32, 360.0, 480.0, 700.0, 1200.0] {
+        let height = drawer_height(window);
+        assert!(CHROME_HEIGHT + height + ROW_HEIGHT <= window, "{window}: {height}");
+        assert!(height > DRAWER_HEADER_HEIGHT, "{window}: {height}");
+    }
 }

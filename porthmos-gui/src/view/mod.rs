@@ -4,6 +4,7 @@ mod connection_form;
 pub mod connections;
 mod context_menu;
 mod drag_overlay;
+pub mod drawer;
 mod dropdown;
 mod file_list;
 pub mod format;
@@ -22,6 +23,7 @@ mod spacing;
 mod status;
 pub mod sync;
 mod tabs;
+pub mod terminal_grid;
 pub mod text_fit;
 pub mod toolbar;
 pub mod tools;
@@ -96,6 +98,9 @@ pub fn root(app: &App) -> Element<'_, Message> {
         panels,
         hairline_across(palette)
     ];
+    if let Some(drawer) = drawer::view(app) {
+        page = page.push(drawer).push(hairline_across(palette));
+    }
     if app.queue().is_open() {
         page = page.push(transfer_queue::pane(app)).push(hairline_across(palette));
     }

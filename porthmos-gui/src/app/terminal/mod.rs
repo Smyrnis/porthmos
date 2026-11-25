@@ -4,6 +4,7 @@ use porthmos_core::{Command, Severity, ShellInvocation};
 
 use super::editing::JobRole;
 use super::{App, PanelSide};
+use crate::drawer::TerminalSource;
 use crate::processes::ProcessJob;
 use porthmos_core::edit::launch::CommandSpec;
 
@@ -24,6 +25,20 @@ impl App {
     }
 
     pub(in crate::app) fn request_terminal_on(&mut self, side: PanelSide) {
+        if self.gui_settings.embedded_terminal {
+            match side {
+                PanelSide::Local => return self.open_embedded_terminal(TerminalSource::Local),
+                PanelSide::Remote => {
+                    if let Some(session) = self.sessions.active().filter(|session| session.embedded_shell) {
+                        return self.open_embedded_terminal(TerminalSource::Remote(session.id));
+                    }
+                }
+            }
+        }
+        self.request_external_terminal_on(side);
+    }
+
+    pub(in crate::app) fn request_external_terminal_on(&mut self, side: PanelSide) {
         if side == PanelSide::Local {
             let directory = self.local.panel.path().clone();
             self.core.send(Command::PrepareLocalShell { directory });

@@ -270,7 +270,7 @@ fn session_capabilities_are_recorded() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha");
 
-    harness.feed(Event::SessionCapabilities { session: 1, preserves_times: true });
+    harness.feed(Event::SessionCapabilities { session: 1, preserves_times: true, embedded_shell: false });
 
     assert!(harness.app.sessions().by_id(1).unwrap().preserves_times);
 }

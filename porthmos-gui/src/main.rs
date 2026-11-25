@@ -16,6 +16,7 @@ mod console;
 mod dialogs;
 mod display;
 mod drag;
+mod drawer;
 mod editing;
 mod entries;
 mod geometry;

@@ -321,6 +321,12 @@ impl App {
                     self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
                 }
             }
+            Message::SettingsEmbeddedTerminalToggled(on) => {
+                if self.save_setting(Edit::SetEmbeddedTerminal(on)) {
+                    self.gui_settings.embedded_terminal = on;
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
+                }
+            }
             Message::SettingsAutoUploadToggled(on) => {
                 self.core_setting_saved(Edit::SetAutoUpload(on), |settings| settings.auto_upload = on);
             }

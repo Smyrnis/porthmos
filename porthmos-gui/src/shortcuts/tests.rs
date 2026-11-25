@@ -1,7 +1,7 @@
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
 
-use super::{Action, Chord, KeyPress, Shortcuts, effective, is_reserved};
+use super::{Action, Chord, KeyPress, Shortcuts, effective, is_reserved, latinized};
 
 fn named(key: Named) -> Key {
     Key::Named(key)
@@ -366,16 +366,19 @@ fn rank(action: Action) -> usize {
         Action::Preview => 26,
         Action::Edit => 27,
         Action::Terminal => 28,
-        Action::Search => 29,
-        Action::Bookmarks => 30,
-        Action::BookmarkHere => 31,
-        Action::History => 32,
-        Action::Sync => 33,
-        Action::CompareFolders => 34,
-        Action::Palette => 35,
-        Action::Settings => 36,
-        Action::CheckForUpdates => 37,
-        Action::Quit => 38,
+        Action::TerminalExternal => 29,
+        Action::TerminalToggle => 30,
+        Action::TerminalFocus => 31,
+        Action::Search => 32,
+        Action::Bookmarks => 33,
+        Action::BookmarkHere => 34,
+        Action::History => 35,
+        Action::Sync => 36,
+        Action::CompareFolders => 37,
+        Action::Palette => 38,
+        Action::Settings => 39,
+        Action::CheckForUpdates => 40,
+        Action::Quit => 41,
     }
 }
 
@@ -653,4 +656,22 @@ fn alt_enter_opens_the_properties_dialog() {
     assert_eq!(Action::Properties.name(), "properties");
     assert_eq!(Action::from_name("properties"), Some(Action::Properties));
     assert_eq!(Action::Properties.title(), "Properties\u{2026}");
+}
+
+#[test]
+fn a_ctrl_chord_on_a_non_latin_layout_uses_the_latin_letter_of_the_physical_key() {
+    use iced::keyboard::key::{Code, Physical};
+
+    let greek_c = Key::Character("\u{3c8}".into());
+
+    assert_eq!(latinized(greek_c.clone(), Physical::Code(Code::KeyC), Modifiers::CTRL), Key::Character("c".into()));
+    assert_eq!(latinized(greek_c.clone(), Physical::Code(Code::KeyC), Modifiers::empty()), greek_c);
+    assert_eq!(
+        latinized(Key::Character("c".into()), Physical::Code(Code::KeyC), Modifiers::CTRL),
+        Key::Character("c".into())
+    );
+    assert_eq!(
+        latinized(Key::Named(Named::Enter), Physical::Code(Code::Enter), Modifiers::CTRL),
+        Key::Named(Named::Enter)
+    );
 }

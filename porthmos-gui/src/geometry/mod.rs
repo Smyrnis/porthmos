@@ -12,10 +12,21 @@ pub const COLUMN_HEADER_HEIGHT: f32 = 24.0;
 pub const STATUS_HEIGHT: f32 = 24.0;
 pub const TRANSFER_COLUMN_WIDTH: f32 = 44.0;
 pub const HAIRLINE: f32 = 1.0;
+pub const DRAWER_HEADER_HEIGHT: f32 = 28.0;
+pub const DRAWER_MIN_HEIGHT: f32 = 144.0;
+pub const DRAWER_WINDOW_SHARE: f32 = 0.35;
 pub const LABELS_MIN_WIDTH: f32 = 900.0;
 pub const LIST_TOP: f32 =
     TAB_HEIGHT + HAIRLINE + TOOLBAR_HEIGHT + HAIRLINE + PATH_BAR_HEIGHT + HAIRLINE + COLUMN_HEADER_HEIGHT + HAIRLINE;
 pub const CHROME_HEIGHT: f32 = LIST_TOP + HAIRLINE + STATUS_HEIGHT + HAIRLINE + STATUS_HEIGHT;
+
+pub fn drawer_height(window_height: f32) -> f32 {
+    if !window_height.is_finite() {
+        return DRAWER_MIN_HEIGHT;
+    }
+    let room = window_height - CHROME_HEIGHT - ROW_HEIGHT;
+    (window_height * DRAWER_WINDOW_SHARE).max(DRAWER_MIN_HEIGHT).min(room).max(DRAWER_HEADER_HEIGHT + HAIRLINE)
+}
 
 pub fn labels_visible(window_width: f32) -> bool {
     window_width >= LABELS_MIN_WIDTH

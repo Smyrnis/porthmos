@@ -91,6 +91,7 @@ fn opening_shows_the_saved_editor() {
     let settings = GuiSettings {
         editor: Some("vi".to_string()),
         terminal: None,
+        embedded_terminal: true,
         auto_upload: false,
         compare_limit_mib: 1,
         search_preview: false,
@@ -1120,4 +1121,16 @@ fn the_search_limit_messages_name_the_real_limits() {
         results.contains(&MIN_SEARCH_RESULTS.to_string()) && results.contains(&MAX_SEARCH_RESULTS.to_string()),
         "{results}"
     );
+}
+
+#[test]
+fn the_embedded_terminal_checkbox_writes_the_flag_and_updates_the_setting() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    assert!(harness.app.gui_settings().embedded_terminal);
+
+    harness.press(Message::SettingsEmbeddedTerminalToggled(false));
+
+    assert_eq!(config_text(&harness), "[terminal]\nembedded = false\n");
+    assert!(!harness.app.gui_settings().embedded_terminal);
 }

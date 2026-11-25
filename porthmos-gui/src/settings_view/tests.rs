@@ -6,6 +6,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
     GuiSettings {
         editor: editor.map(str::to_string),
         terminal: None,
+        embedded_terminal: true,
         auto_upload: true,
         compare_limit_mib: 1,
         update_mode: UpdateMode::Notify,

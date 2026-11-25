@@ -125,5 +125,7 @@ impl ThemeSettings {
     }
 }
 
+pub mod ansi;
+
 #[cfg(test)]
 mod tests;

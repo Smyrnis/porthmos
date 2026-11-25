@@ -31,7 +31,7 @@ use crate::drag::{
     refusal,
 };
 use crate::entries::entries_from_paths;
-use crate::geometry::{Hit, ROW_HEIGHT, hit_test, list_viewport, scroll_to_show};
+use crate::geometry::{Hit, ROW_HEIGHT, drawer_height, hit_test, list_viewport, scroll_to_show};
 use crate::menus::{ContextMenu, MenuItem, MenuTarget, MoreItem};
 use crate::modal::{DeleteCount, Modal, ModalQueue};
 use crate::native::{self, Attached, DesktopEvent, DesktopSource};
@@ -196,6 +196,7 @@ pub enum Message {
     SettingsEditorApplied,
     SettingsTerminalTyped(String),
     SettingsTerminalApplied,
+    SettingsEmbeddedTerminalToggled(bool),
     SettingsAutoUploadToggled(bool),
     SettingsCompareLimitTyped(String),
     SettingsCompareLimitApplied,
@@ -255,6 +256,11 @@ pub enum Message {
     SyncScrolled(f32),
     ActionRequested(Action),
     TerminalRequested(PanelSide),
+    TerminalEventReceived(porthmos_core::TerminalId, porthmos_term::TerminalEvent),
+    TerminalRedrawn,
+    TerminalClicked,
+    TerminalClosed,
+    TerminalResized(porthmos_core::TerminalId, porthmos_term::TermSize),
     QueueRowPressed(RowKind, RowButton),
     QueueClearFinished,
     QueueCancelAll,
@@ -290,6 +296,7 @@ struct Shown {
 }
 
 pub struct App {
+    drawer: crate::drawer::Drawer,
     core: CoreHandle,
     events: EventSource,
     palette: Palette,
@@ -376,6 +383,7 @@ impl App {
         let (process_sender, processes) = crate::processes::channel();
         let mut app = App {
             core,
+            drawer: crate::drawer::Drawer::default(),
             events,
             palette,
             notices: Vec::new(),
@@ -605,7 +613,9 @@ impl App {
     }
 
     fn queue_extra(&self) -> f32 {
-        if self.queue.is_open() { queue_height(self.window_size.height) + 1.0 } else { 0.0 }
+        let queue = if self.queue.is_open() { queue_height(self.window_size.height) + 1.0 } else { 0.0 };
+        let drawer = if self.drawer.open { drawer_height(self.window_size.height) + 1.0 } else { 0.0 };
+        queue + drawer
     }
 
     pub fn list_height(&self) -> f32 {
@@ -822,6 +832,8 @@ impl App {
                 self.sessions.set_shell_available(session, shell_available);
             }
             Event::ShellReady { invocation, .. } => self.shell_ready(invocation),
+            Event::TerminalOpened { id, stream, .. } => self.terminal_opened(id, stream),
+            Event::TerminalOpenFailed { id, message } => self.terminal_open_failed(id, message),
             Event::ConnectFailed { name, message } => {
                 self.connecting = None;
                 self.manager_connection_finished(&name, false);
@@ -833,6 +845,7 @@ impl App {
                 if staging_from_it {
                     self.abort_staging();
                 }
+                self.terminal_session_ended(session);
                 self.sessions.remove(session);
                 if self.sessions.is_empty() {
                     self.active = PanelSide::Local;
@@ -846,9 +859,10 @@ impl App {
                     session.healthy = healthy;
                 }
             }
-            Event::SessionCapabilities { session, preserves_times } => {
+            Event::SessionCapabilities { session, preserves_times, embedded_shell } => {
                 if let Some(session) = self.sessions.by_id_mut(session) {
                     session.preserves_times = preserves_times;
+                    session.embedded_shell = embedded_shell;
                 }
             }
             Event::Listed { location, path, entries } => {
@@ -1276,6 +1290,7 @@ impl App {
             | Message::SettingsEditorApplied
             | Message::SettingsTerminalTyped(_)
             | Message::SettingsTerminalApplied
+            | Message::SettingsEmbeddedTerminalToggled(_)
             | Message::SettingsAutoUploadToggled(_)
             | Message::SettingsCompareLimitTyped(_)
             | Message::SettingsCompareLimitApplied
@@ -1462,6 +1477,11 @@ impl App {
                     self.request_terminal_on(side);
                 }
             }
+            Message::TerminalEventReceived(id, event) => self.terminal_event(id, event),
+            Message::TerminalRedrawn => {}
+            Message::TerminalClicked => self.focus_terminal(),
+            Message::TerminalClosed => self.close_terminal(),
+            Message::TerminalResized(id, size) => self.terminal_resized(id, size),
         }
         self.resync_scroll(&before)
     }
@@ -1928,6 +1948,14 @@ impl App {
         if self.closing {
             return Task::none();
         }
+        if self.terminal_has_keys() {
+            self.terminal_key(&press);
+            return Task::none();
+        }
+        if crate::drawer::keys::is_chord(&press) && self.modals.is_empty() && self.tool.is_none() {
+            self.focus_terminal();
+            return Task::none();
+        }
         if self.drag.is_tracking() {
             if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
                 match (self.drag.phase(), &self.attached) {
@@ -2195,6 +2223,9 @@ impl App {
             Action::Preview => self.open_preview(),
             Action::Edit => self.start_edit(),
             Action::Terminal => self.request_terminal(),
+            Action::TerminalExternal => self.request_external_terminal_on(self.active_side()),
+            Action::TerminalToggle => self.toggle_terminal(),
+            Action::TerminalFocus => self.focus_terminal(),
             Action::Search => return self.open_search(),
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),
@@ -2258,11 +2289,16 @@ impl App {
                 iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                     Some(Message::ModifiersChanged(modifiers))
                 }
-                iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modified_key, modifiers, text, .. })
-                    if status == event::Status::Ignored
-                        || key == keyboard::Key::Named(keyboard::key::Named::Escape) =>
-                {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    modified_key,
+                    modifiers,
+                    text,
+                    physical_key,
+                    ..
+                }) if status == event::Status::Ignored || key == keyboard::Key::Named(keyboard::key::Named::Escape) => {
                     let text = text.map(|text| text.to_string());
+                    let key = crate::shortcuts::latinized(key, physical_key, modifiers);
                     Some(Message::WindowKey(window, KeyPress { key, modified_key, modifiers, text }))
                 }
                 _ => None,
@@ -2279,6 +2315,7 @@ impl App {
             self.notice_subscription(),
             self.desktop.subscription().map(Message::Desktop),
             self.processes.subscription().map(Message::ProcessFinished),
+            self.terminal_subscription(),
             event::listen_with(|event, _, window| {
                 let event = match event {
                     iced::Event::Window(window::Event::FileHovered(path)) => DesktopEvent::Hover(vec![path]),
@@ -2301,6 +2338,7 @@ impl App {
 
 mod compare;
 mod connections;
+mod drawer;
 mod editing;
 mod import;
 mod palette;

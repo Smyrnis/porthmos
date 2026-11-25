@@ -13,9 +13,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
-iced = { workspace = true, features = ["svg", "tokio"] }
+iced = { workspace = true, features = ["advanced", "svg", "tokio"] }
 porthmos-core.workspace = true
 porthmos-ssh.workspace = true
+porthmos-term.workspace = true
 rfd.workspace = true
 serde.workspace = true
 tempfile.workspace = true

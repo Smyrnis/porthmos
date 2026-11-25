@@ -283,8 +283,14 @@ fn terminal_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, M
         .on_submit(Message::SettingsTerminalApplied)
         .size(13.0)
         .font(Font::DEFAULT);
+    let embedded = checkbox(app.gui_settings().embedded_terminal)
+        .label(tr("Open terminals inside the window"))
+        .text_size(13.0)
+        .on_toggle(Message::SettingsEmbeddedTerminalToggled)
+        .style(crate::view::checkbox::style(palette));
     column![
         section(&tr("Terminal"), palette),
+        embedded,
         row![input, text_button(&tr("Apply"), Some(Message::SettingsTerminalApplied), Look::Normal, palette)]
             .spacing(8)
             .align_y(Alignment::Center),

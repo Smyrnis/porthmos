@@ -4992,6 +4992,7 @@ dependencies = [
  "iced",
  "porthmos-core",
  "porthmos-ssh",
+ "porthmos-term",
  "raw-window-handle",
  "rfd",
  "rustix 1.1.4",

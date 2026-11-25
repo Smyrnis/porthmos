@@ -57,7 +57,7 @@ fn f4_on_the_remote_panel_requests_the_remote_shell() {
 
 #[test]
 fn f4_on_the_local_panel_requests_a_local_shell_even_with_a_connection_open() {
-    let mut harness = Harness::new();
+    let mut harness = external();
     connect(&mut harness, 3, "alpha", true);
     harness.press(Message::PanelClicked(PanelSide::Local, 0));
 
@@ -68,7 +68,7 @@ fn f4_on_the_local_panel_requests_a_local_shell_even_with_a_connection_open() {
 
 #[test]
 fn f4_without_a_connection_opens_a_local_shell() {
-    let mut harness = Harness::new();
+    let mut harness = external();
     harness.sent();
 
     named(&mut harness, Named::F4);
@@ -252,7 +252,7 @@ fn a_terminal_that_closes_normally_or_with_a_status_says_nothing() {
 
 #[test]
 fn the_local_terminal_button_opens_a_local_shell_while_the_remote_panel_is_active() {
-    let mut harness = Harness::new();
+    let mut harness = external();
     connect(&mut harness, 3, "alpha", true);
     harness.press(Message::PanelClicked(PanelSide::Remote, 0));
     harness.sent();
@@ -325,4 +325,96 @@ fn a_terminal_request_for_a_side_that_cannot_open_one_only_warns() {
 
     assert!(harness.sent().is_empty());
     assert_eq!(harness.app.notices().last().unwrap().message.to_string(), "Connect to a server first");
+}
+
+fn external() -> Harness {
+    Harness::with_gui_settings(crate::settings_view::GuiSettings { embedded_terminal: false, ..Default::default() })
+}
+
+fn sent_open_terminal(commands: &[Command]) -> bool {
+    commands.iter().any(|command| matches!(command, Command::OpenTerminal { .. }))
+}
+
+#[test]
+fn f4_on_a_connection_with_an_embedded_shell_opens_the_drawer_instead_of_a_window() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+
+    named(&mut harness, Named::F4);
+
+    let sent = harness.sent();
+    assert!(sent_open_terminal(&sent), "{sent:?}");
+    assert!(!sent.iter().any(|command| matches!(command, Command::PrepareShell { .. })), "{sent:?}");
+    assert!(harness.app.drawer().open);
+}
+
+#[test]
+fn f4_on_a_connection_without_an_embedded_shell_falls_back_to_the_external_terminal() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: false });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+
+    named(&mut harness, Named::F4);
+
+    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+    assert!(!harness.app.drawer().open);
+}
+
+#[tokio::test]
+async fn f4_on_the_local_panel_opens_an_embedded_local_shell() {
+    let mut harness = Harness::new();
+    harness.sent();
+
+    named(&mut harness, Named::F4);
+
+    let sent = harness.sent();
+    assert!(!sent.iter().any(|command| matches!(command, Command::PrepareLocalShell { .. })), "{sent:?}");
+    assert!(harness.app.drawer().open);
+    assert!(harness.app.drawer().tab.is_some());
+}
+
+#[test]
+fn with_the_embedded_terminal_turned_off_f4_always_hands_off() {
+    let mut harness = external();
+    connect(&mut harness, 3, "alpha", true);
+    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+    named(&mut harness, Named::F4);
+    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+
+    harness.press(Message::PanelClicked(PanelSide::Local, 0));
+    named(&mut harness, Named::F4);
+    assert_eq!(harness.sent(), vec![Command::PrepareLocalShell { directory: VfsPath::new("/home/tester") }]);
+    assert!(!harness.app.drawer().open);
+}
+
+#[test]
+fn the_external_terminal_action_hands_off_even_when_the_embedded_one_is_on() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.press(Message::PanelClicked(PanelSide::Remote, 0));
+
+    harness.press(Message::ActionRequested(crate::shortcuts::Action::TerminalExternal));
+
+    assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
+    assert!(!harness.app.drawer().open);
+}
+
+#[test]
+fn the_capability_is_remembered_per_session() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", true);
+    connect(&mut harness, 4, "beta", true);
+
+    harness.feed(Event::SessionCapabilities { session: 4, preserves_times: false, embedded_shell: true });
+
+    let flags: Vec<(u64, bool)> = [3, 4]
+        .into_iter()
+        .map(|id| (id, harness.app.sessions().by_id(id).map(|session| session.embedded_shell).unwrap()))
+        .collect();
+    assert_eq!(flags, vec![(3, false), (4, true)]);
 }
