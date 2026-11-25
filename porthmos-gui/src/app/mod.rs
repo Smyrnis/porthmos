@@ -1990,11 +1990,11 @@ impl App {
             }
             return match crate::drawer::keys::chord_of(&press) {
                 Some(crate::drawer::keys::TerminalChord::Search) => self.open_terminal_search(),
-                Some(chord) => {
-                    self.tab_chord(chord);
+                Some(chord) if chord.is_layout() => {
+                    self.layout_chord(chord);
                     Task::none()
                 }
-                None => Task::none(),
+                _ => Task::none(),
             };
         }
         if self.terminal_has_keys() {
@@ -2291,6 +2291,13 @@ impl App {
             Action::TerminalCloseTab => self.close_active_terminal_tab(),
             Action::TerminalNextTab => self.step_terminal_tab(true),
             Action::TerminalPreviousTab => self.step_terminal_tab(false),
+            Action::TerminalClosePane => self.close_focused_pane(),
+            Action::TerminalSplitRight => self.split_terminal(crate::drawer::layout::Direction::Right),
+            Action::TerminalSplitDown => self.split_terminal(crate::drawer::layout::Direction::Down),
+            Action::TerminalFocusLeft => self.focus_pane_toward(crate::drawer::layout::Toward::Left),
+            Action::TerminalFocusRight => self.focus_pane_toward(crate::drawer::layout::Toward::Right),
+            Action::TerminalFocusUp => self.focus_pane_toward(crate::drawer::layout::Toward::Up),
+            Action::TerminalFocusDown => self.focus_pane_toward(crate::drawer::layout::Toward::Down),
             Action::TerminalOpenDirectory => self.open_terminal_directory(),
             Action::TerminalChangeDirectory => self.change_terminal_directory(),
             Action::Search => return self.open_search(),

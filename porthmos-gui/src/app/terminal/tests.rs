@@ -373,7 +373,7 @@ async fn f4_on_the_local_panel_opens_an_embedded_local_shell() {
     let sent = harness.sent();
     assert!(!sent.iter().any(|command| matches!(command, Command::PrepareLocalShell { .. })), "{sent:?}");
     assert!(harness.app.drawer().open);
-    assert!(harness.app.drawer().active_tab().is_some());
+    assert!(harness.app.drawer().active_pane().is_some());
 }
 
 #[test]

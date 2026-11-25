@@ -376,18 +376,25 @@ fn rank(action: Action) -> usize {
         Action::TerminalCloseTab => 36,
         Action::TerminalNextTab => 37,
         Action::TerminalPreviousTab => 38,
-        Action::TerminalOpenDirectory => 39,
-        Action::TerminalChangeDirectory => 40,
-        Action::Search => 41,
-        Action::Bookmarks => 42,
-        Action::BookmarkHere => 43,
-        Action::History => 44,
-        Action::Sync => 45,
-        Action::CompareFolders => 46,
-        Action::Palette => 47,
-        Action::Settings => 48,
-        Action::CheckForUpdates => 49,
-        Action::Quit => 50,
+        Action::TerminalClosePane => 39,
+        Action::TerminalSplitRight => 40,
+        Action::TerminalSplitDown => 41,
+        Action::TerminalFocusLeft => 42,
+        Action::TerminalFocusRight => 43,
+        Action::TerminalFocusUp => 44,
+        Action::TerminalFocusDown => 45,
+        Action::TerminalOpenDirectory => 46,
+        Action::TerminalChangeDirectory => 47,
+        Action::Search => 48,
+        Action::Bookmarks => 49,
+        Action::BookmarkHere => 50,
+        Action::History => 51,
+        Action::Sync => 52,
+        Action::CompareFolders => 53,
+        Action::Palette => 54,
+        Action::Settings => 55,
+        Action::CheckForUpdates => 56,
+        Action::Quit => 57,
     }
 }
 
@@ -683,4 +690,23 @@ fn a_ctrl_chord_on_a_non_latin_layout_uses_the_latin_letter_of_the_physical_key(
         latinized(Key::Named(Named::Enter), Physical::Code(Code::Enter), Modifiers::CTRL),
         Key::Named(Named::Enter)
     );
+}
+
+#[test]
+fn the_pane_actions_have_names_and_cannot_take_the_terminal_chords() {
+    for (action, name) in [
+        (Action::TerminalClosePane, "terminal_close_pane"),
+        (Action::TerminalSplitRight, "terminal_split_right"),
+        (Action::TerminalSplitDown, "terminal_split_down"),
+        (Action::TerminalFocusLeft, "terminal_focus_left"),
+        (Action::TerminalFocusRight, "terminal_focus_right"),
+        (Action::TerminalFocusUp, "terminal_focus_up"),
+        (Action::TerminalFocusDown, "terminal_focus_down"),
+    ] {
+        assert_eq!(action.name(), name);
+        assert!(!action.title().is_empty());
+    }
+    for key in [character("d"), character("e"), Key::Named(Named::ArrowLeft)] {
+        assert!(is_reserved(&chord(key, Modifiers::CTRL | Modifiers::SHIFT)));
+    }
 }

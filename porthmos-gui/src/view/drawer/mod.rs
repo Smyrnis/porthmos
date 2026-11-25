@@ -9,14 +9,17 @@ use super::terminal_grid::terminal_grid;
 use super::text_fit::fit;
 use super::{bold_label, filled, floating, hairline_across, label};
 use crate::app::{App, Message};
+use crate::drawer::layout::{Direction, Layout};
+use crate::drawer::links::Link;
 use crate::drawer::search::search_status;
-use crate::drawer::{Drawer, TerminalTab};
+use crate::drawer::{Drawer, TerminalPane, TerminalTab};
 use crate::geometry::{DRAWER_HEADER_HEIGHT, drawer_height};
 use crate::shortcuts::Action;
 use crate::theme::Palette;
 use crate::view::spacing::{MD, SM};
 
 const EDGE_WIDTH: f32 = 2.0;
+pub const RING_WIDTH: f32 = 2.0;
 const TITLE_CELLS: usize = 48;
 const TARGET_CELLS: usize = 64;
 const SEARCH_WIDTH: f32 = 320.0;
@@ -102,12 +105,21 @@ pub struct TabEntry {
     pub active: bool,
 }
 
-pub fn tab_label(tab: &TerminalTab) -> String {
-    let title = tab_title(&tab.title);
-    match exit_text(tab.exited) {
+pub fn tab_label(pane: &TerminalPane, pane_count: usize) -> String {
+    let title = tab_title(&pane.title);
+    let label = match exit_text(pane.exited) {
         Some(status) => format!("{title} · {status}"),
         None => title,
-    }
+    };
+    if pane_count > 1 { format!("{label} [{pane_count}]") } else { label }
+}
+
+pub fn ring_width(pane_count: usize) -> f32 {
+    if pane_count > 1 { RING_WIDTH } else { 0.0 }
+}
+
+pub fn ring_color(focused: bool, palette: &Palette) -> Color {
+    if focused { palette.accent } else { palette.line_strong }
 }
 
 pub fn tab_entries(drawer: &Drawer) -> Vec<TabEntry> {
@@ -115,7 +127,14 @@ pub fn tab_entries(drawer: &Drawer) -> Vec<TabEntry> {
         .tabs
         .iter()
         .enumerate()
-        .map(|(index, tab)| TabEntry { id: tab.id, label: tab_label(tab), active: index == drawer.active })
+        .filter_map(|(index, tab)| {
+            let pane = drawer.pane(tab.focus)?;
+            Some(TabEntry {
+                id: tab.id,
+                label: tab_label(pane, tab.layout.leaves().len()),
+                active: index == drawer.active,
+            })
+        })
         .collect()
 }
 
@@ -169,7 +188,7 @@ fn header(app: &App) -> Element<'_, Message> {
     } else {
         tab_strip(app)
     };
-    let target = app.drawer().active_tab().and_then(|tab| tab.hover.as_ref()).map(|link| {
+    let target = hovered_link(app.drawer()).map(|link| {
         let shown = fit(&link.target, TARGET_CELLS);
         label(i18n::text_with("gui.terminal.link_target", &[("target", &shown)]), palette.fg_dim)
     });
@@ -180,6 +199,60 @@ fn header(app: &App) -> Element<'_, Message> {
     line.height(DRAWER_HEADER_HEIGHT).into()
 }
 
+pub fn hovered_link(drawer: &Drawer) -> Option<&Link> {
+    let tab = drawer.active_tab()?;
+    tab.layout.leaves().into_iter().find_map(|id| drawer.pane(id)?.hover.as_ref())
+}
+
+pub fn pane_has_focus(drawer: &Drawer, tab: &TerminalTab, id: TerminalId) -> bool {
+    drawer.open && drawer.focused && tab.focus == id
+}
+
+fn layout_view<'a>(app: &'a App, tab: &'a TerminalTab, layout: &'a Layout, count: usize) -> Element<'a, Message> {
+    let drawer = app.drawer();
+    let palette = app.palette();
+    match layout {
+        Layout::Leaf(id) => {
+            let id = *id;
+            let Some(pane) = drawer.pane(id) else {
+                return container(space()).into();
+            };
+            let body: Element<Message> = match pane.snapshot() {
+                Some(snapshot) => terminal_grid(
+                    id,
+                    snapshot,
+                    palette,
+                    drawer.shows_focus() && tab.focus == id,
+                    move |size| Message::TerminalResized(id, size),
+                    move |event| Message::TerminalPointer(id, event),
+                )
+                .link(pane.hover.as_ref().map_or_else(Vec::new, |link| link.segments.clone()))
+                .into(),
+                None => container(space()).into(),
+            };
+            let width = ring_width(count);
+            if width == 0.0 {
+                return body;
+            }
+            let ring = ring_color(pane_has_focus(drawer, tab, id), palette);
+            container(body).padding(width).width(Length::Fill).height(Length::Fill).style(filled(ring)).into()
+        }
+        Layout::Split { direction, first, second } => {
+            let half = |child: &'a Layout, direction: Direction| {
+                let child = layout_view(app, tab, child, count);
+                match direction {
+                    Direction::Right => container(child).width(Length::FillPortion(1)).height(Length::Fill),
+                    Direction::Down => container(child).width(Length::Fill).height(Length::FillPortion(1)),
+                }
+            };
+            match direction {
+                Direction::Right => row![half(first, *direction), half(second, *direction)].into(),
+                Direction::Down => column![half(first, *direction), half(second, *direction)].into(),
+            }
+        }
+    }
+}
+
 pub fn view(app: &App) -> Option<Element<'_, Message>> {
     let drawer = app.drawer();
     if !drawer.open {
@@ -187,22 +260,7 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
     }
     let palette = app.palette();
     let body: Element<Message> = match drawer.active_tab() {
-        Some(tab) => match tab.snapshot() {
-            Some(snapshot) => {
-                let id = tab.id;
-                terminal_grid(
-                    id,
-                    snapshot,
-                    palette,
-                    drawer.shows_focus(),
-                    move |size| Message::TerminalResized(id, size),
-                    move |event| Message::TerminalPointer(id, event),
-                )
-                .link(tab.hover.as_ref().map_or_else(Vec::new, |link| link.segments.clone()))
-                .into()
-            }
-            None => container(space()).into(),
-        },
+        Some(tab) => layout_view(app, tab, &tab.layout, tab.layout.leaves().len()),
         None => container(label(empty_hint(app), palette.fg_dim))
             .width(Length::Fill)
             .height(Length::Fill)

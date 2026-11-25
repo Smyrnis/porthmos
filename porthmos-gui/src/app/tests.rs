@@ -82,7 +82,7 @@ fn a_connected_event_adds_a_tab_and_makes_it_active_and_lists_its_start_folder()
 }
 
 #[test]
-fn a_second_connection_becomes_the_active_tab() {
+fn a_second_connection_becomes_the_active_pane() {
     let mut harness = Harness::new();
 
     connect(&mut harness, 1, "alpha");

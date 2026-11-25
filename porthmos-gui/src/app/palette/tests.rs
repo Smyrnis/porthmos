@@ -542,7 +542,7 @@ async fn the_directory_commands_appear_once_the_terminal_reports_a_folder() {
     assert!(!before.contains(&"Move terminal to file pane folder".to_string()), "{before:?}");
     named(&mut harness, Named::Escape);
 
-    let id = harness.app.drawer().active_tab().unwrap().id;
+    let id = harness.app.drawer().active_pane().unwrap().id;
     harness.press(Message::TerminalEventReceived(
         id,
         porthmos_term::TerminalEvent::WorkingDirectory(porthmos_term::WorkingDirectory {
@@ -555,4 +555,44 @@ async fn the_directory_commands_appear_once_the_terminal_reports_a_folder() {
     let after = labels(&harness);
     assert!(after.contains(&"Open terminal folder in file pane".to_string()), "{after:?}");
     assert_eq!(after.contains(&"Move terminal to file pane folder".to_string()), cfg!(not(windows)), "{after:?}");
+}
+
+#[tokio::test]
+async fn splitting_and_closing_a_pane_need_a_terminal() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let without = labels(&harness);
+    assert!(!without.contains(&"Close terminal pane".to_string()), "{without:?}");
+    assert!(!without.contains(&"Split terminal side by side".to_string()), "{without:?}");
+    named(&mut harness, Named::Escape);
+
+    harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Local);
+    harness.press(Message::ActionRequested(Action::Palette));
+
+    let with = labels(&harness);
+    for present in ["Split terminal side by side", "Split terminal stacked", "Close terminal pane"] {
+        assert!(with.contains(&present.to_string()), "{present} missing from {with:?}");
+    }
+}
+
+#[tokio::test]
+async fn the_focus_commands_need_two_panes_in_the_active_tab() {
+    let mut harness = Harness::new();
+    harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Local);
+    harness.press(Message::ActionRequested(Action::Palette));
+    let one = labels(&harness);
+    assert!(!one.contains(&"Focus terminal pane on the left".to_string()), "{one:?}");
+    named(&mut harness, Named::Escape);
+
+    harness.app.split_terminal(crate::drawer::layout::Direction::Right);
+    harness.press(Message::ActionRequested(Action::Palette));
+    let two = labels(&harness);
+    for present in [
+        "Focus terminal pane on the left",
+        "Focus terminal pane on the right",
+        "Focus terminal pane above",
+        "Focus terminal pane below",
+    ] {
+        assert!(two.contains(&present.to_string()), "{present} missing from {two:?}");
+    }
 }

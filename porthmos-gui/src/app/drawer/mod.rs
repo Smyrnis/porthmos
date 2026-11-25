@@ -11,12 +11,14 @@ use porthmos_term::{
 use super::editing::JobRole;
 use super::{App, Message};
 use crate::drawer::keys::{KeyInput, TerminalChord, chord_of, translate};
+use crate::drawer::layout::{Direction, Layout, Removal, Toward};
 use crate::drawer::links::{Link, is_clickable, link_at, needs_confirmation};
 use crate::drawer::paste::needs_paste_confirmation;
 use crate::drawer::pointer::{PointerKind, Route, route, selection_kind};
 use crate::drawer::search::{SearchState, Viewport, resume_point};
 use crate::drawer::{
-    Drawer, Gesture, SharedSession, TerminalSource, TerminalTab, Wanted, dropped_text, into_transport, opening_size,
+    Drawer, Gesture, Placement, SharedSession, TerminalPane, TerminalSource, TerminalTab, Wanted, dropped_text,
+    into_transport, opening_size,
 };
 use crate::geometry::drawer_contains;
 use crate::modal::Modal;
@@ -111,6 +113,21 @@ impl App {
     }
 
     pub(crate) fn open_embedded_terminal(&mut self, source: TerminalSource) {
+        self.open_pane(source, Placement::NewTab);
+    }
+
+    pub(in crate::app) fn split_terminal(&mut self, direction: Direction) {
+        let Some(tab) = self.drawer.active_tab() else {
+            return;
+        };
+        let (tab, target) = (tab.id, tab.focus);
+        let Some(source) = self.drawer.pane(target).map(|pane| pane.source) else {
+            return;
+        };
+        self.open_pane(source, Placement::Split { tab, target, direction });
+    }
+
+    fn open_pane(&mut self, source: TerminalSource, placement: Placement) {
         let directory = match source {
             TerminalSource::Local => self.local.panel.path().clone(),
             TerminalSource::Remote(session) => match self.sessions.by_id(session) {
@@ -122,7 +139,7 @@ impl App {
         let id = self.drawer.allocate_id();
         self.drawer.open = true;
         self.drawer.focused = true;
-        let wanted = Wanted { id, source, directory };
+        let wanted = Wanted { id, source, directory, placement };
         match source {
             TerminalSource::Remote(session) => {
                 self.drawer.wanted.push(wanted);
@@ -135,7 +152,7 @@ impl App {
     pub(in crate::app) fn start_local_terminal(&mut self, wanted: Wanted) {
         let shell = LocalShell { directory: Some(to_os_path(&wanted.directory)), ..LocalShell::default() };
         match spawn_local(&shell, opening_size()) {
-            Ok(transport) => self.start_tab(wanted, transport),
+            Ok(transport) => self.start_pane(wanted, transport),
             Err(error) => self.push_notice(
                 Severity::Error,
                 porthmos_core::i18n::text_with("gui.terminal.open_failed", &[("error", &error.to_string())]),
@@ -143,7 +160,21 @@ impl App {
         }
     }
 
-    fn start_tab(&mut self, wanted: Wanted, transport: porthmos_term::Transport) {
+    fn start_pane(&mut self, wanted: Wanted, transport: porthmos_term::Transport) {
+        let position = match wanted.placement {
+            Placement::NewTab => None,
+            Placement::Split { tab, target, .. } => {
+                match self
+                    .drawer
+                    .tabs
+                    .iter()
+                    .position(|candidate| candidate.id == tab && candidate.layout.contains(target))
+                {
+                    Some(position) => Some(position),
+                    None => return,
+                }
+            }
+        };
         let size = opening_size();
         let (session, events) = TerminalSession::spawn(transport, size, TerminalConfig::default());
         if matches!(wanted.source, TerminalSource::Remote(_)) {
@@ -152,7 +183,7 @@ impl App {
                 None => self.push_notice(Severity::Warning, porthmos_core::i18n::text("gui.terminal.folder_unsafe")),
             }
         }
-        self.drawer.tabs.push(TerminalTab {
+        self.drawer.panes.push(TerminalPane {
             id: wanted.id,
             source: wanted.source,
             title: String::new(),
@@ -166,7 +197,20 @@ impl App {
             directory: DirectoryTracker::new(directory_owner(wanted.source)),
             hover: None,
         });
-        self.drawer.active = self.drawer.tabs.len() - 1;
+        match (wanted.placement, position) {
+            (Placement::Split { target, direction, .. }, Some(position)) => {
+                if position == self.drawer.active {
+                    self.leave_active_pane();
+                }
+                let tab = &mut self.drawer.tabs[position];
+                tab.layout.split(target, wanted.id, direction);
+                tab.focus = wanted.id;
+            }
+            _ => {
+                self.drawer.tabs.push(TerminalTab { id: wanted.id, layout: Layout::Leaf(wanted.id), focus: wanted.id });
+                self.drawer.active = self.drawer.tabs.len() - 1;
+            }
+        }
     }
 
     pub(in crate::app) fn terminal_opened(&mut self, id: TerminalId, stream: Handover<ShellStream>) {
@@ -177,7 +221,7 @@ impl App {
             return;
         };
         let wanted = self.drawer.wanted.remove(position);
-        self.start_tab(wanted, into_transport(stream));
+        self.start_pane(wanted, into_transport(stream));
     }
 
     pub(in crate::app) fn terminal_open_failed(&mut self, id: TerminalId, message: Notice) {
@@ -188,20 +232,20 @@ impl App {
     }
 
     pub(in crate::app) fn terminal_event(&mut self, id: TerminalId, event: TerminalEvent) {
-        let Some(tab) = self.drawer.tab_by_id_mut(id) else {
+        let Some(pane) = self.drawer.pane_mut(id) else {
             return;
         };
         match event {
-            TerminalEvent::Title(title) => tab.title = title,
-            TerminalEvent::Exited(status) => tab.exited = Some(status),
-            TerminalEvent::WorkingDirectory(report) => tab.directory.update(&report, local_names()),
+            TerminalEvent::Title(title) => pane.title = title,
+            TerminalEvent::Exited(status) => pane.exited = Some(status),
+            TerminalEvent::WorkingDirectory(report) => pane.directory.update(&report, local_names()),
             _ => {}
         }
     }
 
     pub(in crate::app) fn terminal_session_ended(&mut self, session: SessionId) {
-        for tab in self.drawer.tabs.iter_mut().filter(|tab| tab.source == TerminalSource::Remote(session)) {
-            tab.end();
+        for pane in self.drawer.panes.iter_mut().filter(|pane| pane.source == TerminalSource::Remote(session)) {
+            pane.end();
         }
         self.drawer.wanted.retain(|wanted| wanted.source != TerminalSource::Remote(session));
     }
@@ -209,7 +253,7 @@ impl App {
     pub(in crate::app) fn terminal_has_keys(&self) -> bool {
         self.drawer.open
             && self.drawer.focused
-            && (!self.drawer.wanted.is_empty() || self.drawer.active_tab().is_some_and(|tab| tab.exited.is_none()))
+            && (!self.drawer.wanted.is_empty() || self.drawer.active_pane().is_some_and(|pane| pane.exited.is_none()))
             && self.modals.is_empty()
             && self.tool.is_none()
             && !self.drag.is_tracking()
@@ -218,7 +262,7 @@ impl App {
     }
 
     pub(in crate::app) fn exited_terminal_chord(&mut self, press: &KeyPress) -> Option<Task<Message>> {
-        let exited = self.drawer.active_tab().is_some_and(|tab| tab.exited.is_some());
+        let exited = self.drawer.active_pane().is_some_and(|pane| pane.exited.is_some());
         let free = self.drawer.open
             && self.drawer.focused
             && exited
@@ -237,14 +281,11 @@ impl App {
                 self.scroll_page(chord == TerminalChord::PageUp);
                 Some(Task::none())
             }
-            chord @ (TerminalChord::NewTab
-            | TerminalChord::CloseTab
-            | TerminalChord::NextTab
-            | TerminalChord::PreviousTab) => {
-                self.tab_chord(chord);
+            chord if chord.is_layout() => {
+                self.layout_chord(chord);
                 Some(Task::none())
             }
-            TerminalChord::Focus => None,
+            _ => None,
         }
     }
 
@@ -261,21 +302,16 @@ impl App {
                 self.scroll_page(chord == TerminalChord::PageUp);
                 return Task::none();
             }
-            Some(
-                chord @ (TerminalChord::NewTab
-                | TerminalChord::CloseTab
-                | TerminalChord::NextTab
-                | TerminalChord::PreviousTab),
-            ) => {
-                self.tab_chord(chord);
+            Some(chord) if chord.is_layout() => {
+                self.layout_chord(chord);
                 return Task::none();
             }
-            None => {}
+            Some(_) | None => {}
         }
-        let Some(tab) = self.drawer.active_tab() else {
+        let Some(pane) = self.drawer.active_pane() else {
             return Task::none();
         };
-        let Some(session) = tab.session.as_ref() else {
+        let Some(session) = pane.session.as_ref() else {
             return Task::none();
         };
         let bytes = match translate(press) {
@@ -297,7 +333,7 @@ impl App {
     }
 
     fn scroll_page(&mut self, up: bool) {
-        let Some(session) = self.drawer.active_tab().and_then(|tab| tab.session.clone()) else {
+        let Some(session) = self.drawer.active_pane().and_then(|pane| pane.session.clone()) else {
             return;
         };
         session.with_terminal(|terminal| {
@@ -307,7 +343,7 @@ impl App {
     }
 
     pub(in crate::app) fn terminal_copy_text(&self) -> Option<String> {
-        let session = self.drawer.active_tab()?.session.as_ref()?;
+        let session = self.drawer.active_pane()?.session.as_ref()?;
         session.with_terminal(|terminal| terminal.selected_text()).filter(|text| !text.is_empty())
     }
 
@@ -319,7 +355,7 @@ impl App {
     }
 
     pub(in crate::app) fn terminal_paste(&mut self) -> Task<Message> {
-        let Some(id) = self.drawer.active_tab().filter(|tab| tab.exited.is_none()).map(|tab| tab.id) else {
+        let Some(id) = self.drawer.active_pane().filter(|pane| pane.exited.is_none()).map(|pane| pane.id) else {
             return Task::none();
         };
         iced::clipboard::read().map(move |text| Message::TerminalPasted(id, text))
@@ -344,13 +380,33 @@ impl App {
     }
 
     pub(in crate::app) fn route_pointer(&mut self, id: TerminalId, event: PointerEvent) -> ClipboardRequest {
-        let Some(tab) = self.drawer.tabs.iter().find(|tab| tab.id == id) else {
+        if self.drawer.pane(id).is_none() {
+            return ClipboardRequest::None;
+        }
+        let mut event = event;
+        if let PointerKind::Press(button) = event.kind {
+            if self.drawer.click_offset > 0 {
+                event.clicks = if event.clicks <= 1 {
+                    self.drawer.click_offset = 0;
+                    1
+                } else {
+                    event.clicks.saturating_sub(self.drawer.click_offset).max(1)
+                };
+            }
+            if self.drawer.active_tab().is_some_and(|tab| tab.focus != id) {
+                self.focus_pane(id);
+                self.set_gesture(id, Gesture::Ignored(button));
+                self.drawer.click_offset = 1;
+                return ClipboardRequest::None;
+            }
+        }
+        let Some(pane) = self.drawer.pane(id) else {
             return ClipboardRequest::None;
         };
-        let Some(session) = tab.session.clone() else {
+        let Some(session) = pane.session.clone() else {
             return ClipboardRequest::None;
         };
-        let live = tab.exited.is_none();
+        let live = pane.exited.is_none();
         let modes = session.with_terminal(|terminal| terminal.modes());
         let modifiers = TermModifiers {
             shift: self.modifiers.shift(),
@@ -465,10 +521,10 @@ impl App {
         };
         let Some(session) = self
             .drawer
-            .tabs
+            .panes
             .iter()
-            .find(|tab| tab.id == id && tab.exited.is_none())
-            .and_then(|tab| tab.session.clone())
+            .find(|pane| pane.id == id && pane.exited.is_none())
+            .and_then(|pane| pane.session.clone())
         else {
             return;
         };
@@ -483,10 +539,10 @@ impl App {
     pub(in crate::app) fn write_paste(&mut self, id: TerminalId, text: String) {
         let Some(session) = self
             .drawer
-            .tabs
+            .panes
             .iter()
-            .find(|tab| tab.id == id && tab.exited.is_none())
-            .and_then(|tab| tab.session.clone())
+            .find(|pane| pane.id == id && pane.exited.is_none())
+            .and_then(|pane| pane.session.clone())
         else {
             return;
         };
@@ -504,21 +560,21 @@ impl App {
         if !self.modifiers.control() {
             return None;
         }
-        let snapshot = self.drawer.tabs.iter().find(|tab| tab.id == id)?.snapshot()?;
+        let snapshot = self.drawer.pane(id)?.snapshot()?;
         link_at(&snapshot, point).filter(is_clickable)
     }
 
     fn update_link_hover(&mut self, id: TerminalId, point: ViewPoint) {
         let link = self.link_under(id, point);
-        if let Some(tab) = self.drawer.tab_by_id_mut(id) {
-            tab.hover = link;
+        if let Some(pane) = self.drawer.pane_mut(id) {
+            pane.hover = link;
         }
     }
 
     pub(in crate::app) fn clear_link_hover_without_ctrl(&mut self) {
         if !self.modifiers.control() {
-            for tab in &mut self.drawer.tabs {
-                tab.hover = None;
+            for pane in &mut self.drawer.panes {
+                pane.hover = None;
             }
         }
     }
@@ -557,14 +613,14 @@ impl App {
         if !self.drawer.open || !drawer_contains(self.window_size, at, queue_below) {
             return false;
         }
-        let Some(tab) = self.drawer.active_tab().filter(|tab| tab.exited.is_none()) else {
+        let Some(pane) = self.drawer.active_pane().filter(|pane| pane.exited.is_none()) else {
             return true;
         };
-        if matches!(tab.source, TerminalSource::Remote(_)) {
+        if matches!(pane.source, TerminalSource::Remote(_)) {
             self.push_notice(Severity::Warning, porthmos_core::i18n::text("gui.terminal.drop_remote"));
             return true;
         }
-        let Some(session) = tab.session.clone() else {
+        let Some(session) = pane.session.clone() else {
             return true;
         };
         let Some(text) = dropped_text(paths) else {
@@ -583,12 +639,12 @@ impl App {
     }
 
     fn gesture_of(&self, id: TerminalId) -> Gesture {
-        self.drawer.tabs.iter().find(|tab| tab.id == id).map_or(Gesture::Idle, |tab| tab.gesture)
+        self.drawer.pane(id).map_or(Gesture::Idle, |pane| pane.gesture)
     }
 
     fn set_gesture(&mut self, id: TerminalId, gesture: Gesture) {
-        if let Some(tab) = self.drawer.tab_by_id_mut(id) {
-            tab.gesture = gesture;
+        if let Some(pane) = self.drawer.pane_mut(id) {
+            pane.gesture = gesture;
         }
     }
 
@@ -599,8 +655,8 @@ impl App {
     }
 
     fn dismiss_inline_editors(&mut self) {
-        if let Some(tab) = self.drawer.active_tab_mut() {
-            tab.search.open = false;
+        if let Some(pane) = self.drawer.active_pane_mut() {
+            pane.search.open = false;
         }
         self.path_edit = None;
         self.more_open = false;
@@ -612,30 +668,30 @@ impl App {
     }
 
     pub(in crate::app) fn open_terminal_search(&mut self) -> Task<Message> {
-        if self.drawer.active_tab().is_none() {
+        if self.drawer.active_pane().is_none() {
             return Task::none();
         }
         self.dismiss_inline_editors();
         self.drawer.open = true;
         self.drawer.focused = true;
-        if let Some(tab) = self.drawer.active_tab_mut() {
-            tab.search.open = true;
+        if let Some(pane) = self.drawer.active_pane_mut() {
+            pane.search.open = true;
         }
         iced::widget::operation::focus(Self::terminal_search_id())
     }
 
     pub(in crate::app) fn close_terminal_search(&mut self) {
         if self.drawer.search().open {
-            if let Some(tab) = self.drawer.active_tab_mut() {
-                tab.search.open = false;
+            if let Some(pane) = self.drawer.active_pane_mut() {
+                pane.search.open = false;
             }
-            self.drawer.focused = self.drawer.active_tab().is_some();
+            self.drawer.focused = self.drawer.active_pane().is_some();
         }
     }
 
     pub(in crate::app) fn terminal_search_typed(&mut self, query: String) {
-        if let Some(tab) = self.drawer.active_tab_mut() {
-            tab.search.query = query;
+        if let Some(pane) = self.drawer.active_pane_mut() {
+            pane.search.query = query;
         }
         self.run_terminal_search(SearchDirection::Forward, false);
     }
@@ -647,7 +703,7 @@ impl App {
 
     fn run_terminal_search(&mut self, direction: SearchDirection, step: bool) {
         let query = self.drawer.search().query.clone();
-        let Some(session) = self.drawer.active_tab().and_then(|tab| tab.session.clone()) else {
+        let Some(session) = self.drawer.active_pane().and_then(|pane| pane.session.clone()) else {
             return;
         };
         let found = session.with_terminal(|terminal| {
@@ -668,8 +724,8 @@ impl App {
             }
             found
         });
-        if let Some(tab) = self.drawer.active_tab_mut() {
-            tab.search.missed = !query.is_empty() && found.is_none();
+        if let Some(pane) = self.drawer.active_pane_mut() {
+            pane.search.missed = !query.is_empty() && found.is_none();
         }
     }
 
@@ -677,12 +733,12 @@ impl App {
         if self.drawer.open {
             self.drawer.open = false;
             self.drawer.focused = false;
-            if let Some(tab) = self.drawer.active_tab_mut() {
-                tab.search.open = false;
+            if let Some(pane) = self.drawer.active_pane_mut() {
+                pane.search.open = false;
             }
         } else {
             self.drawer.open = true;
-            self.drawer.focused = self.drawer.active_tab().is_some();
+            self.drawer.focused = self.drawer.active_pane().is_some();
             if self.drawer.focused {
                 self.dismiss_inline_editors();
             }
@@ -690,7 +746,7 @@ impl App {
     }
 
     pub(in crate::app) fn focus_terminal(&mut self) {
-        if self.drawer.active_tab().is_some() || !self.drawer.wanted.is_empty() {
+        if self.drawer.active_pane().is_some() || !self.drawer.wanted.is_empty() {
             self.dismiss_inline_editors();
             self.drawer.open = true;
             self.drawer.focused = true;
@@ -698,9 +754,9 @@ impl App {
     }
 
     pub(in crate::app) fn terminal_resized(&mut self, id: TerminalId, size: TermSize) {
-        if let Some(tab) = self.drawer.tab_by_id_mut(id).filter(|tab| tab.size != size) {
-            tab.size = size;
-            if let Some(session) = &tab.session {
+        if let Some(pane) = self.drawer.pane_mut(id).filter(|pane| pane.size != size) {
+            pane.size = size;
+            if let Some(session) = &pane.session {
                 session.resize(size);
             }
         }
@@ -717,7 +773,7 @@ impl App {
     }
 
     pub(in crate::app) fn terminal_new_tab_possible(&self) -> bool {
-        match self.drawer.active_tab().map(|tab| tab.source) {
+        match self.drawer.active_pane().map(|pane| pane.source) {
             Some(TerminalSource::Local) => true,
             Some(TerminalSource::Remote(id)) => self.sessions.by_id(id).is_some(),
             None => self.terminal_possible(),
@@ -726,25 +782,25 @@ impl App {
 
     pub(in crate::app) fn terminal_directory_openable(&self) -> bool {
         self.drawer
-            .active_tab()
-            .is_some_and(|tab| tab.directory.directory().is_some() && self.directory_target(tab.source).is_some())
+            .active_pane()
+            .is_some_and(|pane| pane.directory.directory().is_some() && self.directory_target(pane.source).is_some())
     }
 
     pub(in crate::app) fn terminal_directory_changeable(&self) -> bool {
         let windows_local = |source| cfg!(windows) && source == TerminalSource::Local;
-        self.drawer.active_tab().is_some_and(|tab| {
-            tab.exited.is_none()
-                && tab.directory.directory().is_some()
-                && !windows_local(tab.source)
-                && self.directory_target(tab.source).is_some()
+        self.drawer.active_pane().is_some_and(|pane| {
+            pane.exited.is_none()
+                && pane.directory.directory().is_some()
+                && !windows_local(pane.source)
+                && self.directory_target(pane.source).is_some()
         })
     }
 
     pub(in crate::app) fn open_terminal_directory(&mut self) {
-        let Some(tab) = self.drawer.active_tab() else {
+        let Some(pane) = self.drawer.active_pane() else {
             return;
         };
-        let (Some(path), Some((location, _))) = (tab.directory.directory(), self.directory_target(tab.source)) else {
+        let (Some(path), Some((location, _))) = (pane.directory.directory(), self.directory_target(pane.source)) else {
             return;
         };
         let path = VfsPath::new(path);
@@ -755,10 +811,10 @@ impl App {
         if !self.terminal_directory_changeable() {
             return;
         }
-        let Some(tab) = self.drawer.active_tab() else {
+        let Some(pane) = self.drawer.active_pane() else {
             return;
         };
-        let (Some(session), Some((_, path))) = (tab.session.clone(), self.directory_target(tab.source)) else {
+        let (Some(session), Some((_, path))) = (pane.session.clone(), self.directory_target(pane.source)) else {
             return;
         };
         match change_directory_command(&path, false) {
@@ -767,14 +823,28 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn tab_chord(&mut self, chord: TerminalChord) {
+    pub(in crate::app) fn layout_chord(&mut self, chord: TerminalChord) {
         match chord {
             TerminalChord::NewTab => self.new_terminal_tab(),
-            TerminalChord::CloseTab => self.close_active_terminal_tab(),
+            TerminalChord::ClosePane => self.close_focused_pane(),
             TerminalChord::NextTab => self.step_terminal_tab(true),
             TerminalChord::PreviousTab => self.step_terminal_tab(false),
+            TerminalChord::SplitRight => self.split_terminal(Direction::Right),
+            TerminalChord::SplitDown => self.split_terminal(Direction::Down),
+            TerminalChord::FocusLeft => self.focus_pane_toward(Toward::Left),
+            TerminalChord::FocusRight => self.focus_pane_toward(Toward::Right),
+            TerminalChord::FocusUp => self.focus_pane_toward(Toward::Up),
+            TerminalChord::FocusDown => self.focus_pane_toward(Toward::Down),
             _ => {}
         }
+    }
+
+    pub(in crate::app) fn terminal_split_possible(&self) -> bool {
+        self.drawer.active_pane().is_some() && self.terminal_new_tab_possible()
+    }
+
+    pub(in crate::app) fn terminal_has_panes_to_focus(&self) -> bool {
+        self.drawer.active_tab().is_some_and(|tab| tab.layout.leaves().len() > 1)
     }
 
     pub(in crate::app) fn close_active_terminal_tab(&mut self) {
@@ -784,7 +854,7 @@ impl App {
     }
 
     pub(in crate::app) fn new_terminal_tab(&mut self) {
-        match self.drawer.active_tab().map(|tab| tab.source) {
+        match self.drawer.active_pane().map(|pane| pane.source) {
             Some(source) => self.open_embedded_terminal(source),
             None => self.request_terminal(),
         }
@@ -794,16 +864,42 @@ impl App {
         let Some(position) = self.drawer.tabs.iter().position(|tab| tab.id == id) else {
             return;
         };
-        self.leave_active_tab();
+        self.leave_active_pane();
         self.drawer.active = position;
         self.drawer.open = true;
         self.drawer.focused = true;
     }
 
-    fn leave_active_tab(&mut self) {
+    fn leave_active_pane(&mut self) {
         self.dismiss_inline_editors();
-        if let Some(tab) = self.drawer.active_tab_mut() {
-            tab.gesture = Gesture::Idle;
+        if let Some(pane) = self.drawer.active_pane_mut() {
+            pane.gesture = Gesture::Idle;
+        }
+    }
+
+    pub(in crate::app) fn focus_pane(&mut self, id: TerminalId) {
+        let Some(tab) = self.drawer.active_tab() else {
+            return;
+        };
+        if !tab.layout.contains(id) {
+            return;
+        }
+        if tab.focus != id {
+            self.leave_active_pane();
+            if let Some(tab) = self.drawer.active_tab_mut() {
+                tab.focus = id;
+            }
+        }
+        self.drawer.open = true;
+        self.drawer.focused = true;
+    }
+
+    pub(in crate::app) fn focus_pane_toward(&mut self, toward: Toward) {
+        let Some(tab) = self.drawer.active_tab() else {
+            return;
+        };
+        if let Some(neighbour) = tab.layout.neighbour(tab.focus, toward) {
+            self.focus_pane(neighbour);
         }
     }
 
@@ -812,19 +908,51 @@ impl App {
         if count < 2 {
             return;
         }
-        self.leave_active_tab();
+        self.leave_active_pane();
         self.drawer.open = true;
         self.drawer.focused = true;
         self.drawer.active =
             if forward { (self.drawer.active + 1) % count } else { (self.drawer.active + count - 1) % count };
     }
 
+    pub(in crate::app) fn close_focused_pane(&mut self) {
+        if let Some(focus) = self.drawer.active_tab().map(|tab| tab.focus) {
+            self.close_terminal_pane(focus);
+        }
+    }
+
+    pub(in crate::app) fn close_terminal_pane(&mut self, id: TerminalId) {
+        let Some(position) = self.drawer.tab_index_of(id) else {
+            return;
+        };
+        let tab = &mut self.drawer.tabs[position];
+        match tab.layout.remove(id) {
+            Removal::Missing => {}
+            Removal::Last => {
+                let tab = tab.id;
+                self.close_terminal_tab(tab);
+            }
+            Removal::Removed { focus } => {
+                if tab.focus == id {
+                    tab.focus = focus;
+                }
+                self.drawer.panes.retain(|pane| pane.id != id);
+                self.drawer
+                    .wanted
+                    .retain(|wanted| !matches!(wanted.placement, Placement::Split { target, .. } if target == id));
+            }
+        }
+    }
+
     pub(in crate::app) fn close_terminal_tab(&mut self, id: TerminalId) {
-        self.drawer.wanted.retain(|wanted| wanted.id != id);
+        self.drawer
+            .wanted
+            .retain(|wanted| wanted.id != id && !matches!(wanted.placement, Placement::Split { tab, .. } if tab == id));
         let Some(position) = self.drawer.tabs.iter().position(|tab| tab.id == id) else {
             return;
         };
-        self.drawer.tabs.remove(position);
+        let removed = self.drawer.tabs.remove(position);
+        self.drawer.panes.retain(|pane| !removed.layout.contains(pane.id));
         if position < self.drawer.active {
             self.drawer.active -= 1;
         }
@@ -836,7 +964,7 @@ impl App {
     }
 
     pub(in crate::app) fn terminal_subscription(&self) -> Subscription<Message> {
-        Subscription::batch(self.drawer.tabs.iter().map(TerminalTab::subscription))
+        Subscription::batch(self.drawer.panes.iter().map(TerminalPane::subscription))
     }
 }
 

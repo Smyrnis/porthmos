@@ -20,9 +20,29 @@ pub enum TerminalChord {
     PageUp,
     PageDown,
     NewTab,
-    CloseTab,
+    ClosePane,
     NextTab,
     PreviousTab,
+    SplitRight,
+    SplitDown,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+}
+
+impl TerminalChord {
+    pub fn is_layout(self) -> bool {
+        !matches!(
+            self,
+            TerminalChord::Focus
+                | TerminalChord::Copy
+                | TerminalChord::Paste
+                | TerminalChord::Search
+                | TerminalChord::PageUp
+                | TerminalChord::PageDown
+        )
+    }
 }
 
 pub fn chord_of(press: &KeyPress) -> Option<TerminalChord> {
@@ -35,12 +55,18 @@ pub fn chord_of(press: &KeyPress) -> Option<TerminalChord> {
             Key::Named(Named::Space) => Some(TerminalChord::Focus),
             Key::Named(Named::PageDown) => Some(TerminalChord::NextTab),
             Key::Named(Named::PageUp) => Some(TerminalChord::PreviousTab),
+            Key::Named(Named::ArrowLeft) => Some(TerminalChord::FocusLeft),
+            Key::Named(Named::ArrowRight) => Some(TerminalChord::FocusRight),
+            Key::Named(Named::ArrowUp) => Some(TerminalChord::FocusUp),
+            Key::Named(Named::ArrowDown) => Some(TerminalChord::FocusDown),
             Key::Character(text) => match text.to_ascii_lowercase().as_str() {
                 "c" => Some(TerminalChord::Copy),
                 "v" => Some(TerminalChord::Paste),
                 "f" => Some(TerminalChord::Search),
                 "t" => Some(TerminalChord::NewTab),
-                "w" => Some(TerminalChord::CloseTab),
+                "w" => Some(TerminalChord::ClosePane),
+                "d" => Some(TerminalChord::SplitRight),
+                "e" => Some(TerminalChord::SplitDown),
                 _ => None,
             },
             _ => None,

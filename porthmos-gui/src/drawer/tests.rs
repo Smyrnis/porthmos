@@ -82,7 +82,12 @@ fn the_drawer_shows_focus_only_while_it_can_take_keys() {
     let mut drawer = Drawer { open: true, focused: true, ..Drawer::default() };
     assert!(!drawer.shows_focus());
 
-    drawer.wanted = vec![Wanted { id: 1, source: TerminalSource::Local, directory: VfsPath::new("/") }];
+    drawer.wanted = vec![Wanted {
+        id: 1,
+        source: TerminalSource::Local,
+        directory: VfsPath::new("/"),
+        placement: Placement::NewTab,
+    }];
     assert!(drawer.shows_focus());
 
     drawer.focused = false;
@@ -125,4 +130,48 @@ fn windows_quoting_refuses_every_character_a_shell_would_expand() {
     ] {
         assert_eq!(windows_quoted(hostile), None, "{hostile:?}");
     }
+}
+
+fn bare_pane(id: u64) -> TerminalPane {
+    TerminalPane {
+        id,
+        source: TerminalSource::Local,
+        title: String::new(),
+        session: None,
+        frozen: None,
+        events: Handover::new(mpsc::channel(1).1),
+        exited: None,
+        size: opening_size(),
+        gesture: Gesture::Idle,
+        search: search::SearchState::default(),
+        directory: porthmos_term::DirectoryTracker::new(porthmos_term::DirectoryOwner::Local),
+        hover: None,
+    }
+}
+
+#[test]
+fn a_new_pane_forms_a_single_leaf_tab_whose_id_is_the_panes_id() {
+    let drawer = Drawer {
+        panes: vec![bare_pane(4)],
+        tabs: vec![TerminalTab { id: 4, layout: layout::Layout::Leaf(4), focus: 4 }],
+        ..Drawer::default()
+    };
+
+    drawer.assert_consistent();
+    assert_eq!(drawer.active_tab().unwrap().layout.leaves(), vec![4]);
+    assert_eq!(drawer.active_pane().unwrap().id, 4);
+    assert_eq!(drawer.tab_index_of(4), Some(0));
+    assert_eq!(drawer.tab_index_of(9), None);
+}
+
+#[test]
+#[should_panic]
+fn the_consistency_check_rejects_a_pane_missing_from_every_layout() {
+    let drawer = Drawer {
+        panes: vec![bare_pane(4), bare_pane(5)],
+        tabs: vec![TerminalTab { id: 4, layout: layout::Layout::Leaf(4), focus: 4 }],
+        ..Drawer::default()
+    };
+
+    drawer.assert_consistent();
 }

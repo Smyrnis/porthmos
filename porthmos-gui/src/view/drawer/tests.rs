@@ -117,7 +117,7 @@ async fn a_tab_label_shows_the_title_or_terminal_and_the_exit_status() {
     harness.press(crate::app::Message::TerminalEventReceived(first, porthmos_term::TerminalEvent::Title("vim".into())));
     harness.press(crate::app::Message::TerminalEventReceived(second, porthmos_term::TerminalEvent::Exited(Some(3))));
 
-    let labels: Vec<String> = harness.app.drawer().tabs.iter().map(tab_label).collect();
+    let labels: Vec<String> = harness.app.drawer().panes.iter().map(|pane| tab_label(pane, 1)).collect();
 
     assert_eq!(labels, vec!["vim".to_string(), "Terminal · Exited (3)".to_string()]);
 }
@@ -152,4 +152,124 @@ fn an_inactive_tab_uses_the_muted_title_colour() {
     assert_eq!(tab_title_color(true, true, &palette), palette.fg_bright);
     assert_eq!(tab_title_color(false, true, &palette), palette.fg_muted);
     assert_eq!(tab_title_color(true, false, &palette), palette.fg_muted);
+}
+
+fn split_open(harness: &mut Harness, direction: crate::drawer::layout::Direction) -> u64 {
+    use porthmos_core::{Event, Handover};
+    let action = match direction {
+        crate::drawer::layout::Direction::Right => crate::shortcuts::Action::TerminalSplitRight,
+        crate::drawer::layout::Direction::Down => crate::shortcuts::Action::TerminalSplitDown,
+    };
+    harness.press(crate::app::Message::ActionRequested(action));
+    let id = harness
+        .sent()
+        .into_iter()
+        .find_map(|command| match command {
+            porthmos_core::Command::OpenTerminal { id, .. } => Some(id),
+            _ => None,
+        })
+        .unwrap();
+    let (stream, end) = crate::testing::shell_pipe();
+    std::mem::forget(end);
+    harness.feed(Event::TerminalOpened { id, session: 3, stream: Handover::new(stream) });
+    id
+}
+
+#[test]
+fn a_single_pane_has_no_ring_and_several_do() {
+    assert_eq!(ring_width(0), 0.0);
+    assert_eq!(ring_width(1), 0.0);
+    assert_eq!(ring_width(2), RING_WIDTH);
+    assert_eq!(ring_width(5), RING_WIDTH);
+}
+
+#[test]
+fn the_focused_pane_ring_is_the_accent_and_the_others_the_plain_line() {
+    let palette = palette();
+
+    assert_eq!(ring_color(true, &palette), palette.accent);
+    assert_eq!(ring_color(false, &palette), palette.line_strong);
+}
+
+#[tokio::test]
+async fn a_tab_label_counts_panes_only_when_there_are_several() {
+    let (mut harness, first, _second) = open_two_tabs();
+    harness.press(crate::app::Message::TerminalEventReceived(first, porthmos_term::TerminalEvent::Title("vim".into())));
+    let pane = harness.app.drawer().pane(first).unwrap();
+
+    assert_eq!(tab_label(pane, 1), "vim");
+    assert_eq!(tab_label(pane, 2), "vim [2]");
+
+    harness.press(crate::app::Message::TerminalEventReceived(first, porthmos_term::TerminalEvent::Exited(Some(3))));
+    let pane = harness.app.drawer().pane(first).unwrap();
+    assert_eq!(tab_label(pane, 3), "vim · Exited (3) [3]");
+}
+
+#[tokio::test]
+async fn a_split_drawer_builds_with_nested_panes() {
+    use crate::drawer::layout::Direction;
+    let (mut harness, first, _second) = open_two_tabs();
+    harness.press(crate::app::Message::TerminalTabSelected(first));
+    split_open(&mut harness, Direction::Right);
+    split_open(&mut harness, Direction::Down);
+
+    assert_eq!(harness.app.drawer().tabs[0].layout.leaves().len(), 3);
+    assert!(view(&harness.app).is_some());
+}
+
+#[tokio::test]
+async fn the_tab_entry_uses_the_focused_panes_title() {
+    use crate::drawer::layout::Direction;
+    let (mut harness, first, _second) = open_two_tabs();
+    harness.press(crate::app::Message::TerminalTabSelected(first));
+    let added = split_open(&mut harness, Direction::Right);
+    harness
+        .press(crate::app::Message::TerminalEventReceived(added, porthmos_term::TerminalEvent::Title("htop".into())));
+    harness.press(crate::app::Message::TerminalEventReceived(first, porthmos_term::TerminalEvent::Title("vim".into())));
+
+    let entry = &tab_entries(harness.app.drawer())[0];
+
+    assert_eq!(entry.label, "htop [2]");
+}
+
+#[tokio::test]
+async fn the_header_shows_the_link_hovered_in_any_pane_of_the_tab() {
+    use crate::drawer::layout::Direction;
+    let (mut harness, first, _second) = open_two_tabs();
+    harness.press(crate::app::Message::TerminalTabSelected(first));
+    let added = split_open(&mut harness, Direction::Right);
+    assert!(hovered_link(harness.app.drawer()).is_none());
+    harness.press(crate::app::Message::ModifiersChanged(iced::keyboard::Modifiers::CTRL));
+    harness.app.drawer().pane(first).unwrap().session.as_ref().unwrap().with_terminal(|terminal| {
+        terminal.feed(b"see https://example.org/x");
+    });
+    harness.press(crate::app::Message::TerminalPointer(
+        first,
+        crate::view::terminal_grid::PointerEvent {
+            kind: crate::drawer::pointer::PointerKind::Move { dragging: false },
+            point: porthmos_term::ViewPoint { row: 0, column: 6 },
+            side: porthmos_term::Side::Left,
+            clicks: 0,
+            lines: 0,
+        },
+    ));
+
+    assert_eq!(harness.app.drawer().active_tab().unwrap().focus, added);
+    assert_eq!(hovered_link(harness.app.drawer()).unwrap().target, "https://example.org/x");
+}
+
+#[tokio::test]
+async fn the_focused_pane_keeps_the_accent_ring_after_its_shell_exited() {
+    use crate::drawer::layout::Direction;
+    let (mut harness, first, _second) = open_two_tabs();
+    harness.press(crate::app::Message::TerminalTabSelected(first));
+    let added = split_open(&mut harness, Direction::Right);
+    let tab = harness.app.drawer().active_tab().unwrap();
+    assert!(pane_has_focus(harness.app.drawer(), tab, added));
+    assert!(!pane_has_focus(harness.app.drawer(), tab, first));
+
+    harness.press(crate::app::Message::TerminalEventReceived(added, porthmos_term::TerminalEvent::Exited(Some(0))));
+
+    let tab = harness.app.drawer().active_tab().unwrap();
+    assert!(pane_has_focus(harness.app.drawer(), tab, added));
 }

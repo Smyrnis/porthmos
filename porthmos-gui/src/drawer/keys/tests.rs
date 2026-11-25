@@ -105,7 +105,7 @@ fn ctrl_shift_t_w_pagedown_pageup_are_tab_chords() {
 
     assert_eq!(chord_of(character("t")), Some(TerminalChord::NewTab));
     assert_eq!(chord_of(character("T")), Some(TerminalChord::NewTab));
-    assert_eq!(chord_of(character("w")), Some(TerminalChord::CloseTab));
+    assert_eq!(chord_of(character("w")), Some(TerminalChord::ClosePane));
     assert_eq!(chord_of(Key::Named(Named::PageDown)), Some(TerminalChord::NextTab));
     assert_eq!(chord_of(Key::Named(Named::PageUp)), Some(TerminalChord::PreviousTab));
 }
@@ -162,4 +162,56 @@ fn ctrl_alt_without_printable_text_stays_a_chord() {
         chord,
         Some(KeyInput::Key(TermKey::Char('c'), TermModifiers { shift: false, control: true, alt: true }))
     );
+}
+
+#[test]
+fn ctrl_shift_d_e_and_the_arrows_split_and_move_focus() {
+    let chord = Modifiers::CTRL | Modifiers::SHIFT;
+    let chord_of = |key: Key| super::chord_of(&press(key, chord, None));
+
+    assert_eq!(chord_of(character("d")), Some(TerminalChord::SplitRight));
+    assert_eq!(chord_of(character("D")), Some(TerminalChord::SplitRight));
+    assert_eq!(chord_of(character("e")), Some(TerminalChord::SplitDown));
+    assert_eq!(chord_of(Key::Named(Named::ArrowLeft)), Some(TerminalChord::FocusLeft));
+    assert_eq!(chord_of(Key::Named(Named::ArrowRight)), Some(TerminalChord::FocusRight));
+    assert_eq!(chord_of(Key::Named(Named::ArrowUp)), Some(TerminalChord::FocusUp));
+    assert_eq!(chord_of(Key::Named(Named::ArrowDown)), Some(TerminalChord::FocusDown));
+}
+
+#[test]
+fn plain_and_ctrl_arrows_still_reach_the_shell() {
+    for modifiers in [Modifiers::empty(), Modifiers::CTRL, Modifiers::SHIFT] {
+        let arrow = press(Key::Named(Named::ArrowLeft), modifiers, None);
+
+        assert_eq!(super::chord_of(&arrow), None);
+        assert!(translate(&arrow).is_some());
+    }
+}
+
+#[test]
+fn only_the_layout_chords_are_layout_chords() {
+    for layout in [
+        TerminalChord::NewTab,
+        TerminalChord::NextTab,
+        TerminalChord::PreviousTab,
+        TerminalChord::ClosePane,
+        TerminalChord::SplitRight,
+        TerminalChord::SplitDown,
+        TerminalChord::FocusLeft,
+        TerminalChord::FocusRight,
+        TerminalChord::FocusUp,
+        TerminalChord::FocusDown,
+    ] {
+        assert!(layout.is_layout(), "{layout:?}");
+    }
+    for other in [
+        TerminalChord::Focus,
+        TerminalChord::Copy,
+        TerminalChord::Paste,
+        TerminalChord::Search,
+        TerminalChord::PageUp,
+        TerminalChord::PageDown,
+    ] {
+        assert!(!other.is_layout(), "{other:?}");
+    }
 }

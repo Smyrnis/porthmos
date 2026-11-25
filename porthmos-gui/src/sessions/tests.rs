@@ -43,7 +43,7 @@ fn removing_the_active_last_tab_activates_the_previous_one() {
 }
 
 #[test]
-fn removing_a_tab_left_of_the_active_one_keeps_the_active_tab() {
+fn removing_a_tab_left_of_the_active_one_keeps_the_active_pane() {
     let mut sessions = three();
 
     sessions.remove(1);

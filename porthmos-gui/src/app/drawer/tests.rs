@@ -6,8 +6,9 @@ use porthmos_term::{MouseButton, Side, TerminalEvent, ViewPoint};
 use tokio::io::AsyncReadExt;
 
 use crate::app::Message;
-use crate::drawer::TerminalSource;
+use crate::drawer::layout::{Direction, Layout, Toward};
 use crate::drawer::pointer::PointerKind;
+use crate::drawer::{Placement, TerminalSource, Wanted};
 use crate::view::terminal_grid::PointerEvent;
 
 use super::{ClipboardRequest, PASTE_CHUNK, PRIMARY_SELECTION, paste_chunks};
@@ -78,7 +79,7 @@ async fn a_remote_terminal_starts_in_the_panel_directory_with_a_quoted_cd() {
 
     let expected = format!("cd -- {}\r", porthmos_ssh::shell_quote("/srv/my data/it's"));
     assert_eq!(read_text(&mut end, expected.len()).await, expected);
-    assert!(harness.app.drawer().active_tab().is_some());
+    assert!(harness.app.drawer().active_pane().is_some());
     assert!(harness.app.drawer().wanted.is_empty());
 }
 
@@ -92,7 +93,7 @@ async fn a_stale_opened_event_is_dropped_and_closes_the_stream() {
 
     harness.feed(Event::TerminalOpened { id: wanted + 40, session: 3, stream: Handover::new(stream) });
 
-    assert!(harness.app.drawer().active_tab().is_none());
+    assert!(harness.app.drawer().active_pane().is_none());
     let mut buffer = [0u8; 1];
     let count = tokio::time::timeout(Duration::from_secs(2), end.from_client.read(&mut buffer)).await.unwrap().unwrap();
     assert_eq!(count, 0);
@@ -100,7 +101,7 @@ async fn a_stale_opened_event_is_dropped_and_closes_the_stream() {
 }
 
 fn close_active_tab(harness: &mut Harness) {
-    let id = harness.app.drawer().active_tab().expect("an active tab").id;
+    let id = harness.app.drawer().active_pane().expect("an active tab").id;
     harness.press(Message::TerminalTabClosed(id));
 }
 
@@ -127,7 +128,7 @@ async fn opening_twice_keeps_both_tabs_and_activates_the_new_one() {
     let (second, _second_end) = open_remote(&mut harness, 3);
 
     assert_eq!(tab_ids(&harness), vec![first, second]);
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, second);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, second);
     assert!(harness.app.drawer().wanted.is_empty());
 }
 
@@ -166,7 +167,7 @@ async fn closing_the_active_tab_activates_its_neighbour() {
     harness.press(Message::TerminalTabClosed(second));
 
     assert_eq!(tab_ids(&harness), vec![first, third]);
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, third);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, third);
 }
 
 #[tokio::test]
@@ -178,7 +179,7 @@ async fn closing_the_last_tab_in_the_row_activates_the_new_last() {
 
     harness.press(Message::TerminalTabClosed(second));
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, first);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, first);
 }
 
 #[tokio::test]
@@ -190,7 +191,7 @@ async fn closing_a_background_tab_keeps_the_active_one() {
 
     harness.press(Message::TerminalTabClosed(first));
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, second);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, second);
     assert_eq!(tab_ids(&harness), vec![second]);
 }
 
@@ -245,7 +246,8 @@ async fn a_session_ending_ends_every_tab_of_that_session_only() {
 
     harness.feed(Event::Disconnected { session: 3, name: "alpha".to_string() });
 
-    let exited: Vec<(u64, bool)> = harness.app.drawer().tabs.iter().map(|tab| (tab.id, tab.exited.is_some())).collect();
+    let exited: Vec<(u64, bool)> =
+        harness.app.drawer().panes.iter().map(|pane| (pane.id, pane.exited.is_some())).collect();
     assert_eq!(exited, vec![(first, true), (second, true), (third, false)]);
 }
 
@@ -302,9 +304,9 @@ async fn stepping_through_tabs_wraps_around() {
     let (second, _b) = open_remote(&mut harness, 3);
 
     harness.press(Message::ActionRequested(crate::shortcuts::Action::TerminalNextTab));
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, first);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, first);
     harness.press(Message::ActionRequested(crate::shortcuts::Action::TerminalPreviousTab));
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, second);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, second);
 }
 
 #[tokio::test]
@@ -329,7 +331,7 @@ async fn the_exit_event_marks_the_tab_exited_and_keeps_it() {
 
     harness.press(Message::TerminalEventReceived(id, TerminalEvent::Exited(Some(2))));
 
-    let tab = harness.app.drawer().active_tab().expect("the tab stays visible");
+    let tab = harness.app.drawer().active_pane().expect("the tab stays visible");
     assert_eq!(tab.exited, Some(Some(2)));
 }
 
@@ -341,7 +343,7 @@ async fn a_title_event_renames_the_tab() {
 
     harness.press(Message::TerminalEventReceived(id, TerminalEvent::Title("vim".into())));
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().title, "vim");
+    assert_eq!(harness.app.drawer().active_pane().unwrap().title, "vim");
 }
 
 #[tokio::test]
@@ -352,7 +354,7 @@ async fn events_for_another_terminal_are_ignored() {
 
     harness.press(Message::TerminalEventReceived(id + 1, TerminalEvent::Exited(Some(1))));
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().exited, None);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().exited, None);
 }
 
 #[tokio::test]
@@ -363,7 +365,7 @@ async fn disconnecting_the_session_marks_its_terminal_exited() {
 
     harness.feed(Event::Disconnected { session: 3, name: "alpha".to_string() });
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().exited, Some(None));
+    assert_eq!(harness.app.drawer().active_pane().unwrap().exited, Some(None));
 }
 
 #[tokio::test]
@@ -388,7 +390,9 @@ async fn closing_the_terminal_drops_the_tab_and_the_channel() {
 
     close_active_tab(&mut harness);
 
-    assert!(harness.app.drawer().active_tab().is_none() && !harness.app.drawer().open && !harness.app.drawer().focused);
+    assert!(
+        harness.app.drawer().active_pane().is_none() && !harness.app.drawer().open && !harness.app.drawer().focused
+    );
     let skipped = read_text(&mut end, 0).await;
     assert!(skipped.is_empty());
     let mut rest = Vec::new();
@@ -398,13 +402,17 @@ async fn closing_the_terminal_drops_the_tab_and_the_channel() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_local_terminal_runs_in_the_local_panel_directory() {
-    use crate::drawer::Wanted;
     let mut harness = Harness::new();
     let scratch = tempfile::tempdir().unwrap();
     let folder = porthmos_core::from_os_path(&scratch.path().canonicalize().unwrap());
-    let wanted = Wanted { id: 1, source: TerminalSource::Local, directory: folder.clone() };
+    let wanted = Wanted {
+        id: 1,
+        source: TerminalSource::Local,
+        directory: folder.clone(),
+        placement: crate::drawer::Placement::NewTab,
+    };
     harness.app.start_local_terminal(wanted);
-    let tab = harness.app.drawer().active_tab().expect("a local terminal starts at once");
+    let tab = harness.app.drawer().active_pane().expect("a local terminal starts at once");
     tab.session.as_ref().unwrap().write(b"pwd\n".to_vec());
 
     let expected = folder.to_string_lossy().into_owned();
@@ -516,7 +524,9 @@ async fn toggling_the_drawer_hides_and_shows_it_without_ending_the_terminal() {
     let (_id, _end) = opened_and_ready(&mut harness).await;
 
     harness.app.toggle_terminal();
-    assert!(!harness.app.drawer().open && !harness.app.drawer().focused && harness.app.drawer().active_tab().is_some());
+    assert!(
+        !harness.app.drawer().open && !harness.app.drawer().focused && harness.app.drawer().active_pane().is_some()
+    );
 
     harness.app.toggle_terminal();
     assert!(harness.app.drawer().open && harness.app.drawer().focused);
@@ -533,7 +543,7 @@ async fn a_resize_report_resizes_the_session_once_per_distinct_size() {
     harness.press(Message::TerminalResized(id + 1, porthmos_term::TermSize::clamped(10, 10)));
 
     assert_eq!(*end.sizes.lock().unwrap(), vec![ShellSize { columns: 100, rows: 30 }]);
-    assert_eq!(harness.app.drawer().active_tab().unwrap().size, size);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().size, size);
 }
 
 #[tokio::test]
@@ -557,7 +567,7 @@ async fn a_folder_name_with_control_bytes_is_never_typed_into_the_remote_shell()
         let (_id, mut end) = open_remote(&mut harness, 3);
 
         expect_silence(&mut end).await;
-        assert!(harness.app.drawer().active_tab().is_some(), "{name:?}");
+        assert!(harness.app.drawer().active_pane().is_some(), "{name:?}");
         let notice = harness.app.notices().last().expect("a notice about the folder");
         assert_eq!(notice.severity, Severity::Warning, "{name:?}");
     }
@@ -575,7 +585,7 @@ async fn disconnecting_the_session_closes_the_remote_channel_and_keeps_the_last_
         .await
         .expect("the server end must see the channel close");
     assert_eq!(read.unwrap(), 0);
-    let tab = harness.app.drawer().active_tab().unwrap();
+    let tab = harness.app.drawer().active_pane().unwrap();
     assert!(tab.session.is_none());
     assert!(tab.snapshot().is_some());
 }
@@ -591,7 +601,7 @@ async fn a_terminal_opened_after_its_session_disconnected_is_dropped() {
     let (stream, mut end) = shell_pipe();
     harness.feed(Event::TerminalOpened { id, session: 3, stream: Handover::new(stream) });
 
-    assert!(harness.app.drawer().active_tab().is_none());
+    assert!(harness.app.drawer().active_pane().is_none());
     assert!(harness.app.drawer().wanted.is_empty());
     let mut buffer = [0u8; 1];
     let read = tokio::time::timeout(Duration::from_secs(2), end.from_client.read(&mut buffer)).await;
@@ -709,17 +719,17 @@ fn wheel(lines: i32) -> PointerEvent {
 }
 
 fn print(harness: &Harness, text: &str) {
-    let tab = harness.app.drawer().active_tab().unwrap();
+    let tab = harness.app.drawer().active_pane().unwrap();
     tab.session.as_ref().unwrap().with_terminal(|terminal| terminal.feed(text.as_bytes()));
 }
 
 fn selected(harness: &Harness) -> Option<String> {
-    let tab = harness.app.drawer().active_tab().unwrap();
+    let tab = harness.app.drawer().active_pane().unwrap();
     tab.session.as_ref().unwrap().with_terminal(|terminal| terminal.selected_text())
 }
 
 fn offset(harness: &Harness) -> usize {
-    harness.app.drawer().active_tab().unwrap().snapshot().unwrap().display_offset
+    harness.app.drawer().active_pane().unwrap().snapshot().unwrap().display_offset
 }
 
 async fn read_bytes(end: &mut ShellEnd, length: usize) -> Vec<u8> {
@@ -949,7 +959,7 @@ async fn a_paste_for_a_closed_or_replaced_tab_is_dropped() {
     harness.app.terminal_pasted(id, None);
     harness.app.terminal_pasted(id, Some(String::new()));
 
-    assert!(harness.app.drawer().active_tab().is_none());
+    assert!(harness.app.drawer().active_pane().is_none());
 }
 
 #[tokio::test]
@@ -1083,7 +1093,7 @@ async fn the_palette_copy_action_copies_the_selection() {
 }
 
 fn selected_rows(harness: &Harness) -> Vec<u16> {
-    let snapshot = harness.app.drawer().active_tab().unwrap().snapshot().unwrap();
+    let snapshot = harness.app.drawer().active_pane().unwrap().snapshot().unwrap();
     let columns = usize::from(snapshot.size.columns);
     (0..snapshot.size.rows)
         .filter(|row| snapshot.cells[usize::from(*row) * columns..][..columns].iter().any(|cell| cell.selected))
@@ -1428,7 +1438,7 @@ async fn a_tab_opened_after_closing_one_starts_without_a_gesture() {
     close_active_tab(&mut harness);
     let (_second, _second_end) = opened_and_ready(&mut harness).await;
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().gesture, crate::drawer::Gesture::Idle);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().gesture, crate::drawer::Gesture::Idle);
 }
 
 #[tokio::test]
@@ -1449,12 +1459,12 @@ async fn stepping_through_matches_after_output_scrolled_the_screen_continues_fro
 }
 
 fn history_of(harness: &Harness) -> usize {
-    let tab = harness.app.drawer().active_tab().unwrap();
+    let tab = harness.app.drawer().active_pane().unwrap();
     tab.session.as_ref().unwrap().with_terminal(|terminal| terminal.history())
 }
 
 fn selection_line(harness: &Harness) -> i32 {
-    let tab = harness.app.drawer().active_tab().unwrap();
+    let tab = harness.app.drawer().active_pane().unwrap();
     tab.session.as_ref().unwrap().with_terminal(|terminal| terminal.selection_match().unwrap().start.line)
 }
 
@@ -1591,9 +1601,9 @@ async fn tab_chords_act_while_the_terminal_has_focus() {
     let (second, _b) = open_remote(&mut harness, 3);
 
     tab_chord(&mut harness, Key::Named(Named::PageDown));
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, first);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, first);
     tab_chord(&mut harness, Key::Named(Named::PageUp));
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, second);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, second);
     tab_chord(&mut harness, Key::Character("w".into()));
     assert_eq!(tab_ids(&harness), vec![first]);
     tab_chord(&mut harness, Key::Character("t".into()));
@@ -1609,7 +1619,7 @@ async fn tab_chords_still_work_after_the_shell_exited() {
     exit_shell(&mut harness, second).await;
 
     tab_chord(&mut harness, Key::Named(Named::PageDown));
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, first);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, first);
     tab_chord(&mut harness, Key::Named(Named::PageUp));
     tab_chord(&mut harness, Key::Character("w".into()));
     assert_eq!(tab_ids(&harness), vec![first]);
@@ -1646,8 +1656,8 @@ fn report_directory(harness: &mut Harness, id: u64, host: &str, path: &str) {
 }
 
 fn tab_directory(harness: &Harness, id: u64) -> Option<String> {
-    let tab = harness.app.drawer().tabs.iter().find(|tab| tab.id == id).unwrap();
-    tab.directory.directory().map(str::to_string)
+    let pane = harness.app.drawer().pane(id).unwrap();
+    pane.directory.directory().map(str::to_string)
 }
 
 fn navigations(harness: &mut Harness) -> Vec<(Location, String)> {
@@ -1708,7 +1718,7 @@ async fn open_directory_navigates_the_session_pane_for_a_remote_tab() {
 async fn open_directory_navigates_the_local_pane_for_a_local_tab() {
     let mut harness = Harness::new();
     harness.app.open_embedded_terminal(TerminalSource::Local);
-    let id = harness.app.drawer().active_tab().unwrap().id;
+    let id = harness.app.drawer().active_pane().unwrap().id;
     report_directory(&mut harness, id, "", "/tmp");
     harness.sent();
 
@@ -1916,18 +1926,18 @@ async fn ctrl_hover_marks_the_link_and_releasing_ctrl_clears_it() {
     print(&harness, "https://example.org/x");
 
     harness.app.route_pointer(id, hover(0, 3));
-    assert!(harness.app.drawer().active_tab().unwrap().hover.is_none());
+    assert!(harness.app.drawer().active_pane().unwrap().hover.is_none());
 
     ctrl_held(&mut harness, true);
     harness.app.route_pointer(id, hover(0, 4));
-    assert_eq!(harness.app.drawer().active_tab().unwrap().hover.as_ref().unwrap().target, "https://example.org/x");
+    assert_eq!(harness.app.drawer().active_pane().unwrap().hover.as_ref().unwrap().target, "https://example.org/x");
 
     harness.app.route_pointer(id, hover(2, 4));
-    assert!(harness.app.drawer().active_tab().unwrap().hover.is_none());
+    assert!(harness.app.drawer().active_pane().unwrap().hover.is_none());
 
     harness.app.route_pointer(id, hover(0, 4));
     ctrl_held(&mut harness, false);
-    assert!(harness.app.drawer().active_tab().unwrap().hover.is_none());
+    assert!(harness.app.drawer().active_pane().unwrap().hover.is_none());
 }
 
 #[tokio::test]
@@ -1997,7 +2007,7 @@ async fn a_drop_on_a_local_terminal_reaches_the_shell() {
 
     drop_on_drawer(&mut harness, paths);
 
-    let tab = harness.app.drawer().active_tab().unwrap();
+    let tab = harness.app.drawer().active_pane().unwrap();
     for _ in 0..100 {
         let snapshot = tab.snapshot().unwrap();
         let screen: String = (0..snapshot.size.rows).map(|row| snapshot.row_text(row)).collect();
@@ -2033,7 +2043,7 @@ async fn a_dropped_path_with_control_characters_is_refused() {
     drop_on_drawer(&mut harness, paths);
 
     assert_eq!(harness.app.notices().last().unwrap().severity, Severity::Warning);
-    let snapshot = harness.app.drawer().active_tab().unwrap().snapshot().unwrap();
+    let snapshot = harness.app.drawer().active_pane().unwrap().snapshot().unwrap();
     let screen: String = (0..snapshot.size.rows).map(|row| snapshot.row_text(row)).collect();
     assert!(!screen.contains("bad"), "{screen:?}");
 }
@@ -2191,11 +2201,11 @@ async fn switching_tab_mid_drag_ends_the_gesture_of_the_tab_left() {
     let (_second, _b) = open_remote(&mut harness, 3);
     harness.press(Message::TerminalTabSelected(first));
     harness.app.route_pointer(first, press(0, 0, 1));
-    assert_ne!(harness.app.drawer().active_tab().unwrap().gesture, crate::drawer::Gesture::Idle);
+    assert_ne!(harness.app.drawer().active_pane().unwrap().gesture, crate::drawer::Gesture::Idle);
 
     tab_chord(&mut harness, Key::Named(Named::PageDown));
 
-    let left = harness.app.drawer().tabs.iter().find(|tab| tab.id == first).unwrap();
+    let left = harness.app.drawer().pane(first).unwrap();
     assert_eq!(left.gesture, crate::drawer::Gesture::Idle);
 }
 
@@ -2239,7 +2249,7 @@ async fn tab_chords_work_while_the_search_bar_is_open() {
 
     tab_chord(&mut harness, Key::Named(Named::PageDown));
 
-    assert_eq!(harness.app.drawer().active_tab().unwrap().id, first);
+    assert_eq!(harness.app.drawer().active_pane().unwrap().id, first);
 }
 
 #[tokio::test]
@@ -2276,4 +2286,776 @@ async fn change_directory_needs_a_directory_the_terminal_reported() {
 
     report_directory(&mut harness, id, "db01", "/var/lib");
     assert!(!harness.app.terminal_directory_changeable());
+}
+
+#[tokio::test]
+async fn opening_a_terminal_creates_one_pane_and_one_tab_with_the_same_id() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+
+    let (id, _end) = open_remote(&mut harness, 3);
+
+    let drawer = harness.app.drawer();
+    assert_eq!((drawer.panes.len(), drawer.tabs.len()), (1, 1));
+    assert_eq!((drawer.tabs[0].id, drawer.panes[0].id), (id, id));
+    drawer.assert_consistent();
+}
+
+#[tokio::test]
+async fn closing_a_tab_removes_its_pane() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (id, _end) = open_remote(&mut harness, 3);
+
+    harness.press(Message::TerminalTabClosed(id));
+
+    assert!(harness.app.drawer().panes.is_empty());
+    harness.app.drawer().assert_consistent();
+}
+
+fn open_split(harness: &mut Harness, direction: Direction) -> (u64, ShellEnd) {
+    harness.app.split_terminal(direction);
+    let id = requested_id(harness);
+    let (stream, end) = shell_pipe();
+    harness.feed(Event::TerminalOpened { id, session: 3, stream: Handover::new(stream) });
+    (id, end)
+}
+
+fn side(first: Layout, second: Layout) -> Layout {
+    Layout::Split { direction: Direction::Right, first: Box::new(first), second: Box::new(second) }
+}
+
+fn stacked(first: Layout, second: Layout) -> Layout {
+    Layout::Split { direction: Direction::Down, first: Box::new(first), second: Box::new(second) }
+}
+
+#[tokio::test]
+async fn splitting_asks_for_a_shell_of_the_same_session() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _end) = open_remote(&mut harness, 3);
+    harness.app.toggle_terminal();
+    harness.app.toggle_terminal();
+
+    harness.app.split_terminal(Direction::Right);
+
+    let sent: Vec<Command> =
+        harness.sent().into_iter().filter(|command| matches!(command, Command::OpenTerminal { .. })).collect();
+    assert!(matches!(sent.as_slice(), [Command::OpenTerminal { session: 3, .. }]), "{sent:?}");
+    let wanted = &harness.app.drawer().wanted;
+    assert_eq!(wanted.len(), 1);
+    assert_eq!(wanted[0].placement, Placement::Split { tab: first, target: first, direction: Direction::Right });
+    assert_eq!(harness.app.drawer().panes.len(), 1);
+    assert!(harness.app.drawer().open && harness.app.drawer().focused);
+}
+
+#[tokio::test]
+async fn a_split_pane_joins_the_layout_second_and_takes_focus() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _a) = open_remote(&mut harness, 3);
+
+    let (second, _b) = open_split(&mut harness, Direction::Right);
+
+    let drawer = harness.app.drawer();
+    assert_eq!(drawer.tabs.len(), 1);
+    assert_eq!(drawer.tabs[0].id, first);
+    assert_eq!(drawer.tabs[0].layout, side(Layout::Leaf(first), Layout::Leaf(second)));
+    assert_eq!(drawer.tabs[0].focus, second);
+    drawer.assert_consistent();
+}
+
+#[tokio::test]
+async fn splitting_the_new_pane_nests_the_layout() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (a, _a) = open_remote(&mut harness, 3);
+    let (b, _b) = open_split(&mut harness, Direction::Right);
+
+    let (c, _c) = open_split(&mut harness, Direction::Down);
+
+    let layout = &harness.app.drawer().tabs[0].layout;
+    assert_eq!(*layout, side(Layout::Leaf(a), stacked(Layout::Leaf(b), Layout::Leaf(c))));
+    harness.app.drawer().assert_consistent();
+}
+
+#[tokio::test]
+async fn two_pending_splits_of_one_pane_both_land() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (a, _a) = open_remote(&mut harness, 3);
+    harness.app.split_terminal(Direction::Right);
+    harness.app.split_terminal(Direction::Down);
+    let ids: Vec<u64> = requested_ids(&mut harness).into_iter().map(|(id, _)| id).collect();
+    let (first_stream, _x) = shell_pipe();
+    let (second_stream, _y) = shell_pipe();
+
+    harness.feed(Event::TerminalOpened { id: ids[1], session: 3, stream: Handover::new(second_stream) });
+    harness.feed(Event::TerminalOpened { id: ids[0], session: 3, stream: Handover::new(first_stream) });
+
+    let drawer = harness.app.drawer();
+    let mut leaves = drawer.tabs[0].layout.leaves();
+    leaves.sort_unstable();
+    assert_eq!(leaves, vec![a, ids[0], ids[1]]);
+    assert_eq!(drawer.tabs[0].id, a);
+    drawer.assert_consistent();
+}
+
+#[tokio::test]
+async fn a_split_whose_tab_was_closed_never_appears_and_closes_its_stream() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _a) = open_remote(&mut harness, 3);
+    harness.app.split_terminal(Direction::Right);
+    let pending = requested_id(&mut harness);
+    harness.press(Message::TerminalTabClosed(first));
+    let (stream, mut late) = shell_pipe();
+
+    harness.feed(Event::TerminalOpened { id: pending, session: 3, stream: Handover::new(stream) });
+
+    assert!(harness.app.drawer().panes.is_empty() && harness.app.drawer().tabs.is_empty());
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), late.from_client.read_to_end(&mut rest)).await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_split_whose_target_pane_is_missing_drops_the_stream() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _a) = open_remote(&mut harness, 3);
+    harness.app.drawer.wanted.push(Wanted {
+        id: 900,
+        source: TerminalSource::Remote(3),
+        directory: VfsPath::new("/srv/data"),
+        placement: Placement::Split { tab: first, target: 777, direction: Direction::Right },
+    });
+    let (stream, mut late) = shell_pipe();
+
+    harness.feed(Event::TerminalOpened { id: 900, session: 3, stream: Handover::new(stream) });
+
+    assert_eq!(harness.app.drawer().panes.len(), 1);
+    assert!(harness.app.drawer().wanted.is_empty());
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), late.from_client.read_to_end(&mut rest)).await.unwrap().unwrap();
+    harness.app.drawer().assert_consistent();
+}
+
+#[tokio::test]
+async fn splitting_without_a_terminal_does_nothing() {
+    let mut harness = Harness::new();
+
+    harness.app.split_terminal(Direction::Right);
+
+    assert!(harness.sent().iter().all(|command| !matches!(command, Command::OpenTerminal { .. })));
+    assert!(harness.app.notices().is_empty());
+    assert!(harness.app.drawer().wanted.is_empty());
+}
+
+#[tokio::test]
+async fn splitting_after_the_session_disconnected_warns() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (_first, _end) = open_remote(&mut harness, 3);
+    harness.feed(Event::Disconnected { session: 3, name: "alpha".to_string() });
+    harness.app.notices();
+
+    harness.app.split_terminal(Direction::Down);
+
+    assert!(harness.app.notices().iter().any(|notice| notice.severity == Severity::Warning));
+    assert!(harness.app.drawer().wanted.is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_split_leaves_the_layout_alone() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _a) = open_remote(&mut harness, 3);
+    harness.app.split_terminal(Direction::Right);
+    let pending = requested_id(&mut harness);
+
+    harness.feed(Event::TerminalOpenFailed { id: pending, message: "refused".into() });
+
+    let drawer = harness.app.drawer();
+    assert_eq!(drawer.tabs[0].layout, Layout::Leaf(first));
+    assert_eq!(drawer.tabs[0].focus, first);
+    assert!(drawer.wanted.is_empty());
+    assert!(harness.app.notices().iter().any(|notice| notice.severity == Severity::Error));
+}
+
+#[tokio::test]
+async fn a_split_pane_keeps_the_background_tab_active_if_the_user_switched() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _a) = open_remote(&mut harness, 3);
+    let (second, _b) = open_remote(&mut harness, 3);
+    harness.press(Message::TerminalTabSelected(first));
+    harness.app.split_terminal(Direction::Right);
+    let pending = requested_id(&mut harness);
+    harness.press(Message::TerminalTabSelected(second));
+    let (stream, _end) = shell_pipe();
+
+    harness.feed(Event::TerminalOpened { id: pending, session: 3, stream: Handover::new(stream) });
+
+    let drawer = harness.app.drawer();
+    assert_eq!(drawer.active_tab().unwrap().id, second);
+    assert_eq!(drawer.tabs[0].layout, side(Layout::Leaf(first), Layout::Leaf(pending)));
+    assert_eq!(drawer.tabs[0].focus, pending);
+    drawer.assert_consistent();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_split_of_a_local_terminal_starts_immediately() {
+    let mut harness = Harness::new();
+    harness.app.open_embedded_terminal(TerminalSource::Local);
+    harness.sent();
+
+    harness.app.split_terminal(Direction::Down);
+
+    assert_eq!(harness.app.drawer().tabs[0].layout.leaves().len(), 2);
+    assert!(harness.sent().iter().all(|command| !matches!(command, Command::OpenTerminal { .. })));
+    harness.app.drawer().assert_consistent();
+}
+
+async fn two_panes(harness: &mut Harness) -> (u64, ShellEnd, u64, ShellEnd) {
+    let (first, first_end) = opened_and_ready(harness).await;
+    let (second, mut second_end) = open_split(harness, Direction::Right);
+    let cd = format!("cd -- {}\r", porthmos_ssh::shell_quote("/srv/data"));
+    read_text(&mut second_end, cd.len()).await;
+    (first, first_end, second, second_end)
+}
+
+fn print_to(harness: &Harness, id: u64, text: &str) {
+    let pane = harness.app.drawer().pane(id).unwrap();
+    pane.session.as_ref().unwrap().with_terminal(|terminal| terminal.feed(text.as_bytes()));
+}
+
+fn focused_pane(harness: &Harness) -> u64 {
+    harness.app.drawer().active_tab().unwrap().focus
+}
+
+fn type_character(harness: &mut Harness, character: &str) {
+    press_key(harness, Key::Character(character.into()), Modifiers::empty());
+}
+
+#[tokio::test]
+async fn focusing_toward_a_neighbour_moves_the_focus() {
+    let mut harness = Harness::new();
+    let (first, _a, second, _b) = two_panes(&mut harness).await;
+    assert_eq!(focused_pane(&harness), second);
+
+    harness.app.focus_pane_toward(Toward::Left);
+    assert_eq!(focused_pane(&harness), first);
+
+    harness.app.focus_pane_toward(Toward::Left);
+    assert_eq!(focused_pane(&harness), first);
+    harness.app.focus_pane_toward(Toward::Right);
+    assert_eq!(focused_pane(&harness), second);
+    assert!(harness.app.drawer().focused);
+}
+
+#[tokio::test]
+async fn focusing_clears_the_gesture_and_search_of_the_pane_left() {
+    let mut harness = Harness::new();
+    let (first, _a, second, _b) = two_panes(&mut harness).await;
+    print_to(&harness, second, "hello world");
+    open_search(&mut harness);
+    harness.app.route_pointer(second, press(0, 0, 1));
+    assert_ne!(harness.app.drawer().pane(second).unwrap().gesture, crate::drawer::Gesture::Idle);
+
+    harness.app.focus_pane(first);
+
+    let left = harness.app.drawer().pane(second).unwrap();
+    assert!(!left.search.open);
+    assert_eq!(left.gesture, crate::drawer::Gesture::Idle);
+    assert_eq!(focused_pane(&harness), first);
+}
+
+#[tokio::test]
+async fn typed_keys_reach_only_the_focused_pane() {
+    let mut harness = Harness::new();
+    let (_first, mut first_end, second, mut second_end) = two_panes(&mut harness).await;
+    assert_eq!(focused_pane(&harness), second);
+
+    type_character(&mut harness, "x");
+
+    assert_eq!(read_text(&mut second_end, 1).await, "x");
+    expect_silence(&mut first_end).await;
+
+    harness.app.focus_pane_toward(Toward::Left);
+    type_character(&mut harness, "y");
+
+    assert_eq!(read_text(&mut first_end, 1).await, "y");
+    expect_silence(&mut second_end).await;
+}
+
+#[tokio::test]
+async fn a_paste_is_written_only_to_the_pane_it_was_requested_for() {
+    let mut harness = Harness::new();
+    let (first, mut first_end, _second, mut second_end) = two_panes(&mut harness).await;
+
+    harness.app.terminal_pasted(first, Some("hi".to_string()));
+
+    assert_eq!(read_text(&mut first_end, 2).await, "hi");
+    expect_silence(&mut second_end).await;
+}
+
+#[tokio::test]
+async fn a_press_on_an_unfocused_pane_only_focuses_it() {
+    let mut harness = Harness::new();
+    let (first, mut first_end, second, mut second_end) = two_panes(&mut harness).await;
+    print_to(&harness, first, "\x1b[?1000h\x1b[?1006hhello world");
+
+    harness.app.route_pointer(first, press(0, 0, 1));
+    harness.app.route_pointer(first, drag(0, 4));
+    harness.app.route_pointer(first, release(0, 4));
+
+    assert_eq!(focused_pane(&harness), first);
+    assert_eq!(harness.app.drawer().pane(first).unwrap().gesture, crate::drawer::Gesture::Idle);
+    assert_ne!(focused_pane(&harness), second);
+    expect_silence(&mut first_end).await;
+    expect_silence(&mut second_end).await;
+    let selection = harness.app.drawer().pane(first).unwrap();
+    assert_eq!(selection.session.as_ref().unwrap().with_terminal(|terminal| terminal.selected_text()), None);
+}
+
+#[tokio::test]
+async fn a_press_on_the_focused_pane_still_starts_a_selection() {
+    let mut harness = Harness::new();
+    let (_first, _a, second, _b) = two_panes(&mut harness).await;
+    print_to(&harness, second, "hello world");
+
+    harness.app.route_pointer(second, press(0, 0, 1));
+
+    assert!(matches!(harness.app.drawer().pane(second).unwrap().gesture, crate::drawer::Gesture::Selecting { .. }));
+}
+
+#[tokio::test]
+async fn a_wheel_over_an_unfocused_pane_reaches_that_pane_without_moving_focus() {
+    let mut harness = Harness::new();
+    let (first, mut first_end, second, mut second_end) = two_panes(&mut harness).await;
+    print_to(&harness, first, "\x1b[?1000h\x1b[?1006h");
+
+    harness.app.route_pointer(first, wheel(1));
+
+    assert!(read_bytes(&mut first_end, 10).await.starts_with(b"\x1b[<64;"));
+    expect_silence(&mut second_end).await;
+    assert_eq!(focused_pane(&harness), second);
+}
+
+#[tokio::test]
+async fn hover_updates_the_link_of_the_pane_under_the_pointer() {
+    let mut harness = Harness::new();
+    let (first, _a, second, _b) = two_panes(&mut harness).await;
+    print_to(&harness, first, "see https://example.org/x");
+    ctrl_held(&mut harness, true);
+
+    harness.app.route_pointer(first, hover(0, 6));
+
+    assert!(harness.app.drawer().pane(first).unwrap().hover.is_some());
+    assert!(harness.app.drawer().pane(second).unwrap().hover.is_none());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_drop_over_the_drawer_goes_to_the_focused_pane_only() {
+    let mut harness = Harness::new();
+    harness.app.open_embedded_terminal(TerminalSource::Local);
+    harness.app.split_terminal(Direction::Down);
+    let tab = harness.app.drawer().active_tab().unwrap();
+    let (first, second) = (tab.layout.leaves()[0], tab.focus);
+    let (_keep, paths) = dropped_files(&["unmistakable.txt"]);
+
+    drop_on_drawer(&mut harness, paths);
+
+    let on_screen = |id: u64| {
+        let snapshot = harness.app.drawer().pane(id).unwrap().snapshot().unwrap();
+        (0..snapshot.size.rows).map(|row| snapshot.row_text(row)).collect::<String>().contains("unmistakable.txt")
+    };
+    for _ in 0..100 {
+        if on_screen(second) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(on_screen(second));
+    assert!(!on_screen(first));
+}
+
+#[tokio::test]
+async fn a_press_on_an_unfocused_pane_of_an_unfocused_drawer_focuses_both() {
+    let mut harness = Harness::new();
+    let (first, _a, _second, _b) = two_panes(&mut harness).await;
+    chord(&mut harness);
+    assert!(!harness.app.drawer().focused);
+
+    harness.app.route_pointer(first, press(0, 0, 1));
+
+    assert!(harness.app.drawer().focused);
+    assert_eq!(focused_pane(&harness), first);
+}
+
+async fn three_panes(harness: &mut Harness) -> (u64, ShellEnd, u64, ShellEnd, u64, ShellEnd) {
+    let (a, a_end, b, b_end) = two_panes(harness).await;
+    let (c, c_end) = open_split(harness, Direction::Down);
+    (a, a_end, b, b_end, c, c_end)
+}
+
+async fn reads_end_of_file(end: &mut ShellEnd) {
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), end.from_client.read_to_end(&mut rest)).await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn closing_the_focused_pane_gives_its_space_to_the_sibling() {
+    let mut harness = Harness::new();
+    let (a, _a, b, _b, c, _c) = three_panes(&mut harness).await;
+    harness.app.focus_pane(b);
+
+    harness.app.close_terminal_pane(b);
+
+    let tab = &harness.app.drawer().tabs[0];
+    assert_eq!(tab.layout, side(Layout::Leaf(a), Layout::Leaf(c)));
+    assert_eq!(tab.focus, c);
+    harness.app.drawer().assert_consistent();
+}
+
+#[tokio::test]
+async fn closing_an_unfocused_pane_keeps_the_focus() {
+    let mut harness = Harness::new();
+    let (a, _a, _b, _b2, c, _c) = three_panes(&mut harness).await;
+    harness.app.focus_pane(a);
+
+    harness.app.close_terminal_pane(c);
+
+    assert_eq!(focused_pane(&harness), a);
+    assert_eq!(harness.app.drawer().panes.len(), 2);
+    harness.app.drawer().assert_consistent();
+}
+
+#[tokio::test]
+async fn closing_the_last_pane_of_a_tab_closes_the_tab() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    let (first, _a) = open_remote(&mut harness, 3);
+    let (second, _b) = open_remote(&mut harness, 3);
+
+    harness.app.close_terminal_pane(second);
+
+    let drawer = harness.app.drawer();
+    assert_eq!(drawer.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(), vec![first]);
+    assert_eq!(drawer.panes.len(), 1);
+    assert!(drawer.open);
+    drawer.assert_consistent();
+}
+
+#[tokio::test]
+async fn closing_the_last_pane_of_the_last_tab_closes_the_drawer() {
+    let mut harness = Harness::new();
+    let (id, _end) = opened_and_ready(&mut harness).await;
+
+    harness.app.close_terminal_pane(id);
+
+    let drawer = harness.app.drawer();
+    assert!(drawer.tabs.is_empty() && drawer.panes.is_empty() && !drawer.open && !drawer.focused);
+}
+
+#[tokio::test]
+async fn closing_the_focused_pane_through_the_helper_acts_on_the_focus() {
+    let mut harness = Harness::new();
+    let (a, _a, b, _b) = two_panes(&mut harness).await;
+
+    harness.app.close_focused_pane();
+
+    assert_eq!(harness.app.drawer().tabs[0].layout, Layout::Leaf(a));
+    assert!(harness.app.drawer().pane(b).is_none());
+}
+
+#[tokio::test]
+async fn closing_a_pane_closes_its_shell_channel() {
+    let mut harness = Harness::new();
+    let (_a, mut a_end, b, mut b_end) = two_panes(&mut harness).await;
+
+    harness.app.close_terminal_pane(b);
+
+    reads_end_of_file(&mut b_end).await;
+    expect_silence(&mut a_end).await;
+}
+
+#[tokio::test]
+async fn closing_a_tab_closes_every_pane_channel() {
+    let mut harness = Harness::new();
+    let (a, mut a_end, _b, mut b_end) = two_panes(&mut harness).await;
+
+    harness.press(Message::TerminalTabClosed(a));
+
+    reads_end_of_file(&mut a_end).await;
+    reads_end_of_file(&mut b_end).await;
+    assert!(harness.app.drawer().panes.is_empty());
+}
+
+#[tokio::test]
+async fn closing_a_pane_drops_the_splits_pending_for_it() {
+    let mut harness = Harness::new();
+    let (_a, _a_end, b, _b_end) = two_panes(&mut harness).await;
+    harness.app.split_terminal(Direction::Down);
+    let pending = requested_id(&mut harness);
+    harness.app.close_terminal_pane(b);
+    let (stream, mut late) = shell_pipe();
+
+    harness.feed(Event::TerminalOpened { id: pending, session: 3, stream: Handover::new(stream) });
+
+    assert_eq!(harness.app.drawer().panes.len(), 1);
+    assert!(harness.app.drawer().wanted.is_empty());
+    reads_end_of_file(&mut late).await;
+}
+
+#[tokio::test]
+async fn a_paste_confirmation_pending_for_a_closed_pane_writes_nothing() {
+    let mut harness = Harness::new();
+    let (_a, mut a_end, b, _b_end) = two_panes(&mut harness).await;
+    harness.app.terminal_pasted(b, Some("one\ntwo".to_string()));
+    assert!(matches!(harness.app.modal(), Some(crate::modal::Modal::ConfirmPaste { .. })));
+    harness.app.close_terminal_pane(b);
+
+    harness.press(Message::ModalAccepted);
+
+    expect_silence(&mut a_end).await;
+}
+
+#[tokio::test]
+async fn a_session_ending_ends_the_panes_of_every_tab_including_background_ones() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv/data");
+    connect(&mut harness, 4, "beta", "/srv/other");
+    let (a, _a) = open_remote(&mut harness, 3);
+    let (b, _b) = open_split(&mut harness, Direction::Right);
+    harness.app.split_terminal(Direction::Down);
+    let _pending = requested_id(&mut harness);
+    let (c, _c) = open_remote(&mut harness, 4);
+
+    harness.feed(Event::Disconnected { session: 3, name: "alpha".to_string() });
+
+    let drawer = harness.app.drawer();
+    let exited: Vec<(u64, bool)> = drawer.panes.iter().map(|pane| (pane.id, pane.exited.is_some())).collect();
+    assert_eq!(exited, vec![(a, true), (b, true), (c, false)]);
+    assert!(drawer.wanted.is_empty());
+    assert_eq!(drawer.tabs.len(), 2);
+    drawer.assert_consistent();
+}
+
+#[tokio::test]
+async fn an_exited_pane_stays_until_closed() {
+    let mut harness = Harness::new();
+    let (a, _a, b, _b) = two_panes(&mut harness).await;
+
+    exit_shell(&mut harness, b).await;
+
+    assert_eq!(harness.app.drawer().panes.len(), 2);
+    assert!(harness.app.drawer().pane(b).unwrap().exited.is_some());
+    harness.app.close_terminal_pane(b);
+    assert_eq!(harness.app.drawer().tabs[0].layout, Layout::Leaf(a));
+}
+
+#[tokio::test]
+async fn random_sequences_of_operations_keep_the_drawer_consistent() {
+    for seed in [1u64, 7, 42] {
+        let mut harness = Harness::new();
+        connect(&mut harness, 3, "alpha", "/srv/data");
+        connect(&mut harness, 4, "beta", "/srv/other");
+        let mut ends = Vec::new();
+        let mut state = seed;
+        let mut next = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (state >> 33) as usize
+        };
+        let (_first, end) = open_remote(&mut harness, 3);
+        ends.push(end);
+        for _ in 0..150 {
+            let direction = if next() % 2 == 0 { Direction::Right } else { Direction::Down };
+            match next() % 8 {
+                0 | 1 => harness.app.split_terminal(direction),
+                2 => harness.app.close_focused_pane(),
+                3 => {
+                    let ids: Vec<u64> = harness.app.drawer().panes.iter().map(|pane| pane.id).collect();
+                    if !ids.is_empty() {
+                        harness.app.close_terminal_pane(ids[next() % ids.len()]);
+                    }
+                }
+                4 => {
+                    let ids: Vec<u64> = harness.app.drawer().tabs.iter().map(|tab| tab.id).collect();
+                    if !ids.is_empty() {
+                        harness.press(Message::TerminalTabSelected(ids[next() % ids.len()]));
+                    }
+                }
+                5 => harness.app.open_embedded_terminal(TerminalSource::Remote(3 + (next() % 2) as u64)),
+                6 => harness.app.focus_pane_toward([Toward::Left, Toward::Right, Toward::Up, Toward::Down][next() % 4]),
+                _ => {
+                    harness.feed(Event::Disconnected { session: 4, name: "beta".to_string() });
+                    connect(&mut harness, 4, "beta", "/srv/other");
+                }
+            }
+            for (id, session) in requested_ids(&mut harness) {
+                let (stream, end) = shell_pipe();
+                ends.push(end);
+                harness.feed(Event::TerminalOpened { id, session, stream: Handover::new(stream) });
+            }
+            harness.app.drawer().assert_consistent();
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_split_chords_split_and_the_focus_chords_move() {
+    let mut harness = Harness::new();
+    let (first, _a) = opened_and_ready(&mut harness).await;
+
+    tab_chord(&mut harness, Key::Character("d".into()));
+    let pending = requested_id(&mut harness);
+    let (stream, _b) = shell_pipe();
+    harness.feed(Event::TerminalOpened { id: pending, session: 3, stream: Handover::new(stream) });
+    assert_eq!(harness.app.drawer().tabs[0].layout, side(Layout::Leaf(first), Layout::Leaf(pending)));
+
+    tab_chord(&mut harness, Key::Named(Named::ArrowLeft));
+    assert_eq!(focused_pane(&harness), first);
+    tab_chord(&mut harness, Key::Named(Named::ArrowRight));
+    assert_eq!(focused_pane(&harness), pending);
+
+    tab_chord(&mut harness, Key::Character("w".into()));
+    assert_eq!(harness.app.drawer().tabs[0].layout, Layout::Leaf(first));
+}
+
+#[tokio::test]
+async fn layout_chords_never_reach_the_shell() {
+    let mut harness = Harness::new();
+    let (_a, mut first_end, _b, mut second_end) = two_panes(&mut harness).await;
+
+    for key in [
+        Key::Named(Named::ArrowLeft),
+        Key::Named(Named::ArrowRight),
+        Key::Named(Named::ArrowUp),
+        Key::Named(Named::ArrowDown),
+        Key::Character("d".into()),
+    ] {
+        tab_chord(&mut harness, key);
+    }
+
+    expect_silence(&mut first_end).await;
+    expect_silence(&mut second_end).await;
+}
+
+#[tokio::test]
+async fn layout_chords_work_while_the_search_bar_is_open_and_in_an_exited_pane() {
+    let mut harness = Harness::new();
+    let (first, _a, second, _b) = two_panes(&mut harness).await;
+    open_search(&mut harness);
+
+    tab_chord(&mut harness, Key::Named(Named::ArrowLeft));
+    assert_eq!(focused_pane(&harness), first);
+
+    exit_shell(&mut harness, first).await;
+    tab_chord(&mut harness, Key::Named(Named::ArrowRight));
+    assert_eq!(focused_pane(&harness), second);
+    tab_chord(&mut harness, Key::Named(Named::ArrowLeft));
+    assert_eq!(focused_pane(&harness), first);
+    tab_chord(&mut harness, Key::Character("w".into()));
+    assert!(harness.app.drawer().pane(first).is_none());
+}
+
+#[tokio::test]
+async fn layout_chords_do_nothing_with_a_modal_open() {
+    let mut harness = Harness::new();
+    let (first, _a, second, _b) = two_panes(&mut harness).await;
+    harness.app.modals.push(crate::modal::Modal::Info { title: "Notice".to_string(), body: "x".to_string() });
+
+    tab_chord(&mut harness, Key::Named(Named::ArrowLeft));
+    tab_chord(&mut harness, Key::Character("w".into()));
+
+    assert_eq!(focused_pane(&harness), second);
+    assert!(harness.app.drawer().pane(first).is_some());
+}
+
+#[tokio::test]
+async fn the_close_pane_action_and_the_close_tab_action_differ() {
+    let mut harness = Harness::new();
+    let (a, _a, _b, _b2) = two_panes(&mut harness).await;
+
+    run_action(&mut harness, crate::shortcuts::Action::TerminalClosePane);
+    assert_eq!(harness.app.drawer().tabs[0].layout, Layout::Leaf(a));
+
+    let (_c, _c_end) = open_split(&mut harness, Direction::Right);
+    run_action(&mut harness, crate::shortcuts::Action::TerminalCloseTab);
+    assert!(harness.app.drawer().tabs.is_empty());
+}
+
+#[tokio::test]
+async fn the_split_and_focus_actions_work_from_the_palette_path() {
+    let mut harness = Harness::new();
+    let (first, _a) = opened_and_ready(&mut harness).await;
+
+    run_action(&mut harness, crate::shortcuts::Action::TerminalSplitDown);
+    let pending = requested_id(&mut harness);
+    let (stream, _b) = shell_pipe();
+    harness.feed(Event::TerminalOpened { id: pending, session: 3, stream: Handover::new(stream) });
+    run_action(&mut harness, crate::shortcuts::Action::TerminalFocusUp);
+
+    assert_eq!(harness.app.drawer().tabs[0].layout, stacked(Layout::Leaf(first), Layout::Leaf(pending)));
+    assert_eq!(focused_pane(&harness), first);
+}
+
+#[tokio::test]
+async fn a_press_on_an_ended_unfocused_pane_still_focuses_it() {
+    let mut harness = Harness::new();
+    let (first, _a, second, _b) = two_panes(&mut harness).await;
+    assert_eq!(focused_pane(&harness), second);
+    harness.feed(Event::Disconnected { session: 3, name: "alpha".to_string() });
+    assert!(harness.app.drawer().pane(first).unwrap().session.is_none());
+
+    harness.app.route_pointer(first, press(0, 0, 1));
+
+    assert_eq!(focused_pane(&harness), first);
+}
+
+#[tokio::test]
+async fn the_click_that_focused_a_pane_does_not_count_towards_a_double_click() {
+    let mut harness = Harness::new();
+    let (first, _a, _second, _b) = two_panes(&mut harness).await;
+    print_to(&harness, first, "hello world");
+
+    harness.app.route_pointer(first, press(0, 0, 1));
+    harness.app.route_pointer(first, release(0, 0));
+    harness.app.route_pointer(first, press(0, 0, 2));
+
+    assert!(matches!(
+        harness.app.drawer().pane(first).unwrap().gesture,
+        crate::drawer::Gesture::Selecting { clicks: 1, .. }
+    ));
+    harness.app.route_pointer(first, release(0, 0));
+    harness.app.route_pointer(first, press(0, 0, 3));
+    assert!(matches!(
+        harness.app.drawer().pane(first).unwrap().gesture,
+        crate::drawer::Gesture::Selecting { clicks: 2, .. }
+    ));
+    harness.app.route_pointer(first, release(0, 0));
+    harness.app.route_pointer(first, press(0, 0, 1));
+    assert!(matches!(
+        harness.app.drawer().pane(first).unwrap().gesture,
+        crate::drawer::Gesture::Selecting { clicks: 1, .. }
+    ));
+}
+
+#[tokio::test]
+async fn a_split_arriving_closes_the_search_bar_of_the_pane_it_takes_focus_from() {
+    let mut harness = Harness::new();
+    let (first, _a) = opened_and_ready(&mut harness).await;
+    harness.app.split_terminal(Direction::Right);
+    let pending = requested_id(&mut harness);
+    open_search(&mut harness);
+    assert!(harness.app.drawer().pane(first).unwrap().search.open);
+    let (stream, _b) = shell_pipe();
+
+    harness.feed(Event::TerminalOpened { id: pending, session: 3, stream: Handover::new(stream) });
+
+    assert_eq!(focused_pane(&harness), pending);
+    assert!(!harness.app.drawer().pane(first).unwrap().search.open);
 }

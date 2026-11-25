@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, watch};
 use crate::app::Message;
 
 pub mod keys;
+pub mod layout;
 pub mod links;
 pub mod paste;
 pub mod pointer;
@@ -59,14 +60,29 @@ impl fmt::Debug for SharedSession {
     }
 }
 
+pub type TabId = TerminalId;
+
+pub struct TerminalTab {
+    pub id: TabId,
+    pub layout: layout::Layout,
+    pub focus: TerminalId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    NewTab,
+    Split { tab: TabId, target: TerminalId, direction: layout::Direction },
+}
+
 #[derive(Debug, Clone)]
 pub struct Wanted {
     pub id: TerminalId,
     pub source: TerminalSource,
     pub directory: VfsPath,
+    pub placement: Placement,
 }
 
-pub struct TerminalTab {
+pub struct TerminalPane {
     pub id: TerminalId,
     pub source: TerminalSource,
     pub title: String,
@@ -100,9 +116,11 @@ static IDLE_SEARCH: search::SearchState = search::SearchState { open: false, que
 pub struct Drawer {
     pub open: bool,
     pub focused: bool,
+    pub panes: Vec<TerminalPane>,
     pub tabs: Vec<TerminalTab>,
     pub active: usize,
     pub wanted: Vec<Wanted>,
+    pub click_offset: u8,
     last_id: TerminalId,
 }
 
@@ -115,23 +133,66 @@ impl Drawer {
         self.tabs.get_mut(self.active)
     }
 
-    pub fn tab_by_id_mut(&mut self, id: TerminalId) -> Option<&mut TerminalTab> {
-        self.tabs.iter_mut().find(|tab| tab.id == id)
+    pub fn active_pane(&self) -> Option<&TerminalPane> {
+        self.pane(self.active_tab()?.focus)
+    }
+
+    pub fn active_pane_mut(&mut self) -> Option<&mut TerminalPane> {
+        let focus = self.active_tab()?.focus;
+        self.pane_mut(focus)
+    }
+
+    pub fn pane(&self, id: TerminalId) -> Option<&TerminalPane> {
+        self.panes.iter().find(|pane| pane.id == id)
+    }
+
+    pub fn pane_mut(&mut self, id: TerminalId) -> Option<&mut TerminalPane> {
+        self.panes.iter_mut().find(|pane| pane.id == id)
+    }
+
+    pub fn tab_index_of(&self, pane: TerminalId) -> Option<usize> {
+        self.tabs.iter().position(|tab| tab.layout.contains(pane))
     }
 
     pub fn search(&self) -> &search::SearchState {
-        self.active_tab().map_or(&IDLE_SEARCH, |tab| &tab.search)
+        self.active_pane().map_or(&IDLE_SEARCH, |pane| &pane.search)
     }
 
     pub fn shows_focus(&self) -> bool {
         self.open
             && self.focused
-            && (!self.wanted.is_empty() || self.active_tab().is_some_and(|tab| tab.exited.is_none()))
+            && (!self.wanted.is_empty() || self.active_pane().is_some_and(|pane| pane.exited.is_none()))
     }
 
     pub fn allocate_id(&mut self) -> TerminalId {
         self.last_id += 1;
         self.last_id
+    }
+
+    #[cfg(test)]
+    pub fn assert_consistent(&self) {
+        let mut seen = Vec::new();
+        for tab in &self.tabs {
+            let leaves = tab.layout.leaves();
+            assert!(leaves.contains(&tab.focus), "tab {} focus {} is not one of its leaves", tab.id, tab.focus);
+            for leaf in leaves {
+                assert!(self.pane(leaf).is_some(), "leaf {leaf} names no pane");
+                assert!(!seen.contains(&leaf), "pane {leaf} appears in two layouts");
+                seen.push(leaf);
+            }
+        }
+        for pane in &self.panes {
+            assert!(seen.contains(&pane.id), "pane {} is in no layout", pane.id);
+        }
+        let mut ids: Vec<TabId> = self.tabs.iter().map(|tab| tab.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), self.tabs.len(), "duplicate tab ids");
+        if self.tabs.is_empty() {
+            assert_eq!(self.active, 0);
+        } else {
+            assert!(self.active < self.tabs.len(), "active {} out of range", self.active);
+        }
     }
 }
 
@@ -214,7 +275,7 @@ impl Hash for TabFeed {
     }
 }
 
-impl TerminalTab {
+impl TerminalPane {
     pub fn snapshot(&self) -> Option<Snapshot> {
         match &self.session {
             Some(session) => Some(session.snapshot()),
