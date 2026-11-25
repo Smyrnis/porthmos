@@ -477,3 +477,272 @@ async fn a_forwarder_that_prohibits_or_fails_otherwise_gets_the_matching_reply_c
         tunnel.stop().await;
     }
 }
+
+fn remote_kind(listen_port: u16, target: SocketAddr) -> Kind {
+    Kind::Remote {
+        listen: Listen { address: "127.0.0.1".parse().unwrap(), port: listen_port },
+        target: Endpoint { host: target.ip().to_string(), port: target.port() },
+    }
+}
+
+fn remote_spec(listen_port: u16, target: SocketAddr) -> TunnelSpec {
+    TunnelSpec {
+        connection: "prod".to_string(),
+        name: "web".to_string(),
+        kind: remote_kind(listen_port, target),
+        allow_external: false,
+        auto_start: false,
+    }
+}
+
+fn incoming_pair() -> (ForwardStream, tokio::io::DuplexStream) {
+    let (near, far) = tokio::io::duplex(64 * 1024);
+    (Box::new(near), far)
+}
+
+async fn started(remote: &Arc<porthmos_vfs::testing::FakeRemote>, target: SocketAddr) -> RunningTunnel {
+    RunningTunnel::start(&remote_spec(8080, target), remote.clone()).await.unwrap()
+}
+
+struct Hanging;
+
+#[async_trait]
+impl Dialler for Hanging {
+    async fn dial(&self, _host: &str, _port: u16) -> std::io::Result<TcpStream> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_remote_tunnel_dials_the_local_target_and_pipes_both_ways() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let tunnel = started(&remote, echo_server().await).await;
+    let (stream, mut far) = incoming_pair();
+
+    remote.push(stream, "10.0.0.1:5000");
+    far.write_all(b"hello").await.unwrap();
+    let mut echoed = [0u8; 5];
+    timeout(Duration::from_secs(5), far.read_exact(&mut echoed)).await.unwrap().unwrap();
+
+    assert_eq!(&echoed, b"hello");
+    until(|| tunnel.stats().bytes_up == 5 && tunnel.stats().bytes_down == 5).await;
+    assert_eq!(tunnel.stats().connections, 1);
+    tunnel.stop().await;
+}
+
+#[tokio::test]
+async fn port_zero_reports_the_allocated_port_in_local_addr() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    remote.allocate(41234);
+
+    let tunnel = RunningTunnel::start(&remote_spec(0, echo_server().await), remote.clone()).await.unwrap();
+
+    assert_eq!(tunnel.local_addr(), "127.0.0.1:41234".parse().unwrap());
+    assert_eq!(remote.requests(), vec![("127.0.0.1".parse().unwrap(), 0)]);
+    tunnel.stop().await;
+}
+
+#[tokio::test]
+async fn a_refused_listen_is_a_remote_listen_error_naming_the_reason() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    remote.refuse_with("port in use");
+
+    let error = RunningTunnel::start(&remote_spec(8080, echo_server().await), remote.clone()).await.err().unwrap();
+
+    match error {
+        StartError::RemoteListen { address, reason } => {
+            assert_eq!(address, "127.0.0.1:8080");
+            assert!(reason.contains("port in use"), "{reason}");
+        }
+        other => panic!("expected a remote listen error, got {other:?}"),
+    }
+    assert_eq!(remote.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn a_target_that_refuses_counts_an_error_and_the_tunnel_keeps_serving() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let closed = free_port().await;
+    let target = SocketAddr::from(([127, 0, 0, 1], closed));
+    let tunnel = started(&remote, target).await;
+    let (stream, mut far) = incoming_pair();
+
+    remote.push(stream, "a:1");
+    let mut byte = [0u8; 1];
+    let read = timeout(Duration::from_secs(5), far.read(&mut byte)).await.unwrap();
+
+    assert!(matches!(read, Ok(0) | Err(_)));
+    until(|| tunnel.stats().errors == 1).await;
+    let listener = TcpListener::bind(target).await.unwrap();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let (mut reader, mut writer) = stream.split();
+        let _ = tokio::io::copy(&mut reader, &mut writer).await;
+    });
+    let (second, mut far) = incoming_pair();
+    remote.push(second, "b:2");
+    far.write_all(b"ok").await.unwrap();
+    let mut echoed = [0u8; 2];
+    timeout(Duration::from_secs(5), far.read_exact(&mut echoed)).await.unwrap().unwrap();
+    assert_eq!(&echoed, b"ok");
+    tunnel.stop().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_target_that_never_answers_is_abandoned_after_the_dial_timeout() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let listener = remote.listen("127.0.0.1".parse().unwrap(), 8080).await.unwrap();
+    let target = Endpoint { host: "127.0.0.1".to_string(), port: 1 };
+    let tunnel = serve_remote(listener, "127.0.0.1".parse().unwrap(), target, Arc::new(Hanging));
+    let (stream, mut far) = incoming_pair();
+    remote.push(stream, "a:1");
+
+    let mut byte = [0u8; 1];
+    let read = far.read(&mut byte).await;
+
+    assert!(matches!(read, Ok(0) | Err(_)));
+    assert_eq!(tunnel.stats().errors, 1);
+    until(|| tunnel.stats().active == 0).await;
+    let (second, _far) = incoming_pair();
+    remote.push(second, "b:2");
+    until(|| tunnel.stats().connections == 2).await;
+    tunnel.stop().await;
+}
+
+#[tokio::test]
+async fn the_cap_closes_extra_incoming_connections_and_counts_them_refused() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let listener = remote.listen("127.0.0.1".parse().unwrap(), 8080).await.unwrap();
+    let target = Endpoint { host: "127.0.0.1".to_string(), port: 1 };
+    let tunnel = serve_remote(listener, "127.0.0.1".parse().unwrap(), target, Arc::new(Hanging));
+    let mut held = Vec::new();
+    for _ in 0..MAX_CONNECTIONS {
+        let (stream, far) = incoming_pair();
+        remote.push(stream, "a:1");
+        held.push(far);
+    }
+    until(|| tunnel.stats().active == MAX_CONNECTIONS).await;
+
+    let (extra, mut far) = incoming_pair();
+    remote.push(extra, "z:9");
+    let mut byte = [0u8; 1];
+    let read = timeout(Duration::from_secs(5), far.read(&mut byte)).await.unwrap();
+
+    assert!(matches!(read, Ok(0) | Err(_)));
+    let stats = tunnel.stats();
+    assert_eq!((stats.refused, stats.active, stats.connections), (1, MAX_CONNECTIONS, MAX_CONNECTIONS as u64));
+    drop(held);
+    tunnel.stop().await;
+}
+
+#[tokio::test]
+async fn half_close_flows_through_both_ways() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let tunnel = started(&remote, echo_server().await).await;
+    let (stream, mut far) = incoming_pair();
+    remote.push(stream, "a:1");
+
+    far.write_all(b"last words").await.unwrap();
+    far.shutdown().await.unwrap();
+    let mut everything = Vec::new();
+    timeout(Duration::from_secs(5), far.read_to_end(&mut everything)).await.unwrap().unwrap();
+
+    assert_eq!(everything, b"last words");
+    tunnel.stop().await;
+}
+
+#[tokio::test]
+async fn many_parallel_incoming_connections_are_independent() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let tunnel = started(&remote, echo_server().await).await;
+    let mut clients = Vec::new();
+    for index in 0..50u8 {
+        let (stream, far) = incoming_pair();
+        remote.push(stream, "a:1");
+        clients.push(tokio::spawn(async move {
+            let mut far = far;
+            far.write_all(&[index; 8]).await.unwrap();
+            let mut echoed = [0u8; 8];
+            timeout(Duration::from_secs(5), far.read_exact(&mut echoed)).await.unwrap().unwrap();
+            echoed
+        }));
+    }
+
+    for (index, client) in clients.into_iter().enumerate() {
+        assert_eq!(client.await.unwrap(), [index as u8; 8]);
+    }
+    assert_eq!(tunnel.stats().connections, 50);
+    tunnel.stop().await;
+}
+
+#[tokio::test]
+async fn stop_closes_the_listener_and_live_connections_promptly() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let tunnel = started(&remote, echo_server().await).await;
+    let (stream, mut far) = incoming_pair();
+    remote.push(stream, "a:1");
+    far.write_all(b"x").await.unwrap();
+    let mut byte = [0u8; 1];
+    far.read_exact(&mut byte).await.unwrap();
+
+    tunnel.stop().await;
+
+    assert!(remote.closed());
+    let read = timeout(Duration::from_secs(1), far.read(&mut byte)).await.expect("the connection was closed");
+    assert!(matches!(read, Ok(0) | Err(_)));
+}
+
+#[tokio::test]
+async fn dropping_a_running_remote_tunnel_cancels_the_forward() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let tunnel = started(&remote, echo_server().await).await;
+
+    drop(tunnel);
+
+    let watched = remote.clone();
+    until(|| watched.closed()).await;
+}
+
+#[tokio::test]
+async fn the_same_remote_port_can_be_listened_on_again_right_after_stop() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let target = echo_server().await;
+
+    started(&remote, target).await.stop().await;
+    let again = started(&remote, target).await;
+
+    assert_eq!(remote.requests(), vec![("127.0.0.1".parse().unwrap(), 8080); 2]);
+    again.stop().await;
+}
+
+#[tokio::test]
+async fn an_ended_incoming_stream_ends_the_loop_and_aborts_live_connections() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let tunnel = started(&remote, echo_server().await).await;
+    let (stream, mut far) = incoming_pair();
+    remote.push(stream, "a:1");
+    far.write_all(b"x").await.unwrap();
+    let mut byte = [0u8; 1];
+    far.read_exact(&mut byte).await.unwrap();
+
+    remote.end_incoming();
+
+    let read = timeout(Duration::from_secs(2), far.read(&mut byte)).await.expect("the connection was aborted");
+    assert!(matches!(read, Ok(0) | Err(_)));
+    timeout(Duration::from_secs(2), tunnel.stop()).await.expect("stop returns");
+}
+
+#[tokio::test]
+async fn a_remote_spec_that_is_invalid_never_asks_the_server() {
+    let remote = porthmos_vfs::testing::FakeRemote::new();
+    let mut spec = remote_spec(8080, echo_server().await);
+    spec.kind = Kind::Remote {
+        listen: Listen { address: "0.0.0.0".parse().unwrap(), port: 8080 },
+        target: Endpoint { host: "127.0.0.1".to_string(), port: 3000 },
+    };
+
+    let error = RunningTunnel::start(&spec, remote.clone()).await.err().unwrap();
+
+    assert!(matches!(error, StartError::Invalid(SpecError::ExternalNotAllowed)), "{error:?}");
+    assert!(remote.requests().is_empty());
+}

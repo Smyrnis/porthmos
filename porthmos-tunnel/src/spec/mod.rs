@@ -54,6 +54,7 @@ pub struct Listen {
 pub enum Kind {
     Local { listen: Listen, target: Endpoint },
     Dynamic { listen: Listen },
+    Remote { listen: Listen, target: Endpoint },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,7 +72,7 @@ pub struct TunnelKey {
     pub name: String,
 }
 
-fn split_host_port(text: &str) -> Result<(&str, u16), SpecError> {
+fn split_host_port(text: &str, port_zero_allowed: bool) -> Result<(&str, u16), SpecError> {
     let (host, port) = if let Some(rest) = text.strip_prefix('[') {
         let (inside, after) = rest.split_once(']').ok_or(SpecError::BadHost)?;
         (inside, after.strip_prefix(':').ok_or(SpecError::BadPort)?)
@@ -83,12 +84,13 @@ fn split_host_port(text: &str) -> Result<(&str, u16), SpecError> {
         }
         (host, port)
     };
-    Ok((host, parse_port(port)?))
+    Ok((host, parse_port(port, port_zero_allowed)?))
 }
 
-fn parse_port(text: &str) -> Result<u16, SpecError> {
+fn parse_port(text: &str, port_zero_allowed: bool) -> Result<u16, SpecError> {
     match text.parse::<u16>() {
-        Ok(0) | Err(_) => Err(SpecError::BadPort),
+        Ok(0) if !port_zero_allowed => Err(SpecError::BadPort),
+        Err(_) => Err(SpecError::BadPort),
         Ok(port) => Ok(port),
     }
 }
@@ -134,7 +136,7 @@ impl FromStr for Endpoint {
     type Err = SpecError;
 
     fn from_str(text: &str) -> Result<Self, SpecError> {
-        let (host, port) = split_host_port(text)?;
+        let (host, port) = split_host_port(text, false)?;
         if text.starts_with('[') {
             host.parse::<Ipv6Addr>().map_err(|_| SpecError::BadHost)?;
         } else {
@@ -158,9 +160,7 @@ impl FromStr for Listen {
     type Err = SpecError;
 
     fn from_str(text: &str) -> Result<Self, SpecError> {
-        let (host, port) = split_host_port(text)?;
-        let address = host.parse::<IpAddr>().map_err(|_| SpecError::BadHost)?;
-        Ok(Self { address, port })
+        Self::parse(text, false)
     }
 }
 
@@ -171,6 +171,16 @@ impl fmt::Display for Listen {
 }
 
 impl Listen {
+    fn parse(text: &str, port_zero_allowed: bool) -> Result<Self, SpecError> {
+        let (host, port) = split_host_port(text, port_zero_allowed)?;
+        let address = host.parse::<IpAddr>().map_err(|_| SpecError::BadHost)?;
+        Ok(Self { address, port })
+    }
+
+    pub fn parse_server_side(text: &str) -> Result<Self, SpecError> {
+        Self::parse(text, true)
+    }
+
     pub fn is_loopback(&self) -> bool {
         self.address.is_loopback()
     }
@@ -179,7 +189,7 @@ impl Listen {
 impl Kind {
     pub fn listen(&self) -> &Listen {
         match self {
-            Kind::Local { listen, .. } | Kind::Dynamic { listen } => listen,
+            Kind::Local { listen, .. } | Kind::Dynamic { listen } | Kind::Remote { listen, .. } => listen,
         }
     }
 
@@ -187,6 +197,7 @@ impl Kind {
         match self {
             Kind::Local { .. } => "-L",
             Kind::Dynamic { .. } => "-D",
+            Kind::Remote { .. } => "-R",
         }
     }
 }
@@ -210,10 +221,10 @@ impl TunnelSpec {
             return Err(SpecError::NameHasControl);
         }
         let listen = self.kind.listen();
-        if listen.port == 0 {
+        if listen.port == 0 && !matches!(self.kind, Kind::Remote { .. }) {
             return Err(SpecError::BadPort);
         }
-        if let Kind::Local { target, .. } = &self.kind {
+        if let Kind::Local { target, .. } | Kind::Remote { target, .. } = &self.kind {
             if target.port == 0 {
                 return Err(SpecError::BadPort);
             }

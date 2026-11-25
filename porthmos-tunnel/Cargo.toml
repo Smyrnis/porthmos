@@ -11,5 +11,6 @@ porthmos-vfs.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "time", "io-util", "sync"] }
 
 [dev-dependencies]
+porthmos-vfs = { workspace = true, features = ["testing"] }
 anyhow.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "time", "io-util", "sync", "macros", "test-util"] }

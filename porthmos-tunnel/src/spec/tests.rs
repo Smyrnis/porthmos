@@ -228,3 +228,92 @@ fn a_target_host_with_colons_must_be_an_ipv6_literal_and_brackets_are_refused() 
         assert_eq!(spec.validate(), Err(SpecError::BadHost), "{host}");
     }
 }
+
+fn remote(listen_text: &str, target: &str) -> TunnelSpec {
+    TunnelSpec {
+        connection: "prod".to_string(),
+        name: "web".to_string(),
+        kind: Kind::Remote { listen: Listen::parse_server_side(listen_text).unwrap(), target: endpoint(target) },
+        allow_external: false,
+        auto_start: false,
+    }
+}
+
+#[test]
+fn a_remote_spec_may_listen_on_port_zero_but_a_local_one_may_not() {
+    assert_eq!(remote("127.0.0.1:0", "127.0.0.1:3000").validate(), Ok(()));
+    let mut spec = local("127.0.0.1:5432", "db:5432");
+    if let Kind::Local { listen, .. } = &mut spec.kind {
+        listen.port = 0;
+    }
+    assert_eq!(spec.validate(), Err(SpecError::BadPort));
+    let mut socks = dynamic("127.0.0.1:1080");
+    if let Kind::Dynamic { listen } = &mut socks.kind {
+        listen.port = 0;
+    }
+    assert_eq!(socks.validate(), Err(SpecError::BadPort));
+}
+
+#[test]
+fn a_remote_target_port_zero_is_refused() {
+    let mut spec = remote("127.0.0.1:8080", "127.0.0.1:3000");
+    if let Kind::Remote { target, .. } = &mut spec.kind {
+        target.port = 0;
+    }
+
+    assert_eq!(spec.validate(), Err(SpecError::BadPort));
+}
+
+#[test]
+fn a_remote_target_host_is_checked_like_a_local_one() {
+    let cases = [
+        ("", SpecError::EmptyHost),
+        ("a b", SpecError::BadHost),
+        ("a\nb", SpecError::HostHasControl),
+        ("db:5432", SpecError::BadHost),
+        ("[::1]", SpecError::BadHost),
+    ];
+    for (host, expected) in cases {
+        let mut spec = remote("127.0.0.1:8080", "127.0.0.1:3000");
+        if let Kind::Remote { target, .. } = &mut spec.kind {
+            target.host = host.to_string();
+        }
+        assert_eq!(spec.validate(), Err(expected), "{host:?}");
+    }
+}
+
+#[test]
+fn a_non_loopback_remote_bind_needs_the_opt_in() {
+    let mut spec = remote("0.0.0.0:8080", "127.0.0.1:3000");
+    assert_eq!(spec.validate(), Err(SpecError::ExternalNotAllowed));
+    spec.allow_external = true;
+    assert_eq!(spec.validate(), Ok(()));
+    assert_eq!(remote("[::1]:8080", "127.0.0.1:3000").validate(), Ok(()));
+    assert_eq!(remote("[::]:0", "127.0.0.1:3000").validate(), Err(SpecError::ExternalNotAllowed));
+}
+
+#[test]
+fn the_remote_kind_exposes_its_listener_and_label() {
+    let spec = remote("127.0.0.1:0", "127.0.0.1:3000");
+
+    assert_eq!(spec.kind.label(), "-R");
+    assert_eq!(spec.kind.listen(), &Listen::parse_server_side("127.0.0.1:0").unwrap());
+}
+
+#[test]
+fn parse_server_side_accepts_port_zero_and_round_trips_through_display() {
+    for text in ["127.0.0.1:0", "127.0.0.1:8080", "[::1]:0", "[::]:65535"] {
+        let parsed = Listen::parse_server_side(text).unwrap();
+        assert_eq!(parsed.to_string(), text);
+        assert_eq!(Listen::parse_server_side(&parsed.to_string()), Ok(parsed));
+    }
+}
+
+#[test]
+fn parse_server_side_still_refuses_hostnames_and_garbage() {
+    assert_eq!(Listen::parse_server_side("localhost:80"), Err(SpecError::BadHost));
+    assert_eq!(Listen::parse_server_side("1.2.3.4:x"), Err(SpecError::BadPort));
+    assert_eq!(Listen::parse_server_side("1.2.3.4:70000"), Err(SpecError::BadPort));
+    assert!(Listen::parse_server_side("1.2.3.4").is_err());
+    assert!("127.0.0.1:0".parse::<Listen>().is_err());
+}
