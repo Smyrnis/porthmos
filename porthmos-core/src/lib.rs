@@ -44,7 +44,7 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
 pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
 pub use connection_state::ConnectionState;
-pub use engine::{Command, Event, Location, RequestId, SessionId, TerminalId};
+pub use engine::{Command, Event, Location, RequestId, SessionId, TerminalId, TunnelInfo, TunnelStatus};
 pub use error::{
     Severity, connect_failure_message, connection_cancelled, failure_report, search_incomplete_note, user_message,
 };
@@ -54,6 +54,9 @@ pub use panel_memory::PanelKind;
 pub use path_completion::{Completion, CompletionStep, MAX_SHOWN, complete, split_directory};
 pub use paths::{ConfigMigration, Paths};
 pub use porthmos_lfs::{from_os_path, to_os_path};
+pub use porthmos_tunnel::{
+    Endpoint, Kind as TunnelKind, Listen, SpecError, StatsSnapshot as TunnelStats, TunnelKey, TunnelSpec,
+};
 pub use porthmos_vfs::{
     Answer, Choice, CommonField, ConnectionForm, DirItem, Entry, Environment, ErrorKind, FileKind, FileSystem,
     Metadata, OptionField, OptionKind, PortField, Protocol, ProtocolError, Question, SearchEvent, SearchQuery,
@@ -326,6 +329,7 @@ impl CoreBuilder {
         let product_id = "gui";
         let (update_record, update_warning) = update::record::UpdateRecord::load(&paths, product_id);
         let (bookmarks, bookmark_warnings) = config::bookmarks::load(&paths)?;
+        let (tunnels, tunnel_warnings) = config::tunnels::load(&paths)?;
         #[cfg(feature = "update")]
         let (updater, updater_warning) =
             choose_updater(self.updater, self.release_updates, self.settings.update.mode, &paths, &identity);
@@ -342,6 +346,7 @@ impl CoreBuilder {
             env: self.env,
             transfers: self.settings.transfers,
             bookmarks,
+            tunnels,
             secrets: self.secrets.unwrap_or_else(secrets::Secrets::native),
             history,
             last_used,
@@ -375,10 +380,11 @@ impl CoreBuilder {
         for warning in update_warning.into_iter().chain(updater_warning) {
             engine.report(Severity::Warning, warning);
         }
-        for warning in bookmark_warnings {
+        for warning in bookmark_warnings.into_iter().chain(tunnel_warnings) {
             engine.report(Severity::Warning, warning.0);
         }
         engine.publish_bookmarks();
+        engine.publish_tunnels();
         engine.publish_last_used();
         engine.load_ui_state();
         engine.restore_unfinished_transfers();

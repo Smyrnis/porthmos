@@ -88,6 +88,10 @@ impl Paths {
         self.config_dir.join("bookmarks.toml")
     }
 
+    pub fn tunnels_file(&self) -> PathBuf {
+        self.config_dir.join("tunnels.toml")
+    }
+
     pub fn state_file(&self) -> PathBuf {
         self.state_dir.join("state.toml")
     }

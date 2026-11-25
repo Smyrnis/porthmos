@@ -23,6 +23,7 @@ mod sync;
 mod terminal;
 mod test_connection;
 mod transfer;
+mod tunnels;
 mod ui_state;
 mod update;
 
@@ -42,6 +43,7 @@ pub(crate) use reconnect::ReconnectState;
 pub(crate) use reopen::ReopenState;
 pub(crate) use saved_transfers::UnfinishedSaves;
 pub(crate) use sync::SyncState;
+pub(crate) use tunnels::TunnelRun;
 pub(crate) use ui_state::StateGuard;
 pub(crate) use update::UpdateEngine;
 

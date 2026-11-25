@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use porthmos_tunnel::{TunnelKey, TunnelSpec};
+
 use porthmos_vfs::{Answer, Entry, ShellSize, VfsPath};
 
 use crate::{
@@ -92,5 +94,10 @@ pub enum Command {
     RunImport { import_id: u64, rows: Vec<u32> },
     CancelImport { import_id: u64 },
     CheckForUpdate { manual: bool },
+    SaveTunnel { original: Option<TunnelKey>, spec: Box<TunnelSpec> },
+    DeleteTunnel { key: TunnelKey },
+    StartTunnel { key: TunnelKey },
+    StopTunnel { key: TunnelKey },
+    RestartTunnel { key: TunnelKey },
     Shutdown,
 }

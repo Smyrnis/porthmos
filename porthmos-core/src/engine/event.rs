@@ -1,7 +1,8 @@
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use chrono::{DateTime, Utc};
 
+use porthmos_tunnel::{StatsSnapshot, TunnelKey, TunnelSpec};
 use porthmos_vfs::{Entry, Question, ShellInvocation, ShellStream, VfsPath};
 
 use super::{Location, RequestId, SessionId, TerminalId};
@@ -21,6 +22,23 @@ use crate::{
     transfer::{TransferSnapshot, conflicts::ConflictInfo},
     update::UpdateState,
 };
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TunnelStatus {
+    Stopped,
+    Offline,
+    Starting,
+    Running { local: SocketAddr },
+    Failed(Message),
+    Lost,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TunnelInfo {
+    pub spec: TunnelSpec,
+    pub status: TunnelStatus,
+    pub stats: StatsSnapshot,
+}
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -79,4 +97,7 @@ pub enum Event {
     ImportReadFailed { import_id: u64, message: Message },
     ImportDone { import_id: u64, added: usize, skipped: usize },
     Update(UpdateState),
+    Tunnels(Vec<TunnelInfo>),
+    TunnelStatus { key: TunnelKey, status: TunnelStatus },
+    TunnelStats(Vec<(TunnelKey, StatsSnapshot)>),
 }

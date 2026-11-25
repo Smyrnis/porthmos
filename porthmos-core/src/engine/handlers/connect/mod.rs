@@ -159,6 +159,7 @@ impl Engine {
         }
         self.open_start_directory(session);
         self.start_health_probe(session);
+        self.tunnels_connected(&name);
         self.remember_open_connections();
         self.reopen_progressed(&self.book.sessions[&session].name.clone());
     }
@@ -195,6 +196,7 @@ impl Engine {
             return;
         };
         self.stop_health_probe(session);
+        self.stop_tunnels_of(session);
         let was_lost = self.book.lost_sessions.remove(&session);
         self.keep_folder_for_reconnect(session, &live.name, was_lost);
         self.history.remember_session(session, live.name.clone());

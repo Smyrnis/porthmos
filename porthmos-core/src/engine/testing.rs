@@ -45,6 +45,7 @@ fn engine_with(secrets: Secrets) -> TestEngine {
         local_fs: Arc::new(porthmos_lfs::LocalFs::new(dir.path().to_path_buf())),
         transfers: TransferSettings::default(),
         bookmarks: Bookmarks::default(),
+        tunnels: crate::config::tunnels::Tunnels::default(),
         secrets,
         history,
         last_used,

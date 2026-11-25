@@ -15,7 +15,7 @@ use std::{
 };
 
 pub use command::{Command, Location, RequestId, SessionId, TerminalId};
-pub use event::Event;
+pub use event::{Event, TunnelInfo, TunnelStatus};
 use host::Host;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
@@ -103,6 +103,13 @@ pub(crate) enum Internal {
     KeyringProbed {
         available: bool,
     },
+    TunnelStarted {
+        key: porthmos_tunnel::TunnelKey,
+        session: SessionId,
+        start: u64,
+        result: Result<porthmos_tunnel::RunningTunnel, porthmos_tunnel::StartError>,
+    },
+    TunnelTick,
     SessionHealth {
         session: SessionId,
         healthy: bool,
@@ -200,10 +207,12 @@ pub(crate) struct Engine {
     pub(crate) work: transfer_work::TransferWork,
     search: SearchState,
     bookmarks: Bookmarks,
+    pub(crate) tunnels: crate::config::tunnels::Tunnels,
     secrets: Secrets,
     last_used: handlers::LastUsedLog,
     reopen: handlers::ReopenState,
     reconnect: handlers::ReconnectState,
+    tunnel_run: handlers::TunnelRun,
     previews: handlers::PreviewSlots,
     properties: handlers::PropertiesState,
     history: handlers::HistoryLog,
@@ -222,6 +231,7 @@ pub(crate) struct EngineParts {
     pub(crate) local_fs: Arc<dyn FileSystem>,
     pub(crate) transfers: TransferSettings,
     pub(crate) bookmarks: Bookmarks,
+    pub(crate) tunnels: crate::config::tunnels::Tunnels,
     pub(crate) secrets: Secrets,
     pub(crate) history: History,
     pub(crate) last_used: crate::last_used::LastUsed,
@@ -285,10 +295,12 @@ impl Engine {
                 max_results: parts.search.max_results,
             },
             bookmarks: parts.bookmarks,
+            tunnels: parts.tunnels,
             secrets: parts.secrets,
             last_used: handlers::LastUsedLog::new(parts.last_used),
             reopen: handlers::ReopenState::new(parts.reopen),
             reconnect: handlers::ReconnectState::new(parts.reconnect),
+            tunnel_run: handlers::TunnelRun::default(),
             previews: handlers::PreviewSlots::default(),
             properties: handlers::PropertiesState::default(),
             history: handlers::HistoryLog::new(parts.history),
@@ -387,6 +399,11 @@ impl Engine {
             Command::PrepareShell { session, directory } => self.prepare_shell(session, directory),
             Command::PrepareLocalShell { directory } => self.prepare_local_shell(&directory),
             Command::OpenTerminal { id, session, size } => self.open_terminal(id, session, size),
+            Command::SaveTunnel { original, spec } => self.save_tunnel(original, *spec),
+            Command::DeleteTunnel { key } => self.delete_tunnel(&key),
+            Command::StartTunnel { key } => self.start_tunnel(&key),
+            Command::StopTunnel { key } => self.stop_tunnel(&key),
+            Command::RestartTunnel { key } => self.restart_tunnel(&key),
             Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
             Command::RememberOpenGroups { groups } => self.remember_open_groups(groups),
             Command::List { location, path } => self.list(location, path),
@@ -494,6 +511,8 @@ impl Engine {
                 }
             }
             Internal::KeyringProbed { available } => self.emit(Event::KeyringStatus { available }),
+            Internal::TunnelStarted { key, session, start, result } => self.tunnel_started(key, session, start, result),
+            Internal::TunnelTick => self.tunnel_tick(),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::FolderShown { location, path } => self.remember_folder(location, path),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),

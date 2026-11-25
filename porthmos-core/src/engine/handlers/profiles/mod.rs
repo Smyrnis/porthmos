@@ -91,6 +91,9 @@ impl Engine {
         }
 
         let renamed_from = original.filter(|old| *old != profile.name);
+        if let Some(old) = &renamed_from {
+            self.tunnels_connection_renamed(old, &profile.name);
+        }
         let saved_before = preserve_from.map(|entry| entry.in_keyring).unwrap_or_default();
         let secret_keys: Vec<&str> =
             form.options.iter().filter(|field| field.kind == OptionKind::Secret).map(|field| field.key).collect();
@@ -180,6 +183,7 @@ impl Engine {
             return self.list_profiles();
         }
         self.forget_last_used(name);
+        self.tunnels_connection_deleted(name);
         self.book.resume_folders.remove(name);
         self.list_profiles();
         self.forget_profile_secrets(name.to_string(), saved);

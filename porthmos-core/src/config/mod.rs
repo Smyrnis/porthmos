@@ -1,6 +1,7 @@
 pub mod bookmarks;
 pub mod file_edit;
 pub mod settings;
+pub mod tunnels;
 
 use std::{fs, path::Path};
 
