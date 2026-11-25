@@ -197,6 +197,14 @@ impl FileSystem for ScpFs {
         true
     }
 
+    fn can_forward(&self) -> bool {
+        true
+    }
+
+    fn forwarder(&self) -> Option<Arc<dyn porthmos_vfs::PortForwarder>> {
+        Some(Arc::new(porthmos_ssh::SshForwarder::new(self.session.clone())))
+    }
+
     async fn open_shell(
         &self, term: &str, size: porthmos_vfs::ShellSize, env: &[(&str, &str)],
     ) -> Result<porthmos_vfs::ShellStream, ProtocolError> {

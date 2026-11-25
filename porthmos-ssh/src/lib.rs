@@ -3,6 +3,7 @@ pub mod client;
 mod connect;
 mod discovery;
 mod exec;
+mod forward;
 mod jump;
 mod proxy;
 mod quote;
@@ -16,6 +17,7 @@ mod version;
 pub use connect::{ConnectOptions, Session, connect};
 pub use discovery::{DEFAULT_PORT, discover, identity_path, shell_command};
 pub use exec::{ExecChannel, ExecInput, Output, exec, open_exec};
+pub use forward::SshForwarder;
 pub use quote::shell_quote;
 pub use shell_channel::{ShellChannel, ShellInput, ShellSize, open_shell, open_shell_stream};
 
