@@ -1,0 +1,47 @@
+@@T:os
+Linux
+@@T:uid
+0
+@@T:hostname
+3f2a9c0d1b7e
+@@T:osrelease
+@@T:kernel
+5.15.0-91-generic
+@@T:uptime
+351735.47 1520341.12
+@@T:loadavg
+0.52 0.58 0.59 1/467 12345
+@@T:meminfo
+MemTotal:       16384000 kB
+MemFree:         8000000 kB
+MemAvailable:   12000000 kB
+@@T:stat
+cpu  2255 34 2290 22625563 6290 127 456 0 0 0
+cpu0 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu1 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu2 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu3 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu4 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu5 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu6 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu7 1132 17 1441 11311718 3675 127 438 0 0 0
+@@T:netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1234567     1234    0    0    0     0          0         0  1234567     1234    0    0    0     0       0          0
+  eth0: 98765432    90000    0    0    0     0          0         0 12345678    70000    0    0    0     0       0          0
+@@T:df
+Filesystem     1024-blocks    Used Available Capacity Mounted on
+overlay          61255492 9000000  49100000      16% /
+@@T:passwd
+root:0
+@@T:pagesize
+4096
+@@T:status
+/proc/1/status:Uid:	0	0	0	0
+@@T:cmdline
+/proc/1/cmdline:/bin/sh 
+@@T:procs
+/proc/1/stat:1 (sh) S 1 1 1 0 -1 4194560 1000 0 0 0 1 1 0 0 20 0 1 0 5000 100000000 100 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 1 1 1 1 1 1 0
+
+@@T:end

@@ -1,0 +1,54 @@
+@@T:os
+Linux
+@@T:uid
+0
+@@T:hostname
+edge-1
+@@T:osrelease
+NAME="Alpine Linux"
+ID=alpine
+VERSION_ID=3.19.1
+PRETTY_NAME="Alpine Linux v3.19"
+@@T:kernel
+6.6.14-0-lts
+@@T:uptime
+351735.47 1520341.12
+@@T:loadavg
+0.52 0.58 0.59 1/467 12345
+@@T:meminfo
+MemTotal:         504000 kB
+MemFree:           90000 kB
+MemAvailable:     310000 kB
+Buffers:            8000 kB
+Cached:           200000 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+@@T:stat
+cpu  2255 34 2290 22625563 6290 127 456 0 0 0
+cpu0 1132 17 1441 11311718 3675 127 438 0 0 0
+@@T:netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1234567     1234    0    0    0     0          0         0  1234567     1234    0    0    0     0       0          0
+  eth0: 98765432    90000    0    0    0     0          0         0 12345678    70000    0    0    0     0       0          0
+@@T:df
+Filesystem           1024-blocks      Used Available Capacity Mounted on
+/dev/sda3                6143744   1200000   4943744  20% /
+tmpfs                     252000         0    252000   0% /dev/shm
+@@T:passwd
+root:0
+daemon:1
+sshd:22
+@@T:pagesize
+4096
+@@T:status
+/proc/1/status:Uid:	0	0	0	0
+/proc/250/status:Uid:	0	0	0	0
+@@T:cmdline
+/proc/1/cmdline:/sbin/init 
+/proc/250/cmdline:/usr/sbin/sshd -D 
+@@T:procs
+/proc/1/stat:1 (init) S 1 1 1 0 -1 4194560 1000 0 0 0 30 10 0 0 20 0 1 0 5000 100000000 200 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 1 1 1 1 1 1 0
+/proc/250/stat:250 (sshd) S 1 250 250 0 -1 4194560 1000 0 0 0 5 2 0 0 20 0 1 0 5000 100000000 600 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 1 1 1 1 1 1 0
+
+@@T:end

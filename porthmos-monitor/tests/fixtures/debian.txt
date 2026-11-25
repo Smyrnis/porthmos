@@ -1,0 +1,61 @@
+@@T:os
+Linux
+@@T:uid
+1000
+@@T:hostname
+web-01
+@@T:osrelease
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+ID=debian
+@@T:kernel
+6.1.0-18-amd64
+@@T:uptime
+351735.47 1520341.12
+@@T:loadavg
+0.52 0.58 0.59 1/467 12345
+@@T:meminfo
+MemTotal:        4028124 kB
+MemFree:          312000 kB
+MemAvailable:    2500000 kB
+Buffers:          120000 kB
+Cached:          1900000 kB
+SwapCached:            0 kB
+SwapTotal:       1048572 kB
+SwapFree:        1000572 kB
+@@T:stat
+cpu  2255 34 2290 22625563 6290 127 456 0 0 0
+cpu0 1132 17 1441 11311718 3675 127 438 0 0 0
+cpu1 1132 17 1441 11311718 3675 127 438 0 0 0
+@@T:netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1234567     1234    0    0    0     0          0         0  1234567     1234    0    0    0     0       0          0
+  eth0: 98765432    90000    0    0    0     0          0         0 12345678    70000    0    0    0     0       0          0
+@@T:df
+Filesystem     1024-blocks     Used Available Capacity Mounted on
+/dev/vda1         41151808 12345678  26709432      32% /
+tmpfs              2014060        0   2014060       0% /dev/shm
+/dev/vda15          106858     6186    100673       6% /boot/efi
+@@T:passwd
+root:0
+daemon:1
+www-data:33
+alice:1000
+@@T:pagesize
+4096
+@@T:status
+/proc/1/status:Uid:	0	0	0	0
+/proc/512/status:Uid:	33	33	33	33
+/proc/900/status:Uid:	1000	1000	1000	1000
+@@T:cmdline
+/proc/1/cmdline:/sbin/init 
+/proc/512/cmdline:nginx: worker process 
+/proc/900/cmdline:-bash 
+@@T:procs
+/proc/1/stat:1 (systemd) S 1 1 1 0 -1 4194560 1000 0 0 0 100 50 0 0 20 0 1 0 5000 100000000 3000 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 1 1 1 1 1 1 0
+/proc/512/stat:512 (nginx) S 1 512 512 0 -1 4194560 1000 0 0 0 400 200 0 0 20 -5 1 0 5000 100000000 5000 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 1 1 1 1 1 1 0
+/proc/900/stat:900 (bash) S 1 900 900 0 -1 4194560 1000 0 0 0 20 10 0 0 20 0 1 0 5000 100000000 800 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 1 1 1 1 1 1 0
+
+@@T:end

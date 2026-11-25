@@ -4936,6 +4936,7 @@ dependencies = [
  "libc",
  "porthmos-ftp",
  "porthmos-lfs",
+ "porthmos-monitor",
  "porthmos-s3",
  "porthmos-scp",
  "porthmos-sftp",
@@ -5023,6 +5024,10 @@ dependencies = [
  "tracing",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "porthmos-monitor"
+version = "2026.5.0-dev.4"
 
 [[package]]
 name = "porthmos-release"
