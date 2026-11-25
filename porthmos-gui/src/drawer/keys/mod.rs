@@ -19,6 +19,10 @@ pub enum TerminalChord {
     Search,
     PageUp,
     PageDown,
+    NewTab,
+    CloseTab,
+    NextTab,
+    PreviousTab,
 }
 
 pub fn chord_of(press: &KeyPress) -> Option<TerminalChord> {
@@ -29,10 +33,14 @@ pub fn chord_of(press: &KeyPress) -> Option<TerminalChord> {
     if modifiers.control() && modifiers.shift() {
         return match &press.key {
             Key::Named(Named::Space) => Some(TerminalChord::Focus),
+            Key::Named(Named::PageDown) => Some(TerminalChord::NextTab),
+            Key::Named(Named::PageUp) => Some(TerminalChord::PreviousTab),
             Key::Character(text) => match text.to_ascii_lowercase().as_str() {
                 "c" => Some(TerminalChord::Copy),
                 "v" => Some(TerminalChord::Paste),
                 "f" => Some(TerminalChord::Search),
+                "t" => Some(TerminalChord::NewTab),
+                "w" => Some(TerminalChord::CloseTab),
                 _ => None,
             },
             _ => None,

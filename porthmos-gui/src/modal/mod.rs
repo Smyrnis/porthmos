@@ -67,6 +67,13 @@ pub enum Modal {
         pane: properties::PropertiesPane,
     },
     ConfirmClearHistory,
+    OpenLink {
+        target: String,
+    },
+    ConfirmPaste {
+        terminal: porthmos_core::TerminalId,
+        text: String,
+    },
     ConfirmDelete {
         side: PanelSide,
         place: String,
@@ -116,6 +123,7 @@ impl Modal {
                 | Modal::ConfirmDelete { .. }
                 | Modal::ConfirmSyncDelete { .. }
                 | Modal::ConfirmClearHistory
+                | Modal::OpenLink { .. }
                 | Modal::ConfirmQuit { .. }
         )
     }

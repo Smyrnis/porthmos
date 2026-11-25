@@ -505,3 +505,54 @@ async fn the_terminal_copy_and_paste_commands_need_a_terminal() {
         assert!(with.contains(&present.to_string()), "{present} missing from {with:?}");
     }
 }
+
+#[tokio::test]
+async fn the_terminal_tab_commands_need_a_terminal_and_stepping_needs_two() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let without = labels(&harness);
+    for missing in ["Close terminal tab", "Next terminal tab", "Previous terminal tab"] {
+        assert!(!without.contains(&missing.to_string()), "{missing} listed in {without:?}");
+    }
+    assert!(without.contains(&"New terminal tab".to_string()), "{without:?}");
+    named(&mut harness, Named::Escape);
+
+    harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Local);
+    harness.press(Message::ActionRequested(Action::Palette));
+    let one = labels(&harness);
+    assert!(one.contains(&"Close terminal tab".to_string()), "{one:?}");
+    assert!(!one.contains(&"Next terminal tab".to_string()), "{one:?}");
+    named(&mut harness, Named::Escape);
+
+    harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Local);
+    harness.press(Message::ActionRequested(Action::Palette));
+    let two = labels(&harness);
+    for present in ["Next terminal tab", "Previous terminal tab"] {
+        assert!(two.contains(&present.to_string()), "{present} missing from {two:?}");
+    }
+}
+
+#[tokio::test]
+async fn the_directory_commands_appear_once_the_terminal_reports_a_folder() {
+    let mut harness = Harness::new();
+    harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Local);
+    harness.press(Message::ActionRequested(Action::Palette));
+    let before = labels(&harness);
+    assert!(!before.contains(&"Open terminal folder in file pane".to_string()), "{before:?}");
+    assert!(!before.contains(&"Move terminal to file pane folder".to_string()), "{before:?}");
+    named(&mut harness, Named::Escape);
+
+    let id = harness.app.drawer().active_tab().unwrap().id;
+    harness.press(Message::TerminalEventReceived(
+        id,
+        porthmos_term::TerminalEvent::WorkingDirectory(porthmos_term::WorkingDirectory {
+            host: String::new(),
+            path: "/tmp".to_string(),
+        }),
+    ));
+    harness.press(Message::ActionRequested(Action::Palette));
+
+    let after = labels(&harness);
+    assert!(after.contains(&"Open terminal folder in file pane".to_string()), "{after:?}");
+    assert!(after.contains(&"Move terminal to file pane folder".to_string()), "{after:?}");
+}

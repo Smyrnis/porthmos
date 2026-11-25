@@ -95,7 +95,34 @@ fn chord_of_recognises_each_chord_and_nothing_else() {
     assert_eq!(chord_of(character("c"), chord | Modifiers::ALT), None);
     assert_eq!(chord_of(character("x"), chord), None);
     assert_eq!(chord_of(Key::Named(Named::PageUp), Modifiers::empty()), None);
-    assert_eq!(chord_of(Key::Named(Named::PageUp), chord), None);
+    assert_eq!(chord_of(Key::Named(Named::Tab), chord), None);
+}
+
+#[test]
+fn ctrl_shift_t_w_pagedown_pageup_are_tab_chords() {
+    let chord = Modifiers::CTRL | Modifiers::SHIFT;
+    let chord_of = |key: Key| super::chord_of(&press(key, chord, None));
+
+    assert_eq!(chord_of(character("t")), Some(TerminalChord::NewTab));
+    assert_eq!(chord_of(character("T")), Some(TerminalChord::NewTab));
+    assert_eq!(chord_of(character("w")), Some(TerminalChord::CloseTab));
+    assert_eq!(chord_of(Key::Named(Named::PageDown)), Some(TerminalChord::NextTab));
+    assert_eq!(chord_of(Key::Named(Named::PageUp)), Some(TerminalChord::PreviousTab));
+}
+
+#[test]
+fn ctrl_tab_is_forwarded_to_the_terminal_not_a_chord() {
+    let ctrl_tab = press(Key::Named(Named::Tab), Modifiers::CTRL, None);
+
+    assert_eq!(super::chord_of(&ctrl_tab), None);
+    assert!(translate(&ctrl_tab).is_some());
+}
+
+#[test]
+fn shift_pageup_alone_still_scrolls() {
+    let shift_page_up = press(Key::Named(Named::PageUp), Modifiers::SHIFT, None);
+
+    assert_eq!(super::chord_of(&shift_page_up), Some(TerminalChord::PageUp));
 }
 
 #[test]

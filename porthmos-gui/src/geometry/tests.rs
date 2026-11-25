@@ -1,9 +1,9 @@
 use iced::{Point, Size};
 
 use super::{
-    CHROME_HEIGHT, COLUMN_HEADER_HEIGHT, DRAWER_HEADER_HEIGHT, DRAWER_MIN_HEIGHT, DRAWER_WINDOW_SHARE, Hit, LIST_TOP,
-    PATH_BAR_HEIGHT, ROW_HEIGHT, STATUS_HEIGHT, TAB_HEIGHT, TOOLBAR_HEIGHT, TRANSFER_COLUMN_WIDTH, drawer_height,
-    hit_test, labels_visible, list_viewport, scroll_to_show, visible_range,
+    CHROME_HEIGHT, COLUMN_HEADER_HEIGHT, DRAWER_HEADER_HEIGHT, DRAWER_MIN_HEIGHT, DRAWER_WINDOW_SHARE, HAIRLINE, Hit,
+    LIST_TOP, PATH_BAR_HEIGHT, ROW_HEIGHT, STATUS_HEIGHT, TAB_HEIGHT, TOOLBAR_HEIGHT, TRANSFER_COLUMN_WIDTH,
+    drawer_contains, drawer_height, drawer_top, hit_test, labels_visible, list_viewport, scroll_to_show, visible_range,
 };
 use crate::app::PanelSide;
 
@@ -205,4 +205,37 @@ fn the_drawer_always_leaves_room_for_the_chrome_and_one_file_row() {
         assert!(CHROME_HEIGHT + height + ROW_HEIGHT <= window, "{window}: {height}");
         assert!(height > DRAWER_HEADER_HEIGHT, "{window}: {height}");
     }
+}
+
+#[test]
+fn the_drawer_region_is_anchored_above_the_status_rows() {
+    let height = drawer_height(window().height);
+    let top = drawer_top(window(), 0.0);
+
+    assert_eq!(top + height + HAIRLINE + STATUS_HEIGHT, window().height);
+    assert_eq!(drawer_top(window(), 151.0) + height + HAIRLINE + 151.0 + STATUS_HEIGHT, window().height);
+    assert!(drawer_contains(window(), Point::new(100.0, top), 0.0));
+    assert!(drawer_contains(window(), Point::new(100.0, top + height - 0.5), 0.0));
+    assert!(!drawer_contains(window(), Point::new(100.0, top - 0.5), 0.0));
+    assert!(!drawer_contains(window(), Point::new(100.0, top + height), 0.0));
+}
+
+#[test]
+fn the_panel_status_line_above_the_drawer_is_not_part_of_it() {
+    let top = drawer_top(window(), 0.0);
+    let status_line = top - HAIRLINE - STATUS_HEIGHT / 2.0;
+
+    assert!(!drawer_contains(window(), Point::new(100.0, status_line), 0.0));
+}
+
+#[test]
+fn an_open_transfer_queue_pushes_the_drawer_up() {
+    assert_eq!(drawer_top(window(), 0.0) - drawer_top(window(), 150.0), 150.0);
+}
+
+#[test]
+fn the_drawer_region_rejects_nonsense_points() {
+    assert!(!drawer_contains(window(), Point::new(f32::NAN, 500.0), 0.0));
+    assert!(!drawer_contains(window(), Point::new(-1.0, 500.0), 0.0));
+    assert!(!drawer_contains(window(), Point::new(window().width + 1.0, 500.0), 0.0));
 }

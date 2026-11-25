@@ -1,14 +1,16 @@
-use iced::widget::{column, container, row, space, stack, text_input};
+use iced::widget::{column, container, mouse_area, row, space, stack, text_input};
 use iced::{Color, Element, Length, alignment};
+use porthmos_core::TerminalId;
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
 
 use super::button::{compact_button, hinted};
 use super::terminal_grid::terminal_grid;
 use super::text_fit::fit;
-use super::{filled, floating, hairline_across, label};
+use super::{bold_label, filled, floating, hairline_across, label};
 use crate::app::{App, Message};
 use crate::drawer::search::search_status;
+use crate::drawer::{Drawer, TerminalTab};
 use crate::geometry::{DRAWER_HEADER_HEIGHT, drawer_height};
 use crate::shortcuts::Action;
 use crate::theme::Palette;
@@ -16,6 +18,7 @@ use crate::view::spacing::{MD, SM};
 
 const EDGE_WIDTH: f32 = 2.0;
 const TITLE_CELLS: usize = 48;
+const TARGET_CELLS: usize = 64;
 const SEARCH_WIDTH: f32 = 320.0;
 const SEARCH_HEIGHT: f32 = 32.0;
 const SEARCH_INPUT_WIDTH: f32 = 160.0;
@@ -27,7 +30,7 @@ pub fn tab_title(title: &str) -> String {
 
 pub fn search_bar(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
-    let search = &app.drawer().search;
+    let search = app.drawer().search();
     let input = text_input(&tr("Search in terminal"), &search.query)
         .id(App::terminal_search_id())
         .on_input(Message::TerminalSearchTyped)
@@ -93,28 +96,88 @@ pub fn empty_hint(app: &App) -> String {
     hint_text(&app.shortcuts().label_for(Action::Terminal).unwrap_or_default())
 }
 
-fn header<'a>(app: &'a App, title: String, status: Option<String>) -> Element<'a, Message> {
+pub struct TabEntry {
+    pub id: TerminalId,
+    pub label: String,
+    pub active: bool,
+}
+
+pub fn tab_label(tab: &TerminalTab) -> String {
+    let title = tab_title(&tab.title);
+    match exit_text(tab.exited) {
+        Some(status) => format!("{title} · {status}"),
+        None => title,
+    }
+}
+
+pub fn tab_entries(drawer: &Drawer) -> Vec<TabEntry> {
+    drawer
+        .tabs
+        .iter()
+        .enumerate()
+        .map(|(index, tab)| TabEntry { id: tab.id, label: tab_label(tab), active: index == drawer.active })
+        .collect()
+}
+
+pub fn tab_title_color(active: bool, drawer_focused: bool, palette: &Palette) -> Color {
+    if active && drawer_focused { palette.fg_bright } else { palette.fg_muted }
+}
+
+fn tab_button<'a>(entry: TabEntry, focused: bool, palette: &Palette) -> Element<'a, Message> {
+    let color = tab_title_color(entry.active, focused, palette);
+    let title = fit(&entry.label, TITLE_CELLS);
+    let text = if entry.active { bold_label(title, color) } else { label(title, color) };
+    let underline = if entry.active { edge_color(focused, palette) } else { palette.bg };
+    let close = hinted(
+        compact_button("×", Some(Message::TerminalTabClosed(entry.id)), palette),
+        tr("Close terminal tab"),
+        iced::widget::tooltip::Position::Bottom,
+        palette,
+    );
+    let body = row![container(text).padding([0.0, MD]), close].spacing(SM).align_y(alignment::Vertical::Center);
+    let tab = column![
+        container(body).height(Length::Fill).align_y(alignment::Vertical::Center),
+        container(space()).width(Length::Fill).height(EDGE_WIDTH).style(filled(underline)),
+    ];
+    mouse_area(tab).on_press(Message::TerminalTabSelected(entry.id)).into()
+}
+
+pub fn tab_strip(app: &App) -> Element<'_, Message> {
+    let palette = app.palette();
+    let focused = app.drawer().shows_focus();
+    let mut tabs = row![].align_y(alignment::Vertical::Center);
+    for entry in tab_entries(app.drawer()) {
+        tabs = tabs.push(tab_button(entry, focused, palette));
+    }
+    let new_tab = hinted(
+        compact_button("+", Some(Message::TerminalNewTab), palette),
+        tr("New terminal tab"),
+        iced::widget::tooltip::Position::Bottom,
+        palette,
+    );
+    row![container(tabs).clip(true).width(Length::Fill), container(new_tab).padding([0.0, SM])]
+        .align_y(alignment::Vertical::Center)
+        .into()
+}
+
+fn header(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
     let focused = app.drawer().shows_focus();
     let edge = container(space()).width(EDGE_WIDTH).height(Length::Fill).style(filled(edge_color(focused, palette)));
-    let title_color = if focused { palette.fg_bright } else { palette.fg_muted };
-    let mut line = row![label(fit(&title, TITLE_CELLS), title_color)].spacing(SM).align_y(alignment::Vertical::Center);
-    if let Some(status) = status {
-        line = line.push(label(status, palette.fg_dim));
+    let strip: Element<Message> = if app.drawer().tabs.is_empty() {
+        container(label(tab_title(""), palette.fg_dim)).padding([0.0, MD]).align_y(alignment::Vertical::Center).into()
+    } else {
+        tab_strip(app)
+    };
+    let target = app.drawer().active_tab().and_then(|tab| tab.hover.as_ref()).map(|link| {
+        let shown = fit(&link.target, TARGET_CELLS);
+        label(i18n::text_with("gui.terminal.link_target", &[("target", &shown)]), palette.fg_dim)
+    });
+    let mut line = row![edge, container(strip).width(Length::Fill).height(Length::Fill)];
+    if let Some(target) = target {
+        line = line.push(container(target).padding([0.0, MD]).align_y(alignment::Vertical::Center));
     }
-    let close = hinted(
-        compact_button("×", Some(Message::TerminalClosed), palette),
-        tr("Close terminal"),
-        iced::widget::tooltip::Position::Left,
-        palette,
-    );
-    row![
-        edge,
-        container(line).padding([0.0, MD]).width(Length::Fill).align_y(alignment::Vertical::Center),
-        container(close).padding([0.0, SM]).align_y(alignment::Vertical::Center),
-    ]
-    .height(DRAWER_HEADER_HEIGHT)
-    .into()
+    line.height(DRAWER_HEADER_HEIGHT).into()
 }
 
 pub fn view(app: &App) -> Option<Element<'_, Message>> {
@@ -123,7 +186,7 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
         return None;
     }
     let palette = app.palette();
-    let body: Element<Message> = match &drawer.tab {
+    let body: Element<Message> = match drawer.active_tab() {
         Some(tab) => match tab.snapshot() {
             Some(snapshot) => {
                 let id = tab.id;
@@ -135,6 +198,7 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
                     move |size| Message::TerminalResized(id, size),
                     move |event| Message::TerminalPointer(id, event),
                 )
+                .link(tab.hover.as_ref().map_or_else(Vec::new, |link| link.segments.clone()))
                 .into()
             }
             None => container(space()).into(),
@@ -146,17 +210,13 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
             .center_y(Length::Fill)
             .into(),
     };
-    let (title, status) = match &drawer.tab {
-        Some(tab) => (tab_title(&tab.title), exit_text(tab.exited)),
-        None => (tab_title(""), None),
-    };
-    let body: Element<Message> = if drawer.search.open {
+    let body: Element<Message> = if drawer.search().open {
         let bar = container(search_bar(app)).width(Length::Fill).align_x(alignment::Horizontal::Right).padding(SM);
         stack![body, bar].into()
     } else {
         body
     };
-    let page = column![header(app, title, status), hairline_across(palette), body];
+    let page = column![header(app), hairline_across(palette), body];
     Some(
         container(page)
             .width(Length::Fill)

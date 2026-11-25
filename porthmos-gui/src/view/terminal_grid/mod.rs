@@ -9,9 +9,7 @@ use iced::{
     alignment::Vertical,
     font::{Style as FontStyle, Weight},
 };
-use porthmos_term::{
-    Cell, CellWidth, CursorShape, Modes, MouseButton, MouseMode, Side, Snapshot, Style, TermSize, ViewPoint,
-};
+use porthmos_term::{Cell, CellWidth, CursorShape, MouseButton, Side, Snapshot, Style, TermSize, ViewPoint};
 
 use crate::drawer::pointer::{PointerKind, cell_at, wheel_lines};
 
@@ -260,10 +258,6 @@ impl Grab {
     }
 }
 
-pub fn reports_hover(modes: Modes) -> bool {
-    modes.mouse == MouseMode::Motion
-}
-
 pub fn click_count(click: mouse::Click) -> u8 {
     match click.kind() {
         mouse::click::Kind::Single => 1,
@@ -305,6 +299,7 @@ pub struct TerminalGrid<'a, Message> {
     focused: bool,
     on_resize: Box<dyn Fn(TermSize) -> Message + 'a>,
     on_pointer: Box<dyn Fn(PointerEvent) -> Message + 'a>,
+    link: Vec<(u16, std::ops::Range<u16>)>,
 }
 
 pub fn terminal_grid<'a, Message>(
@@ -318,6 +313,14 @@ pub fn terminal_grid<'a, Message>(
         focused,
         on_resize: Box::new(on_resize),
         on_pointer: Box::new(on_pointer),
+        link: Vec::new(),
+    }
+}
+
+impl<Message> TerminalGrid<'_, Message> {
+    pub fn link(mut self, link: Vec<(u16, std::ops::Range<u16>)>) -> Self {
+        self.link = link;
+        self
     }
 }
 
@@ -443,7 +446,7 @@ where
                     if dragging {
                         state.grab.moved(point, side);
                     }
-                    if (dragging || reports_hover(self.snapshot.modes)) && state.moves.changed(point, side) {
+                    if state.moves.changed(point, side) {
                         publish(shell, PointerKind::Move { dragging }, point, side, 0, 0);
                     }
                 }
@@ -529,6 +532,14 @@ where
                         renderer.fill_quad(quad(line), run.color);
                     }
                 }
+            }
+            for (row, columns) in &self.link {
+                let origin = at(columns.start, *row);
+                let line = Rectangle::new(
+                    Point::new(origin.x, origin.y + metrics.height - DECORATION_THICKNESS),
+                    Size::new(f32::from(columns.end - columns.start) * metrics.width, DECORATION_THICKNESS),
+                );
+                renderer.fill_quad(quad(line), self.palette.accent);
             }
             if cursor.visible {
                 let accent = self.palette.accent;

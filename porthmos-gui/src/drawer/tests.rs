@@ -82,9 +82,47 @@ fn the_drawer_shows_focus_only_while_it_can_take_keys() {
     let mut drawer = Drawer { open: true, focused: true, ..Drawer::default() };
     assert!(!drawer.shows_focus());
 
-    drawer.wanted = Some(Wanted { id: 1, source: TerminalSource::Local, directory: VfsPath::new("/") });
+    drawer.wanted = vec![Wanted { id: 1, source: TerminalSource::Local, directory: VfsPath::new("/") }];
     assert!(drawer.shows_focus());
 
     drawer.focused = false;
     assert!(!drawer.shows_focus());
+}
+
+#[cfg(unix)]
+#[test]
+fn dropped_paths_are_quoted_joined_and_followed_by_a_space() {
+    let paths = [std::path::PathBuf::from("/tmp/my file.txt"), std::path::PathBuf::from("/tmp/it's $HOME")];
+
+    let text = dropped_text(&paths).unwrap();
+
+    assert_eq!(
+        text,
+        format!("{} {} ", porthmos_ssh::shell_quote("/tmp/my file.txt"), porthmos_ssh::shell_quote("/tmp/it's $HOME"))
+    );
+    assert!(!text.contains('\n') && !text.contains('\r'));
+}
+
+#[test]
+fn a_dropped_path_with_control_characters_has_no_text() {
+    for hostile in ["/tmp/a\nb", "/tmp/a\rb", "/tmp/a\u{1b}[31mb", "/tmp/a\u{7f}b"] {
+        assert_eq!(dropped_text(&[std::path::PathBuf::from(hostile)]), None, "{hostile:?}");
+    }
+    assert_eq!(dropped_text(&[]), None);
+}
+
+#[test]
+fn windows_quoting_refuses_every_character_a_shell_would_expand() {
+    assert_eq!(windows_quoted("C:\\Users\\me\\a b.txt"), Some("\"C:\\Users\\me\\a b.txt\"".to_string()));
+    for hostile in [
+        "C:\\$(calc).txt",
+        "C:\\`x`.txt",
+        "C:\\%PATH%.txt",
+        "C:\\a!b.txt",
+        "C:\\a\"b.txt",
+        "C:\\a&b.txt",
+        "C:\\a;b.txt",
+    ] {
+        assert_eq!(windows_quoted(hostile), None, "{hostile:?}");
+    }
 }

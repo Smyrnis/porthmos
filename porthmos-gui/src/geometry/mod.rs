@@ -28,6 +28,20 @@ pub fn drawer_height(window_height: f32) -> f32 {
     (window_height * DRAWER_WINDOW_SHARE).max(DRAWER_MIN_HEIGHT).min(room).max(DRAWER_HEADER_HEIGHT + HAIRLINE)
 }
 
+pub fn drawer_top(window: Size, queue_below: f32) -> f32 {
+    let drawer = drawer_height(window.height) + HAIRLINE;
+    let list_height = (window.height - CHROME_HEIGHT - queue_below - drawer).max(ROW_HEIGHT);
+    LIST_TOP + list_height + HAIRLINE + STATUS_HEIGHT + HAIRLINE
+}
+
+pub fn drawer_contains(window: Size, point: Point, queue_below: f32) -> bool {
+    if !point.x.is_finite() || !point.y.is_finite() || point.x < 0.0 || point.x >= window.width {
+        return false;
+    }
+    let top = drawer_top(window, queue_below);
+    point.y >= top && point.y < top + drawer_height(window.height)
+}
+
 pub fn labels_visible(window_width: f32) -> bool {
     window_width >= LABELS_MIN_WIDTH
 }

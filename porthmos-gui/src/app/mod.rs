@@ -266,7 +266,9 @@ pub enum Message {
     TerminalSearchClosed,
     TerminalPasted(porthmos_core::TerminalId, Option<String>),
     TerminalPointer(porthmos_core::TerminalId, crate::view::terminal_grid::PointerEvent),
-    TerminalClosed,
+    TerminalTabSelected(porthmos_core::TerminalId),
+    TerminalTabClosed(porthmos_core::TerminalId),
+    TerminalNewTab,
     TerminalResized(porthmos_core::TerminalId, porthmos_term::TermSize),
     QueueRowPressed(RowKind, RowButton),
     QueueClearFinished,
@@ -1178,7 +1180,10 @@ impl App {
             Message::MainWindowOpened => return self.native_task(),
             Message::WindowOpened(id) => return self.focus_new_window(id),
             Message::ShutdownFinished => return iced::exit(),
-            Message::ModifiersChanged(modifiers) => self.modifiers = modifiers,
+            Message::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers;
+                self.clear_link_hover_without_ctrl();
+            }
             Message::PanelClicked(side, row) => {
                 let modifiers = Modifiers { ctrl: self.modifiers.command(), shift: self.modifiers.shift() };
                 if let Some(pane) = self.side_mut(side) {
@@ -1501,7 +1506,9 @@ impl App {
             Message::TerminalSearchClosed => self.close_terminal_search(),
             Message::TerminalPasted(id, text) => self.terminal_pasted(id, text),
             Message::TerminalPointer(id, event) => return self.terminal_pointer(id, event),
-            Message::TerminalClosed => self.close_terminal(),
+            Message::TerminalTabSelected(id) => self.select_terminal_tab(id),
+            Message::TerminalTabClosed(id) => self.close_terminal_tab(id),
+            Message::TerminalNewTab => self.new_terminal_tab(),
             Message::TerminalResized(id, size) => self.terminal_resized(id, size),
         }
         self.resync_scroll(&before)
@@ -1730,6 +1737,11 @@ impl App {
         if paths.is_empty() {
             return;
         }
+        if let Some(point) = at
+            && self.drop_into_terminal(point, &paths)
+        {
+            return;
+        }
         let (entries, problems) = entries_from_paths(&paths);
         for problem in problems {
             self.push_notice(Severity::Warning, problem);
@@ -1874,6 +1886,8 @@ impl App {
                 self.core.send(Command::AddBookmark { label: text.trim().to_string(), location, path });
             }
             (true, Modal::ConfirmClearHistory) => self.core.send(Command::ClearHistory),
+            (true, Modal::OpenLink { target }) => self.open_link(target),
+            (true, Modal::ConfirmPaste { terminal, text }) => self.write_paste(terminal, text),
             (true, Modal::SyncOptions { session, direction, by, subfolders, mirror, .. }) => {
                 self.start_sync(session, SyncOptions { direction, by, subfolders, mirror })
             }
@@ -1969,14 +1983,18 @@ impl App {
         if self.closing {
             return Task::none();
         }
-        if self.drawer.search.open && self.modals.is_empty() && self.tool.is_none() {
+        if self.drawer.search().open && self.modals.is_empty() && self.tool.is_none() {
             if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
                 self.close_terminal_search();
                 return Task::none();
             }
             return match crate::drawer::keys::chord_of(&press) {
                 Some(crate::drawer::keys::TerminalChord::Search) => self.open_terminal_search(),
-                _ => Task::none(),
+                Some(chord) => {
+                    self.tab_chord(chord);
+                    Task::none()
+                }
+                None => Task::none(),
             };
         }
         if self.terminal_has_keys() {
@@ -2029,7 +2047,11 @@ impl App {
         if let Some(modal) = self.modals.front() {
             let enter_accepts = matches!(
                 modal,
-                Modal::Info { .. } | Modal::EditQuestion { .. } | Modal::EditWaiting { .. } | Modal::SyncOptions { .. }
+                Modal::Info { .. }
+                    | Modal::EditQuestion { .. }
+                    | Modal::EditWaiting { .. }
+                    | Modal::SyncOptions { .. }
+                    | Modal::ConfirmPaste { .. }
             );
             let enter_declines = modal.is_risky_to_accept();
             match &press.key {
@@ -2265,6 +2287,12 @@ impl App {
             Action::TerminalCopy => return self.terminal_copy(),
             Action::TerminalPaste => return self.terminal_paste(),
             Action::TerminalSearch => return self.open_terminal_search(),
+            Action::TerminalNewTab => self.new_terminal_tab(),
+            Action::TerminalCloseTab => self.close_active_terminal_tab(),
+            Action::TerminalNextTab => self.step_terminal_tab(true),
+            Action::TerminalPreviousTab => self.step_terminal_tab(false),
+            Action::TerminalOpenDirectory => self.open_terminal_directory(),
+            Action::TerminalChangeDirectory => self.change_terminal_directory(),
             Action::Search => return self.open_search(),
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),

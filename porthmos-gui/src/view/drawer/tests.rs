@@ -82,3 +82,74 @@ fn the_floating_surface_uses_the_surface_fill_and_a_strong_border() {
     assert_eq!(style.border.width, 1.0);
     assert_eq!(style.border.radius, 6.0.into());
 }
+
+fn open_two_tabs() -> (Harness, u64, u64) {
+    use porthmos_core::{Entry, Event, Handover, Location, VfsPath};
+    let mut harness = Harness::new();
+    harness.feed(Event::Connected { session: 3, name: "alpha".to_string(), shell_available: false });
+    harness.feed(Event::Listed {
+        location: Location::Session(3),
+        path: VfsPath::new("/srv"),
+        entries: Vec::<Entry>::new(),
+    });
+    let mut ids = Vec::new();
+    for _ in 0..2 {
+        harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Remote(3));
+        let id = harness
+            .sent()
+            .into_iter()
+            .find_map(|command| match command {
+                porthmos_core::Command::OpenTerminal { id, .. } => Some(id),
+                _ => None,
+            })
+            .unwrap();
+        let (stream, end) = crate::testing::shell_pipe();
+        std::mem::forget(end);
+        harness.feed(Event::TerminalOpened { id, session: 3, stream: Handover::new(stream) });
+        ids.push(id);
+    }
+    (harness, ids[0], ids[1])
+}
+
+#[tokio::test]
+async fn a_tab_label_shows_the_title_or_terminal_and_the_exit_status() {
+    let (mut harness, first, second) = open_two_tabs();
+    harness.press(crate::app::Message::TerminalEventReceived(first, porthmos_term::TerminalEvent::Title("vim".into())));
+    harness.press(crate::app::Message::TerminalEventReceived(second, porthmos_term::TerminalEvent::Exited(Some(3))));
+
+    let labels: Vec<String> = harness.app.drawer().tabs.iter().map(tab_label).collect();
+
+    assert_eq!(labels, vec!["vim".to_string(), "Terminal · Exited (3)".to_string()]);
+}
+
+#[tokio::test]
+async fn the_strip_lists_one_entry_per_tab_and_marks_the_active_one() {
+    let (mut harness, first, second) = open_two_tabs();
+
+    let entries = tab_entries(harness.app.drawer());
+    assert_eq!(
+        entries.iter().map(|entry| (entry.id, entry.active)).collect::<Vec<_>>(),
+        vec![(first, false), (second, true)]
+    );
+
+    harness.press(crate::app::Message::TerminalTabSelected(first));
+    let entries = tab_entries(harness.app.drawer());
+    assert_eq!(entries.iter().map(|entry| entry.active).collect::<Vec<_>>(), vec![true, false]);
+}
+
+#[tokio::test]
+async fn the_drawer_with_several_tabs_builds() {
+    let (harness, _first, _second) = open_two_tabs();
+
+    assert!(view(&harness.app).is_some());
+    let _ = tab_strip(&harness.app);
+}
+
+#[test]
+fn an_inactive_tab_uses_the_muted_title_colour() {
+    let palette = palette();
+
+    assert_eq!(tab_title_color(true, true, &palette), palette.fg_bright);
+    assert_eq!(tab_title_color(false, true, &palette), palette.fg_muted);
+    assert_eq!(tab_title_color(true, false, &palette), palette.fg_muted);
+}

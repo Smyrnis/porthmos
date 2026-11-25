@@ -221,6 +221,25 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             body_text(tr("Clear the whole transfer history?"), palette),
             cautious_buttons(&tr("Clear"), &tr("Cancel"), palette),
         ),
+        Modal::ConfirmPaste { text, .. } => (
+            tr("Paste several lines?"),
+            body_text(
+                porthmos_core::i18n::text_with(
+                    "gui.terminal.paste_question",
+                    &[
+                        ("count", &crate::drawer::paste::paste_line_count(text).to_string()),
+                        ("preview", &crate::drawer::paste::paste_preview(text)),
+                    ],
+                ),
+                palette,
+            ),
+            buttons(&tr("Paste"), &tr("Cancel"), palette),
+        ),
+        Modal::OpenLink { target } => (
+            tr("Open link?"),
+            body_text(porthmos_core::i18n::text_with("gui.terminal.link_question", &[("target", target)]), palette),
+            cautious_buttons(&tr("Open"), &tr("Cancel"), palette),
+        ),
         Modal::Permissions { mode, entries, recursive, .. } => (
             permissions_title(entries),
             permissions_body(*mode, *recursive, entries.iter().any(|entry| entry.is_dir), palette),

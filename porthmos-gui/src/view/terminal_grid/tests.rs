@@ -265,14 +265,3 @@ fn abandoning_a_grab_yields_a_release_once() {
     assert_eq!(grab.abandon(), Some((MouseButton::Right, ViewPoint { row: 1, column: 2 }, Side::Left)));
     assert_eq!(grab.abandon(), None);
 }
-
-#[test]
-fn hover_is_reported_only_when_a_program_asked_for_all_motion() {
-    use porthmos_term::MouseMode;
-    let with = |mouse| Modes { mouse, ..Modes::default() };
-
-    assert!(!reports_hover(with(MouseMode::Off)));
-    assert!(!reports_hover(with(MouseMode::Click)));
-    assert!(!reports_hover(with(MouseMode::Drag)));
-    assert!(reports_hover(with(MouseMode::Motion)));
-}

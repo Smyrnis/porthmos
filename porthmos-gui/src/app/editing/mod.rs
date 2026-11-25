@@ -15,6 +15,7 @@ use porthmos_core::edit::launch::{CommandSpec, EditorKind, Platform, classify, d
 pub enum JobRole {
     Edit { edit_id: u64, default_app: bool },
     Terminal,
+    Link,
 }
 
 impl App {
@@ -89,6 +90,7 @@ impl App {
         let (edit_id, default_app) = match role {
             JobRole::Edit { edit_id, default_app } => (edit_id, default_app),
             JobRole::Terminal => return self.terminal_finished(exit),
+            JobRole::Link => return self.link_finished(exit),
         };
         if default_app {
             if exit == EditorExit::Success {

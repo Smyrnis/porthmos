@@ -10,12 +10,16 @@ use iced::{
     futures::{StreamExt, stream},
 };
 use porthmos_core::{Handover, SessionId, ShellSize, ShellStream, TerminalId, VfsPath};
-use porthmos_term::{MouseButton, Side, Snapshot, TermSize, TerminalEvent, TerminalSession, Transport, ViewPoint};
+use porthmos_term::{
+    DirectoryTracker, MouseButton, Side, Snapshot, TermSize, TerminalEvent, TerminalSession, Transport, ViewPoint,
+};
 use tokio::sync::{mpsc, watch};
 
 use crate::app::Message;
 
 pub mod keys;
+pub mod links;
+pub mod paste;
 pub mod pointer;
 pub mod search;
 
@@ -71,6 +75,10 @@ pub struct TerminalTab {
     pub events: Handover<mpsc::Receiver<TerminalEvent>>,
     pub exited: Option<Option<u32>>,
     pub size: TermSize,
+    pub gesture: Gesture,
+    pub search: search::SearchState,
+    pub directory: DirectoryTracker,
+    pub hover: Option<links::Link>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -86,28 +94,74 @@ pub enum Gesture {
     },
 }
 
+static IDLE_SEARCH: search::SearchState = search::SearchState { open: false, query: String::new(), missed: false };
+
 #[derive(Default)]
 pub struct Drawer {
     pub open: bool,
     pub focused: bool,
-    pub tab: Option<TerminalTab>,
-    pub wanted: Option<Wanted>,
-    pub gesture: Gesture,
-    pub search: search::SearchState,
+    pub tabs: Vec<TerminalTab>,
+    pub active: usize,
+    pub wanted: Vec<Wanted>,
     last_id: TerminalId,
 }
 
 impl Drawer {
+    pub fn active_tab(&self) -> Option<&TerminalTab> {
+        self.tabs.get(self.active)
+    }
+
+    pub fn active_tab_mut(&mut self) -> Option<&mut TerminalTab> {
+        self.tabs.get_mut(self.active)
+    }
+
+    pub fn tab_by_id_mut(&mut self, id: TerminalId) -> Option<&mut TerminalTab> {
+        self.tabs.iter_mut().find(|tab| tab.id == id)
+    }
+
+    pub fn search(&self) -> &search::SearchState {
+        self.active_tab().map_or(&IDLE_SEARCH, |tab| &tab.search)
+    }
+
     pub fn shows_focus(&self) -> bool {
         self.open
             && self.focused
-            && (self.wanted.is_some() || self.tab.as_ref().is_some_and(|tab| tab.exited.is_none()))
+            && (!self.wanted.is_empty() || self.active_tab().is_some_and(|tab| tab.exited.is_none()))
     }
 
     pub fn allocate_id(&mut self) -> TerminalId {
         self.last_id += 1;
         self.last_id
     }
+}
+
+pub fn windows_quoted(path: &str) -> Option<String> {
+    const EXPANDED: [char; 8] = ['$', '`', '%', '!', '"', '&', ';', '|'];
+    if path.contains(EXPANDED) {
+        return None;
+    }
+    Some(format!("\"{path}\""))
+}
+
+pub fn dropped_text(paths: &[std::path::PathBuf]) -> Option<String> {
+    if paths.is_empty() {
+        return None;
+    }
+    let mut text = String::new();
+    for path in paths {
+        let path = path.to_string_lossy();
+        if path.chars().any(|character| character.is_control() || character == char::REPLACEMENT_CHARACTER) {
+            return None;
+        }
+        if cfg!(windows) {
+            text.push_str(&windows_quoted(&path)?);
+            text.push(' ');
+        } else {
+            text.push_str(&porthmos_ssh::shell_quote(&path));
+            text.push(' ');
+        }
+    }
+    Some(text)
 }
 
 pub fn into_transport(stream: ShellStream) -> Transport {
