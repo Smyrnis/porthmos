@@ -239,6 +239,9 @@ impl Engine {
                     StartError::Bind { address, reason } => {
                         i18n::text_with("tunnels.bind_failed", &[("address", &address), ("reason", &reason)])
                     }
+                    StartError::RemoteListen { address, reason } => {
+                        i18n::text_with("tunnels.remote_listen_failed", &[("address", &address), ("reason", &reason)])
+                    }
                 };
                 self.tunnel_failed(&key, Message::new(text));
             }

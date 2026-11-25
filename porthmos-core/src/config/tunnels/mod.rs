@@ -8,6 +8,7 @@ use crate::persist::{Loaded, read_or_set_aside, toml_problem, write_atomic};
 
 const LOCAL: &str = "local";
 const DYNAMIC: &str = "dynamic";
+const REMOTE: &str = "remote";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunnelsError {
@@ -138,8 +139,8 @@ pub fn spec_error_text(error: SpecError) -> String {
 }
 
 fn into_spec(raw: RawTunnel) -> Result<TunnelSpec, String> {
-    let listen =
-        raw.listen.parse::<Listen>().map_err(|error| format!("the listen address: {}", problem_text(error)))?;
+    let parsed = if raw.kind == REMOTE { Listen::parse_server_side(&raw.listen) } else { raw.listen.parse::<Listen>() };
+    let listen = parsed.map_err(|error| format!("the listen address: {}", problem_text(error)))?;
     let kind = match raw.kind.as_str() {
         LOCAL => {
             let target = raw.target.as_deref().ok_or_else(|| "a local tunnel needs a target".to_string())?;
@@ -147,7 +148,12 @@ fn into_spec(raw: RawTunnel) -> Result<TunnelSpec, String> {
             Kind::Local { listen, target }
         }
         DYNAMIC => Kind::Dynamic { listen },
-        other => return Err(format!("the kind \"{other}\" is not local or dynamic")),
+        REMOTE => {
+            let target = raw.target.as_deref().ok_or_else(|| "a remote tunnel needs a target".to_string())?;
+            let target = target.parse::<Endpoint>().map_err(|error| format!("the target: {}", problem_text(error)))?;
+            Kind::Remote { listen, target }
+        }
+        other => return Err(format!("the kind \"{other}\" is not local, remote or dynamic")),
     };
     let spec = TunnelSpec {
         connection: raw.connection,
@@ -163,6 +169,7 @@ fn into_raw(spec: &TunnelSpec) -> RawTunnel {
     let (kind, target) = match &spec.kind {
         Kind::Local { target, .. } => (LOCAL, Some(target.to_string())),
         Kind::Dynamic { .. } => (DYNAMIC, None),
+        Kind::Remote { target, .. } => (REMOTE, Some(target.to_string())),
     };
     RawTunnel {
         connection: spec.connection.clone(),

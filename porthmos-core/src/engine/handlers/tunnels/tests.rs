@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use porthmos_tunnel::{Endpoint, Kind, Listen, TunnelKey, TunnelSpec};
 use porthmos_vfs::{
     FileSystem, ForwardStream, PortForwarder, ProtocolError, async_trait,
-    testing::{FakeFs, FakeProtocol},
+    testing::{FakeFs, FakeProtocol, FakeRemote},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -607,4 +607,151 @@ async fn a_connection_that_recovers_on_the_same_session_restarts_only_auto_start
 
     running(&mut t, &auto_key).await;
     assert_eq!(status(&t, &manual_key), TunnelStatus::Stopped);
+}
+
+fn remote(connection: &str, name: &str, listen_port: u16) -> TunnelSpec {
+    TunnelSpec {
+        connection: connection.to_string(),
+        name: name.to_string(),
+        kind: Kind::Remote {
+            listen: Listen { address: "127.0.0.1".parse().unwrap(), port: listen_port },
+            target: Endpoint { host: "127.0.0.1".to_string(), port: 3000 },
+        },
+        allow_external: false,
+        auto_start: false,
+    }
+}
+
+fn listening_fs(remote: &Arc<FakeRemote>) -> Arc<dyn FileSystem> {
+    Arc::new(FakeFs::new().with_forwarder(remote.clone()))
+}
+
+#[tokio::test]
+async fn starting_a_remote_tunnel_listens_on_the_server_and_reports_the_allocated_port() {
+    let mut t = test_engine();
+    let server = FakeRemote::new();
+    server.allocate(41000);
+    t.add_session_with("prod", listening_fs(&server));
+    save(&mut t, remote("prod", "web", 0));
+    let wanted = key("prod", "web");
+
+    t.engine.handle_command(Command::StartTunnel { key: wanted.clone() });
+    let address = running(&mut t, &wanted).await;
+
+    assert_eq!(address, "127.0.0.1:41000".parse().unwrap());
+    assert_eq!(server.requests(), vec![("127.0.0.1".parse().unwrap(), 0)]);
+    assert!(file_text(&t).contains("listen = \"127.0.0.1:0\""), "{}", file_text(&t));
+}
+
+#[tokio::test]
+async fn a_refused_remote_listen_fails_with_the_servers_reason_and_asks_for_no_other_port() {
+    let mut t = test_engine();
+    let server = FakeRemote::new();
+    server.refuse_with("port in use");
+    t.add_session_with("prod", listening_fs(&server));
+    save(&mut t, remote("prod", "web", 8080));
+    let wanted = key("prod", "web");
+    t.drain();
+
+    t.engine.handle_command(Command::StartTunnel { key: wanted.clone() });
+    running_or_failed(&mut t, &wanted).await;
+
+    let TunnelStatus::Failed(message) = status(&t, &wanted) else { panic!("expected a failure") };
+    assert!(message.to_string().contains("port in use") && message.to_string().contains("127.0.0.1:8080"), "{message}");
+    assert_eq!(server.requests().len(), 1);
+    assert!(t.notices().iter().any(|(severity, _)| *severity == crate::Severity::Error));
+}
+
+#[tokio::test]
+async fn stopping_a_remote_tunnel_closes_the_listener_on_the_server() {
+    let mut t = test_engine();
+    let server = FakeRemote::new();
+    t.add_session_with("prod", listening_fs(&server));
+    save(&mut t, remote("prod", "web", 8080));
+    let wanted = key("prod", "web");
+    t.engine.handle_command(Command::StartTunnel { key: wanted.clone() });
+    running(&mut t, &wanted).await;
+
+    t.engine.handle_command(Command::StopTunnel { key: wanted.clone() });
+
+    assert_eq!(status(&t, &wanted), TunnelStatus::Stopped);
+    timeout(Duration::from_secs(5), async {
+        while !server.closed() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the forward was cancelled");
+}
+
+#[tokio::test]
+async fn restarting_a_remote_tunnel_listens_again_on_the_same_port() {
+    let mut t = test_engine();
+    let server = FakeRemote::new();
+    t.add_session_with("prod", listening_fs(&server));
+    save(&mut t, remote("prod", "web", 8080));
+    let wanted = key("prod", "web");
+    t.engine.handle_command(Command::StartTunnel { key: wanted.clone() });
+    running(&mut t, &wanted).await;
+
+    t.engine.handle_command(Command::RestartTunnel { key: wanted.clone() });
+    running(&mut t, &wanted).await;
+
+    assert_eq!(server.requests(), vec![("127.0.0.1".parse().unwrap(), 8080); 2]);
+}
+
+#[tokio::test]
+async fn a_lost_connection_stops_a_remote_tunnel_and_marks_it_lost() {
+    let mut t = test_engine();
+    let server = FakeRemote::new();
+    let session = t.add_session_with("prod", listening_fs(&server));
+    save(&mut t, remote("prod", "web", 8080));
+    let wanted = key("prod", "web");
+    t.engine.handle_command(Command::StartTunnel { key: wanted.clone() });
+    running(&mut t, &wanted).await;
+
+    t.engine.handle_internal(Internal::SessionHealth { session, healthy: false });
+
+    assert_eq!(status(&t, &wanted), TunnelStatus::Lost);
+    timeout(Duration::from_secs(5), async {
+        while !server.closed() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the forward was cancelled");
+}
+
+#[tokio::test]
+async fn a_protocol_that_can_only_connect_cannot_run_a_remote_tunnel() {
+    let mut t = test_engine();
+    connected(&mut t, "prod").await;
+    save(&mut t, remote("prod", "web", 8080));
+    let wanted = key("prod", "web");
+    t.drain();
+
+    t.engine.handle_command(Command::StartTunnel { key: wanted.clone() });
+    running_or_failed(&mut t, &wanted).await;
+
+    let TunnelStatus::Failed(message) = status(&t, &wanted) else { panic!("expected a failure") };
+    assert!(message.to_string().contains("cannot listen"), "{message}");
+}
+
+#[tokio::test]
+async fn a_non_loopback_remote_bind_without_the_opt_in_is_refused_when_saving() {
+    let mut t = test_engine();
+    let mut open = remote("prod", "open", 8080);
+    open.kind = Kind::Remote {
+        listen: Listen { address: "0.0.0.0".parse().unwrap(), port: 8080 },
+        target: Endpoint { host: "127.0.0.1".to_string(), port: 3000 },
+    };
+    t.drain();
+
+    save(&mut t, open.clone());
+
+    assert_eq!(t.engine.tunnels.iter().count(), 0);
+    assert_eq!(file_text(&t), "");
+    open.allow_external = true;
+    save(&mut t, open);
+    assert_eq!(t.engine.tunnels.iter().count(), 1);
 }

@@ -153,7 +153,7 @@ fn broken_entries_are_dropped_one_by_one_with_a_warning_each() {
     fs::write(
         &path,
         concat!(
-            "[[tunnel]]\nconnection = \"a\"\nname = \"weird\"\nkind = \"remote\"\nlisten = \"127.0.0.1:1\"\n\n",
+            "[[tunnel]]\nconnection = \"a\"\nname = \"weird\"\nkind = \"reverse\"\nlisten = \"127.0.0.1:1\"\n\n",
             "[[tunnel]]\nconnection = \"a\"\nname = \"no-target\"\nkind = \"local\"\nlisten = \"127.0.0.1:2\"\n\n",
             "[[tunnel]]\nconnection = \"a\"\nname = \"bad-listen\"\nkind = \"dynamic\"\nlisten = \"localhost:3\"\n\n",
             "[[tunnel]]\nconnection = \"a\"\nname = \"bad-target\"\nkind = \"local\"\nlisten = \"127.0.0.1:4\"\ntarget = \"nowhere\"\n\n",
@@ -324,4 +324,88 @@ fn skipped_entries_follow_their_connection_when_it_is_renamed_or_deleted() {
     tunnels.remove_connection("b");
     save_to(&path, &tunnels).unwrap();
     assert!(!fs::read_to_string(&path).unwrap().contains("typo"));
+}
+
+fn remote(connection: &str, name: &str, listen_text: &str, target: &str) -> TunnelSpec {
+    TunnelSpec {
+        connection: connection.to_string(),
+        name: name.to_string(),
+        kind: Kind::Remote {
+            listen: Listen::parse_server_side(listen_text).unwrap(),
+            target: target.parse::<Endpoint>().unwrap(),
+        },
+        allow_external: false,
+        auto_start: false,
+    }
+}
+
+#[test]
+fn a_remote_tunnel_round_trips_with_port_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tunnels.toml");
+    let mut tunnels = Tunnels::default();
+    let spec = remote("prod", "preview", "127.0.0.1:0", "127.0.0.1:3000");
+    tunnels.upsert(None, spec.clone()).unwrap();
+
+    save_to(&path, &tunnels).unwrap();
+    let (loaded, warnings) = load_from(&path).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "[[tunnel]]\nconnection = \"prod\"\nname = \"preview\"\nkind = \"remote\"\nlisten = \"127.0.0.1:0\"\ntarget = \"127.0.0.1:3000\"\n"
+    );
+    assert!(warnings.is_empty(), "{:?}", texts(&warnings));
+    assert_eq!(loaded.get(&key("prod", "preview")), Some(&spec));
+}
+
+#[test]
+fn a_non_loopback_remote_bind_needs_the_opt_in_on_load_and_the_entry_stays_in_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tunnels.toml");
+    let entry = |extra: &str| {
+        format!(
+            "[[tunnel]]\nconnection = \"a\"\nname = \"open\"\nkind = \"remote\"\nlisten = \"0.0.0.0:8080\"\ntarget = \"127.0.0.1:3000\"\n{extra}"
+        )
+    };
+    fs::write(&path, entry("")).unwrap();
+
+    let (tunnels, warnings) = load_from(&path).unwrap();
+
+    assert_eq!(tunnels.iter().count(), 0);
+    assert_eq!(warnings.len(), 1, "{:?}", texts(&warnings));
+    save_to(&path, &tunnels).unwrap();
+    assert!(fs::read_to_string(&path).unwrap().contains("0.0.0.0:8080"));
+    fs::write(&path, entry("allow_external = true\n")).unwrap();
+    let (allowed, warnings) = load_from(&path).unwrap();
+    assert!(warnings.is_empty());
+    assert_eq!(names(&allowed), ["a/open"]);
+}
+
+#[test]
+fn a_local_tunnel_with_port_zero_is_still_refused_on_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tunnels.toml");
+    fs::write(
+        &path,
+        "[[tunnel]]\nconnection = \"a\"\nname = \"l\"\nkind = \"local\"\nlisten = \"127.0.0.1:0\"\ntarget = \"db:1\"\n\n[[tunnel]]\nconnection = \"a\"\nname = \"d\"\nkind = \"dynamic\"\nlisten = \"127.0.0.1:0\"\n",
+    )
+    .unwrap();
+
+    let (tunnels, warnings) = load_from(&path).unwrap();
+
+    assert_eq!(tunnels.iter().count(), 0);
+    assert_eq!(warnings.len(), 2);
+}
+
+#[test]
+fn a_remote_entry_without_a_target_is_skipped_with_a_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tunnels.toml");
+    fs::write(&path, "[[tunnel]]\nconnection = \"a\"\nname = \"r\"\nkind = \"remote\"\nlisten = \"127.0.0.1:8080\"\n")
+        .unwrap();
+
+    let (tunnels, warnings) = load_from(&path).unwrap();
+
+    assert_eq!(tunnels.iter().count(), 0);
+    assert!(texts(&warnings)[0].contains("needs a target"), "{:?}", texts(&warnings));
 }

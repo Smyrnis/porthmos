@@ -124,6 +124,7 @@ tunnels:
   connect_first: "Connect to %{connection} first to start the tunnel \"%{name}\""
   cannot_forward: "%{name} can't forward ports"
   bind_failed: "Couldn't listen on %{address}: %{reason}"
+  remote_listen_failed: "The server couldn't listen on %{address}: %{reason}"
   listening: "Tunnel \"%{name}\" is listening on %{address}"
   problem:
     empty_name: "the name is empty"
@@ -942,6 +943,8 @@ gui:
     traffic: "↑ %{up} · ↓ %{down} · %{total_up} sent · %{total_down} received"
     empty: "No tunnels yet. Create one to forward a port through a connection."
     external_warning: "Anyone who can reach this computer on that address can use this tunnel, and the server behind it."
+    remote_external_warning: "Anyone who can reach that port on the server can use this tunnel, and the computer or network behind it."
+    remote_path: "server %{listen} ← %{target}"
     restart_question: "The tunnel \"%{name}\" is running. Restart it now to use the new settings?"
     delete_question: "Delete the tunnel \"%{name}\"? It stops first if it is running."
   toolbar:
@@ -1388,6 +1391,9 @@ label:
   SOCKS_proxy_D_: "SOCKS proxy (-D)"
   Listen_on: "Listen on"
   Forward_to: "Forward to"
+  Remote_forward_R_: "Remote forward (-R)"
+  Server_listens_on: "Server listens on"
+  Local_target: "Local target"
   Allow_other_computers_to_connect: "Allow other computers to connect"
   Start_when_the_connection_connects: "Start when the connection connects"
   Restart_tunnel_: "Restart tunnel?"
