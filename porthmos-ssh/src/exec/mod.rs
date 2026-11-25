@@ -32,6 +32,30 @@ fn closed() -> io::Error {
 }
 
 impl ExecInput {
+    pub(crate) fn new(write: ChannelWriteHalf<Msg>, closed: watch::Receiver<bool>) -> Self {
+        Self { write: Some(write), closed }
+    }
+
+    pub(crate) fn has_ended(&self) -> bool {
+        self.write.is_none() || *self.closed.borrow()
+    }
+
+    pub(crate) async fn window_change(&self, columns: u16, rows: u16) -> io::Result<()> {
+        let write = self.write.as_ref().ok_or_else(closed)?;
+        if *self.closed.borrow() {
+            return Err(closed());
+        }
+        write.window_change(u32::from(columns), u32::from(rows), 0, 0).await.map_err(io::Error::other)
+    }
+
+    pub(crate) fn abandon(&mut self) {
+        if let (Some(write), Ok(runtime)) = (self.write.take(), tokio::runtime::Handle::try_current()) {
+            runtime.spawn(async move {
+                let _ = write.close().await;
+            });
+        }
+    }
+
     pub async fn send(&self, data: &[u8]) -> io::Result<()> {
         let write = self.write.as_ref().ok_or_else(closed)?;
         let mut ended = self.closed.clone();
@@ -74,11 +98,7 @@ impl Drop for ExecChannel {
         if self.finished {
             return;
         }
-        if let (Some(write), Ok(runtime)) = (self.input.write.take(), tokio::runtime::Handle::try_current()) {
-            runtime.spawn(async move {
-                let _ = write.close().await;
-            });
-        }
+        self.input.abandon();
     }
 }
 
@@ -107,7 +127,7 @@ pub async fn open_exec(session: &Session, command: &str) -> Result<ExecChannel, 
         let _ = ended.send(true);
         finished
     });
-    Ok(ExecChannel { input: ExecInput { write: Some(write), closed }, output, done: Some(done), finished: false })
+    Ok(ExecChannel { input: ExecInput::new(write, closed), output, done: Some(done), finished: false })
 }
 
 pub async fn exec(session: &Session, command: &str) -> Result<Output, ProtocolError> {

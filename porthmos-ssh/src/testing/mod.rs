@@ -30,9 +30,17 @@ const HOST_KEY: &str = include_str!("host_key");
 pub struct Options {
     pub hide_scp: bool,
     pub refuse_exec: bool,
+    pub refuse_shell: bool,
     pub max_sessions: Option<usize>,
     pub forwarding: bool,
     pub replace: &'static [(&'static str, &'static str)],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyRequest {
+    pub term: String,
+    pub columns: u32,
+    pub rows: u32,
 }
 
 #[derive(Clone)]
@@ -46,6 +54,9 @@ struct Handler {
     peak: Arc<AtomicUsize>,
     started: Arc<AtomicUsize>,
     forwarded: Arc<AtomicUsize>,
+    pty: Arc<Mutex<Option<PtyRequest>>>,
+    window: Arc<Mutex<Option<(u32, u32)>>>,
+    environment: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl server::Server for Handler {
@@ -162,10 +173,7 @@ impl server::Handler for Handler {
             return session.channel_failure(id);
         };
         if self.options.refuse_exec {
-            self.open.lock().unwrap().remove(&id);
-            session.channel_failure(id)?;
-            let _ = channel.close().await;
-            return Ok(());
+            return self.refuse(id, channel, session).await;
         }
         session.channel_success(id)?;
         let requested = String::from_utf8_lossy(data).into_owned();
@@ -175,6 +183,54 @@ impl server::Handler for Handler {
             .iter()
             .find(|(prefix, _)| requested.starts_with(prefix))
             .map_or(requested.clone(), |(_, replacement)| replacement.to_string());
+        self.run(id, channel, command)
+    }
+
+    async fn pty_request(
+        &mut self, id: ChannelId, term: &str, columns: u32, rows: u32, _: u32, _: u32, _: &[(russh::Pty, u32)],
+        session: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        *self.pty.lock().unwrap() = Some(PtyRequest { term: term.to_string(), columns, rows });
+        session.channel_success(id)
+    }
+
+    async fn shell_request(&mut self, id: ChannelId, session: &mut ServerSession) -> Result<(), Self::Error> {
+        let Some(channel) = self.channels.lock().unwrap().remove(&id) else {
+            return session.channel_failure(id);
+        };
+        if self.options.refuse_shell {
+            return self.refuse(id, channel, session).await;
+        }
+        session.channel_success(id)?;
+        self.run(id, channel, "sh".to_string())
+    }
+
+    async fn env_request(
+        &mut self, _: ChannelId, name: &str, value: &str, _: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        self.environment.lock().unwrap().push((name.to_string(), value.to_string()));
+        Ok(())
+    }
+
+    async fn window_change_request(
+        &mut self, _: ChannelId, columns: u32, rows: u32, _: u32, _: u32, _: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        *self.window.lock().unwrap() = Some((columns, rows));
+        Ok(())
+    }
+}
+
+impl Handler {
+    async fn refuse(
+        &mut self, id: ChannelId, channel: Channel<Msg>, session: &mut ServerSession,
+    ) -> Result<(), russh::Error> {
+        self.open.lock().unwrap().remove(&id);
+        session.channel_failure(id)?;
+        let _ = channel.close().await;
+        Ok(())
+    }
+
+    fn run(&mut self, id: ChannelId, channel: Channel<Msg>, command: String) -> Result<(), russh::Error> {
         let child = Command::new("sh")
             .arg("-c")
             .arg(command)
@@ -228,6 +284,10 @@ pub struct SshServer {
     peak: Arc<AtomicUsize>,
     started: Arc<AtomicUsize>,
     forwarded: Arc<AtomicUsize>,
+    running: Arc<AtomicUsize>,
+    pty: Arc<Mutex<Option<PtyRequest>>>,
+    window: Arc<Mutex<Option<(u32, u32)>>>,
+    environment: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl SshServer {
@@ -244,21 +304,39 @@ impl SshServer {
         let peak = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(AtomicUsize::new(0));
         let forwarded = Arc::new(AtomicUsize::new(0));
+        let running = Arc::new(AtomicUsize::new(0));
+        let pty = Arc::new(Mutex::new(None));
+        let window = Arc::new(Mutex::new(None));
+        let environment = Arc::new(Mutex::new(Vec::new()));
         let mut handler = Handler {
             root: root.path().to_path_buf(),
             path: search_path(options.hide_scp),
             options,
             channels: Arc::default(),
             open: Arc::default(),
-            running: Arc::default(),
+            running: running.clone(),
             peak: peak.clone(),
             started: started.clone(),
             forwarded: forwarded.clone(),
+            pty: pty.clone(),
+            window: window.clone(),
+            environment: environment.clone(),
         };
         tokio::spawn(async move {
             let _ = handler.run_on_socket(config, &listener).await;
         });
-        Self { port, root, known_hosts: tempfile::tempdir().expect("a temporary directory"), peak, started, forwarded }
+        Self {
+            port,
+            root,
+            known_hosts: tempfile::tempdir().expect("a temporary directory"),
+            peak,
+            started,
+            forwarded,
+            running,
+            pty,
+            window,
+            environment,
+        }
     }
 
     pub fn known_hosts(&self) -> PathBuf {
@@ -294,8 +372,24 @@ impl SshServer {
         self.forwarded.load(Ordering::SeqCst)
     }
 
+    pub fn running_commands(&self) -> usize {
+        self.running.load(Ordering::SeqCst)
+    }
+
     pub fn started_commands(&self) -> usize {
         self.started.load(Ordering::SeqCst)
+    }
+
+    pub fn last_pty_request(&self) -> Option<PtyRequest> {
+        self.pty.lock().unwrap().clone()
+    }
+
+    pub fn received_environment(&self) -> Vec<(String, String)> {
+        self.environment.lock().unwrap().clone()
+    }
+
+    pub fn last_window_size(&self) -> Option<(u32, u32)> {
+        *self.window.lock().unwrap()
     }
 }
 

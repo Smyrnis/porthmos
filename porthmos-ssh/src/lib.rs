@@ -7,6 +7,7 @@ mod jump;
 mod proxy;
 mod quote;
 pub mod shell;
+mod shell_channel;
 pub mod ssh_config;
 #[cfg(feature = "testing")]
 pub mod testing;
@@ -16,6 +17,7 @@ pub use connect::{ConnectOptions, Session, connect};
 pub use discovery::{DEFAULT_PORT, discover, identity_path, shell_command};
 pub use exec::{ExecChannel, ExecInput, Output, exec, open_exec};
 pub use quote::shell_quote;
+pub use shell_channel::{ShellChannel, ShellInput, ShellSize, open_shell};
 
 pub const PROXY_FIELD: porthmos_vfs::OptionField = porthmos_vfs::OptionField {
     key: "proxy",
