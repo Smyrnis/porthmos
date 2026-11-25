@@ -1,0 +1,15 @@
+[package]
+name = "porthmos-tunnel"
+description = "Local and dynamic port forwarding over an existing connection for Porthmos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+porthmos-vfs.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "time", "io-util", "sync"] }
+
+[dev-dependencies]
+anyhow.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "time", "io-util", "sync", "macros", "test-util"] }

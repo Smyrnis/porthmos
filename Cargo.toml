@@ -50,6 +50,7 @@ porthmos-lfs = { path = "porthmos-lfs" }
 porthmos-ssh = { path = "porthmos-ssh" }
 porthmos-tls = { path = "porthmos-tls" }
 porthmos-term = { path = "porthmos-term" }
+porthmos-tunnel = { path = "porthmos-tunnel" }
 porthmos-update = { path = "porthmos-update" }
 porthmos-sftp = { path = "protocols/sftp" }
 porthmos-ftp = { path = "protocols/ftp" }

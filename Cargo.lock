@@ -4940,6 +4940,7 @@ dependencies = [
  "porthmos-scp",
  "porthmos-sftp",
  "porthmos-ssh",
+ "porthmos-tunnel",
  "porthmos-update",
  "porthmos-vfs",
  "porthmos-webdav",
@@ -5141,6 +5142,15 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "webpki-roots",
  "x509-parser",
+]
+
+[[package]]
+name = "porthmos-tunnel"
+version = "2026.5.0-dev.4"
+dependencies = [
+ "anyhow",
+ "porthmos-vfs",
+ "tokio",
 ]
 
 [[package]]
