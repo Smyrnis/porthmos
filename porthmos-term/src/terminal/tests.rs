@@ -217,3 +217,15 @@ fn selection_with_resize_and_evicted_history_does_not_panic() {
 
     assert_eq!(terminal.snapshot().cells.len(), 600);
 }
+
+#[test]
+fn modes_match_the_snapshot_without_copying_the_screen() {
+    let mut terminal = terminal(80, 24);
+    assert_eq!(terminal.modes(), terminal.snapshot().modes);
+
+    terminal.feed(b"\x1b[?1h\x1b[?2004h\x1b[?1049h");
+
+    let modes = terminal.modes();
+    assert!(modes.application_cursor && modes.bracketed_paste && modes.alternate_screen);
+    assert_eq!(modes, terminal.snapshot().modes);
+}

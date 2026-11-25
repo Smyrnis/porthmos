@@ -139,6 +139,10 @@ impl Terminal {
         self.size
     }
 
+    pub fn modes(&self) -> Modes {
+        convert_modes(*self.term.mode())
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let grid = self.term.grid();
         let offset = grid.display_offset();
