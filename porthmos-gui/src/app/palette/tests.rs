@@ -554,5 +554,5 @@ async fn the_directory_commands_appear_once_the_terminal_reports_a_folder() {
 
     let after = labels(&harness);
     assert!(after.contains(&"Open terminal folder in file pane".to_string()), "{after:?}");
-    assert!(after.contains(&"Move terminal to file pane folder".to_string()), "{after:?}");
+    assert_eq!(after.contains(&"Move terminal to file pane folder".to_string()), cfg!(not(windows)), "{after:?}");
 }
