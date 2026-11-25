@@ -5,7 +5,9 @@ const BOUNDARIES: &str = "<>\"'`";
 const TRAILING: &str = ".,;:!?'\"]}";
 
 pub fn is_openable(uri: &str) -> bool {
-    if uri.chars().any(|character| character.is_control() || character.is_whitespace()) {
+    if uri.chars().any(|character| {
+        character.is_control() || character.is_whitespace() || crate::events::is_hidden_formatting(character)
+    }) {
         return false;
     }
     let Some((scheme, rest)) = uri.split_once(':') else {

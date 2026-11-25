@@ -40,3 +40,11 @@ fn url_at_handles_brackets_and_quotes() {
     assert_eq!(url_at("\"https://a.b\"", 4), Some(1..12));
     assert_eq!(url_at("<mailto:me@x.org>", 4), Some(1..16));
 }
+
+#[test]
+fn invisible_formatting_characters_make_a_link_unopenable() {
+    for hidden in ['\u{202e}', '\u{200b}', '\u{2066}', '\u{feff}', '\u{ad}'] {
+        let uri = format!("https://example.com/{hidden}evil");
+        assert!(!is_openable(&uri), "{hidden:?}");
+    }
+}

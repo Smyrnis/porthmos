@@ -18,7 +18,7 @@ pub enum TerminalEvent {
     Exited(Option<u32>),
 }
 
-fn is_hidden_formatting(character: char) -> bool {
+pub(crate) fn is_hidden_formatting(character: char) -> bool {
     matches!(
         character,
         '\u{ad}'
@@ -74,6 +74,62 @@ pub fn parse_working_directory(uri: &str) -> Option<WorkingDirectory> {
         return None;
     }
     Some(WorkingDirectory { host: host.to_string(), path })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryOwner {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectoryTracker {
+    owner: DirectoryOwner,
+    shell_host: Option<String>,
+    directory: Option<String>,
+}
+
+impl DirectoryTracker {
+    pub fn new(owner: DirectoryOwner) -> Self {
+        Self { owner, shell_host: None, directory: None }
+    }
+
+    pub fn directory(&self) -> Option<&str> {
+        self.directory.as_deref()
+    }
+
+    pub fn update(&mut self, report: &WorkingDirectory, local_names: &[String]) {
+        let host = report.host.to_ascii_lowercase();
+        let accepted = match self.owner {
+            DirectoryOwner::Local => host.is_empty() || local_names.contains(&host),
+            DirectoryOwner::Remote => &host == self.shell_host.get_or_insert_with(|| host.clone()),
+        };
+        self.directory = accepted.then(|| report.path.clone());
+    }
+}
+
+#[cfg(unix)]
+fn machine_host_name() -> Option<String> {
+    let mut buffer = [0u8; 256];
+    let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+    if status != 0 {
+        return None;
+    }
+    let length = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    String::from_utf8(buffer[..length].to_vec()).ok()
+}
+
+#[cfg(not(unix))]
+fn machine_host_name() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok()
+}
+
+pub fn local_host_names() -> Vec<String> {
+    let mut names = vec!["localhost".to_string()];
+    if let Some(name) = machine_host_name().map(|name| name.to_ascii_lowercase()).filter(|name| !name.is_empty()) {
+        names.push(name);
+    }
+    names
 }
 
 #[cfg(test)]

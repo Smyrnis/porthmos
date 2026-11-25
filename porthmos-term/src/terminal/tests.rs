@@ -301,3 +301,22 @@ fn display_offset_and_history_report_the_scroll_state_without_copying_the_screen
     assert_eq!(terminal.history(), terminal.snapshot().history);
     assert!(terminal.history() >= 25);
 }
+
+#[test]
+fn a_row_that_overflowed_into_the_next_is_marked_wrapped() {
+    let mut terminal = terminal(10, 4);
+
+    terminal.feed(b"0123456789abc\r\nnext");
+
+    let snapshot = terminal.snapshot();
+    assert_eq!(snapshot.wrapped, vec![true, false, false, false]);
+}
+
+#[test]
+fn a_row_that_ends_exactly_at_the_edge_without_overflow_is_not_wrapped() {
+    let mut terminal = terminal(10, 3);
+
+    terminal.feed(b"0123456789\r\nnext");
+
+    assert_eq!(terminal.snapshot().wrapped, vec![false, false, false]);
+}

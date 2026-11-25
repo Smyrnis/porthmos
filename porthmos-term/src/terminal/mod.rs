@@ -148,7 +148,10 @@ impl Terminal {
         let offset = grid.display_offset();
         let selection = self.term.selection.as_ref().and_then(|selection| selection.to_range(&self.term));
         let mut cells = Vec::with_capacity(usize::from(self.size.columns) * usize::from(self.size.rows));
+        let mut wrapped = Vec::with_capacity(usize::from(self.size.rows));
+        let last_column = Column(usize::from(self.size.columns) - 1);
         for row in 0..i32::from(self.size.rows) {
+            wrapped.push(grid[Point::new(Line(row - offset as i32), last_column)].flags.contains(Flags::WRAPLINE));
             for column in 0..usize::from(self.size.columns) {
                 let point = Point::new(Line(row - offset as i32), Column(column));
                 let mut cell = convert_cell(&grid[point]);
@@ -159,6 +162,7 @@ impl Terminal {
         Snapshot {
             size: self.size,
             cells,
+            wrapped,
             cursor: self.cursor(offset),
             display_offset: offset,
             history: self.term.history_size(),

@@ -91,6 +91,7 @@ pub struct Modes {
 pub struct Snapshot {
     pub size: TermSize,
     pub cells: Vec<Cell>,
+    pub wrapped: Vec<bool>,
     pub cursor: Cursor,
     pub display_offset: usize,
     pub history: usize,

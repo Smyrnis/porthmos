@@ -149,3 +149,77 @@ fn normal_titles_still_work_after_an_aborted_osc() {
 
     assert_eq!(terminal.feed(b"\x1b]0;fine\x07").events, [TerminalEvent::Title("fine".into())]);
 }
+
+fn report(host: &str, path: &str) -> WorkingDirectory {
+    WorkingDirectory { host: host.to_string(), path: path.to_string() }
+}
+
+fn names() -> Vec<String> {
+    vec!["localhost".to_string(), "laptop".to_string()]
+}
+
+#[test]
+fn local_accepts_empty_localhost_and_own_host() {
+    for host in ["", "localhost", "laptop", "LAPTOP"] {
+        let mut tracker = DirectoryTracker::new(DirectoryOwner::Local);
+        tracker.update(&report(host, "/home/me"), &names());
+        assert_eq!(tracker.directory(), Some("/home/me"), "{host:?}");
+    }
+}
+
+#[test]
+fn local_ignores_and_clears_for_a_foreign_host() {
+    let mut tracker = DirectoryTracker::new(DirectoryOwner::Local);
+    tracker.update(&report("laptop", "/home/me"), &names());
+
+    tracker.update(&report("server", "/srv"), &names());
+
+    assert_eq!(tracker.directory(), None);
+}
+
+#[test]
+fn remote_first_host_sticks_and_updates() {
+    let mut tracker = DirectoryTracker::new(DirectoryOwner::Remote);
+
+    tracker.update(&report("web01", "/srv"), &names());
+    tracker.update(&report("web01", "/srv/app"), &names());
+
+    assert_eq!(tracker.directory(), Some("/srv/app"));
+}
+
+#[test]
+fn remote_nested_host_clears_and_original_host_restores() {
+    let mut tracker = DirectoryTracker::new(DirectoryOwner::Remote);
+    tracker.update(&report("web01", "/srv"), &names());
+
+    tracker.update(&report("db01", "/var/lib"), &names());
+    assert_eq!(tracker.directory(), None);
+    tracker.update(&report("db01", "/var/log"), &names());
+    assert_eq!(tracker.directory(), None);
+
+    tracker.update(&report("web01", "/srv/app"), &names());
+    assert_eq!(tracker.directory(), Some("/srv/app"));
+}
+
+#[test]
+fn host_comparison_ignores_case() {
+    let mut tracker = DirectoryTracker::new(DirectoryOwner::Remote);
+    tracker.update(&report("Web01", "/srv"), &names());
+
+    tracker.update(&report("WEB01", "/srv/app"), &names());
+
+    assert_eq!(tracker.directory(), Some("/srv/app"));
+}
+
+#[test]
+fn a_new_tracker_has_no_directory() {
+    assert_eq!(DirectoryTracker::new(DirectoryOwner::Remote).directory(), None);
+}
+
+#[test]
+fn local_host_names_contains_localhost_and_is_lower_case() {
+    let names = local_host_names();
+
+    assert!(names.contains(&"localhost".to_string()));
+    assert!(names.iter().all(|name| *name == name.to_ascii_lowercase()));
+}
