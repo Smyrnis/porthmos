@@ -17,8 +17,8 @@ use crate::drawer::paste::needs_paste_confirmation;
 use crate::drawer::pointer::{PointerKind, Route, route, selection_kind};
 use crate::drawer::search::{SearchState, Viewport, resume_point};
 use crate::drawer::{
-    Drawer, Gesture, Placement, SharedSession, TerminalPane, TerminalSource, TerminalTab, Wanted, dropped_text,
-    into_transport, opening_size,
+    Drawer, DrawerView, Gesture, Placement, SharedSession, TerminalPane, TerminalSource, TerminalTab, Wanted,
+    dropped_text, into_transport, opening_size,
 };
 use crate::geometry::drawer_contains;
 use crate::modal::Modal;
@@ -137,6 +137,7 @@ impl App {
         };
         self.dismiss_inline_editors();
         let id = self.drawer.allocate_id();
+        self.drawer.view = DrawerView::Terminals;
         self.drawer.open = true;
         self.drawer.focused = true;
         let wanted = Wanted { id, source, directory, placement };
@@ -252,6 +253,7 @@ impl App {
 
     pub(in crate::app) fn terminal_has_keys(&self) -> bool {
         self.drawer.open
+            && self.drawer.view == DrawerView::Terminals
             && self.drawer.focused
             && (!self.drawer.wanted.is_empty() || self.drawer.active_pane().is_some_and(|pane| pane.exited.is_none()))
             && self.modals.is_empty()
@@ -264,6 +266,7 @@ impl App {
     pub(in crate::app) fn exited_terminal_chord(&mut self, press: &KeyPress) -> Option<Task<Message>> {
         let exited = self.drawer.active_pane().is_some_and(|pane| pane.exited.is_some());
         let free = self.drawer.open
+            && self.drawer.view == DrawerView::Terminals
             && self.drawer.focused
             && exited
             && self.modals.is_empty()
@@ -613,6 +616,9 @@ impl App {
         if !self.drawer.open || !drawer_contains(self.window_size, at, queue_below) {
             return false;
         }
+        if self.drawer.view != DrawerView::Terminals {
+            return true;
+        }
         let Some(pane) = self.drawer.active_pane().filter(|pane| pane.exited.is_none()) else {
             return true;
         };
@@ -654,7 +660,7 @@ impl App {
         gesture
     }
 
-    fn dismiss_inline_editors(&mut self) {
+    pub(in crate::app) fn dismiss_inline_editors(&mut self) {
         if let Some(pane) = self.drawer.active_pane_mut() {
             pane.search.open = false;
         }
@@ -672,6 +678,7 @@ impl App {
             return Task::none();
         }
         self.dismiss_inline_editors();
+        self.drawer.view = DrawerView::Terminals;
         self.drawer.open = true;
         self.drawer.focused = true;
         if let Some(pane) = self.drawer.active_pane_mut() {
@@ -738,7 +745,7 @@ impl App {
             }
         } else {
             self.drawer.open = true;
-            self.drawer.focused = self.drawer.active_pane().is_some();
+            self.drawer.focused = self.drawer.view == DrawerView::Terminals && self.drawer.active_pane().is_some();
             if self.drawer.focused {
                 self.dismiss_inline_editors();
             }
@@ -748,6 +755,7 @@ impl App {
     pub(in crate::app) fn focus_terminal(&mut self) {
         if self.drawer.active_pane().is_some() || !self.drawer.wanted.is_empty() {
             self.dismiss_inline_editors();
+            self.drawer.view = DrawerView::Terminals;
             self.drawer.open = true;
             self.drawer.focused = true;
         }
@@ -866,6 +874,7 @@ impl App {
         };
         self.leave_active_pane();
         self.drawer.active = position;
+        self.drawer.view = DrawerView::Terminals;
         self.drawer.open = true;
         self.drawer.focused = true;
     }
@@ -890,6 +899,7 @@ impl App {
                 tab.focus = id;
             }
         }
+        self.drawer.view = DrawerView::Terminals;
         self.drawer.open = true;
         self.drawer.focused = true;
     }
@@ -909,6 +919,7 @@ impl App {
             return;
         }
         self.leave_active_pane();
+        self.drawer.view = DrawerView::Terminals;
         self.drawer.open = true;
         self.drawer.focused = true;
         self.drawer.active =
@@ -957,7 +968,7 @@ impl App {
             self.drawer.active -= 1;
         }
         self.drawer.active = self.drawer.active.min(self.drawer.tabs.len().saturating_sub(1));
-        if self.drawer.tabs.is_empty() && self.drawer.wanted.is_empty() {
+        if self.drawer.tabs.is_empty() && self.drawer.wanted.is_empty() && self.drawer.view == DrawerView::Terminals {
             self.drawer.open = false;
             self.drawer.focused = false;
         }

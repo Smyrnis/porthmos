@@ -29,6 +29,7 @@ pub mod toolbar;
 pub mod tools;
 mod transfer_column;
 mod transfer_queue;
+pub mod tunnel_list;
 
 use iced::widget::text::Wrapping;
 use iced::widget::{column, container, mouse_area, responsive, row, space, stack, text};

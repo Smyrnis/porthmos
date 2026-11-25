@@ -52,6 +52,8 @@ pub enum Action {
     TerminalFocusDown,
     TerminalOpenDirectory,
     TerminalChangeDirectory,
+    ShowTunnels,
+    NewTunnel,
     Search,
     Bookmarks,
     BookmarkHere,
@@ -64,7 +66,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 58] = [
+const NAMES: [(Action, &str); 60] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -113,6 +115,8 @@ const NAMES: [(Action, &str); 58] = [
     (Action::TerminalFocusDown, "terminal_focus_down"),
     (Action::TerminalOpenDirectory, "terminal_open_directory"),
     (Action::TerminalChangeDirectory, "terminal_change_directory"),
+    (Action::ShowTunnels, "show_tunnels"),
+    (Action::NewTunnel, "new_tunnel"),
     (Action::Search, "search"),
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
@@ -221,6 +225,8 @@ impl Action {
             Action::TerminalFocusDown => tr("Focus terminal pane below"),
             Action::TerminalOpenDirectory => tr("Open terminal folder in file pane"),
             Action::TerminalChangeDirectory => tr("Move terminal to file pane folder"),
+            Action::ShowTunnels => tr("Show tunnels"),
+            Action::NewTunnel => tr("New tunnel\u{2026}"),
             Action::Search => tr("Search\u{2026}"),
             Action::Bookmarks => tr("Bookmarks\u{2026}"),
             Action::BookmarkHere => tr("Bookmark this folder"),

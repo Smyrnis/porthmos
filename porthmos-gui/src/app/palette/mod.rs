@@ -62,6 +62,8 @@ const COMMANDS: &[(Action, Available)] = &[
     (Action::TerminalFocusDown, App::terminal_has_panes_to_focus),
     (Action::TerminalOpenDirectory, App::terminal_directory_openable),
     (Action::TerminalChangeDirectory, App::terminal_directory_changeable),
+    (Action::ShowTunnels, |_| true),
+    (Action::NewTunnel, |_| true),
     (Action::Settings, |_| true),
     (Action::CheckForUpdates, |_| true),
     (Action::Quit, |_| true),

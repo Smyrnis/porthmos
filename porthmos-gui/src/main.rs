@@ -46,6 +46,8 @@ mod testing;
 mod theme;
 mod tools;
 mod transfers;
+mod tunnel_form;
+mod tunnels_view;
 mod update_view;
 mod view;
 mod window_memory;

@@ -12,7 +12,7 @@ use crate::app::{App, Message};
 use crate::drawer::layout::{Direction, Layout};
 use crate::drawer::links::Link;
 use crate::drawer::search::search_status;
-use crate::drawer::{Drawer, TerminalPane, TerminalTab};
+use crate::drawer::{Drawer, DrawerView, TerminalPane, TerminalTab};
 use crate::geometry::{DRAWER_HEADER_HEIGHT, drawer_height};
 use crate::shortcuts::Action;
 use crate::theme::Palette;
@@ -161,11 +161,32 @@ fn tab_button<'a>(entry: TabEntry, focused: bool, palette: &Palette) -> Element<
     mouse_area(tab).on_press(Message::TerminalTabSelected(entry.id)).into()
 }
 
+#[cfg(test)]
+pub fn strip_labels(app: &App) -> Vec<String> {
+    let mut labels = vec![app.tunnels_tab_label()];
+    labels.extend(tab_entries(app.drawer()).into_iter().map(|entry| entry.label));
+    labels
+}
+
+fn tunnels_entry<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
+    let active = app.drawer().view == DrawerView::Tunnels;
+    let color = tab_title_color(active, true, palette);
+    let title = fit(&app.tunnels_tab_label(), TITLE_CELLS);
+    let text = if active { bold_label(title, color) } else { label(title, color) };
+    let underline = if active { palette.accent } else { palette.bg };
+    let tab = column![
+        container(container(text).padding([0.0, MD])).height(Length::Fill).align_y(alignment::Vertical::Center),
+        container(space()).width(Length::Fill).height(EDGE_WIDTH).style(filled(underline)),
+    ];
+    mouse_area(tab).on_press(Message::TunnelsViewSelected).into()
+}
+
 pub fn tab_strip(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
     let focused = app.drawer().shows_focus();
-    let mut tabs = row![].align_y(alignment::Vertical::Center);
-    for entry in tab_entries(app.drawer()) {
+    let mut tabs = row![tunnels_entry(app, palette)].align_y(alignment::Vertical::Center);
+    for mut entry in tab_entries(app.drawer()) {
+        entry.active &= app.drawer().view == DrawerView::Terminals;
         tabs = tabs.push(tab_button(entry, focused, palette));
     }
     let new_tab = hinted(
@@ -184,7 +205,10 @@ fn header(app: &App) -> Element<'_, Message> {
     let focused = app.drawer().shows_focus();
     let edge = container(space()).width(EDGE_WIDTH).height(Length::Fill).style(filled(edge_color(focused, palette)));
     let strip: Element<Message> = if app.drawer().tabs.is_empty() {
-        container(label(tab_title(""), palette.fg_dim)).padding([0.0, MD]).align_y(alignment::Vertical::Center).into()
+        let tunnels = tunnels_entry(app, palette);
+        let hint =
+            container(label(tab_title(""), palette.fg_dim)).padding([0.0, MD]).align_y(alignment::Vertical::Center);
+        row![tunnels, hint].align_y(alignment::Vertical::Center).into()
     } else {
         tab_strip(app)
     };
@@ -259,8 +283,9 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
         return None;
     }
     let palette = app.palette();
-    let body: Element<Message> = match drawer.active_tab() {
+    let body: Element<Message> = match drawer.active_tab().filter(|_| drawer.view == DrawerView::Terminals) {
         Some(tab) => layout_view(app, tab, &tab.layout, tab.layout.leaves().len()),
+        None if drawer.view == DrawerView::Tunnels => super::tunnel_list::view(app),
         None => container(label(empty_hint(app), palette.fg_dim))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -268,7 +293,7 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
             .center_y(Length::Fill)
             .into(),
     };
-    let body: Element<Message> = if drawer.search().open {
+    let body: Element<Message> = if drawer.search().open && drawer.view == DrawerView::Terminals {
         let bar = container(search_bar(app)).width(Length::Fill).align_x(alignment::Horizontal::Right).padding(SM);
         stack![body, bar].into()
     } else {

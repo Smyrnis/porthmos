@@ -112,9 +112,17 @@ pub enum Gesture {
 
 static IDLE_SEARCH: search::SearchState = search::SearchState { open: false, query: String::new(), missed: false };
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DrawerView {
+    #[default]
+    Terminals,
+    Tunnels,
+}
+
 #[derive(Default)]
 pub struct Drawer {
     pub open: bool,
+    pub view: DrawerView,
     pub focused: bool,
     pub panes: Vec<TerminalPane>,
     pub tabs: Vec<TerminalTab>,
@@ -160,6 +168,7 @@ impl Drawer {
 
     pub fn shows_focus(&self) -> bool {
         self.open
+            && self.view == DrawerView::Terminals
             && self.focused
             && (!self.wanted.is_empty() || self.active_pane().is_some_and(|pane| pane.exited.is_none()))
     }

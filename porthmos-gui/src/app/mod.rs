@@ -269,6 +269,13 @@ pub enum Message {
     TerminalTabSelected(porthmos_core::TerminalId),
     TerminalTabClosed(porthmos_core::TerminalId),
     TerminalNewTab,
+    TunnelsViewSelected,
+    TunnelStartRequested(porthmos_core::TunnelKey),
+    TunnelStopRequested(porthmos_core::TunnelKey),
+    TunnelRestartRequested(porthmos_core::TunnelKey),
+    TunnelDeleteRequested(porthmos_core::TunnelKey),
+    TunnelFormRequested(Option<porthmos_core::TunnelKey>),
+    TunnelDraftChanged(crate::tunnel_form::DraftChange),
     TerminalResized(porthmos_core::TerminalId, porthmos_term::TermSize),
     QueueRowPressed(RowKind, RowButton),
     QueueClearFinished,
@@ -306,6 +313,7 @@ struct Shown {
 
 pub struct App {
     drawer: crate::drawer::Drawer,
+    tunnel_feed: tunnels::TunnelFeed,
     core: CoreHandle,
     events: EventSource,
     palette: Palette,
@@ -393,6 +401,7 @@ impl App {
         let mut app = App {
             core,
             drawer: crate::drawer::Drawer::default(),
+            tunnel_feed: tunnels::TunnelFeed::new(),
             events,
             palette,
             notices: Vec::new(),
@@ -948,6 +957,9 @@ impl App {
                 self.modals.push(Modal::Question(Dialog::from_question(request_id, question, save)));
             }
             Event::Update(state) => self.update_arrived(state),
+            Event::Tunnels(rows) => self.tunnels_arrived(rows),
+            Event::TunnelStatus { key, status } => self.tunnel_status_arrived(&key, status),
+            Event::TunnelStats(batch) => self.tunnel_stats_arrived(&batch),
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
             Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
@@ -1509,6 +1521,13 @@ impl App {
             Message::TerminalTabSelected(id) => self.select_terminal_tab(id),
             Message::TerminalTabClosed(id) => self.close_terminal_tab(id),
             Message::TerminalNewTab => self.new_terminal_tab(),
+            Message::TunnelsViewSelected => self.show_tunnels(),
+            Message::TunnelStartRequested(key) => self.tunnel_command(Command::StartTunnel { key }),
+            Message::TunnelStopRequested(key) => self.tunnel_command(Command::StopTunnel { key }),
+            Message::TunnelRestartRequested(key) => self.tunnel_command(Command::RestartTunnel { key }),
+            Message::TunnelDeleteRequested(key) => self.modals.push(Modal::ConfirmDeleteTunnel { key }),
+            Message::TunnelDraftChanged(change) => self.tunnel_draft_changed(change),
+            Message::TunnelFormRequested(original) => self.tunnel_form_requested(original),
             Message::TerminalResized(id, size) => self.terminal_resized(id, size),
         }
         self.resync_scroll(&before)
@@ -1843,7 +1862,7 @@ impl App {
             }
             return;
         }
-        if accepted && self.sync_options_rejected() {
+        if accepted && (self.sync_options_rejected() || self.tunnel_form_rejected()) {
             return;
         }
         if !accepted && matches!(self.modals.front(), Some(Modal::EditWaiting { .. })) {
@@ -1892,6 +1911,9 @@ impl App {
                 self.start_sync(session, SyncOptions { direction, by, subfolders, mirror })
             }
             (true, Modal::ConfirmSyncDelete { sync_id, choices, .. }) => self.send_sync_run(sync_id, choices),
+            (true, Modal::Tunnel { draft, .. }) => self.save_tunnel_draft(&draft),
+            (true, Modal::ConfirmRestartTunnel { key }) => self.tunnel_command(Command::RestartTunnel { key }),
+            (true, Modal::ConfirmDeleteTunnel { key }) => self.tunnel_command(Command::DeleteTunnel { key }),
             (true, Modal::ConfirmDelete { side, entries, count, .. }) => {
                 self.stop_counting(count);
                 if let Some(location) = self.location_of(side) {
@@ -2052,6 +2074,7 @@ impl App {
                     | Modal::EditWaiting { .. }
                     | Modal::SyncOptions { .. }
                     | Modal::ConfirmPaste { .. }
+                    | Modal::ConfirmRestartTunnel { .. }
             );
             let enter_declines = modal.is_risky_to_accept();
             match &press.key {
@@ -2298,6 +2321,8 @@ impl App {
             Action::TerminalFocusRight => self.focus_pane_toward(crate::drawer::layout::Toward::Right),
             Action::TerminalFocusUp => self.focus_pane_toward(crate::drawer::layout::Toward::Up),
             Action::TerminalFocusDown => self.focus_pane_toward(crate::drawer::layout::Toward::Down),
+            Action::ShowTunnels => self.show_tunnels(),
+            Action::NewTunnel => self.tunnel_form_requested(None),
             Action::TerminalOpenDirectory => self.open_terminal_directory(),
             Action::TerminalChangeDirectory => self.change_terminal_directory(),
             Action::Search => return self.open_search(),
@@ -2426,6 +2451,7 @@ mod settings;
 mod sync;
 mod terminal;
 mod tools;
+mod tunnels;
 mod update;
 mod window_events;
 

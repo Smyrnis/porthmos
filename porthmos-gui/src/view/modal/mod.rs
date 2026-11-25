@@ -2,6 +2,7 @@ mod conflict;
 mod edit_diff;
 mod properties;
 mod sync_options;
+mod tunnel_form;
 
 use iced::widget::{checkbox, column, container, row, stack, text, text_input};
 use iced::{Border, Element, Font, Length, alignment};
@@ -21,6 +22,7 @@ use porthmos_core::permissions::{mode_text, symbolic};
 const DIALOG_WIDTH: f32 = 440.0;
 const CONFLICT_WIDTH: f32 = 720.0;
 const DIFF_WIDTH: f32 = 860.0;
+const TUNNEL_WIDTH: f32 = 560.0;
 const NAME_CELLS: usize = 60;
 
 pub(super) fn button<'a>(title: &str, message: Message, palette: &Palette) -> Element<'a, Message> {
@@ -290,6 +292,33 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Modal::ConfirmSyncDelete { message, .. } => {
             (tr("Delete"), body_text(message.clone(), palette), cautious_buttons(&tr("Delete"), &tr("Cancel"), palette))
         }
+        Modal::Tunnel { draft, connections, errors } => (
+            tunnel_form::title(draft),
+            tunnel_form::body(draft, connections, errors, palette),
+            buttons(&tunnel_form::accept_title(draft), &tr("Cancel"), palette),
+        ),
+        Modal::ConfirmRestartTunnel { key } => (
+            tr("Restart tunnel?"),
+            body_text(
+                porthmos_core::i18n::text_with(
+                    "gui.tunnels.restart_question",
+                    &[("name", &fit(&printable(&key.name), NAME_CELLS))],
+                ),
+                palette,
+            ),
+            buttons(&tr("Restart now"), &tr("Later"), palette),
+        ),
+        Modal::ConfirmDeleteTunnel { key } => (
+            tr("Delete tunnel"),
+            body_text(
+                porthmos_core::i18n::text_with(
+                    "gui.tunnels.delete_question",
+                    &[("name", &fit(&printable(&key.name), NAME_CELLS))],
+                ),
+                palette,
+            ),
+            cautious_buttons(&tr("Delete"), &tr("Cancel"), palette),
+        ),
         Modal::ConfirmDelete { entries, place, count, .. } => {
             let lines = delete_lines(entries, place, count.as_ref()).join("\n");
             (tr("Delete"), body_text(lines, palette), cautious_buttons(&tr("Delete"), &tr("Cancel"), palette))
@@ -299,6 +328,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
         Some(Modal::Conflict { .. }) => CONFLICT_WIDTH,
         Some(Modal::EditQuestion { diff, .. }) => question_width(diff),
         Some(Modal::Properties { .. }) => properties::WIDTH,
+        Some(Modal::Tunnel { .. }) => TUNNEL_WIDTH,
         _ => DIALOG_WIDTH,
     };
     let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };

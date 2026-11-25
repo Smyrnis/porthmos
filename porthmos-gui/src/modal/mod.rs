@@ -7,11 +7,12 @@ use porthmos_core::delete_prompt::count::{Contents, contents_line};
 use porthmos_core::diff::DiffOutcome;
 use porthmos_core::edit::{EditQuestionKind, printable};
 use porthmos_core::sync::{SyncAction, SyncBy, SyncDirection};
-use porthmos_core::{Entry, Location, Message, SessionId, VfsPath};
+use porthmos_core::{Entry, Location, Message, SessionId, TunnelKey, VfsPath};
 
 use crate::app::PanelSide;
 use crate::conflicts::ConflictView;
 use crate::dialogs::Dialog;
+use crate::tunnel_form::{DraftError, Field, TunnelDraft};
 use crate::view::text_fit::fit;
 
 const NAME_CELLS: usize = 60;
@@ -113,6 +114,17 @@ pub enum Modal {
         choices: Vec<(u32, SyncAction)>,
         message: String,
     },
+    Tunnel {
+        draft: Box<TunnelDraft>,
+        connections: Vec<String>,
+        errors: Vec<(Field, DraftError)>,
+    },
+    ConfirmRestartTunnel {
+        key: TunnelKey,
+    },
+    ConfirmDeleteTunnel {
+        key: TunnelKey,
+    },
 }
 
 impl Modal {
@@ -125,6 +137,7 @@ impl Modal {
                 | Modal::ConfirmClearHistory
                 | Modal::OpenLink { .. }
                 | Modal::ConfirmQuit { .. }
+                | Modal::ConfirmDeleteTunnel { .. }
         )
     }
 }
