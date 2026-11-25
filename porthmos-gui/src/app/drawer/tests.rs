@@ -7,7 +7,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::app::Message;
 use crate::drawer::pointer::PointerKind;
-use crate::drawer::{TerminalSource, Wanted};
+use crate::drawer::TerminalSource;
 use crate::view::terminal_grid::PointerEvent;
 
 use super::{ClipboardRequest, PASTE_CHUNK, PRIMARY_SELECTION, paste_chunks};
@@ -190,6 +190,7 @@ async fn closing_the_terminal_drops_the_tab_and_the_channel() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_local_terminal_runs_in_the_local_panel_directory() {
+    use crate::drawer::Wanted;
     let mut harness = Harness::new();
     let scratch = tempfile::tempdir().unwrap();
     let folder = porthmos_core::from_os_path(&scratch.path().canonicalize().unwrap());
