@@ -198,3 +198,87 @@ fn a_target_host_with_a_colon_that_is_not_ipv6_is_refused_in_the_form() {
 
     assert_eq!(fields(draft.build()), vec![(Field::TargetHost, SpecError::BadHost)]);
 }
+
+fn remote_draft() -> TunnelDraft {
+    let mut draft = TunnelDraft::new("prod");
+    draft.name = "preview".into();
+    draft.kind = DraftKind::Remote;
+    draft.listen_port = "0".into();
+    draft.target_host = "127.0.0.1".into();
+    draft.target_port = "3000".into();
+    draft
+}
+
+#[test]
+fn a_valid_remote_draft_builds_a_remote_spec() {
+    let spec = remote_draft().build().unwrap();
+
+    assert_eq!(
+        spec.kind,
+        TunnelKind::Remote {
+            listen: Listen { address: IpAddr::from([127, 0, 0, 1]), port: 0 },
+            target: Endpoint { host: "127.0.0.1".to_string(), port: 3000 },
+        }
+    );
+}
+
+#[test]
+fn a_remote_draft_accepts_listen_port_zero_but_a_local_one_does_not() {
+    let mut local = local_draft();
+    local.listen_port = "0".into();
+
+    assert!(remote_draft().build().is_ok());
+    assert_eq!(fields(local.build()), vec![(Field::ListenPort, SpecError::BadPort)]);
+    let mut garbage = remote_draft();
+    garbage.listen_port = "http".into();
+    assert_eq!(fields(garbage.build()), vec![(Field::ListenPort, SpecError::BadPort)]);
+}
+
+#[test]
+fn a_remote_draft_still_needs_a_target() {
+    let mut draft = remote_draft();
+    draft.target_host = String::new();
+    draft.target_port = "0".into();
+
+    let problems = fields(draft.build());
+
+    assert!(problems.contains(&(Field::TargetHost, SpecError::EmptyHost)), "{problems:?}");
+    assert!(problems.contains(&(Field::TargetPort, SpecError::BadPort)), "{problems:?}");
+}
+
+#[test]
+fn a_non_loopback_remote_bind_needs_the_checkbox() {
+    let mut draft = remote_draft();
+    draft.listen_host = "0.0.0.0".into();
+
+    assert!(draft.needs_external_warning());
+    assert_eq!(fields(draft.build()), vec![(Field::ListenHost, SpecError::ExternalNotAllowed)]);
+    draft.allow_external = true;
+    assert!(draft.build().is_ok());
+}
+
+#[test]
+fn editing_round_trips_a_remote_spec() {
+    let spec = remote_draft().build().unwrap();
+
+    let draft = TunnelDraft::from_spec(&spec);
+
+    assert_eq!(draft.kind, DraftKind::Remote);
+    assert_eq!(
+        (draft.listen_port.as_str(), draft.target_host.as_str(), draft.target_port.as_str()),
+        ("0", "127.0.0.1", "3000")
+    );
+    assert_eq!(draft.build().unwrap(), spec);
+}
+
+#[test]
+fn changing_the_kind_to_remote_keeps_the_typed_fields() {
+    let mut draft = local_draft();
+
+    draft.apply(DraftChange::Kind(DraftKind::Remote));
+
+    assert_eq!(
+        (draft.target_host.as_str(), draft.target_port.as_str(), draft.listen_port.as_str()),
+        ("db.internal", "5432", "5432")
+    );
+}

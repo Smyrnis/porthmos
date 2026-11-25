@@ -64,10 +64,24 @@ fn per_second(before: u64, after: u64, elapsed: Duration) -> u64 {
     (u128::from(after.saturating_sub(before)) * 1000 / milliseconds).try_into().unwrap_or(u64::MAX)
 }
 
+pub fn row_path_text(info: &TunnelInfo) -> String {
+    match (&info.spec.kind, &info.status) {
+        (TunnelKind::Remote { listen, target }, TunnelStatus::Running { local }) if listen.port == 0 => {
+            remote_path_text(&local.to_string(), target)
+        }
+        _ => path_text(&info.spec),
+    }
+}
+
+fn remote_path_text(listen: &str, target: &porthmos_core::Endpoint) -> String {
+    porthmos_core::i18n::text_with("gui.tunnels.remote_path", &[("listen", listen), ("target", &target.to_string())])
+}
+
 pub fn path_text(spec: &TunnelSpec) -> String {
     match &spec.kind {
         TunnelKind::Local { listen, target } => format!("{listen} → {target}"),
         TunnelKind::Dynamic { listen } => format!("{listen} (SOCKS)"),
+        TunnelKind::Remote { listen, target } => remote_path_text(&listen.to_string(), target),
     }
 }
 

@@ -153,3 +153,46 @@ fn the_tab_label_shows_the_running_count_only_above_zero() {
 
     assert_eq!(state.tab_label(), "Tunnels · 2");
 }
+
+#[test]
+fn path_text_for_a_remote_tunnel_names_the_server_side_first() {
+    let remote = |listen: &str, target: &str| {
+        spec(
+            "a",
+            "x",
+            TunnelKind::Remote {
+                listen: Listen::parse_server_side(listen).unwrap(),
+                target: target.parse::<Endpoint>().unwrap(),
+            },
+        )
+    };
+
+    assert_eq!(path_text(&remote("127.0.0.1:8080", "127.0.0.1:3000")), "server 127.0.0.1:8080 ← 127.0.0.1:3000");
+    assert_eq!(path_text(&remote("127.0.0.1:0", "[::1]:3000")), "server 127.0.0.1:0 ← [::1]:3000");
+}
+
+#[test]
+fn a_running_remote_tunnel_on_port_zero_shows_the_port_the_server_chose() {
+    let kind = TunnelKind::Remote {
+        listen: Listen::parse_server_side("127.0.0.1:0").unwrap(),
+        target: "127.0.0.1:3000".parse::<Endpoint>().unwrap(),
+    };
+    let info = |status| TunnelInfo { spec: spec("a", "x", kind.clone()), status, stats: TunnelStats::default() };
+
+    let running = info(TunnelStatus::Running { local: "127.0.0.1:41000".parse().unwrap() });
+
+    assert_eq!(row_path_text(&running), "server 127.0.0.1:41000 ← 127.0.0.1:3000");
+    assert_eq!(row_path_text(&info(TunnelStatus::Stopped)), "server 127.0.0.1:0 ← 127.0.0.1:3000");
+    assert_eq!(row_path_text(&info(TunnelStatus::Starting)), "server 127.0.0.1:0 ← 127.0.0.1:3000");
+}
+
+#[test]
+fn a_running_local_tunnel_keeps_its_saved_path_text() {
+    let info = TunnelInfo {
+        spec: spec("a", "x", local("127.0.0.1:5432", "db.internal:5432")),
+        status: TunnelStatus::Running { local: "127.0.0.1:5432".parse().unwrap() },
+        stats: TunnelStats::default(),
+    };
+
+    assert_eq!(row_path_text(&info), "127.0.0.1:5432 → db.internal:5432");
+}

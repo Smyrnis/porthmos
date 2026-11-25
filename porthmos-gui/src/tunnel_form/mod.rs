@@ -10,6 +10,7 @@ const LOOPBACK: &str = "127.0.0.1";
 pub enum DraftKind {
     Local,
     Dynamic,
+    Remote,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,9 +50,10 @@ pub struct TunnelDraft {
     pub auto_start: bool,
 }
 
-fn port_of(text: &str) -> Result<u16, DraftError> {
+fn port_of(text: &str, zero_allowed: bool) -> Result<u16, DraftError> {
     match text.trim().parse::<u16>() {
-        Ok(0) | Err(_) => Err(SpecError::BadPort),
+        Ok(0) if !zero_allowed => Err(SpecError::BadPort),
+        Err(_) => Err(SpecError::BadPort),
         Ok(port) => Ok(port),
     }
 }
@@ -91,6 +93,7 @@ impl TunnelDraft {
         let listen = spec.kind.listen();
         let (kind, target_host, target_port) = match &spec.kind {
             TunnelKind::Local { target, .. } => (DraftKind::Local, target.host.clone(), target.port.to_string()),
+            TunnelKind::Remote { target, .. } => (DraftKind::Remote, target.host.clone(), target.port.to_string()),
             TunnelKind::Dynamic { .. } => (DraftKind::Dynamic, String::new(), String::new()),
         };
         Self {
@@ -149,12 +152,12 @@ impl TunnelDraft {
         } else if self.needs_external_warning() && !self.allow_external {
             problems.push((Field::ListenHost, SpecError::ExternalNotAllowed));
         }
-        let listen_port = port_of(&self.listen_port);
+        let listen_port = port_of(&self.listen_port, self.kind == DraftKind::Remote);
         if let Err(error) = &listen_port {
             problems.push((Field::ListenPort, *error));
         }
         let mut target = None;
-        if self.kind == DraftKind::Local {
+        if self.kind != DraftKind::Dynamic {
             let host = self.target_host.trim().to_string();
             if let Some(error) = probe(|spec| {
                 spec.kind = TunnelKind::Local {
@@ -164,7 +167,7 @@ impl TunnelDraft {
             }) {
                 problems.push((Field::TargetHost, error));
             }
-            match port_of(&self.target_port) {
+            match port_of(&self.target_port, false) {
                 Ok(port) => target = Some(Endpoint { host, port }),
                 Err(error) => problems.push((Field::TargetPort, error)),
             }
@@ -176,9 +179,10 @@ impl TunnelDraft {
             return Err(problems);
         };
         let listen = Listen { address, port };
-        let kind = match target {
-            Some(target) => TunnelKind::Local { listen, target },
-            None => TunnelKind::Dynamic { listen },
+        let kind = match (self.kind, target) {
+            (DraftKind::Remote, Some(target)) => TunnelKind::Remote { listen, target },
+            (_, Some(target)) => TunnelKind::Local { listen, target },
+            (_, None) => TunnelKind::Dynamic { listen },
         };
         Ok(TunnelSpec { connection, name, kind, allow_external: self.allow_external, auto_start: self.auto_start })
     }

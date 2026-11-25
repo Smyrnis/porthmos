@@ -9,7 +9,7 @@ use super::text_fit::fit;
 use super::{bold_label, label};
 use crate::app::{App, Message};
 use crate::theme::Palette;
-use crate::tunnels_view::{path_text, rate_text, total_text};
+use crate::tunnels_view::{rate_text, row_path_text, total_text};
 use crate::view::spacing::{MD, SM};
 
 const ROW_HEIGHT: f32 = 32.0;
@@ -114,7 +114,7 @@ fn tunnel_row<'a>(app: &'a App, info: &'a TunnelInfo, palette: &Palette) -> Elem
         dot,
         container(bold_label(fit(&info.spec.name, NAME_CELLS), palette.fg_bright)).width(Length::Fixed(NAME_WIDTH)),
         label(info.spec.kind.label(), palette.fg_muted).width(Length::Fixed(BADGE_WIDTH)),
-        label(fit(&path_text(&info.spec), PATH_CELLS), palette.fg),
+        label(fit(&row_path_text(info), PATH_CELLS), palette.fg),
         label(via, palette.fg_dim),
         container(label(fit(&state, STATE_CELLS), state_color)).width(Length::Fill),
         container(label(traffic_text(up, down, info), palette.fg_muted).align_x(alignment::Horizontal::Right))

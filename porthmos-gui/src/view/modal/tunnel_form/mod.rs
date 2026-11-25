@@ -82,10 +82,29 @@ fn kind_line<'a>(draft: &TunnelDraft, palette: &Palette) -> Element<'a, Message>
         let look = if draft.kind == kind { Look::Chosen } else { Look::Normal };
         text_button(&title, Some(Message::TunnelDraftChanged(DraftChange::Kind(kind))), look, palette)
     };
-    let choices =
-        row![choice(tr("Local forward (-L)"), DraftKind::Local), choice(tr("SOCKS proxy (-D)"), DraftKind::Dynamic)]
-            .spacing(FIELD_GAP);
+    let choices = row![
+        choice(tr("Local forward (-L)"), DraftKind::Local),
+        choice(tr("Remote forward (-R)"), DraftKind::Remote),
+        choice(tr("SOCKS proxy (-D)"), DraftKind::Dynamic),
+    ]
+    .spacing(FIELD_GAP);
     line(tr("Type"), choices.into(), palette)
+}
+
+pub fn listen_label(kind: DraftKind) -> String {
+    if kind == DraftKind::Remote { tr("Server listens on") } else { tr("Listen on") }
+}
+
+pub fn target_label(kind: DraftKind) -> String {
+    if kind == DraftKind::Remote { tr("Local target") } else { tr("Forward to") }
+}
+
+pub fn external_warning(kind: DraftKind) -> String {
+    i18n::text(if kind == DraftKind::Remote {
+        "gui.tunnels.remote_external_warning"
+    } else {
+        "gui.tunnels.external_warning"
+    })
 }
 
 fn address_line<'a>(
@@ -109,7 +128,7 @@ pub fn body<'a>(
         line(tr("Name"), with_problems(name.width(Length::Fill).into(), errors, &[Field::Name], palette), palette),
         kind_line(draft, palette),
         address_line(
-            tr("Listen on"),
+            listen_label(draft.kind),
             (&draft.listen_host, DraftChange::ListenHost, "127.0.0.1"),
             (&draft.listen_port, DraftChange::ListenPort),
             errors,
@@ -118,9 +137,9 @@ pub fn body<'a>(
         ),
     ]
     .spacing(GAP);
-    if draft.kind == DraftKind::Local {
+    if draft.kind != DraftKind::Dynamic {
         form = form.push(address_line(
-            tr("Forward to"),
+            target_label(draft.kind),
             (&draft.target_host, DraftChange::TargetHost, "db.internal"),
             (&draft.target_port, DraftChange::TargetPort),
             errors,
@@ -136,7 +155,7 @@ pub fn body<'a>(
                 .on_toggle(|on| Message::TunnelDraftChanged(DraftChange::AllowExternal(on)))
                 .style(crate::view::checkbox::style(palette)),
         );
-        form = form.push(wrapped_label(i18n::text("gui.tunnels.external_warning"), palette.paused));
+        form = form.push(wrapped_label(external_warning(draft.kind), palette.paused));
     }
     form.push(
         checkbox(draft.auto_start)

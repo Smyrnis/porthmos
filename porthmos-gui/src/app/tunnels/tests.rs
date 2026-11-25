@@ -462,3 +462,53 @@ async fn a_file_dropped_on_the_tunnels_view_is_not_typed_into_the_hidden_shell()
     let screen: Vec<String> = (0..snapshot.size.rows).map(|row| snapshot.row_text(row)).collect();
     assert!(!screen.iter().any(|line| line.contains("zzz-dropped-marker")), "{screen:?}");
 }
+
+fn remote_info(name: &str, status: TunnelStatus) -> TunnelInfo {
+    let mut row = info("a", name, status);
+    row.spec.kind = TunnelKind::Remote {
+        listen: Listen::parse_server_side("127.0.0.1:0").unwrap(),
+        target: "127.0.0.1:3000".parse::<Endpoint>().unwrap(),
+    };
+    row
+}
+
+#[tokio::test]
+async fn a_remote_tunnel_can_be_created_from_the_form_and_saved() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha", "/srv");
+    harness.sent();
+    harness.press(Message::ActionRequested(Action::NewTunnel));
+
+    for change in [
+        DraftChange::Name("preview".to_string()),
+        DraftChange::Kind(DraftKind::Remote),
+        DraftChange::ListenPort("0".to_string()),
+        DraftChange::TargetHost("127.0.0.1".to_string()),
+        DraftChange::TargetPort("3000".to_string()),
+    ] {
+        harness.press(Message::TunnelDraftChanged(change));
+    }
+    harness.press(Message::ModalAccepted);
+
+    let sent = harness.sent();
+    let Some(Command::SaveTunnel { spec, .. }) = sent.iter().find(|c| matches!(c, Command::SaveTunnel { .. })) else {
+        panic!("a save should have been sent");
+    };
+    assert!(matches!(&spec.kind, TunnelKind::Remote { listen, .. } if listen.port == 0));
+    assert!(harness.app.modal().is_none());
+}
+
+#[tokio::test]
+async fn the_drawer_builds_a_row_for_a_remote_tunnel() {
+    let mut harness = Harness::new();
+    feed_tunnels(
+        &mut harness,
+        vec![
+            remote_info("stopped", TunnelStatus::Stopped),
+            remote_info("running", TunnelStatus::Running { local: "127.0.0.1:41000".parse().unwrap() }),
+        ],
+    );
+    harness.press(Message::TunnelsViewSelected);
+
+    assert!(crate::view::drawer::view(&harness.app).is_some());
+}
