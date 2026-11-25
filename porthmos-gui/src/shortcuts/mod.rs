@@ -36,6 +36,9 @@ pub enum Action {
     TerminalExternal,
     TerminalToggle,
     TerminalFocus,
+    TerminalCopy,
+    TerminalPaste,
+    TerminalSearch,
     Search,
     Bookmarks,
     BookmarkHere,
@@ -48,7 +51,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 42] = [
+const NAMES: [(Action, &str); 45] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -81,6 +84,9 @@ const NAMES: [(Action, &str); 42] = [
     (Action::TerminalExternal, "terminal_external"),
     (Action::TerminalToggle, "terminal_toggle"),
     (Action::TerminalFocus, "terminal_focus"),
+    (Action::TerminalCopy, "terminal_copy"),
+    (Action::TerminalPaste, "terminal_paste"),
+    (Action::TerminalSearch, "terminal_search"),
     (Action::Search, "search"),
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
@@ -173,6 +179,9 @@ impl Action {
             Action::TerminalExternal => tr("Open external terminal here"),
             Action::TerminalToggle => tr("Show or hide terminal"),
             Action::TerminalFocus => tr("Focus terminal"),
+            Action::TerminalCopy => tr("Copy terminal selection"),
+            Action::TerminalPaste => tr("Paste into terminal"),
+            Action::TerminalSearch => tr("Search terminal"),
             Action::Search => tr("Search\u{2026}"),
             Action::Bookmarks => tr("Bookmarks\u{2026}"),
             Action::BookmarkHere => tr("Bookmark this folder"),

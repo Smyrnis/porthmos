@@ -58,6 +58,12 @@ pub fn filled<'a>(color: Color) -> impl Fn(&iced::Theme) -> container::Style + '
     move |_| container::Style { background: Some(Background::Color(color)), ..container::Style::default() }
 }
 
+pub fn floating<'a>(palette: &Palette) -> impl Fn(&iced::Theme) -> container::Style + 'a {
+    let border = iced::Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
+    let surface = palette.surface;
+    move |_| container::Style { background: Some(Background::Color(surface)), border, ..container::Style::default() }
+}
+
 pub const SCRIM_ALPHA: f32 = 0.6;
 
 pub fn scrim_color(palette: &Palette) -> Color {

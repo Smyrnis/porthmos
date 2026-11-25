@@ -10,12 +10,14 @@ use iced::{
     futures::{StreamExt, stream},
 };
 use porthmos_core::{Handover, SessionId, ShellSize, ShellStream, TerminalId, VfsPath};
-use porthmos_term::{Snapshot, TermSize, TerminalEvent, TerminalSession, Transport};
+use porthmos_term::{MouseButton, Side, Snapshot, TermSize, TerminalEvent, TerminalSession, Transport, ViewPoint};
 use tokio::sync::{mpsc, watch};
 
 use crate::app::Message;
 
 pub mod keys;
+pub mod pointer;
+pub mod search;
 
 const OPENING_COLUMNS: u16 = 80;
 const OPENING_ROWS: u16 = 24;
@@ -71,12 +73,27 @@ pub struct TerminalTab {
     pub size: TermSize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Gesture {
+    #[default]
+    Idle,
+    Ignored(MouseButton),
+    Reported(MouseButton),
+    Selecting {
+        point: ViewPoint,
+        side: Side,
+        clicks: u8,
+    },
+}
+
 #[derive(Default)]
 pub struct Drawer {
     pub open: bool,
     pub focused: bool,
     pub tab: Option<TerminalTab>,
     pub wanted: Option<Wanted>,
+    pub gesture: Gesture,
+    pub search: search::SearchState,
     last_id: TerminalId,
 }
 

@@ -16,6 +16,7 @@ use porthmos_core::{
     Answer, Command, ConnectionState, CoreHandle, Event, Location, PanelKind, SessionId, Severity, VfsPath, to_os_path,
 };
 use porthmos_core::{Completion, CompletionStep};
+use porthmos_term::SearchDirection;
 
 use porthmos_core::config::bookmarks::Bookmark;
 use porthmos_core::config::settings::PanelSettings;
@@ -258,7 +259,13 @@ pub enum Message {
     TerminalRequested(PanelSide),
     TerminalEventReceived(porthmos_core::TerminalId, porthmos_term::TerminalEvent),
     TerminalRedrawn,
-    TerminalClicked,
+    TerminalSearchTyped(String),
+    TerminalSearchSubmitted,
+    TerminalSearchNext,
+    TerminalSearchPrevious,
+    TerminalSearchClosed,
+    TerminalPasted(porthmos_core::TerminalId, Option<String>),
+    TerminalPointer(porthmos_core::TerminalId, crate::view::terminal_grid::PointerEvent),
     TerminalClosed,
     TerminalResized(porthmos_core::TerminalId, porthmos_term::TermSize),
     QueueRowPressed(RowKind, RowButton),
@@ -509,6 +516,10 @@ impl App {
 
     pub fn active_side(&self) -> PanelSide {
         self.active
+    }
+
+    pub fn terminal_search_id() -> Id {
+        Id::new("terminal-search")
     }
 
     pub fn dialog_input_id() -> Id {
@@ -1479,7 +1490,17 @@ impl App {
             }
             Message::TerminalEventReceived(id, event) => self.terminal_event(id, event),
             Message::TerminalRedrawn => {}
-            Message::TerminalClicked => self.focus_terminal(),
+            Message::TerminalSearchTyped(query) => self.terminal_search_typed(query),
+            Message::TerminalSearchSubmitted => {
+                let direction =
+                    if self.modifiers.shift() { SearchDirection::Backward } else { SearchDirection::Forward };
+                return self.terminal_search_step(direction);
+            }
+            Message::TerminalSearchNext => return self.terminal_search_step(SearchDirection::Forward),
+            Message::TerminalSearchPrevious => return self.terminal_search_step(SearchDirection::Backward),
+            Message::TerminalSearchClosed => self.close_terminal_search(),
+            Message::TerminalPasted(id, text) => self.terminal_pasted(id, text),
+            Message::TerminalPointer(id, event) => return self.terminal_pointer(id, event),
             Message::TerminalClosed => self.close_terminal(),
             Message::TerminalResized(id, size) => self.terminal_resized(id, size),
         }
@@ -1948,11 +1969,26 @@ impl App {
         if self.closing {
             return Task::none();
         }
-        if self.terminal_has_keys() {
-            self.terminal_key(&press);
-            return Task::none();
+        if self.drawer.search.open && self.modals.is_empty() && self.tool.is_none() {
+            if press.key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                self.close_terminal_search();
+                return Task::none();
+            }
+            return match crate::drawer::keys::chord_of(&press) {
+                Some(crate::drawer::keys::TerminalChord::Search) => self.open_terminal_search(),
+                _ => Task::none(),
+            };
         }
-        if crate::drawer::keys::is_chord(&press) && self.modals.is_empty() && self.tool.is_none() {
+        if self.terminal_has_keys() {
+            return self.terminal_key(&press);
+        }
+        if let Some(task) = self.exited_terminal_chord(&press) {
+            return task;
+        }
+        if crate::drawer::keys::chord_of(&press) == Some(crate::drawer::keys::TerminalChord::Focus)
+            && self.modals.is_empty()
+            && self.tool.is_none()
+        {
             self.focus_terminal();
             return Task::none();
         }
@@ -2226,6 +2262,9 @@ impl App {
             Action::TerminalExternal => self.request_external_terminal_on(self.active_side()),
             Action::TerminalToggle => self.toggle_terminal(),
             Action::TerminalFocus => self.focus_terminal(),
+            Action::TerminalCopy => return self.terminal_copy(),
+            Action::TerminalPaste => return self.terminal_paste(),
+            Action::TerminalSearch => return self.open_terminal_search(),
             Action::Search => return self.open_search(),
             Action::Bookmarks => self.open_bookmarks(),
             Action::History => self.open_history(),

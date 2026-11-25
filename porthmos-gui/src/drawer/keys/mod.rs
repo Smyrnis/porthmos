@@ -11,13 +11,41 @@ pub enum KeyInput {
     Text(String),
 }
 
-pub fn is_chord(press: &KeyPress) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalChord {
+    Focus,
+    Copy,
+    Paste,
+    Search,
+    PageUp,
+    PageDown,
+}
+
+pub fn chord_of(press: &KeyPress) -> Option<TerminalChord> {
     let modifiers = press.modifiers;
-    press.key == Key::Named(Named::Space)
-        && modifiers.control()
-        && modifiers.shift()
-        && !modifiers.alt()
-        && !modifiers.logo()
+    if modifiers.alt() || modifiers.logo() {
+        return None;
+    }
+    if modifiers.control() && modifiers.shift() {
+        return match &press.key {
+            Key::Named(Named::Space) => Some(TerminalChord::Focus),
+            Key::Character(text) => match text.to_ascii_lowercase().as_str() {
+                "c" => Some(TerminalChord::Copy),
+                "v" => Some(TerminalChord::Paste),
+                "f" => Some(TerminalChord::Search),
+                _ => None,
+            },
+            _ => None,
+        };
+    }
+    if modifiers.shift() && !modifiers.control() {
+        return match &press.key {
+            Key::Named(Named::PageUp) => Some(TerminalChord::PageUp),
+            Key::Named(Named::PageDown) => Some(TerminalChord::PageDown),
+            _ => None,
+        };
+    }
+    None
 }
 
 fn named_key(named: Named) -> Option<TermKey> {

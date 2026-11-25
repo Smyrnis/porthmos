@@ -58,3 +58,27 @@ fn the_empty_hint_without_a_shortcut_does_not_leave_a_gap() {
     assert!(!text.contains("  ") && !text.starts_with("Press"), "{text}");
     assert!(hint_text("F4").contains("F4"));
 }
+
+#[test]
+fn the_search_bar_builds_open_and_with_a_missed_query() {
+    let mut harness = Harness::new();
+    harness.app.toggle_terminal();
+    harness.press(crate::app::Message::ActionRequested(Action::TerminalSearch));
+
+    assert!(view(&harness.app).is_some());
+    let _ = search_bar(&harness.app);
+
+    harness.press(crate::app::Message::TerminalSearchTyped("nothing".to_string()));
+    let _ = search_bar(&harness.app);
+}
+
+#[test]
+fn the_floating_surface_uses_the_surface_fill_and_a_strong_border() {
+    let palette = palette();
+    let style = crate::view::floating(&palette)(&iced::Theme::Dark);
+
+    assert_eq!(style.background, Some(iced::Background::Color(palette.surface)));
+    assert_eq!(style.border.color, palette.line_strong);
+    assert_eq!(style.border.width, 1.0);
+    assert_eq!(style.border.radius, 6.0.into());
+}

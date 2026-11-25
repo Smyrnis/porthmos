@@ -2,6 +2,7 @@ use iced::keyboard::{Key, Modifiers, key::Named};
 use porthmos_term::{Key as TermKey, Modes, Modifiers as TermModifiers, encode_key};
 
 use super::*;
+use crate::drawer::keys::TerminalChord;
 use crate::shortcuts::KeyPress;
 
 fn press(key: Key, modifiers: Modifiers, text: Option<&str>) -> KeyPress {
@@ -74,14 +75,27 @@ fn super_combinations_are_left_to_the_system() {
 }
 
 #[test]
-fn only_ctrl_shift_space_is_the_chord() {
+fn chord_of_recognises_each_chord_and_nothing_else() {
     let chord = Modifiers::CTRL | Modifiers::SHIFT;
+    let chord_of = |key: Key, modifiers: Modifiers| super::chord_of(&press(key, modifiers, None));
 
-    assert!(is_chord(&press(Key::Named(Named::Space), chord, None)));
-    assert!(!is_chord(&press(Key::Named(Named::Space), Modifiers::CTRL, None)));
-    assert!(!is_chord(&press(Key::Named(Named::Space), Modifiers::SHIFT, None)));
-    assert!(!is_chord(&press(Key::Named(Named::Space), chord | Modifiers::ALT, None)));
-    assert!(!is_chord(&press(character("p"), chord, None)));
+    assert_eq!(chord_of(Key::Named(Named::Space), chord), Some(TerminalChord::Focus));
+    assert_eq!(chord_of(character("c"), chord), Some(TerminalChord::Copy));
+    assert_eq!(chord_of(character("C"), chord), Some(TerminalChord::Copy));
+    assert_eq!(chord_of(character("v"), chord), Some(TerminalChord::Paste));
+    assert_eq!(chord_of(character("F"), chord), Some(TerminalChord::Search));
+    assert_eq!(chord_of(Key::Named(Named::PageUp), Modifiers::SHIFT), Some(TerminalChord::PageUp));
+    assert_eq!(chord_of(Key::Named(Named::PageDown), Modifiers::SHIFT), Some(TerminalChord::PageDown));
+
+    assert_eq!(chord_of(Key::Named(Named::Space), Modifiers::CTRL), None);
+    assert_eq!(chord_of(Key::Named(Named::Space), Modifiers::SHIFT), None);
+    assert_eq!(chord_of(Key::Named(Named::Space), chord | Modifiers::ALT), None);
+    assert_eq!(chord_of(character("p"), chord), None);
+    assert_eq!(chord_of(character("c"), Modifiers::CTRL), None);
+    assert_eq!(chord_of(character("c"), chord | Modifiers::ALT), None);
+    assert_eq!(chord_of(character("x"), chord), None);
+    assert_eq!(chord_of(Key::Named(Named::PageUp), Modifiers::empty()), None);
+    assert_eq!(chord_of(Key::Named(Named::PageUp), chord), None);
 }
 
 #[test]

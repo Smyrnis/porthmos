@@ -9,7 +9,11 @@ use iced::{
     alignment::Vertical,
     font::{Style as FontStyle, Weight},
 };
-use porthmos_term::{Cell, CellWidth, CursorShape, Snapshot, Style, TermSize};
+use porthmos_term::{
+    Cell, CellWidth, CursorShape, Modes, MouseButton, MouseMode, Side, Snapshot, Style, TermSize, ViewPoint,
+};
+
+use crate::drawer::pointer::{PointerKind, cell_at, wheel_lines};
 
 use crate::theme::{Palette, ansi::resolve, mix};
 
@@ -20,6 +24,8 @@ const CURSOR_FILL_ALPHA: f32 = 0.55;
 const CURSOR_BAR_WIDTH: f32 = 2.0;
 const DECORATION_THICKNESS: f32 = 1.0;
 const FALLBACK_WIDTH_RATIO: f32 = 0.6;
+const SCROLL_THUMB_MIN: f32 = 12.0;
+const SCROLL_THUMB_WIDTH: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellMetrics {
@@ -200,9 +206,96 @@ pub fn row_runs(cells: &[Cell], palette: &Palette) -> Vec<TextRun> {
     runs
 }
 
+#[derive(Debug, Default)]
+pub struct MoveFilter {
+    last: Option<(ViewPoint, Side)>,
+}
+
+impl MoveFilter {
+    pub fn changed(&mut self, point: ViewPoint, side: Side) -> bool {
+        if self.last == Some((point, side)) {
+            return false;
+        }
+        self.last = Some((point, side));
+        true
+    }
+
+    pub fn reset(&mut self) {
+        self.last = None;
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Grab {
+    held: Option<MouseButton>,
+    last: Option<(ViewPoint, Side)>,
+}
+
+impl Grab {
+    pub fn begin(&mut self, button: MouseButton, point: ViewPoint, side: Side) {
+        self.held = Some(button);
+        self.last = Some((point, side));
+    }
+
+    pub fn moved(&mut self, point: ViewPoint, side: Side) {
+        self.last = Some((point, side));
+    }
+
+    pub fn held(&self) -> Option<MouseButton> {
+        self.held
+    }
+
+    pub fn finish(&mut self, button: MouseButton) -> Option<(ViewPoint, Side)> {
+        if self.held != Some(button) {
+            return None;
+        }
+        self.held = None;
+        self.last
+    }
+
+    pub fn abandon(&mut self) -> Option<(MouseButton, ViewPoint, Side)> {
+        let button = self.held.take()?;
+        let (point, side) = self.last.unwrap_or((ViewPoint { row: 0, column: 0 }, Side::Left));
+        Some((button, point, side))
+    }
+}
+
+pub fn reports_hover(modes: Modes) -> bool {
+    modes.mouse == MouseMode::Motion
+}
+
+pub fn click_count(click: mouse::Click) -> u8 {
+    match click.kind() {
+        mouse::click::Kind::Single => 1,
+        mouse::click::Kind::Double => 2,
+        mouse::click::Kind::Triple => 3,
+    }
+}
+
+pub fn term_button(button: mouse::Button) -> Option<MouseButton> {
+    match button {
+        mouse::Button::Left => Some(MouseButton::Left),
+        mouse::Button::Middle => Some(MouseButton::Middle),
+        mouse::Button::Right => Some(MouseButton::Right),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointerEvent {
+    pub kind: PointerKind,
+    pub point: ViewPoint,
+    pub side: Side,
+    pub clicks: u8,
+    pub lines: i32,
+}
+
 struct State {
     metrics: Option<CellMetrics>,
     gate: ResizeGate,
+    grab: Grab,
+    last_click: Option<mouse::Click>,
+    moves: MoveFilter,
 }
 
 pub struct TerminalGrid<'a, Message> {
@@ -211,14 +304,21 @@ pub struct TerminalGrid<'a, Message> {
     palette: Palette,
     focused: bool,
     on_resize: Box<dyn Fn(TermSize) -> Message + 'a>,
-    on_press: Message,
+    on_pointer: Box<dyn Fn(PointerEvent) -> Message + 'a>,
 }
 
 pub fn terminal_grid<'a, Message>(
     owner: u64, snapshot: Snapshot, palette: &Palette, focused: bool, on_resize: impl Fn(TermSize) -> Message + 'a,
-    on_press: Message,
+    on_pointer: impl Fn(PointerEvent) -> Message + 'a,
 ) -> TerminalGrid<'a, Message> {
-    TerminalGrid { owner, snapshot, palette: *palette, focused, on_resize: Box::new(on_resize), on_press }
+    TerminalGrid {
+        owner,
+        snapshot,
+        palette: *palette,
+        focused,
+        on_resize: Box::new(on_resize),
+        on_pointer: Box::new(on_pointer),
+    }
 }
 
 fn monospace(bold: bool, italic: bool) -> Font {
@@ -249,6 +349,16 @@ where
     CellMetrics { width, height: LINE_HEIGHT }
 }
 
+fn scroll_thumb(history: usize, display_offset: usize, rows: u16, track_height: f32) -> Option<(f32, f32)> {
+    if history == 0 || display_offset == 0 || rows == 0 || !track_height.is_finite() || track_height <= 0.0 {
+        return None;
+    }
+    let total = (history + usize::from(rows)) as f32;
+    let height = (track_height * f32::from(rows) / total).max(SCROLL_THUMB_MIN).min(track_height);
+    let progress = 1.0 - (display_offset.min(history) as f32 / history as f32);
+    Some((progress * (track_height - height), height))
+}
+
 fn quad(bounds: Rectangle) -> Quad {
     Quad { bounds, border: Border::default(), shadow: Shadow::default(), snap: true }
 }
@@ -266,7 +376,13 @@ where
     }
 
     fn state(&self) -> iced::advanced::widget::tree::State {
-        iced::advanced::widget::tree::State::new(State { metrics: None, gate: ResizeGate::default() })
+        iced::advanced::widget::tree::State::new(State {
+            metrics: None,
+            gate: ResizeGate::default(),
+            grab: Grab::default(),
+            last_click: None,
+            moves: MoveFilter::default(),
+        })
     }
 
     fn layout(&mut self, tree: &mut Tree, _renderer: &Renderer, limits: &layout::Limits) -> layout::Node {
@@ -281,18 +397,74 @@ where
         &mut self, tree: &mut Tree, event: &iced::Event, layout: Layout<'_>, cursor: mouse::Cursor,
         _renderer: &Renderer, _clipboard: &mut dyn Clipboard, shell: &mut Shell<'_, Message>, _viewport: &Rectangle,
     ) {
-        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
-            && cursor.is_over(layout.bounds())
-        {
-            shell.publish(self.on_press.clone());
-            shell.capture_event();
-        }
         let state = tree.state.downcast_mut::<State>();
         let Some(metrics) = state.metrics else {
             return;
         };
-        let size = grid_size(layout.bounds().size(), metrics);
-        if let Some(size) = state.gate.changed_for(self.owner, size) {
+        let bounds = layout.bounds();
+        let grid = grid_size(bounds.size(), metrics);
+        let over = cursor.is_over(bounds);
+        let locate = |position: Point| {
+            cell_at(Point::new(position.x - bounds.x, position.y - bounds.y), bounds.size(), metrics, grid)
+        };
+        let publish = |shell: &mut Shell<'_, Message>, kind, point, side, clicks, lines| {
+            shell.publish((self.on_pointer)(PointerEvent { kind, point, side, clicks, lines }));
+        };
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(button)) if over => {
+                if let (Some(term), Some(position)) = (term_button(*button), cursor.position()) {
+                    let click = mouse::Click::new(position, *button, state.last_click);
+                    state.last_click = Some(click);
+                    state.moves.reset();
+                    let (point, side) = locate(position);
+                    state.grab.begin(term, point, side);
+                    publish(shell, PointerKind::Press(term), point, side, click_count(click), 0);
+                    shell.capture_event();
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(button)) => {
+                if let Some(term) = term_button(*button) {
+                    let held = state.grab.held() == Some(term);
+                    if held || over {
+                        let located = cursor.position().map(locate);
+                        let last = state.grab.finish(term);
+                        if let Some((point, side)) = located.or(last) {
+                            state.moves.reset();
+                            publish(shell, PointerKind::Release(term), point, side, 0, 0);
+                            shell.capture_event();
+                        }
+                    }
+                }
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                let dragging = state.grab.held().is_some();
+                if over || dragging {
+                    let (point, side) = locate(*position);
+                    if dragging {
+                        state.grab.moved(point, side);
+                    }
+                    if (dragging || reports_hover(self.snapshot.modes)) && state.moves.changed(point, side) {
+                        publish(shell, PointerKind::Move { dragging }, point, side, 0, 0);
+                    }
+                }
+            }
+            iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) if over => {
+                let lines = wheel_lines(*delta, metrics.height);
+                if lines != 0 {
+                    let (point, side) = cursor.position().map_or((ViewPoint { row: 0, column: 0 }, Side::Left), locate);
+                    publish(shell, PointerKind::Wheel, point, side, 0, lines);
+                    shell.capture_event();
+                }
+            }
+            iced::Event::Window(iced::window::Event::Unfocused) => {
+                if let Some((button, point, side)) = state.grab.abandon() {
+                    state.moves.reset();
+                    publish(shell, PointerKind::Release(button), point, side, 0, 0);
+                }
+            }
+            _ => {}
+        }
+        if let Some(size) = state.gate.changed_for(self.owner, grid) {
             shell.publish((self.on_resize)(size));
         }
     }
@@ -379,6 +551,21 @@ where
                         renderer.fill_quad(quad(line), accent);
                     }
                 }
+            }
+            let thumb = scroll_thumb(
+                self.snapshot.history,
+                self.snapshot.display_offset,
+                self.snapshot.size.rows,
+                bounds.height,
+            );
+            if let Some((top, height)) = thumb {
+                let thumb_bounds = Rectangle::new(
+                    Point::new(bounds.x + bounds.width - SCROLL_THUMB_WIDTH, bounds.y + top),
+                    Size::new(SCROLL_THUMB_WIDTH, height),
+                );
+                let mut thumb_quad = quad(thumb_bounds);
+                thumb_quad.border = Border { radius: (SCROLL_THUMB_WIDTH / 2.0).into(), ..Border::default() };
+                renderer.fill_quad(thumb_quad, self.palette.line_strong);
             }
         });
     }

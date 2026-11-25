@@ -486,3 +486,22 @@ fn the_palette_survives_a_window_resize() {
     assert!(palette_open(&harness));
     assert!(state(&harness).hit_count() > 0);
 }
+
+#[tokio::test]
+async fn the_terminal_copy_and_paste_commands_need_a_terminal() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+    let without = labels(&harness);
+    for missing in ["Copy terminal selection", "Paste into terminal"] {
+        assert!(!without.contains(&missing.to_string()), "{missing} listed in {without:?}");
+    }
+    named(&mut harness, Named::Escape);
+
+    harness.app.open_embedded_terminal(crate::drawer::TerminalSource::Local);
+    harness.press(Message::ActionRequested(Action::Palette));
+
+    let with = labels(&harness);
+    for present in ["Copy terminal selection", "Paste into terminal"] {
+        assert!(with.contains(&present.to_string()), "{present} missing from {with:?}");
+    }
+}

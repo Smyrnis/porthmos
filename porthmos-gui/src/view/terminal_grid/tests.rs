@@ -148,3 +148,131 @@ fn a_new_terminal_is_told_its_size_even_when_the_size_did_not_change() {
     assert_eq!(gate.changed_for(2, size), Some(size));
     assert_eq!(gate.changed_for(2, size), None);
 }
+
+#[test]
+fn a_move_to_the_same_cell_and_side_is_not_reported_twice() {
+    let mut filter = MoveFilter::default();
+    let here = ViewPoint { row: 2, column: 3 };
+
+    assert!(filter.changed(here, Side::Left));
+    assert!(!filter.changed(here, Side::Left));
+    assert!(filter.changed(here, Side::Right));
+    assert!(filter.changed(ViewPoint { row: 2, column: 4 }, Side::Right));
+
+    filter.reset();
+    assert!(filter.changed(ViewPoint { row: 2, column: 4 }, Side::Right));
+}
+
+#[test]
+fn clicks_in_a_row_count_up_and_a_different_button_restarts() {
+    use iced::Point;
+    use iced::advanced::mouse::{Button, Click};
+
+    let first = Click::new(Point::ORIGIN, Button::Left, None);
+    let second = Click::new(Point::ORIGIN, Button::Left, Some(first));
+    let third = Click::new(Point::ORIGIN, Button::Left, Some(second));
+    let other = Click::new(Point::ORIGIN, Button::Middle, Some(third));
+    let far = Click::new(Point::new(500.0, 500.0), Button::Left, Some(third));
+
+    assert_eq!([first, second, third].map(click_count), [1, 2, 3]);
+    assert_eq!(click_count(other), 1);
+    assert_eq!(click_count(far), 1);
+}
+
+#[test]
+fn mouse_buttons_map_and_unknown_ones_are_ignored() {
+    use iced::advanced::mouse::Button;
+
+    assert_eq!(term_button(Button::Left), Some(MouseButton::Left));
+    assert_eq!(term_button(Button::Middle), Some(MouseButton::Middle));
+    assert_eq!(term_button(Button::Right), Some(MouseButton::Right));
+    assert_eq!(term_button(Button::Back), None);
+}
+
+#[test]
+fn there_is_no_scroll_thumb_without_history_or_at_the_bottom() {
+    assert_eq!(scroll_thumb(0, 0, 24, 432.0), None);
+    assert_eq!(scroll_thumb(0, 5, 24, 432.0), None);
+    assert_eq!(scroll_thumb(100, 0, 24, 432.0), None);
+}
+
+#[test]
+fn the_scroll_thumb_is_proportional_to_the_visible_share() {
+    let (_, height) = scroll_thumb(76, 10, 24, 400.0).unwrap();
+
+    assert_eq!(height, 400.0 * 24.0 / 100.0);
+}
+
+#[test]
+fn the_scroll_thumb_sits_at_the_top_when_scrolled_to_the_oldest_line() {
+    let (top, _) = scroll_thumb(100, 100, 24, 496.0).unwrap();
+
+    assert_eq!(top, 0.0);
+}
+
+#[test]
+fn the_scroll_thumb_moves_down_as_the_view_returns_to_the_bottom() {
+    let (far, _) = scroll_thumb(100, 90, 24, 496.0).unwrap();
+    let (near, _) = scroll_thumb(100, 10, 24, 496.0).unwrap();
+
+    assert!(near > far);
+}
+
+#[test]
+fn the_scroll_thumb_never_leaves_its_track_nor_gets_smaller_than_the_minimum() {
+    for history in [1usize, 10, 1_000, 1_000_000] {
+        for offset in [1usize, history / 2 + 1, history] {
+            let track = 300.0;
+            let (top, height) = scroll_thumb(history, offset, 24, track).unwrap();
+
+            assert!(height >= SCROLL_THUMB_MIN.min(track), "{history} {offset} {height}");
+            assert!(top >= 0.0 && top + height <= track + 0.001, "{history} {offset} {top} {height}");
+        }
+    }
+}
+
+#[test]
+fn degenerate_scroll_thumb_inputs_give_none() {
+    assert_eq!(scroll_thumb(10, 5, 0, 400.0), None);
+    assert_eq!(scroll_thumb(10, 5, 24, 0.0), None);
+    assert_eq!(scroll_thumb(10, 5, 24, f32::NAN), None);
+    assert_eq!(scroll_thumb(10, 5, 24, -3.0), None);
+}
+
+fn cell(row: u16, column: u16) -> (ViewPoint, Side) {
+    (ViewPoint { row, column }, Side::Left)
+}
+
+#[test]
+fn a_grab_releases_only_for_the_button_it_holds_and_at_the_last_known_cell() {
+    let mut grab = Grab::default();
+    grab.begin(MouseButton::Left, cell(0, 0).0, Side::Left);
+    grab.moved(cell(3, 4).0, Side::Right);
+
+    assert_eq!(grab.held(), Some(MouseButton::Left));
+    assert_eq!(grab.finish(MouseButton::Middle), None);
+    assert_eq!(grab.finish(MouseButton::Left), Some((ViewPoint { row: 3, column: 4 }, Side::Right)));
+    assert_eq!(grab.held(), None);
+    assert_eq!(grab.finish(MouseButton::Left), None);
+}
+
+#[test]
+fn abandoning_a_grab_yields_a_release_once() {
+    let mut grab = Grab::default();
+    assert_eq!(grab.abandon(), None);
+    grab.begin(MouseButton::Right, cell(1, 2).0, Side::Left);
+
+    assert_eq!(grab.abandon(), Some((MouseButton::Right, ViewPoint { row: 1, column: 2 }, Side::Left)));
+    assert_eq!(grab.abandon(), None);
+}
+
+#[test]
+fn hover_is_reported_only_when_a_program_asked_for_all_motion() {
+    use porthmos_term::MouseMode;
+    let with = |mouse| Modes { mouse, ..Modes::default() };
+
+    assert!(!reports_hover(with(MouseMode::Off)));
+    assert!(!reports_hover(with(MouseMode::Click)));
+    assert!(!reports_hover(with(MouseMode::Drag)));
+    assert!(reports_hover(with(MouseMode::Motion)));
+}

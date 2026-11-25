@@ -1,8 +1,8 @@
 use iced::widget::{button, column, container, mouse_area, row, space, stack};
-use iced::{Background, Border, Color, Element, Length, Padding, Point, Size, alignment};
+use iced::{Color, Element, Length, Padding, Point, Size, alignment};
 
 use super::button::flat;
-use super::{filled, label};
+use super::{filled, floating, label};
 use crate::app::{App, Message};
 use crate::menus::context_items;
 
@@ -46,11 +46,7 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
     for entry in items {
         list = list.push(item(app, entry));
     }
-    let border = Border { color: palette.line_strong, width: 1.0, radius: 6.0.into() };
-    let surface = palette.surface;
-    let panel = container(list).padding(MENU_PADDING).width(Length::Fixed(size.width)).style(move |_| {
-        container::Style { background: Some(Background::Color(surface)), border, ..container::Style::default() }
-    });
+    let panel = container(list).padding(MENU_PADDING).width(Length::Fixed(size.width)).style(floating(&palette));
     let backdrop =
         mouse_area(container(space()).width(Length::Fill).height(Length::Fill).style(filled(Color::TRANSPARENT)))
             .on_press(Message::ContextMenuDismissed)
