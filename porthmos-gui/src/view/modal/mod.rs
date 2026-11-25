@@ -1,5 +1,6 @@
 mod conflict;
 mod edit_diff;
+mod health;
 mod properties;
 mod sync_options;
 mod tunnel_form;
@@ -318,6 +319,16 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
                 palette,
             ),
             cautious_buttons(&tr("Delete"), &tr("Cancel"), palette),
+        ),
+        Modal::ConfirmSignal { name, pid, signal, .. } => (
+            health::signal_title(*signal),
+            body_text(health::signal_question(*signal, name, *pid), palette),
+            cautious_buttons(&health::signal_accept(*signal), &tr("Cancel"), palette),
+        ),
+        Modal::Renice { name, pid, text, error, .. } => (
+            tr("Change priority"),
+            health::renice_body(name, *pid, text, error, palette),
+            buttons(&tr("Change"), &tr("Cancel"), palette),
         ),
         Modal::ConfirmDelete { entries, place, count, .. } => {
             let lines = delete_lines(entries, place, count.as_ref()).join("\n");

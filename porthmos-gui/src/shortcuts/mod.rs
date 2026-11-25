@@ -54,6 +54,7 @@ pub enum Action {
     TerminalChangeDirectory,
     ShowTunnels,
     NewTunnel,
+    ShowHealth,
     Search,
     Bookmarks,
     BookmarkHere,
@@ -66,7 +67,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 60] = [
+const NAMES: [(Action, &str); 61] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -117,6 +118,7 @@ const NAMES: [(Action, &str); 60] = [
     (Action::TerminalChangeDirectory, "terminal_change_directory"),
     (Action::ShowTunnels, "show_tunnels"),
     (Action::NewTunnel, "new_tunnel"),
+    (Action::ShowHealth, "show_health"),
     (Action::Search, "search"),
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
@@ -227,6 +229,7 @@ impl Action {
             Action::TerminalChangeDirectory => tr("Move terminal to file pane folder"),
             Action::ShowTunnels => tr("Show tunnels"),
             Action::NewTunnel => tr("New tunnel\u{2026}"),
+            Action::ShowHealth => tr("Show health"),
             Action::Search => tr("Search\u{2026}"),
             Action::Bookmarks => tr("Bookmarks\u{2026}"),
             Action::BookmarkHere => tr("Bookmark this folder"),

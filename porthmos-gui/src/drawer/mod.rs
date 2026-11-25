@@ -117,6 +117,7 @@ pub enum DrawerView {
     #[default]
     Terminals,
     Tunnels,
+    Health,
 }
 
 #[derive(Default)]

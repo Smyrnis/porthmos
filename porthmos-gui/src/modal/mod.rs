@@ -125,6 +125,19 @@ pub enum Modal {
     ConfirmDeleteTunnel {
         key: TunnelKey,
     },
+    ConfirmSignal {
+        session: porthmos_core::SessionId,
+        pid: u32,
+        name: String,
+        signal: porthmos_core::ProcessSignal,
+    },
+    Renice {
+        session: porthmos_core::SessionId,
+        pid: u32,
+        name: String,
+        text: String,
+        error: Option<String>,
+    },
 }
 
 impl Modal {
@@ -138,6 +151,7 @@ impl Modal {
                 | Modal::OpenLink { .. }
                 | Modal::ConfirmQuit { .. }
                 | Modal::ConfirmDeleteTunnel { .. }
+                | Modal::ConfirmSignal { .. }
         )
     }
 }

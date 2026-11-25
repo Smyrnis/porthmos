@@ -20,6 +20,7 @@ mod drawer;
 mod editing;
 mod entries;
 mod geometry;
+mod health_view;
 mod history_view;
 mod icons;
 mod import_view;

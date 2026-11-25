@@ -9,6 +9,7 @@ mod dropdown;
 mod file_list;
 pub mod format;
 mod header;
+pub mod health;
 mod import_review;
 mod import_source;
 mod input;

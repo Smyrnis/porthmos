@@ -64,6 +64,7 @@ const COMMANDS: &[(Action, Available)] = &[
     (Action::TerminalChangeDirectory, App::terminal_directory_changeable),
     (Action::ShowTunnels, |_| true),
     (Action::NewTunnel, |_| true),
+    (Action::ShowHealth, |_| true),
     (Action::Settings, |_| true),
     (Action::CheckForUpdates, |_| true),
     (Action::Quit, |_| true),
