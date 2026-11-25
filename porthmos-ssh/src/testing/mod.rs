@@ -9,6 +9,8 @@ use std::{
     },
 };
 
+use tokio::task::JoinHandle;
+
 use porthmos_vfs::{Answer, Prompter, Question, Target, async_trait};
 use russh::{
     Channel, ChannelId, ChannelMsg, ChannelOpenFailure,
@@ -43,8 +45,31 @@ pub struct PtyRequest {
     pub rows: u32,
 }
 
+struct RemoteListeners {
+    tasks: Mutex<HashMap<u32, JoinHandle<()>>>,
+    live: Arc<AtomicUsize>,
+}
+
+impl RemoteListeners {
+    fn new(live: Arc<AtomicUsize>) -> Arc<Self> {
+        Arc::new(Self { tasks: Mutex::new(HashMap::new()), live })
+    }
+}
+
+impl Drop for RemoteListeners {
+    fn drop(&mut self) {
+        let tasks = self.tasks.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.live.fetch_sub(tasks.len(), Ordering::SeqCst);
+        for task in tasks.values() {
+            task.abort();
+        }
+    }
+}
+
 #[derive(Clone)]
 struct Handler {
+    remote: Arc<RemoteListeners>,
+    sessions: Arc<Mutex<Vec<server::Handle>>>,
     root: PathBuf,
     path: OsString,
     options: Options,
@@ -63,7 +88,12 @@ impl server::Server for Handler {
     type Handler = Self;
 
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
-        Self { channels: Arc::default(), open: Arc::default(), ..self.clone() }
+        Self {
+            channels: Arc::default(),
+            open: Arc::default(),
+            remote: RemoteListeners::new(self.remote.live.clone()),
+            ..self.clone()
+        }
     }
 }
 
@@ -158,6 +188,58 @@ impl server::Handler for Handler {
             let _ = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await;
         });
         Ok(())
+    }
+
+    async fn tcpip_forward(
+        &mut self, address: &str, port: &mut u32, session: &mut ServerSession,
+    ) -> Result<bool, Self::Error> {
+        if !self.options.forwarding {
+            return Ok(false);
+        }
+        let Ok(listener) = tokio::net::TcpListener::bind(("127.0.0.1", *port as u16)).await else {
+            return Ok(false);
+        };
+        let Ok(bound) = listener.local_addr() else {
+            return Ok(false);
+        };
+        let bound_port = u32::from(bound.port());
+        *port = bound_port;
+        let handle = session.handle();
+        self.sessions.lock().unwrap().push(handle.clone());
+        let address = address.to_string();
+        let task = tokio::spawn(async move {
+            while let Ok((mut stream, peer)) = listener.accept().await {
+                let opened = handle
+                    .channel_open_forwarded_tcpip(
+                        address.clone(),
+                        bound_port,
+                        peer.ip().to_string(),
+                        u32::from(peer.port()),
+                    )
+                    .await;
+                let Ok(channel) = opened else { continue };
+                tokio::spawn(async move {
+                    let mut channel_stream = channel.into_stream();
+                    let _ = tokio::io::copy_bidirectional(&mut channel_stream, &mut stream).await;
+                });
+            }
+        });
+        let mut tasks = self.remote.tasks.lock().unwrap();
+        if tasks.insert(bound_port, task).is_none() {
+            self.remote.live.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(true)
+    }
+
+    async fn cancel_tcpip_forward(
+        &mut self, _address: &str, port: u32, _: &mut ServerSession,
+    ) -> Result<bool, Self::Error> {
+        let task = self.remote.tasks.lock().unwrap().remove(&port);
+        let Some(task) = task else { return Ok(false) };
+        self.remote.live.fetch_sub(1, Ordering::SeqCst);
+        task.abort();
+        let _ = task.await;
+        Ok(true)
     }
 
     async fn channel_close(&mut self, id: ChannelId, _: &mut ServerSession) -> Result<(), Self::Error> {
@@ -278,6 +360,8 @@ fn search_path(hide_scp: bool) -> OsString {
 }
 
 pub struct SshServer {
+    remote_live: Arc<AtomicUsize>,
+    sessions: Arc<Mutex<Vec<server::Handle>>>,
     pub port: u16,
     pub root: tempfile::TempDir,
     known_hosts: tempfile::TempDir,
@@ -308,7 +392,11 @@ impl SshServer {
         let pty = Arc::new(Mutex::new(None));
         let window = Arc::new(Mutex::new(None));
         let environment = Arc::new(Mutex::new(Vec::new()));
+        let remote_live = Arc::new(AtomicUsize::new(0));
+        let sessions = Arc::new(Mutex::new(Vec::new()));
         let mut handler = Handler {
+            remote: RemoteListeners::new(remote_live.clone()),
+            sessions: sessions.clone(),
             root: root.path().to_path_buf(),
             path: search_path(options.hide_scp),
             options,
@@ -326,6 +414,8 @@ impl SshServer {
             let _ = handler.run_on_socket(config, &listener).await;
         });
         Self {
+            remote_live,
+            sessions,
             port,
             root,
             known_hosts: tempfile::tempdir().expect("a temporary directory"),
@@ -370,6 +460,32 @@ impl SshServer {
 
     pub fn forwarded_connections(&self) -> usize {
         self.forwarded.load(Ordering::SeqCst)
+    }
+
+    pub fn remote_listeners(&self) -> usize {
+        self.remote_live.load(Ordering::SeqCst)
+    }
+
+    pub async fn open_forwarded_channel(&self, address: &str, port: u16) -> bool {
+        let handle = self.sessions.lock().unwrap().last().cloned();
+        let Some(handle) = handle else { return false };
+        match handle.channel_open_forwarded_tcpip(address, u32::from(port), "127.0.0.1", 40000).await {
+            Ok(channel) => {
+                tokio::spawn(async move {
+                    let _stream = channel.into_stream();
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                });
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    pub async fn disconnect_clients(&self) {
+        let handles: Vec<_> = self.sessions.lock().unwrap().clone();
+        for handle in handles {
+            let _ = handle.disconnect(russh::Disconnect::ByApplication, String::new(), String::new()).await;
+        }
     }
 
     pub fn running_commands(&self) -> usize {

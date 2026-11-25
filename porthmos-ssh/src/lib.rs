@@ -4,6 +4,7 @@ mod connect;
 mod discovery;
 mod exec;
 mod forward;
+mod forwards;
 mod jump;
 mod proxy;
 mod quote;

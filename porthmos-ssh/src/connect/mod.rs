@@ -36,6 +36,10 @@ impl Session {
         &self.handle
     }
 
+    pub(crate) fn forwards(&self) -> crate::forwards::ForwardRegistry {
+        self.server.forwards()
+    }
+
     pub fn is_closed(&self) -> bool {
         self.handle.is_closed()
     }

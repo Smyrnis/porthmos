@@ -8,9 +8,9 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use porthmos_vfs::{SERVER_INFO_CELLS, clean_server_text};
+use porthmos_vfs::{IncomingConnection, SERVER_INFO_CELLS, clean_server_text};
 use russh::{
-    Signer,
+    ChannelOpenFailure, Signer,
     client::{self, AuthResult, Handle},
     keys,
     keys::{
@@ -25,6 +25,8 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     sync::{mpsc, oneshot},
 };
+
+use crate::forwards::ForwardRegistry;
 
 const SNIFF_LIMIT: usize = 512;
 
@@ -155,6 +157,7 @@ impl HostKeyCheck {
 
 pub struct PorthmosHandler {
     host_key: HostKeyCheck,
+    forwards: ForwardRegistry,
 }
 
 impl client::Handler for PorthmosHandler {
@@ -169,6 +172,33 @@ impl client::Handler for PorthmosHandler {
         };
         self.host_key.verify(key).await
     }
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self, channel: russh::Channel<client::Msg>, connected_address: &str, connected_port: u32,
+        originator_address: &str, originator_port: u32, reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        let Some(sender) = self.forwards.route(connected_address, connected_port) else {
+            reply.reject(ChannelOpenFailure::AdministrativelyProhibited).await;
+            return Ok(());
+        };
+        let Ok(permit) = sender.try_reserve() else {
+            reply.reject(ChannelOpenFailure::ResourceShortage).await;
+            return Ok(());
+        };
+        reply.accept().await;
+        let origin = format!("{originator_address}:{originator_port}");
+        permit.send(IncomingConnection { stream: Box::new(channel.into_stream()), origin });
+        Ok(())
+    }
+
+    async fn disconnected(&mut self, reason: client::DisconnectReason<Self::Error>) -> Result<(), Self::Error> {
+        self.forwards.clear();
+        match reason {
+            client::DisconnectReason::ReceivedDisconnect(_) => Ok(()),
+            client::DisconnectReason::Error(error) => Err(error),
+        }
+    }
 }
 
 pub fn software_version(seen: &[u8]) -> Option<String> {
@@ -180,11 +210,18 @@ pub fn software_version(seen: &[u8]) -> Option<String> {
 }
 
 #[derive(Clone, Default)]
-pub struct ServerId(Arc<Mutex<Vec<u8>>>);
+pub struct ServerId {
+    seen: Arc<Mutex<Vec<u8>>>,
+    forwards: ForwardRegistry,
+}
 
 impl ServerId {
     fn bytes(&self) -> std::sync::MutexGuard<'_, Vec<u8>> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn forwards(&self) -> ForwardRegistry {
+        self.forwards.clone()
     }
 
     fn record(&self, bytes: &[u8]) {
@@ -273,7 +310,7 @@ where
     let handle = client::connect_stream(
         Arc::new(client_config()),
         Sniffing::new(stream, seen.clone()),
-        PorthmosHandler { host_key },
+        PorthmosHandler { host_key, forwards: seen.forwards() },
     )
     .await?;
     Ok((handle, seen))

@@ -40,3 +40,19 @@ async fn the_file_system_offers_a_forwarder_that_reaches_a_target() {
 
     assert_eq!(&received, b"ping");
 }
+
+#[tokio::test]
+async fn an_scp_session_can_listen_for_a_remote_forward() {
+    let options = Options { forwarding: true, ..Options::default() };
+    let server = SshServer::start(options).await;
+    let fs = connected(&server).await;
+
+    let mut listener = fs.forwarder().expect("scp forwards").listen([127, 0, 0, 1].into(), 0).await.unwrap();
+    let mut dialler = tokio::net::TcpStream::connect(("127.0.0.1", listener.port)).await.unwrap();
+    dialler.write_all(b"hi").await.unwrap();
+    let mut incoming = timeout(Duration::from_secs(5), listener.incoming.recv()).await.unwrap().unwrap();
+    let mut received = [0u8; 2];
+    incoming.stream.read_exact(&mut received).await.unwrap();
+
+    assert_eq!(&received, b"hi");
+}
