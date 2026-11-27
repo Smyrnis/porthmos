@@ -27,6 +27,8 @@ pub enum Edit {
     SetReconnect(bool),
     SetRefreshAuto { tab: RefreshTab, auto: bool },
     SetRefreshInterval { tab: RefreshTab, seconds: u64 },
+    SetLogsMaxLines(u32),
+    SetLogsInitialLines(u32),
     SetThemeBase(ThemeBase),
     SetLanguage(Option<String>),
 }
@@ -168,6 +170,10 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
             "interval_seconds",
             Value::from(i64::try_from(*seconds).unwrap_or(i64::MAX)),
         )?,
+        Edit::SetLogsMaxLines(lines) => set_in(&mut document, &["logs"], "max_lines", Value::from(i64::from(*lines)))?,
+        Edit::SetLogsInitialLines(lines) => {
+            set_in(&mut document, &["logs"], "initial_lines", Value::from(i64::from(*lines)))?
+        }
         Edit::SetLanguage(language) => {
             set_in(&mut document, &["general"], "language", Value::from(language.as_deref().unwrap_or("auto")))?
         }

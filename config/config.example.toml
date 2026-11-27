@@ -109,6 +109,14 @@ interval_seconds = 10
 auto = false
 interval_seconds = 10
 
+# The log viewer of the window app. max_lines is how many lines it keeps in
+# memory per log, from 1000 to 200000; the oldest lines are dropped first.
+# initial_lines is how many of the latest lines it loads when a log is opened,
+# from 0 to 5000. The window app also has these in Settings.
+[logs]
+max_lines = 20000
+initial_lines = 500
+
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with

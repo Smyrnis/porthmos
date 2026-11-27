@@ -522,3 +522,35 @@ fn set_refresh_interval_updates_one_tab_without_touching_the_others() {
         "[refresh.ports]\ninterval_seconds = 300\n"
     );
 }
+
+#[test]
+fn set_logs_max_lines_creates_the_table_and_keeps_comments_and_other_tables() {
+    let before = "# my notes\n[edit]\nauto_upload = false # keep\n";
+
+    let written = apply(before, &Edit::SetLogsMaxLines(50000)).unwrap();
+
+    assert!(written.starts_with("# my notes\n[edit]\nauto_upload = false # keep\n"), "{written}");
+    assert!(written.contains("[logs]\nmax_lines = 50000\n"), "{written}");
+    assert_eq!(apply("", &Edit::SetLogsMaxLines(1000)).unwrap(), "[logs]\nmax_lines = 1000\n");
+}
+
+#[test]
+fn set_logs_initial_lines_updates_only_its_own_key() {
+    let before = "[logs]\nmax_lines = 30000 # keep\ninitial_lines = 100\n\n[search]\nmax_depth = 4\n";
+
+    let written = apply(before, &Edit::SetLogsInitialLines(0)).unwrap();
+
+    assert!(written.contains("[logs]\nmax_lines = 30000 # keep\ninitial_lines = 0\n"), "{written}");
+    assert!(written.contains("[search]\nmax_depth = 4\n"), "{written}");
+    assert_eq!(apply("", &Edit::SetLogsInitialLines(5000)).unwrap(), "[logs]\ninitial_lines = 5000\n");
+}
+
+#[test]
+fn set_logs_max_lines_updates_only_its_own_key() {
+    let before = "[logs]\nmax_lines = 30000\ninitial_lines = 100 # keep\n\n[search]\nmax_depth = 4\n";
+
+    let written = apply(before, &Edit::SetLogsMaxLines(1000)).unwrap();
+
+    assert!(written.contains("[logs]\nmax_lines = 1000\ninitial_lines = 100 # keep\n"), "{written}");
+    assert!(written.contains("[search]\nmax_depth = 4\n"), "{written}");
+}

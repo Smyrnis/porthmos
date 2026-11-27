@@ -7,8 +7,8 @@ use std::{fs, path::Path};
 
 use anyhow::Result;
 pub use settings::{
-    ConnectionSettings, RefreshSetting, RefreshSettings, RefreshTab, ReopenMode, SearchSettings, Settings,
-    StartupSettings, UpdateMode, UpdateSettings,
+    ConnectionSettings, LogsSettings, RefreshSetting, RefreshSettings, RefreshTab, ReopenMode, SearchSettings,
+    Settings, StartupSettings, UpdateMode, UpdateSettings,
 };
 
 use crate::Paths;

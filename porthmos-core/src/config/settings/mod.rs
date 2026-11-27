@@ -173,6 +173,21 @@ impl RefreshTab {
     }
 }
 
+pub const LOGS_MAX_LINES_RANGE: std::ops::RangeInclusive<u32> = 1000..=200000;
+pub const LOGS_INITIAL_LINES_RANGE: std::ops::RangeInclusive<u32> = 0..=5000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogsSettings {
+    pub max_lines: u32,
+    pub initial_lines: u32,
+}
+
+impl Default for LogsSettings {
+    fn default() -> Self {
+        Self { max_lines: 20000, initial_lines: 500 }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settings {
     pub panel: PanelSettings,
@@ -184,6 +199,7 @@ pub struct Settings {
     pub startup: StartupSettings,
     pub connection: ConnectionSettings,
     pub refresh: RefreshSettings,
+    pub logs: LogsSettings,
     pub language: Option<String>,
     pub frontend: toml::Table,
 }
@@ -208,6 +224,8 @@ pub(crate) struct SettingsFile {
     pub connection: ConnectionSettingsFile,
     #[serde(default)]
     pub refresh: RefreshSettingsFile,
+    #[serde(default)]
+    pub logs: LogsSettingsFile,
     #[serde(default)]
     pub general: GeneralSettingsFile,
     #[serde(flatten)]
@@ -251,6 +269,12 @@ pub(crate) struct RefreshSettingsFile {
 pub(crate) struct RefreshGroupFile {
     pub auto: Option<toml::Value>,
     pub interval_seconds: Option<toml::Value>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct LogsSettingsFile {
+    pub max_lines: Option<toml::Value>,
+    pub initial_lines: Option<toml::Value>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -316,6 +340,26 @@ fn refresh_from_file(tab: RefreshTab, file: RefreshGroupFile, warnings: &mut Vec
         }
     };
     RefreshSetting { auto, interval_seconds }
+}
+
+fn logs_value(
+    key: &str, value: Option<toml::Value>, range: &std::ops::RangeInclusive<u32>, default: u32,
+    warnings: &mut Vec<String>,
+) -> u32 {
+    match value {
+        None => default,
+        Some(toml::Value::Integer(count)) if u32::try_from(count).is_ok_and(|count| range.contains(&count)) => {
+            count as u32
+        }
+        Some(toml::Value::Integer(_)) => {
+            warnings.push(format!("logs.{key} must be between {} and {}, using {default}", range.start(), range.end()));
+            default
+        }
+        Some(_) => {
+            warnings.push(format!("logs.{key} must be a whole number, using {default}"));
+            default
+        }
+    }
 }
 
 pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) {
@@ -445,6 +489,24 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         ports: refresh_from_file(RefreshTab::Ports, file.refresh.ports, &mut warnings),
     };
 
+    let logs_default = LogsSettings::default();
+    let logs = LogsSettings {
+        max_lines: logs_value(
+            "max_lines",
+            file.logs.max_lines,
+            &LOGS_MAX_LINES_RANGE,
+            logs_default.max_lines,
+            &mut warnings,
+        ),
+        initial_lines: logs_value(
+            "initial_lines",
+            file.logs.initial_lines,
+            &LOGS_INITIAL_LINES_RANGE,
+            logs_default.initial_lines,
+            &mut warnings,
+        ),
+    };
+
     (
         Settings {
             panel: PanelSettings { show_hidden, sort: SortSpec { key, order } },
@@ -471,6 +533,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             startup: StartupSettings { reopen },
             connection: ConnectionSettings { reconnect: file.connection.reconnect.unwrap_or(false) },
             refresh,
+            logs,
             language,
             frontend: file.frontend,
         },

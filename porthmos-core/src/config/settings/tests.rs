@@ -28,6 +28,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         startup: StartupSettingsFile::default(),
         connection: ConnectionSettingsFile::default(),
         refresh: RefreshSettingsFile::default(),
+        logs: LogsSettingsFile::default(),
         general: GeneralSettingsFile::default(),
     };
 
@@ -52,6 +53,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         startup: StartupSettingsFile::default(),
         connection: ConnectionSettingsFile::default(),
         refresh: RefreshSettingsFile::default(),
+        logs: LogsSettingsFile::default(),
         general: GeneralSettingsFile::default(),
     };
 
@@ -686,4 +688,85 @@ fn a_wrongly_typed_refresh_value_warns_and_uses_the_default() {
             "refresh.services.interval_seconds must be a whole number, using 10".to_string(),
         ]
     );
+}
+
+#[test]
+fn logs_default_to_twenty_thousand_lines_and_five_hundred_initial() {
+    let (settings, warnings) = parsed("");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(settings.logs, LogsSettings { max_lines: 20000, initial_lines: 500 });
+    assert_eq!(LogsSettings::default(), settings.logs);
+    assert_eq!(LOGS_MAX_LINES_RANGE, 1000..=200000);
+    assert_eq!(LOGS_INITIAL_LINES_RANGE, 0..=5000);
+}
+
+#[test]
+fn logs_read_valid_values_including_the_range_ends() {
+    for (max_lines, initial_lines) in [(1000, 0), (200000, 5000), (50000, 1200)] {
+        let (settings, warnings) =
+            parsed(&format!("[logs]\nmax_lines = {max_lines}\ninitial_lines = {initial_lines}\n"));
+
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(settings.logs, LogsSettings { max_lines, initial_lines });
+    }
+}
+
+#[test]
+fn logs_max_lines_outside_1000_to_200000_warns_and_uses_the_default() {
+    for max_lines in [999, 200001, 0, -5] {
+        let (settings, warnings) = parsed(&format!("[logs]\nmax_lines = {max_lines}\ninitial_lines = 100\n"));
+
+        assert_eq!(settings.logs, LogsSettings { max_lines: 20000, initial_lines: 100 }, "{max_lines}");
+        assert_eq!(
+            warnings,
+            vec!["logs.max_lines must be between 1000 and 200000, using 20000".to_string()],
+            "{max_lines}"
+        );
+    }
+}
+
+#[test]
+fn logs_initial_lines_outside_0_to_5000_warns_and_uses_the_default() {
+    for initial_lines in [5001, -1] {
+        let (settings, warnings) = parsed(&format!("[logs]\nmax_lines = 3000\ninitial_lines = {initial_lines}\n"));
+
+        assert_eq!(settings.logs, LogsSettings { max_lines: 3000, initial_lines: 500 }, "{initial_lines}");
+        assert_eq!(
+            warnings,
+            vec!["logs.initial_lines must be between 0 and 5000, using 500".to_string()],
+            "{initial_lines}"
+        );
+    }
+}
+
+#[test]
+fn a_wrongly_typed_logs_value_warns_and_uses_that_keys_default_only() {
+    let (settings, warnings) = parsed("[logs]\nmax_lines = \"many\"\ninitial_lines = 7\n");
+
+    assert_eq!(settings.logs, LogsSettings { max_lines: 20000, initial_lines: 7 });
+    assert_eq!(warnings, vec!["logs.max_lines must be a whole number, using 20000".to_string()]);
+
+    let (settings, warnings) = parsed("[logs]\nmax_lines = 4000\ninitial_lines = 1.5\n");
+
+    assert_eq!(settings.logs, LogsSettings { max_lines: 4000, initial_lines: 500 });
+    assert_eq!(warnings, vec!["logs.initial_lines must be a whole number, using 500".to_string()]);
+}
+
+#[test]
+fn the_logs_table_does_not_leak_into_the_frontend_settings() {
+    let (settings, _) = parsed("[logs]\nmax_lines = 3000\n[keys]\nquit = \"ctrl+q\"\n");
+
+    assert_eq!(settings.logs.max_lines, 3000);
+    assert!(settings.frontend.contains_key("keys"));
+    assert!(!settings.frontend.contains_key("logs"), "{:?}", settings.frontend);
+}
+
+#[test]
+fn the_example_config_documents_both_logs_keys() {
+    let example = include_str!("../../../../config/config.example.toml");
+
+    assert!(example.contains("\n[logs]\n"));
+    assert!(example.contains("\nmax_lines = 20000\n"));
+    assert!(example.contains("\ninitial_lines = 500\n"));
 }

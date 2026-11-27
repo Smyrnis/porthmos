@@ -14,8 +14,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use command::{Command, Location, RequestId, SessionId, TerminalId};
-pub use event::{Event, MonitorState, PortsState, ServicesState, TunnelInfo, TunnelStatus};
+pub use command::{Command, Location, LogId, RequestId, SessionId, TerminalId};
+pub use event::{Event, LogState, MonitorState, PortsState, ServicesState, TunnelInfo, TunnelStatus};
 use host::Host;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
@@ -128,6 +128,16 @@ pub(crate) enum Internal {
     ServiceChanged {
         session: SessionId,
     },
+    Log {
+        id: LogId,
+        run: u64,
+        state: LogState,
+    },
+    LogEnded {
+        id: LogId,
+        run: u64,
+        state: LogState,
+    },
     ServiceStatus {
         session: SessionId,
         unit: String,
@@ -239,6 +249,7 @@ pub(crate) struct Engine {
     monitor_run: handlers::MonitorRun,
     ports_run: handlers::Fetches<()>,
     services_run: handlers::Fetches<porthmos_monitor::ServicesSnapshot>,
+    logs_run: handlers::LogsRun,
     previews: handlers::PreviewSlots,
     properties: handlers::PropertiesState,
     history: handlers::HistoryLog,
@@ -330,6 +341,7 @@ impl Engine {
             monitor_run: handlers::MonitorRun::default(),
             ports_run: handlers::Fetches::default(),
             services_run: handlers::Fetches::default(),
+            logs_run: handlers::LogsRun::default(),
             previews: handlers::PreviewSlots::default(),
             properties: handlers::PropertiesState::default(),
             history: handlers::HistoryLog::new(parts.history),
@@ -442,6 +454,10 @@ impl Engine {
             Command::StartServices { session } => self.start_services(session),
             Command::RefreshServices { session } => self.refresh_services(session),
             Command::StopServices { session } => self.stop_services(session),
+            Command::StartLog { id, session, source, initial_lines } => {
+                self.start_log(id, session, &source, initial_lines)
+            }
+            Command::StopLog { id } => self.stop_log(id),
             Command::ServiceAction { session, unit, verb } => self.service_action(session, &unit, verb),
             Command::ServiceStatus { session, unit } => self.service_status(session, &unit),
             Command::SignalProcess { session, pid, name, signal } => self.signal_process(session, pid, &name, signal),
@@ -559,6 +575,8 @@ impl Engine {
             Internal::Ports { session, generation, update } => self.ports_update(session, generation, update),
             Internal::Services { session, generation, update } => self.services_update(session, generation, update),
             Internal::ServiceChanged { session } => self.service_changed(session),
+            Internal::Log { id, run, state } => self.log_progressed(id, run, state),
+            Internal::LogEnded { id, run, state } => self.log_ended(id, run, state),
             Internal::ServiceStatus { session, unit, text } => self.service_status_ready(session, unit, text),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::FolderShown { location, path } => self.remember_folder(location, path),

@@ -18,6 +18,7 @@ use crate::{
 pub type SessionId = u64;
 pub type TerminalId = u64;
 pub type RequestId = u64;
+pub type LogId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Location {
@@ -108,6 +109,8 @@ pub enum Command {
     StartServices { session: SessionId },
     RefreshServices { session: SessionId },
     StopServices { session: SessionId },
+    StartLog { id: LogId, session: SessionId, source: porthmos_monitor::LogSource, initial_lines: u32 },
+    StopLog { id: LogId },
     ServiceAction { session: SessionId, unit: String, verb: porthmos_monitor::ServiceVerb },
     ServiceStatus { session: SessionId, unit: String },
     SignalProcess { session: SessionId, pid: u32, name: String, signal: crate::ProcessSignal },

@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use porthmos_tunnel::{StatsSnapshot, TunnelKey, TunnelSpec};
 use porthmos_vfs::{Entry, Question, ShellInvocation, ShellStream, VfsPath};
 
-use super::{Location, RequestId, SessionId, TerminalId};
+use super::{Location, LogId, RequestId, SessionId, TerminalId};
 use crate::{
     Completion, ConnectionState, Handover, Message, Severity,
     config::bookmarks::Bookmark,
@@ -59,6 +59,14 @@ pub enum ServicesState {
     Snapshot(Box<porthmos_monitor::ServicesSnapshot>),
     Unavailable(Message),
     Failing(Message),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogState {
+    Started,
+    Lines { lines: Vec<porthmos_monitor::LogLine>, skipped: u64 },
+    Ended(Message),
+    Unavailable(Message),
 }
 
 #[derive(Debug, Clone)]
@@ -124,5 +132,6 @@ pub enum Event {
     Monitor { session: SessionId, state: MonitorState },
     Ports { session: SessionId, state: PortsState },
     Services { session: SessionId, state: ServicesState },
+    Log { id: LogId, state: LogState },
     ServiceStatus { session: SessionId, unit: String, text: String },
 }

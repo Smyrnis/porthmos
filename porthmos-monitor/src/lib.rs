@@ -2,6 +2,7 @@ use std::time::Duration;
 
 mod arrange;
 mod command;
+mod logs;
 mod model;
 mod parse;
 mod ports;
@@ -14,6 +15,10 @@ mod testing;
 pub use arrange::{Sort, arranged};
 pub use command::{
     CommandError, Nice, SHELL_COMMAND, Signal, change_script, may_signal, renice_command, signal_command,
+};
+pub use logs::{
+    LineSplitter, LogLevel, LogLine, LogSource, LogSourceError, MAX_INITIAL_LINES, MAX_LOG_LINE_BYTES, detect_level,
+    log_script,
 };
 pub use model::{Cpu, Disk, Host, Interface, Load, Memory, Process, Section, Snapshot, UNKNOWN_UID};
 pub use parse::sections::hides_or_reorders_text;

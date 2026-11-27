@@ -199,6 +199,7 @@ impl Engine {
         self.stop_monitor(session);
         self.stop_ports(session);
         self.stop_services(session);
+        self.lose_logs_of(session);
         self.stop_tunnels_of(session);
         let was_lost = self.book.lost_sessions.remove(&session);
         self.keep_folder_for_reconnect(session, &live.name, was_lost);

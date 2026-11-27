@@ -65,6 +65,7 @@ impl Engine {
             self.stop_monitor(session);
             self.stop_ports(session);
             self.stop_services(session);
+            self.lose_logs_of(session);
             self.report(Severity::Warning, i18n::text_with("connection.lost", &[("name", &name)]));
             self.begin_reconnect(name.clone());
         }
