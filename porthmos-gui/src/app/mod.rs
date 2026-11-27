@@ -211,6 +211,10 @@ pub enum Message {
     SettingsLanguageChosen(Option<String>),
     SettingsReopenChosen(porthmos_core::ReopenMode),
     SettingsReconnectToggled(bool),
+    SettingsRefreshToggled(porthmos_core::RefreshTab, bool),
+    SettingsRefreshTyped(porthmos_core::RefreshTab, String),
+    SettingsRefreshApplied(porthmos_core::RefreshTab),
+    RefreshTick(porthmos_core::RefreshTab),
     SettingsThemeChosen(porthmos_core::theme::ThemeBase),
     SettingsCategoryChosen(crate::settings_view::SettingsCategory),
     ReopenPressed,
@@ -275,11 +279,25 @@ pub enum Message {
     HealthFilterChanged(String),
     HealthSortChosen(porthmos_core::ProcessSort),
     HealthProcessSelected(u32),
+    HealthRefresh,
     HealthRetry,
     HealthTerminateRequested,
     HealthKillRequested,
     HealthReniceRequested,
     HealthReniceChanged(String),
+    ServicesViewSelected,
+    ServicesRefresh,
+    ServicesRetry,
+    ServicesFilterChanged(String),
+    ServicesStatusFilterChanged(porthmos_core::StatusFilter),
+    ServiceSelected(String),
+    ServiceStatusRequested,
+    ServiceActionRequested(porthmos_core::ServiceVerb),
+    PortsViewSelected,
+    PortsViewChosen(crate::ports_view::PortsPane),
+    PortsFilterChanged(String),
+    PortsRefresh,
+    PortsRetry,
     TunnelStartRequested(porthmos_core::TunnelKey),
     TunnelStopRequested(porthmos_core::TunnelKey),
     TunnelRestartRequested(porthmos_core::TunnelKey),
@@ -325,6 +343,8 @@ pub struct App {
     drawer: crate::drawer::Drawer,
     tunnel_feed: tunnels::TunnelFeed,
     health: crate::health_view::HealthState,
+    services: crate::services_view::ServicesState,
+    ports: crate::ports_view::PortsState,
     core: CoreHandle,
     events: EventSource,
     palette: Palette,
@@ -414,6 +434,8 @@ impl App {
             drawer: crate::drawer::Drawer::default(),
             tunnel_feed: tunnels::TunnelFeed::new(),
             health: crate::health_view::HealthState::default(),
+            services: crate::services_view::ServicesState::default(),
+            ports: crate::ports_view::PortsState::default(),
             events,
             palette,
             notices: Vec::new(),
@@ -973,6 +995,9 @@ impl App {
             Event::TunnelStatus { key, status } => self.tunnel_status_arrived(&key, status),
             Event::TunnelStats(batch) => self.tunnel_stats_arrived(&batch),
             Event::Monitor { session, state } => self.health_arrived(session, state),
+            Event::Ports { session, state } => self.ports_arrived(session, state),
+            Event::Services { session, state } => self.services_arrived(session, state),
+            Event::ServiceStatus { session, unit, text } => self.service_status_arrived(session, &unit, text),
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
             Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
@@ -1124,6 +1149,8 @@ impl App {
         let task = self.handle(message);
         self.report_active_connection();
         self.sync_monitor();
+        self.sync_services();
+        self.sync_ports();
         let task =
             if std::mem::take(&mut self.quit_confirmed) { Task::batch([task, self.begin_close()]) } else { task };
         let task = if self.tool_version == tool_before {
@@ -1346,8 +1373,14 @@ impl App {
             | Message::SettingsLanguageChosen(_)
             | Message::SettingsReopenChosen(_)
             | Message::SettingsReconnectToggled(_)
+            | Message::SettingsRefreshToggled(..)
+            | Message::SettingsRefreshTyped(..)
+            | Message::SettingsRefreshApplied(_)
             | Message::SettingsThemeChosen(_)
             | Message::SettingsCategoryChosen(_)) => return self.settings_message(message),
+            Message::RefreshTick(porthmos_core::RefreshTab::Health) => self.health_tick(),
+            Message::RefreshTick(porthmos_core::RefreshTab::Services) => self.services_tick(),
+            Message::RefreshTick(porthmos_core::RefreshTab::Ports) => self.ports_tick(),
             Message::ReopenPressed => self.reopen_pressed(),
             Message::QuickConnectPressed(name) => self.quick_connect_pressed(&name),
             message @ (Message::PaletteTyped(_) | Message::PaletteRowPressed(_) | Message::PaletteRowActivated(_)) => {
@@ -1543,11 +1576,22 @@ impl App {
             Message::HealthProcessSelected(pid) => {
                 self.health.selected = if self.health.selected == Some(pid) { None } else { Some(pid) };
             }
-            Message::HealthRetry => self.health_retry(),
+            Message::HealthRefresh | Message::HealthRetry => self.health_refresh(),
             Message::HealthTerminateRequested => self.health_signal_requested(porthmos_core::ProcessSignal::Terminate),
             Message::HealthKillRequested => self.health_signal_requested(porthmos_core::ProcessSignal::Kill),
             Message::HealthReniceRequested => self.health_renice_requested(),
             Message::HealthReniceChanged(text) => self.health_renice_changed(text),
+            Message::ServicesViewSelected => self.show_services(),
+            Message::ServicesRefresh | Message::ServicesRetry => self.services_refresh(),
+            Message::ServicesFilterChanged(text) => self.services.filter = text,
+            Message::ServicesStatusFilterChanged(status) => self.services.status = status,
+            Message::ServiceSelected(name) => self.services.select(name),
+            Message::ServiceStatusRequested => self.service_status_requested(),
+            Message::ServiceActionRequested(verb) => self.service_action_requested(verb),
+            Message::PortsViewSelected => self.show_ports(),
+            Message::PortsViewChosen(pane) => self.ports.pane = pane,
+            Message::PortsFilterChanged(text) => self.ports.filter = text,
+            Message::PortsRefresh | Message::PortsRetry => self.ports_refresh(),
             Message::TunnelStartRequested(key) => self.tunnel_command(Command::StartTunnel { key }),
             Message::TunnelStopRequested(key) => self.tunnel_command(Command::StopTunnel { key }),
             Message::TunnelRestartRequested(key) => self.tunnel_command(Command::RestartTunnel { key }),
@@ -1942,6 +1986,9 @@ impl App {
             (true, Modal::ConfirmDeleteTunnel { key }) => self.tunnel_command(Command::DeleteTunnel { key }),
             (true, Modal::ConfirmSignal { session, pid, name, signal }) => {
                 self.core.send(Command::SignalProcess { session, pid, name, signal })
+            }
+            (true, Modal::ConfirmServiceAction { session, unit, verb, .. }) => {
+                self.core.send(Command::ServiceAction { session, unit, verb })
             }
             (true, Modal::Renice { session, pid, name, text, .. }) => self.send_renice(session, pid, name, &text),
             (true, Modal::ConfirmDelete { side, entries, count, .. }) => {
@@ -2353,6 +2400,8 @@ impl App {
             Action::TerminalFocusDown => self.focus_pane_toward(crate::drawer::layout::Toward::Down),
             Action::ShowTunnels => self.show_tunnels(),
             Action::ShowHealth => self.show_health(),
+            Action::ShowServices => self.show_services(),
+            Action::ShowPorts => self.show_ports(),
             Action::NewTunnel => self.tunnel_form_requested(None),
             Action::TerminalOpenDirectory => self.open_terminal_directory(),
             Action::TerminalChangeDirectory => self.change_terminal_directory(),
@@ -2443,6 +2492,9 @@ impl App {
             self.native_subscription(),
             self.staging_subscription(),
             self.notice_subscription(),
+            self.health_subscription(),
+            self.services_subscription(),
+            self.ports_subscription(),
             self.desktop.subscription().map(Message::Desktop),
             self.processes.subscription().map(Message::ProcessFinished),
             self.terminal_subscription(),
@@ -2473,12 +2525,14 @@ mod editing;
 mod health;
 mod import;
 mod palette;
+mod ports;
 mod preview;
 mod properties;
 mod quick_connect;
 mod quit;
 mod reopen;
 mod search_window;
+mod services;
 mod settings;
 mod sync;
 mod terminal;

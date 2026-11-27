@@ -1,5 +1,9 @@
+use std::time::Instant;
+
 use porthmos_core::i18n;
-use porthmos_core::{Disk, HealthSnapshot, Memory, MonitorState, ProcessSort, SessionId, may_signal, size_text};
+use porthmos_core::{
+    Disk, HealthSnapshot, Memory, MonitorState, PROCESS_ACTION_MAX_AGE, ProcessSort, SessionId, may_signal, size_text,
+};
 
 const UNKNOWN: &str = "\u{2026}";
 const MINUTE: u64 = 60;
@@ -9,10 +13,12 @@ const FINE_PERCENT_BELOW: f32 = 10.0;
 
 #[derive(Debug, Default)]
 pub struct HealthState {
+    kept: Option<Box<HealthSnapshot>>,
     pub chosen: Option<SessionId>,
     pub session: Option<SessionId>,
     pub started: Option<SessionId>,
     pub state: Option<MonitorState>,
+    arrived: Option<Instant>,
     pub sort: ProcessSort,
     pub filter: String,
     pub selected: Option<u32>,
@@ -20,14 +26,15 @@ pub struct HealthState {
 
 impl HealthState {
     pub fn begin(&mut self, session: SessionId) {
+        self.clear();
         self.session = Some(session);
-        self.state = None;
-        self.selected = None;
     }
 
     pub fn clear(&mut self) {
         self.session = None;
         self.state = None;
+        self.arrived = None;
+        self.kept = None;
         self.selected = None;
     }
 
@@ -40,7 +47,32 @@ impl HealthState {
         {
             self.selected = None;
         }
+        if let Some(MonitorState::Snapshot(snapshot)) = self.state.take() {
+            self.kept = Some(snapshot);
+        }
+        if !matches!(state, MonitorState::Failing(_)) {
+            self.kept = None;
+        }
+        if matches!(state, MonitorState::Snapshot(_)) {
+            self.arrived = Some(Instant::now());
+        }
         self.state = Some(state);
+    }
+
+    pub fn snapshot(&self) -> Option<&HealthSnapshot> {
+        match &self.state {
+            Some(MonitorState::Snapshot(snapshot)) => Some(snapshot),
+            Some(MonitorState::Failing(_)) => self.kept.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn list_is_old(&self, now: Instant) -> bool {
+        self.arrived.is_some_and(|arrived| now.saturating_duration_since(arrived) > PROCESS_ACTION_MAX_AGE)
+    }
+
+    pub fn failing(&self) -> bool {
+        matches!(self.state, Some(MonitorState::Failing(_)))
     }
 }
 

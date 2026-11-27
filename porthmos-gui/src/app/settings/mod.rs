@@ -11,9 +11,10 @@ use porthmos_core::theme::{self, ThemeBase};
 use porthmos_core::{Command, ReopenMode, UpdateMode};
 
 use super::{App, Message};
+use crate::refresh;
 use crate::settings_view::{
-    GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text, search_depth_from_text,
-    search_results_from_text,
+    GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text, refresh_seconds_from_text,
+    search_depth_from_text, search_results_from_text,
 };
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
 use crate::theme::{Palette, ThemeSettings};
@@ -37,6 +38,9 @@ fn search_depth_text() -> String {
 }
 fn search_results_text() -> String {
     tr("Enter a whole number from 10 to 10000.")
+}
+fn refresh_seconds_text() -> String {
+    tr("Enter a whole number from 5 to 300.")
 }
 fn no_config_text() -> String {
     tr("The location of the configuration file is unknown.")
@@ -365,6 +369,31 @@ impl App {
                     self.gui_settings.reconnect = on;
                     self.core.send(Command::SetReconnect { enabled: on });
                     self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
+                }
+            }
+            Message::SettingsRefreshToggled(tab, auto) => {
+                if self.save_setting(Edit::SetRefreshAuto { tab, auto }) {
+                    refresh::setting_mut(&mut self.gui_settings.refresh, tab).auto = auto;
+                    self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
+                }
+            }
+            Message::SettingsRefreshTyped(tab, text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    state.refresh_text[refresh::index(tab)] = text;
+                }
+            }
+            Message::SettingsRefreshApplied(tab) => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                match refresh_seconds_from_text(&state.refresh_text[refresh::index(tab)]) {
+                    Some(seconds) => {
+                        if self.save_setting(Edit::SetRefreshInterval { tab, seconds }) {
+                            refresh::setting_mut(&mut self.gui_settings.refresh, tab).interval_seconds = seconds;
+                            self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
+                        }
+                    }
+                    None => self.show_settings_message(Some(SettingsMessage::Error(refresh_seconds_text()))),
                 }
             }
             Message::SettingsThemeChosen(base) => self.choose_theme(base),

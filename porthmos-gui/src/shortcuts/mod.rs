@@ -55,6 +55,8 @@ pub enum Action {
     ShowTunnels,
     NewTunnel,
     ShowHealth,
+    ShowServices,
+    ShowPorts,
     Search,
     Bookmarks,
     BookmarkHere,
@@ -67,7 +69,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 61] = [
+const NAMES: [(Action, &str); 63] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -119,6 +121,8 @@ const NAMES: [(Action, &str); 61] = [
     (Action::ShowTunnels, "show_tunnels"),
     (Action::NewTunnel, "new_tunnel"),
     (Action::ShowHealth, "show_health"),
+    (Action::ShowServices, "show_services"),
+    (Action::ShowPorts, "show_ports"),
     (Action::Search, "search"),
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
@@ -230,6 +234,8 @@ impl Action {
             Action::ShowTunnels => tr("Show tunnels"),
             Action::NewTunnel => tr("New tunnel\u{2026}"),
             Action::ShowHealth => tr("Show health"),
+            Action::ShowServices => tr("Show services"),
+            Action::ShowPorts => tr("Show ports"),
             Action::Search => tr("Search\u{2026}"),
             Action::Bookmarks => tr("Bookmarks\u{2026}"),
             Action::BookmarkHere => tr("Bookmark this folder"),

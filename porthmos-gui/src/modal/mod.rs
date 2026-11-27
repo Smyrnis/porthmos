@@ -131,6 +131,12 @@ pub enum Modal {
         name: String,
         signal: porthmos_core::ProcessSignal,
     },
+    ConfirmServiceAction {
+        session: porthmos_core::SessionId,
+        unit: String,
+        verb: porthmos_core::ServiceVerb,
+        privilege: porthmos_core::Privilege,
+    },
     Renice {
         session: porthmos_core::SessionId,
         pid: u32,
@@ -152,6 +158,7 @@ impl Modal {
                 | Modal::ConfirmQuit { .. }
                 | Modal::ConfirmDeleteTunnel { .. }
                 | Modal::ConfirmSignal { .. }
+                | Modal::ConfirmServiceAction { .. }
         )
     }
 }

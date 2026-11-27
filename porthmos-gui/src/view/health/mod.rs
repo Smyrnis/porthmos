@@ -1,13 +1,15 @@
+use std::time::Instant;
+
 use iced::widget::{column, container, mouse_area, pick_list, row, scrollable, space, text_input};
 use iced::{Alignment, Element, Font, Length, alignment};
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
-use porthmos_core::{HealthProcess, HealthSnapshot, MonitorState, ProcessSort, UNKNOWN_UID, arranged};
+use porthmos_core::{Cpu, HealthProcess, HealthSnapshot, Interface, MonitorState, ProcessSort, UNKNOWN_UID, arranged};
 
 use super::button::{Look, hinted, text_button};
 use super::spacing::{MD, SM};
 use super::text_fit::fit;
-use super::{bold_label, filled, hairline_down, label};
+use super::{bold_label, filled, hairline_across, hairline_down, label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
 use crate::health_view::{
@@ -67,6 +69,16 @@ fn cores_text(cores: Option<u32>) -> String {
     cores.map_or_else(|| UNKNOWN.to_string(), |cores| i18n::plural("gui.health.cores", cores as usize))
 }
 
+pub fn cpu_text(cpu: &Cpu) -> String {
+    format!("{} \u{b7} {}", percent_text(cpu.percent), cores_text(cpu.cores))
+}
+
+pub fn rates_text(interface: &Interface) -> String {
+    let rate = |value: Option<u64>| value.map_or_else(|| UNKNOWN.to_string(), rate_text);
+    let (down, up) = (rate(interface.rx_per_second), rate(interface.tx_per_second));
+    i18n::text_with("gui.health.rates", &[("down", &down), ("up", &up)])
+}
+
 fn summary<'a>(snapshot: &HealthSnapshot, palette: &Palette) -> Element<'a, Message> {
     let host = &snapshot.host;
     let name = host.hostname.clone().unwrap_or_else(|| UNKNOWN.to_string());
@@ -79,8 +91,12 @@ fn summary<'a>(snapshot: &HealthSnapshot, palette: &Palette) -> Element<'a, Mess
     if !snapshot.problems.is_empty() {
         lines = lines.push(label(i18n::text("gui.health.partial"), palette.fg_dim));
     }
-    let cpu_value = format!("{} \u{b7} {}", percent_text(snapshot.cpu.percent), cores_text(snapshot.cpu.cores));
-    lines = lines.push(stat_row(tr("CPU"), snapshot.cpu.percent.map(|percent| percent / 100.0), cpu_value, palette));
+    lines = lines.push(stat_row(
+        tr("CPU"),
+        snapshot.cpu.percent.map(|percent| percent / 100.0),
+        cpu_text(&snapshot.cpu),
+        palette,
+    ));
     if let Some(load) = snapshot.load {
         let values = [
             ("one", format!("{:.2}", load.one)),
@@ -116,10 +132,12 @@ fn summary<'a>(snapshot: &HealthSnapshot, palette: &Palette) -> Element<'a, Mess
     if !snapshot.interfaces.is_empty() {
         lines = lines.push(bold_label(tr("Network"), palette.fg));
         for interface in &snapshot.interfaces {
-            let rate = |value: Option<u64>| value.map_or_else(|| UNKNOWN.to_string(), rate_text);
-            let (down, up) = (rate(interface.rx_per_second), rate(interface.tx_per_second));
-            let value = i18n::text_with("gui.health.rates", &[("down", &down), ("up", &up)]);
-            lines = lines.push(stat_row(fit(&interface.name, INTERFACE_CELLS).to_string(), None, value, palette));
+            lines = lines.push(stat_row(
+                fit(&interface.name, INTERFACE_CELLS).to_string(),
+                None,
+                rates_text(interface),
+                palette,
+            ));
         }
     }
     scrollable(container(lines).padding(MD))
@@ -141,8 +159,8 @@ fn cell<'a>(text: String, width: f32, color: iced::Color) -> Element<'a, Message
     container(label(text, color)).width(width).clip(true).into()
 }
 
-fn process_row<'a>(process: &HealthProcess, selected: bool, palette: &Palette) -> Element<'a, Message> {
-    let color = if selected { palette.fg_focus } else { palette.fg };
+fn process_row<'a>(process: &HealthProcess, selected: bool, dimmed: bool, palette: &Palette) -> Element<'a, Message> {
+    let color = row_color(selected, dimmed, palette);
     let background = if selected { palette.row_focus } else { palette.bg };
     let line = row![
         cell(process.pid.to_string(), PID_WIDTH, color),
@@ -170,24 +188,54 @@ fn sort_button<'a>(title: String, sort: ProcessSort, current: ProcessSort, palet
     text_button(&title, Some(Message::HealthSortChosen(sort)), look, palette)
 }
 
-fn actions<'a>(app: &App, snapshot: &HealthSnapshot, palette: &Palette) -> Element<'a, Message> {
-    let state = action_state(snapshot, app.health().selected);
-    let allowed = state == ActionState::Allowed;
-    let press = |message: Message| allowed.then_some(message);
-    let buttons = row![
-        text_button(&tr("Terminate"), press(Message::HealthTerminateRequested), Look::Normal, palette),
-        text_button(&tr("Force kill"), press(Message::HealthKillRequested), Look::Normal, palette),
-        text_button(&tr("Renice\u{2026}"), press(Message::HealthReniceRequested), Look::Normal, palette),
-    ]
-    .spacing(SM);
-    if state == ActionState::NeedsRoot {
-        hinted(buttons.into(), tr("Needs root to change this process"), iced::widget::tooltip::Position::Top, palette)
+pub fn row_color(selected: bool, dimmed: bool, palette: &Palette) -> iced::Color {
+    if dimmed {
+        palette.fg_dim
+    } else if selected {
+        palette.fg_focus
     } else {
-        buttons.into()
+        palette.fg
     }
 }
 
-fn processes<'a>(app: &'a App, snapshot: &'a HealthSnapshot, palette: &Palette) -> Element<'a, Message> {
+pub fn action_press(
+    state: &HealthState, snapshot: &HealthSnapshot, message: Message, now: Instant,
+) -> (Option<Message>, Option<String>) {
+    if state.failing() {
+        return (None, Some(i18n::text("gui.health.retry_first")));
+    }
+    if state.list_is_old(now) {
+        return (None, Some(i18n::text("gui.health.list_is_old")));
+    }
+    match action_state(snapshot, state.selected) {
+        ActionState::Allowed => (Some(message), None),
+        ActionState::NeedsRoot => (None, Some(tr("Needs root to change this process"))),
+        ActionState::NoSelection => (None, None),
+    }
+}
+
+fn action_button<'a>(
+    title: String, message: Message, app: &App, snapshot: &HealthSnapshot, palette: &Palette,
+) -> Element<'a, Message> {
+    let (press, reason) = action_press(app.health(), snapshot, message, Instant::now());
+    let button = text_button(&title, press, Look::Normal, palette);
+    match reason {
+        Some(reason) => hinted(button, reason, iced::widget::tooltip::Position::Top, palette),
+        None => button,
+    }
+}
+
+fn actions<'a>(app: &App, snapshot: &HealthSnapshot, palette: &Palette) -> Element<'a, Message> {
+    row![
+        action_button(tr("Terminate"), Message::HealthTerminateRequested, app, snapshot, palette),
+        action_button(tr("Force kill"), Message::HealthKillRequested, app, snapshot, palette),
+        action_button(tr("Renice\u{2026}"), Message::HealthReniceRequested, app, snapshot, palette),
+    ]
+    .spacing(SM)
+    .into()
+}
+
+fn processes<'a>(app: &'a App, snapshot: &'a HealthSnapshot, dimmed: bool, palette: &Palette) -> Element<'a, Message> {
     let state = app.health();
     let filter = text_input(&tr("Filter processes"), &state.filter)
         .style(super::input::style(palette))
@@ -212,7 +260,7 @@ fn processes<'a>(app: &'a App, snapshot: &'a HealthSnapshot, palette: &Palette) 
     .spacing(SM);
     let mut rows = column![];
     for process in shown(state, snapshot) {
-        rows = rows.push(process_row(process, state.selected == Some(process.pid), palette));
+        rows = rows.push(process_row(process, state.selected == Some(process.pid), dimmed, palette));
     }
     column![
         container(bar).padding([SM, MD]).width(Length::Fill),
@@ -224,33 +272,92 @@ fn processes<'a>(app: &'a App, snapshot: &'a HealthSnapshot, palette: &Palette) 
     .into()
 }
 
+fn failing_bar<'a>(message: String, palette: &Palette) -> Element<'a, Message> {
+    let notice = hinted(
+        label(i18n::text("gui.health.updating_failed"), palette.err).into(),
+        message,
+        iced::widget::tooltip::Position::Bottom,
+        palette,
+    );
+    let line = row![notice, text_button(&tr("Retry"), Some(Message::HealthRetry), Look::Primary, palette)]
+        .spacing(SM)
+        .align_y(Alignment::Center);
+    container(line).padding([SM, MD]).width(Length::Fill).into()
+}
+
+pub fn summary_palette(palette: &Palette, failing: bool) -> Palette {
+    if failing { dimmed(palette) } else { *palette }
+}
+
+fn dimmed(palette: &Palette) -> Palette {
+    Palette {
+        fg: palette.fg_dim,
+        fg_muted: palette.fg_dim,
+        fg_bright: palette.fg_dim,
+        accent: palette.fg_dim,
+        err: palette.fg_dim,
+        ..*palette
+    }
+}
+
+fn snapshot_page<'a>(
+    app: &'a App, snapshot: &'a HealthSnapshot, failure: Option<String>, palette: &Palette,
+) -> Element<'a, Message> {
+    let summary_palette = summary_palette(palette, failure.is_some());
+    let mut page = column![];
+    if let Some(message) = failure.clone() {
+        page = page.push(failing_bar(message, palette));
+    }
+    page.push(row![
+        summary(snapshot, &summary_palette),
+        hairline_down(palette),
+        processes(app, snapshot, failure.is_some(), palette)
+    ])
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
+
 fn body<'a>(app: &'a App, palette: &Palette) -> Element<'a, Message> {
-    match &app.health().state {
+    let state = app.health();
+    match &state.state {
         None => centered(label(i18n::text("gui.health.loading"), palette.fg_dim)),
         Some(MonitorState::Unavailable(message)) => centered(label(message.to_string(), palette.fg_dim)),
-        Some(MonitorState::Failing(message)) => centered(
-            column![
-                label(message.to_string(), palette.err),
-                text_button(&tr("Retry"), Some(Message::HealthRetry), Look::Primary, palette),
-            ]
-            .spacing(MD)
-            .align_x(Alignment::Center),
-        ),
-        Some(MonitorState::Snapshot(snapshot)) => {
-            row![summary(snapshot, palette), hairline_down(palette), processes(app, snapshot, palette)].into()
-        }
+        Some(MonitorState::Snapshot(snapshot)) => snapshot_page(app, snapshot, None, palette),
+        Some(MonitorState::Failing(message)) => match state.snapshot() {
+            Some(snapshot) => snapshot_page(app, snapshot, Some(message.to_string()), palette),
+            None => centered(
+                column![
+                    label(message.to_string(), palette.err),
+                    text_button(&tr("Retry"), Some(Message::HealthRetry), Look::Primary, palette),
+                ]
+                .spacing(MD)
+                .align_x(Alignment::Center),
+            ),
+        },
     }
 }
 
 fn picker<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
     let current = app.health_target().and_then(|id| app.sessions().by_id(id)).map(|session| session.name.clone());
-    let list = pick_list(app.health_session_names(), current, Message::HealthSessionChosen)
+    pick_list(app.health_session_names(), current, Message::HealthSessionChosen)
         .text_size(13.0)
         .padding([6.0, 8.0])
         .style(super::dropdown::style(palette))
         .menu_style(super::dropdown::menu_style(palette))
-        .width(Length::Fixed(PICKER_WIDTH));
-    container(list).padding([SM, MD]).width(Length::Fill).into()
+        .width(Length::Fixed(PICKER_WIDTH))
+        .into()
+}
+
+fn header<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
+    let mut line = row![].spacing(SM).align_y(Alignment::Center);
+    if shows_session_picker(app) {
+        line = line.push(picker(app, palette));
+    }
+    let refresh =
+        text_button(&tr("Refresh"), app.health().started.map(|_| Message::HealthRefresh), Look::Normal, palette);
+    line = line.push(container(space()).width(Length::Fill)).push(refresh);
+    container(line).padding([SM, MD]).width(Length::Fill).into()
 }
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -258,11 +365,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if app.health_target().is_none() {
         return centered(label(tr("Connect to a server first"), palette.fg_dim));
     }
-    let mut page = column![];
-    if shows_session_picker(app) {
-        page = page.push(picker(app, palette));
-    }
-    page.push(container(body(app, palette)).width(Length::Fill).height(Length::Fill)).into()
+    column![
+        header(app, palette),
+        hairline_across(palette),
+        container(body(app, palette)).width(Length::Fill).height(Length::Fill),
+    ]
+    .into()
 }
 
 #[cfg(test)]

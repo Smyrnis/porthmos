@@ -82,6 +82,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         search_max_results: settings.search.max_results,
         reopen: settings.startup.reopen,
         reconnect: settings.connection.reconnect,
+        refresh: settings.refresh,
         theme_base: porthmos_core::theme::file::read_base(&paths.theme_file()),
         language: settings.language.clone(),
     };

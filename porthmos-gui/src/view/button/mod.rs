@@ -129,6 +129,15 @@ pub fn flat(
     }
 }
 
+pub fn hinted_if<'a>(
+    body: Element<'a, Message>, hint: Option<String>, position: tooltip::Position, palette: &Palette,
+) -> Element<'a, Message> {
+    match hint {
+        Some(hint) => hinted(body, hint, position, palette),
+        None => body,
+    }
+}
+
 pub fn tool_button<'a>(
     icon: Option<Icon>, title: &str, show_title: bool, hint: String, press: Option<Message>, look: Look,
     palette: &Palette,

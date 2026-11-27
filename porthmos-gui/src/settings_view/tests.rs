@@ -15,6 +15,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         search_max_results: 1000,
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
+        refresh: Default::default(),
         theme_base: porthmos_core::theme::ThemeBase::Dark,
         language: None,
     }
@@ -84,6 +85,7 @@ mod categories {
             SettingsSection::Startup,
             SettingsSection::Connections,
             SettingsSection::Updates,
+            SettingsSection::Refresh,
         ];
 
         for section in all {
@@ -102,14 +104,15 @@ mod categories {
     }
 
     #[test]
-    fn general_holds_the_language_startup_connection_and_search_options() {
+    fn general_holds_the_language_startup_connection_search_and_refresh_options() {
         assert_eq!(
             SettingsCategory::General.sections(),
             &[
                 SettingsSection::Language,
                 SettingsSection::Startup,
                 SettingsSection::Connections,
-                SettingsSection::Search
+                SettingsSection::Search,
+                SettingsSection::Refresh
             ]
         );
     }
@@ -146,4 +149,29 @@ fn the_search_limit_defaults_match_the_core_defaults() {
     let core = porthmos_core::config::SearchSettings::default();
 
     assert_eq!((defaults.search_max_depth, defaults.search_max_results), (core.max_depth, core.max_results));
+}
+
+#[test]
+fn the_refresh_fields_start_from_the_saved_intervals() {
+    use porthmos_core::{RefreshSetting, RefreshSettings};
+    let refresh = RefreshSettings {
+        health: RefreshSetting { auto: true, interval_seconds: 15 },
+        services: RefreshSetting { auto: false, interval_seconds: 60 },
+        ports: RefreshSetting::default(),
+    };
+
+    let state = SettingsState::new(&GuiSettings { refresh, ..settings(None) });
+
+    assert_eq!(state.refresh_text, ["15", "60", "10"]);
+}
+
+#[test]
+fn a_refresh_interval_must_be_a_whole_number_from_five_to_three_hundred() {
+    use super::refresh_seconds_from_text;
+
+    assert_eq!(refresh_seconds_from_text("5"), Some(5));
+    assert_eq!(refresh_seconds_from_text(" 300 "), Some(300));
+    for text in ["", "   ", "4", "301", "x", "-3", "1.5"] {
+        assert_eq!(refresh_seconds_from_text(text), None, "{text:?}");
+    }
 }

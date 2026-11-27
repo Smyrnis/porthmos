@@ -1,10 +1,14 @@
-use porthmos_core::i18n::label as tr;
-use porthmos_core::{Command, MonitorState, Nice, ProcessSignal, SessionId};
+use std::time::Duration;
 
-use super::App;
+use iced::Subscription;
+use porthmos_core::i18n::label as tr;
+use porthmos_core::{Command, MonitorState, Nice, ProcessSignal, RefreshTab, SessionId};
+
+use super::{App, Message};
 use crate::drawer::DrawerView;
 use crate::health_view::{ActionState, HealthState, action_state};
 use crate::modal::Modal;
+use crate::refresh;
 
 impl App {
     pub fn health(&self) -> &HealthState {
@@ -50,6 +54,36 @@ impl App {
         }
     }
 
+    fn health_visible(&self) -> bool {
+        self.drawer.open && self.drawer.view == DrawerView::Health
+    }
+
+    pub(in crate::app) fn health_refresh(&mut self) {
+        if let Some(session) = self.health.started {
+            self.core.send(Command::RefreshMonitor { session, pair: true });
+        }
+    }
+
+    pub(in crate::app) fn health_tick(&mut self) {
+        if let (true, Some(session)) = (self.health_visible(), self.health.started) {
+            self.core.send(Command::RefreshMonitor { session, pair: false });
+        }
+    }
+
+    pub fn health_tick_interval(&self) -> Option<Duration> {
+        if !self.health_visible() || self.health.started.is_none() {
+            return None;
+        }
+        refresh::tick_interval(refresh::setting(&self.gui_settings.refresh, RefreshTab::Health), self.health.failing())
+    }
+
+    pub(in crate::app) fn health_subscription(&self) -> Subscription<Message> {
+        match self.health_tick_interval() {
+            Some(interval) => iced::time::every(interval).map(|_| Message::RefreshTick(RefreshTab::Health)),
+            None => Subscription::none(),
+        }
+    }
+
     pub(in crate::app) fn health_arrived(&mut self, session: SessionId, state: MonitorState) {
         self.health.apply(session, state);
     }
@@ -58,15 +92,6 @@ impl App {
         if let Some(session) = self.sessions.by_name(&name) {
             self.health.chosen = Some(session.id);
         }
-    }
-
-    pub(in crate::app) fn health_retry(&mut self) {
-        let Some(session) = self.health.started else {
-            return;
-        };
-        self.core.send(Command::StopMonitor { session });
-        self.core.send(Command::StartMonitor { session });
-        self.health.begin(session);
     }
 }
 

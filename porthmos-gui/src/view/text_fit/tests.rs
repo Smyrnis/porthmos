@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use super::fit;
+use super::{fit, full_text_hint};
 
 #[test]
 fn a_short_name_is_unchanged() {
@@ -72,4 +72,16 @@ fn a_very_long_name_is_cut_quickly() {
 
     assert_eq!(shown.width(), 30);
     assert!(started.elapsed() < std::time::Duration::from_millis(200));
+}
+
+#[test]
+fn a_cut_name_offers_its_whole_text_and_a_name_that_fits_offers_nothing() {
+    assert_eq!(full_text_hint("abcdefghij", 6), Some("abcdefghij".to_string()));
+    assert_eq!(full_text_hint("abcdef", 6), None);
+    assert_eq!(full_text_hint("short", 20), None);
+}
+
+#[test]
+fn the_offered_text_has_hostile_characters_replaced_like_the_shown_text() {
+    assert_eq!(full_text_hint("fdp.\u{202e}txt-and-a-long-tail", 6), Some("fdp.·txt-and-a-long-tail".to_string()));
 }

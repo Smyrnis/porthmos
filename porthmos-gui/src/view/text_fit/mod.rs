@@ -31,5 +31,9 @@ pub fn fit(name: &str, max_cells: usize) -> String {
     shown
 }
 
+pub fn full_text_hint(text: &str, max_cells: usize) -> Option<String> {
+    (fit(text, max_cells) != text).then(|| text.chars().map(visible).collect())
+}
+
 #[cfg(test)]
 mod tests;

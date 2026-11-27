@@ -1,6 +1,6 @@
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
-use porthmos_core::UpdateMode;
+use porthmos_core::{RefreshSetting, RefreshSettings, RefreshTab, UpdateMode};
 
 use crate::settings_view::{GuiSettings, SettingsMessage};
 use crate::shortcuts::{Action, KeyPress};
@@ -100,6 +100,7 @@ fn opening_shows_the_saved_editor() {
         update_mode: UpdateMode::Off,
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
+        refresh: Default::default(),
         theme_base: porthmos_core::theme::ThemeBase::Dark,
         language: None,
     };
@@ -1133,4 +1134,82 @@ fn the_embedded_terminal_checkbox_writes_the_flag_and_updates_the_setting() {
 
     assert_eq!(config_text(&harness), "[terminal]\nembedded = false\n");
     assert!(!harness.app.gui_settings().embedded_terminal);
+}
+
+#[test]
+fn the_refresh_fields_start_from_the_saved_intervals() {
+    let refresh =
+        RefreshSettings { ports: RefreshSetting { auto: true, interval_seconds: 45 }, ..RefreshSettings::default() };
+    let mut harness = Harness::with_gui_settings(GuiSettings { refresh, ..GuiSettings::default() });
+    open(&mut harness);
+
+    assert_eq!(state(&harness).refresh_text, ["10", "10", "45"]);
+}
+
+#[test]
+fn toggling_a_tab_saves_only_that_tab_and_applies_without_a_restart_note() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsRefreshToggled(RefreshTab::Services, true));
+
+    assert_eq!(config_text(&harness), "[refresh.services]\nauto = true\n");
+    let refresh = harness.app.gui_settings().refresh;
+    assert!(refresh.services.auto);
+    assert!(!refresh.health.auto && !refresh.ports.auto);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+
+    harness.press(Message::SettingsRefreshToggled(RefreshTab::Services, false));
+
+    assert!(!harness.app.gui_settings().refresh.services.auto);
+}
+
+#[test]
+fn applying_a_valid_interval_saves_only_that_tab_without_a_restart_note() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsRefreshTyped(RefreshTab::Ports, " 90 ".to_string()));
+    harness.press(Message::SettingsRefreshApplied(RefreshTab::Ports));
+
+    assert_eq!(config_text(&harness), "[refresh.ports]\ninterval_seconds = 90\n");
+    let refresh = harness.app.gui_settings().refresh;
+    assert_eq!(refresh.ports.interval_seconds, 90);
+    assert_eq!((refresh.health.interval_seconds, refresh.services.interval_seconds), (10, 10));
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+}
+
+#[test]
+fn typing_an_interval_edits_only_that_tabs_field() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsRefreshTyped(RefreshTab::Health, "7".to_string()));
+
+    assert_eq!(state(&harness).refresh_text, ["7", "10", "10"]);
+}
+
+#[test]
+fn an_invalid_interval_shows_the_error_and_saves_nothing() {
+    for text in ["", "4", "301", "abc", "-3"] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsRefreshTyped(RefreshTab::Health, text.to_string()));
+        harness.press(Message::SettingsRefreshApplied(RefreshTab::Health));
+
+        assert_eq!(error_of(&harness), "Enter a whole number from 5 to 300.", "{text:?}");
+        assert_eq!(config_text(&harness), "", "{text:?}");
+        assert_eq!(harness.app.gui_settings().refresh.health.interval_seconds, 10, "{text:?}");
+    }
+}
+
+#[test]
+fn a_refresh_tick_is_accepted() {
+    let mut harness = Harness::new();
+    harness.sent();
+
+    harness.press(Message::RefreshTick(RefreshTab::Health));
+
+    assert!(harness.sent().is_empty());
 }

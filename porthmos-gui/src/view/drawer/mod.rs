@@ -163,41 +163,38 @@ fn tab_button<'a>(entry: TabEntry, focused: bool, palette: &Palette) -> Element<
 
 #[cfg(test)]
 pub fn strip_labels(app: &App) -> Vec<String> {
-    let mut labels = vec![app.tunnels_tab_label(), app.health_tab_label()];
+    let mut labels =
+        vec![app.tunnels_tab_label(), app.health_tab_label(), app.services_tab_label(), app.ports_tab_label()];
     labels.extend(tab_entries(app.drawer()).into_iter().map(|entry| entry.label));
     labels
 }
 
-fn tunnels_entry<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
-    let active = app.drawer().view == DrawerView::Tunnels;
+fn view_entry<'a>(title: String, active: bool, press: Message, palette: &Palette) -> Element<'a, Message> {
     let color = tab_title_color(active, true, palette);
-    let title = fit(&app.tunnels_tab_label(), TITLE_CELLS);
+    let title = fit(&title, TITLE_CELLS);
     let text = if active { bold_label(title, color) } else { label(title, color) };
     let underline = if active { palette.accent } else { palette.bg };
     let tab = column![
         container(container(text).padding([0.0, MD])).height(Length::Fill).align_y(alignment::Vertical::Center),
         container(space()).width(Length::Fill).height(EDGE_WIDTH).style(filled(underline)),
     ];
-    mouse_area(tab).on_press(Message::TunnelsViewSelected).into()
+    mouse_area(tab).on_press(press).into()
 }
 
-fn health_entry<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
-    let active = app.drawer().view == DrawerView::Health;
-    let color = tab_title_color(active, true, palette);
-    let title = fit(&app.health_tab_label(), TITLE_CELLS);
-    let text = if active { bold_label(title, color) } else { label(title, color) };
-    let underline = if active { palette.accent } else { palette.bg };
-    let tab = column![
-        container(container(text).padding([0.0, MD])).height(Length::Fill).align_y(alignment::Vertical::Center),
-        container(space()).width(Length::Fill).height(EDGE_WIDTH).style(filled(underline)),
-    ];
-    mouse_area(tab).on_press(Message::HealthViewSelected).into()
+fn view_entries<'a>(app: &App, palette: &Palette) -> iced::widget::Row<'a, Message> {
+    let view = app.drawer().view;
+    row![
+        view_entry(app.tunnels_tab_label(), view == DrawerView::Tunnels, Message::TunnelsViewSelected, palette),
+        view_entry(app.health_tab_label(), view == DrawerView::Health, Message::HealthViewSelected, palette),
+        view_entry(app.services_tab_label(), view == DrawerView::Services, Message::ServicesViewSelected, palette),
+        view_entry(app.ports_tab_label(), view == DrawerView::Ports, Message::PortsViewSelected, palette),
+    ]
 }
 
 pub fn tab_strip(app: &App) -> Element<'_, Message> {
     let palette = app.palette();
     let focused = app.drawer().shows_focus();
-    let mut tabs = row![tunnels_entry(app, palette), health_entry(app, palette)].align_y(alignment::Vertical::Center);
+    let mut tabs = view_entries(app, palette).align_y(alignment::Vertical::Center);
     for mut entry in tab_entries(app.drawer()) {
         entry.active &= app.drawer().view == DrawerView::Terminals;
         tabs = tabs.push(tab_button(entry, focused, palette));
@@ -218,7 +215,7 @@ fn header(app: &App) -> Element<'_, Message> {
     let focused = app.drawer().shows_focus();
     let edge = container(space()).width(EDGE_WIDTH).height(Length::Fill).style(filled(edge_color(focused, palette)));
     let strip: Element<Message> = if app.drawer().tabs.is_empty() {
-        let tunnels = row![tunnels_entry(app, palette), health_entry(app, palette)];
+        let tunnels = view_entries(app, palette);
         let hint =
             container(label(tab_title(""), palette.fg_dim)).padding([0.0, MD]).align_y(alignment::Vertical::Center);
         row![tunnels, hint].align_y(alignment::Vertical::Center).into()
@@ -300,6 +297,8 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
         Some(tab) => layout_view(app, tab, &tab.layout, tab.layout.leaves().len()),
         None if drawer.view == DrawerView::Tunnels => super::tunnel_list::view(app),
         None if drawer.view == DrawerView::Health => super::health::view(app),
+        None if drawer.view == DrawerView::Services => super::services::view(app),
+        None if drawer.view == DrawerView::Ports => super::ports::view(app),
         None => container(label(empty_hint(app), palette.fg_dim))
             .width(Length::Fill)
             .height(Length::Fill)

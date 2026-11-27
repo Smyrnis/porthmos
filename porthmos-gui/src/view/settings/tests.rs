@@ -6,6 +6,7 @@ use crate::app::Message;
 use crate::geometry::ROW_HEIGHT;
 use crate::shortcuts::{Action, Chord, Shortcuts};
 use crate::testing::Harness;
+use porthmos_core::RefreshTab;
 
 #[test]
 fn the_window_builds_with_every_action_row() {
@@ -63,4 +64,30 @@ fn the_window_builds_for_every_category() {
         harness.press(Message::SettingsCategoryChosen(category));
         assert!(super::window(&harness.app).is_some(), "{category:?}");
     }
+}
+
+#[test]
+fn a_refresh_seconds_field_is_enabled_only_while_its_checkbox_is_ticked() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    for tab in [RefreshTab::Health, RefreshTab::Services, RefreshTab::Ports] {
+        assert!(!super::refresh_field_enabled(&harness.app, tab), "{tab:?}");
+    }
+
+    harness.press(Message::SettingsRefreshToggled(RefreshTab::Services, true));
+
+    assert!(!super::refresh_field_enabled(&harness.app, RefreshTab::Health));
+    assert!(super::refresh_field_enabled(&harness.app, RefreshTab::Services));
+    assert!(!super::refresh_field_enabled(&harness.app, RefreshTab::Ports));
+    assert!(super::window(&harness.app).is_some());
+}
+
+#[test]
+fn every_refresh_seconds_field_is_labelled_with_its_unit_and_the_window_builds_with_them() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    assert_eq!(super::refresh_unit_label(), "seconds");
+    assert!(super::window(&harness.app).is_some());
 }

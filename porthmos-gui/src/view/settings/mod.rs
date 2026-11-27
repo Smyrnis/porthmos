@@ -1,5 +1,6 @@
 use iced::widget::{checkbox, column, container, row, scrollable, text_input};
 use iced::{Alignment, Element, Font, Length, Size};
+use porthmos_core::RefreshTab;
 use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, nav_item, text_button};
@@ -7,6 +8,7 @@ use super::spacing::{LG, MD, XL};
 use super::{bold_label, hairline_across, hairline_down, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
+use crate::refresh;
 use crate::settings_view::{SettingsCategory, SettingsMessage, SettingsSection, SettingsState};
 use crate::shortcuts::{Action, Shortcuts};
 use crate::theme::Palette;
@@ -36,6 +38,13 @@ fn compare_limit_label() -> String {
 }
 fn compare_limit_help() -> String {
     tr("When an edited file changed on the server, Show differences compares files up to this size.")
+}
+const REFRESH_PLACEHOLDER: &str = "10";
+pub fn refresh_unit_label() -> String {
+    tr("seconds")
+}
+fn refresh_help() -> String {
+    tr("Seconds between refreshes (5 to 300).")
 }
 const COMPARE_LIMIT_FIELD_WIDTH: f32 = 80.0;
 const SEARCH_DEPTH_PLACEHOLDER: &str = "16";
@@ -187,6 +196,60 @@ fn connection_section<'a>(app: &'a App) -> Element<'a, Message> {
     ]
     .spacing(8)
     .into()
+}
+
+fn refresh_label(tab: RefreshTab) -> String {
+    match tab {
+        RefreshTab::Health => tr("Refresh Health automatically"),
+        RefreshTab::Services => tr("Refresh Services automatically"),
+        RefreshTab::Ports => tr("Refresh Ports automatically"),
+    }
+}
+
+pub fn refresh_field_enabled(app: &App, tab: RefreshTab) -> bool {
+    refresh::setting(&app.gui_settings().refresh, tab).auto
+}
+
+fn refresh_row<'a>(app: &'a App, state: &'a SettingsState, tab: RefreshTab) -> Element<'a, Message> {
+    let palette = app.palette();
+    let enabled = refresh_field_enabled(app, tab);
+    let toggle = checkbox(enabled)
+        .label(refresh_label(tab))
+        .text_size(13.0)
+        .on_toggle(move |on| Message::SettingsRefreshToggled(tab, on))
+        .style(crate::view::checkbox::style(palette));
+    let mut seconds = text_input(REFRESH_PLACEHOLDER, &state.refresh_text[refresh::index(tab)])
+        .style(crate::view::input::style(palette))
+        .size(13.0)
+        .width(Length::Fixed(COMPARE_LIMIT_FIELD_WIDTH))
+        .font(Font::DEFAULT);
+    if enabled {
+        seconds = seconds
+            .on_input(move |text| Message::SettingsRefreshTyped(tab, text))
+            .on_submit(Message::SettingsRefreshApplied(tab));
+    }
+    let apply = enabled.then_some(Message::SettingsRefreshApplied(tab));
+    column![
+        toggle,
+        row![
+            seconds,
+            label(refresh_unit_label(), palette.fg_dim),
+            text_button(&tr("Apply"), apply, Look::Normal, palette)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn refresh_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
+    let palette = app.palette();
+    let mut rows = column![section(&tr("Automatic refresh"), palette)].spacing(8);
+    for tab in refresh::ALL {
+        rows = rows.push(refresh_row(app, state, tab));
+    }
+    rows.push(wrapped_label(refresh_help(), palette.fg_dim)).into()
 }
 
 fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
@@ -355,6 +418,7 @@ fn section_view<'a>(app: &'a App, state: &'a SettingsState, which: SettingsSecti
         SettingsSection::Startup => startup_section(app),
         SettingsSection::Connections => connection_section(app),
         SettingsSection::Updates => updates_section(app),
+        SettingsSection::Refresh => refresh_section(app, state),
     }
 }
 

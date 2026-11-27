@@ -2,6 +2,7 @@ mod conflict;
 mod edit_diff;
 mod health;
 mod properties;
+mod services;
 mod sync_options;
 mod tunnel_form;
 
@@ -324,6 +325,11 @@ pub fn overlay(app: &App) -> Option<Element<'_, Message>> {
             health::signal_title(*signal),
             body_text(health::signal_question(*signal, name, *pid), palette),
             cautious_buttons(&health::signal_accept(*signal), &tr("Cancel"), palette),
+        ),
+        Modal::ConfirmServiceAction { unit, verb, privilege, .. } => (
+            services::title(*verb),
+            services::body(unit, *verb, *privilege, palette),
+            cautious_buttons(&services::accept(*verb), &tr("Cancel"), palette),
         ),
         Modal::Renice { name, pid, text, error, .. } => (
             tr("Change priority"),

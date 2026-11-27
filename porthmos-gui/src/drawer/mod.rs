@@ -118,6 +118,8 @@ pub enum DrawerView {
     Terminals,
     Tunnels,
     Health,
+    Services,
+    Ports,
 }
 
 #[derive(Default)]

@@ -596,3 +596,13 @@ async fn the_focus_commands_need_two_panes_in_the_active_tab() {
         assert!(two.contains(&present.to_string()), "{present} missing from {two:?}");
     }
 }
+
+#[test]
+fn the_palette_lists_show_ports() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    typed(&mut harness, "show ports");
+
+    assert_eq!(labels(&harness).first().map(String::as_str), Some("Show ports"));
+}

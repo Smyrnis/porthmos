@@ -98,3 +98,52 @@ fn events_for_another_session_are_ignored_and_clear_resets_everything_but_the_vi
     assert!(state.state.is_none());
     assert_eq!(state.filter, "x");
 }
+
+#[test]
+fn a_failure_keeps_the_last_snapshot_flags_failing_and_a_later_snapshot_recovers() {
+    let mut state = HealthState::default();
+    state.begin(3);
+    assert!(!state.failing() && state.snapshot().is_none());
+
+    state.apply(3, MonitorState::Snapshot(Box::new(snapshot(&[10, 20]))));
+    state.selected = Some(20);
+    state.apply(3, MonitorState::Failing("down".into()));
+    assert!(state.failing());
+    assert_eq!(state.snapshot().map(|snapshot| snapshot.processes.len()), Some(2));
+    assert_eq!(state.selected, Some(20));
+
+    state.apply(3, MonitorState::Failing("still down".into()));
+    assert_eq!(state.snapshot().map(|snapshot| snapshot.processes.len()), Some(2));
+
+    state.apply(3, MonitorState::Snapshot(Box::new(snapshot(&[10]))));
+    assert!(!state.failing());
+    assert_eq!(state.snapshot().map(|snapshot| snapshot.processes.len()), Some(1));
+    assert_eq!(state.selected, None);
+}
+
+#[test]
+fn a_failure_with_no_snapshot_has_nothing_to_show_and_unavailable_drops_the_kept_one() {
+    let mut state = HealthState::default();
+    state.begin(3);
+    state.apply(3, MonitorState::Failing("down".into()));
+    assert!(state.failing() && state.snapshot().is_none());
+
+    state.apply(3, MonitorState::Snapshot(Box::new(snapshot(&[1]))));
+    state.apply(3, MonitorState::Failing("down".into()));
+    state.apply(3, MonitorState::Unavailable("nope".into()));
+    assert!(!state.failing() && state.snapshot().is_none());
+}
+
+#[test]
+fn clear_and_begin_forget_the_kept_snapshot() {
+    let mut state = HealthState::default();
+    state.begin(3);
+    state.apply(3, MonitorState::Snapshot(Box::new(snapshot(&[1]))));
+    state.apply(3, MonitorState::Failing("down".into()));
+
+    state.begin(4);
+    state.apply(4, MonitorState::Failing("down".into()));
+    assert!(state.snapshot().is_none());
+    state.clear();
+    assert!(state.state.is_none());
+}

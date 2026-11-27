@@ -1,12 +1,13 @@
 use std::time::Duration;
 
 use iced::keyboard::{Key, Modifiers};
-use porthmos_core::{Command, Entry, Event, Handover, Location, MonitorState, VfsPath};
+use porthmos_core::{Command, Entry, Event, Handover, Location, MonitorState, RefreshSetting, RefreshTab, VfsPath};
 use tokio::io::AsyncReadExt;
 
 use crate::app::Message;
 use crate::drawer::{DrawerView, TerminalSource};
 use crate::health_view::tests::snapshot;
+use crate::settings_view::GuiSettings;
 use crate::shortcuts::{Action, KeyPress};
 use crate::testing::{Harness, ShellEnd, shell_pipe};
 
@@ -179,8 +180,51 @@ fn snapshot_and_failing_and_unavailable_events_update_the_state_for_that_session
     assert!(matches!(harness.app.health().state, Some(MonitorState::Unavailable(_))));
 }
 
+fn refreshes(sent: &[Command]) -> Vec<(u64, bool)> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::RefreshMonitor { session, pair } => Some((*session, *pair)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn with_auto(seconds: u64) -> Harness {
+    let mut settings = GuiSettings::default();
+    settings.refresh.health = RefreshSetting { auto: true, interval_seconds: seconds };
+    Harness::with_gui_settings(settings)
+}
+
 #[test]
-fn retry_restarts_the_monitor() {
+fn refresh_sends_exactly_one_paired_refresh_and_keeps_the_snapshot() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha");
+    harness.press(Message::HealthViewSelected);
+    harness.feed(Event::Monitor { session: 3, state: MonitorState::Snapshot(Box::new(snapshot(&[1]))) });
+    harness.sent();
+
+    harness.press(Message::HealthRefresh);
+
+    let sent = harness.sent();
+    assert_eq!(refreshes(&sent), [(3, true)], "{sent:?}");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(matches!(harness.app.health().state, Some(MonitorState::Snapshot(_))));
+}
+
+#[test]
+fn refresh_without_a_started_monitor_sends_nothing() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha");
+    harness.sent();
+
+    harness.press(Message::HealthRefresh);
+    harness.press(Message::HealthRetry);
+
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn retry_is_the_same_as_refresh_and_never_stops_or_starts_the_monitor() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha");
     harness.press(Message::HealthViewSelected);
@@ -190,8 +234,115 @@ fn retry_restarts_the_monitor() {
     harness.press(Message::HealthRetry);
 
     let sent = harness.sent();
-    assert_eq!((stops(&sent), starts(&sent)), (vec![3], vec![3]), "{sent:?}");
-    assert!(harness.app.health().state.is_none());
+    assert_eq!(refreshes(&sent), [(3, true)], "{sent:?}");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(harness.app.health().started, Some(3));
+}
+
+#[test]
+fn a_tick_refreshes_without_a_pair_only_while_the_tab_is_visible_and_started() {
+    let mut harness = with_auto(10);
+    connect(&mut harness, 3, "alpha");
+    harness.sent();
+
+    harness.press(Message::RefreshTick(RefreshTab::Health));
+    assert!(harness.sent().is_empty(), "hidden tab");
+
+    harness.press(Message::HealthViewSelected);
+    harness.sent();
+    harness.press(Message::RefreshTick(RefreshTab::Health));
+    assert_eq!(refreshes(&harness.sent()), [(3, false)]);
+
+    harness.press(Message::TunnelsViewSelected);
+    harness.sent();
+    harness.press(Message::RefreshTick(RefreshTab::Health));
+    assert!(harness.sent().is_empty(), "hidden again");
+}
+
+#[test]
+fn a_tick_for_another_tab_or_without_a_connection_sends_nothing() {
+    let mut harness = with_auto(10);
+    harness.press(Message::HealthViewSelected);
+    harness.sent();
+    harness.press(Message::RefreshTick(RefreshTab::Health));
+    assert!(harness.sent().is_empty(), "no connection");
+
+    connect(&mut harness, 3, "alpha");
+    harness.sent();
+    harness.press(Message::RefreshTick(RefreshTab::Services));
+    harness.press(Message::RefreshTick(RefreshTab::Ports));
+    assert!(refreshes(&harness.sent()).is_empty());
+}
+
+#[test]
+fn the_timer_runs_only_while_the_tab_is_visible_started_and_auto_is_on() {
+    let mut off = Harness::new();
+    connect(&mut off, 3, "alpha");
+    off.press(Message::HealthViewSelected);
+    assert_eq!(off.app.health_tick_interval(), None);
+
+    let mut on = with_auto(15);
+    assert_eq!(on.app.health_tick_interval(), None, "hidden");
+    on.press(Message::HealthViewSelected);
+    assert_eq!(on.app.health_tick_interval(), None, "visible but no connection, so nothing started");
+    connect(&mut on, 3, "alpha");
+    assert_eq!(on.app.health_tick_interval(), Some(Duration::from_secs(15)));
+    on.press(Message::TunnelsViewSelected);
+    assert_eq!(on.app.health_tick_interval(), None, "hidden again");
+}
+
+#[test]
+fn the_timer_slows_down_while_failing_and_speeds_up_on_recovery() {
+    let mut harness = with_auto(10);
+    connect(&mut harness, 3, "alpha");
+    harness.press(Message::HealthViewSelected);
+
+    harness.feed(Event::Monitor { session: 3, state: MonitorState::Failing("down".into()) });
+    assert_eq!(harness.app.health_tick_interval(), Some(Duration::from_secs(30)));
+    harness.feed(Event::Monitor { session: 3, state: MonitorState::Snapshot(Box::new(snapshot(&[1]))) });
+    assert_eq!(harness.app.health_tick_interval(), Some(Duration::from_secs(10)));
+}
+
+#[test]
+fn the_subscription_builds_while_the_timer_runs() {
+    let mut harness = with_auto(10);
+    connect(&mut harness, 3, "alpha");
+    harness.press(Message::HealthViewSelected);
+
+    assert_eq!(harness.app.health_tick_interval(), Some(Duration::from_secs(10)));
+    let _ = harness.app.subscription();
+}
+
+#[test]
+fn a_failure_after_a_snapshot_keeps_the_snapshot_and_the_selection() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000, vec![process_owned_by(1000, 10)]);
+    harness.press(Message::HealthProcessSelected(10));
+
+    harness.feed(Event::Monitor { session: 3, state: MonitorState::Failing("down".into()) });
+
+    assert_eq!(harness.app.health().snapshot().map(|snapshot| snapshot.processes.len()), Some(1));
+    assert_eq!(harness.app.health().selected, Some(10));
+}
+
+#[test]
+fn process_actions_open_nothing_while_failing_and_work_again_after_a_snapshot() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000, vec![process_owned_by(1000, 10)]);
+    harness.press(Message::HealthProcessSelected(10));
+    harness.feed(Event::Monitor { session: 3, state: MonitorState::Failing("down".into()) });
+
+    harness.press(Message::HealthTerminateRequested);
+    harness.press(Message::HealthKillRequested);
+    harness.press(Message::HealthReniceRequested);
+    assert!(harness.app.modal().is_none());
+
+    let recovered = process_owned_by(1000, 10);
+    let mut snapshot = snapshot(&[]);
+    snapshot.processes = vec![recovered];
+    harness.feed(Event::Monitor { session: 3, state: MonitorState::Snapshot(Box::new(snapshot)) });
+    harness.press(Message::HealthTerminateRequested);
+    assert!(harness.app.modal().is_some());
 }
 
 #[test]

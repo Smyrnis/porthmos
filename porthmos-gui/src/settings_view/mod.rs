@@ -1,6 +1,6 @@
 use porthmos_core::i18n::label as tr;
 use porthmos_core::theme::ThemeBase;
-use porthmos_core::{ReopenMode, UpdateMode};
+use porthmos_core::{RefreshSettings, ReopenMode, UpdateMode};
 
 use crate::shortcuts::Action;
 
@@ -17,6 +17,7 @@ pub struct GuiSettings {
     pub search_max_results: usize,
     pub reopen: ReopenMode,
     pub reconnect: bool,
+    pub refresh: RefreshSettings,
     pub theme_base: ThemeBase,
     pub language: Option<String>,
 }
@@ -35,6 +36,7 @@ impl Default for GuiSettings {
             search_max_results: porthmos_core::config::settings::DEFAULT_SEARCH_RESULTS,
             reopen: ReopenMode::Off,
             reconnect: false,
+            refresh: RefreshSettings::default(),
             theme_base: ThemeBase::Dark,
             language: None,
         }
@@ -52,6 +54,7 @@ pub enum SettingsSection {
     Startup,
     Connections,
     Updates,
+    Refresh,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -90,6 +93,7 @@ impl SettingsCategory {
                 SettingsSection::Startup,
                 SettingsSection::Connections,
                 SettingsSection::Search,
+                SettingsSection::Refresh,
             ],
             SettingsCategory::EditorAndTerminal => &[SettingsSection::Editing, SettingsSection::Terminal],
             SettingsCategory::Appearance => &[SettingsSection::Appearance],
@@ -114,6 +118,7 @@ pub struct SettingsState {
     pub search_depth_text: String,
     pub search_results_text: String,
     pub terminal_text: String,
+    pub refresh_text: [String; 3],
     pub message: Option<SettingsMessage>,
 }
 
@@ -127,6 +132,8 @@ impl SettingsState {
             search_depth_text: settings.search_max_depth.to_string(),
             search_results_text: settings.search_max_results.to_string(),
             terminal_text: settings.terminal.clone().unwrap_or_default(),
+            refresh_text: crate::refresh::ALL
+                .map(|tab| crate::refresh::setting(&settings.refresh, tab).interval_seconds.to_string()),
             message: None,
         }
     }
@@ -135,6 +142,11 @@ impl SettingsState {
 pub fn compare_limit_from_text(text: &str) -> Option<u64> {
     use porthmos_core::config::settings::{MAX_COMPARE_LIMIT_MIB, MIN_COMPARE_LIMIT_MIB};
     text.trim().parse::<u64>().ok().filter(|mib| (MIN_COMPARE_LIMIT_MIB..=MAX_COMPARE_LIMIT_MIB).contains(mib))
+}
+
+pub fn refresh_seconds_from_text(text: &str) -> Option<u64> {
+    use porthmos_core::config::settings::{MAX_REFRESH_SECONDS, MIN_REFRESH_SECONDS};
+    text.trim().parse::<u64>().ok().filter(|seconds| (MIN_REFRESH_SECONDS..=MAX_REFRESH_SECONDS).contains(seconds))
 }
 
 pub fn search_depth_from_text(text: &str) -> Option<usize> {
