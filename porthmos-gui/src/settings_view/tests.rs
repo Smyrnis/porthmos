@@ -1,6 +1,9 @@
 use porthmos_core::UpdateMode;
 
-use super::{GuiSettings, SettingsState, editor_from_text, search_depth_from_text, search_results_from_text};
+use super::{
+    GuiSettings, LogsField, SettingsState, editor_from_text, logs_initial_lines_from_text, logs_max_lines_from_text,
+    logs_range_text, search_depth_from_text, search_results_from_text,
+};
 
 fn settings(editor: Option<&str>) -> GuiSettings {
     GuiSettings {
@@ -16,6 +19,7 @@ fn settings(editor: Option<&str>) -> GuiSettings {
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
         refresh: Default::default(),
+        logs: Default::default(),
         theme_base: porthmos_core::theme::ThemeBase::Dark,
         language: None,
     }
@@ -86,6 +90,7 @@ mod categories {
             SettingsSection::Connections,
             SettingsSection::Updates,
             SettingsSection::Refresh,
+            SettingsSection::Logs,
         ];
 
         for section in all {
@@ -104,7 +109,7 @@ mod categories {
     }
 
     #[test]
-    fn general_holds_the_language_startup_connection_search_and_refresh_options() {
+    fn general_holds_the_language_startup_connection_search_refresh_and_logs_options() {
         assert_eq!(
             SettingsCategory::General.sections(),
             &[
@@ -112,7 +117,8 @@ mod categories {
                 SettingsSection::Startup,
                 SettingsSection::Connections,
                 SettingsSection::Search,
-                SettingsSection::Refresh
+                SettingsSection::Refresh,
+                SettingsSection::Logs
             ]
         );
     }
@@ -174,4 +180,37 @@ fn a_refresh_interval_must_be_a_whole_number_from_five_to_three_hundred() {
     for text in ["", "   ", "4", "301", "x", "-3", "1.5"] {
         assert_eq!(refresh_seconds_from_text(text), None, "{text:?}");
     }
+}
+
+#[test]
+fn the_logs_fields_accept_only_whole_numbers_inside_their_ranges() {
+    assert_eq!(logs_max_lines_from_text(" 1000 "), Some(1000));
+    assert_eq!(logs_max_lines_from_text("200000"), Some(200000));
+    for text in ["", "0", "999", "200001", "abc", "-5", "1.5", "5000000000"] {
+        assert_eq!(logs_max_lines_from_text(text), None, "{text:?}");
+    }
+
+    assert_eq!(logs_initial_lines_from_text("0"), Some(0));
+    assert_eq!(logs_initial_lines_from_text("5000"), Some(5000));
+    for text in ["", "5001", "x", "-1"] {
+        assert_eq!(logs_initial_lines_from_text(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn the_settings_state_starts_with_the_saved_logs_numbers() {
+    let mut saved = GuiSettings::default();
+    saved.logs.max_lines = 4321;
+    saved.logs.initial_lines = 12;
+
+    let state = SettingsState::new(&saved);
+
+    assert_eq!(state.logs_max_text, "4321");
+    assert_eq!(state.logs_initial_text, "12");
+}
+
+#[test]
+fn the_logs_range_text_names_both_ends() {
+    assert_eq!(logs_range_text(LogsField::MaxLines), "Enter a whole number from 1000 to 200000.");
+    assert_eq!(logs_range_text(LogsField::InitialLines), "Enter a whole number from 0 to 5000.");
 }

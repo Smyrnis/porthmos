@@ -163,8 +163,13 @@ fn tab_button<'a>(entry: TabEntry, focused: bool, palette: &Palette) -> Element<
 
 #[cfg(test)]
 pub fn strip_labels(app: &App) -> Vec<String> {
-    let mut labels =
-        vec![app.tunnels_tab_label(), app.health_tab_label(), app.services_tab_label(), app.ports_tab_label()];
+    let mut labels = vec![
+        app.tunnels_tab_label(),
+        app.health_tab_label(),
+        app.services_tab_label(),
+        app.ports_tab_label(),
+        app.logs_tab_label(),
+    ];
     labels.extend(tab_entries(app.drawer()).into_iter().map(|entry| entry.label));
     labels
 }
@@ -188,6 +193,7 @@ fn view_entries<'a>(app: &App, palette: &Palette) -> iced::widget::Row<'a, Messa
         view_entry(app.health_tab_label(), view == DrawerView::Health, Message::HealthViewSelected, palette),
         view_entry(app.services_tab_label(), view == DrawerView::Services, Message::ServicesViewSelected, palette),
         view_entry(app.ports_tab_label(), view == DrawerView::Ports, Message::PortsViewSelected, palette),
+        view_entry(app.logs_tab_label(), view == DrawerView::Logs, Message::LogsViewSelected, palette),
     ]
 }
 
@@ -299,6 +305,7 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
         None if drawer.view == DrawerView::Health => super::health::view(app),
         None if drawer.view == DrawerView::Services => super::services::view(app),
         None if drawer.view == DrawerView::Ports => super::ports::view(app),
+        None if drawer.view == DrawerView::Logs => super::logs::view(app),
         None => container(label(empty_hint(app), palette.fg_dim))
             .width(Length::Fill)
             .height(Length::Fill)

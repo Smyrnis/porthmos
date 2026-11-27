@@ -67,6 +67,7 @@ const COMMANDS: &[(Action, Available)] = &[
     (Action::ShowHealth, |_| true),
     (Action::ShowServices, |_| true),
     (Action::ShowPorts, |_| true),
+    (Action::ShowLogs, |_| true),
     (Action::Settings, |_| true),
     (Action::CheckForUpdates, |_| true),
     (Action::Quit, |_| true),

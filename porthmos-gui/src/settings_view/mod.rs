@@ -1,6 +1,7 @@
+use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
 use porthmos_core::theme::ThemeBase;
-use porthmos_core::{RefreshSettings, ReopenMode, UpdateMode};
+use porthmos_core::{LogsSettings, RefreshSettings, ReopenMode, UpdateMode};
 
 use crate::shortcuts::Action;
 
@@ -18,6 +19,7 @@ pub struct GuiSettings {
     pub reopen: ReopenMode,
     pub reconnect: bool,
     pub refresh: RefreshSettings,
+    pub logs: LogsSettings,
     pub theme_base: ThemeBase,
     pub language: Option<String>,
 }
@@ -37,6 +39,7 @@ impl Default for GuiSettings {
             reopen: ReopenMode::Off,
             reconnect: false,
             refresh: RefreshSettings::default(),
+            logs: LogsSettings::default(),
             theme_base: ThemeBase::Dark,
             language: None,
         }
@@ -55,6 +58,13 @@ pub enum SettingsSection {
     Connections,
     Updates,
     Refresh,
+    Logs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogsField {
+    MaxLines,
+    InitialLines,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -94,6 +104,7 @@ impl SettingsCategory {
                 SettingsSection::Connections,
                 SettingsSection::Search,
                 SettingsSection::Refresh,
+                SettingsSection::Logs,
             ],
             SettingsCategory::EditorAndTerminal => &[SettingsSection::Editing, SettingsSection::Terminal],
             SettingsCategory::Appearance => &[SettingsSection::Appearance],
@@ -119,6 +130,8 @@ pub struct SettingsState {
     pub search_results_text: String,
     pub terminal_text: String,
     pub refresh_text: [String; 3],
+    pub logs_max_text: String,
+    pub logs_initial_text: String,
     pub message: Option<SettingsMessage>,
 }
 
@@ -134,6 +147,8 @@ impl SettingsState {
             terminal_text: settings.terminal.clone().unwrap_or_default(),
             refresh_text: crate::refresh::ALL
                 .map(|tab| crate::refresh::setting(&settings.refresh, tab).interval_seconds.to_string()),
+            logs_max_text: settings.logs.max_lines.to_string(),
+            logs_initial_text: settings.logs.initial_lines.to_string(),
             message: None,
         }
     }
@@ -147,6 +162,30 @@ pub fn compare_limit_from_text(text: &str) -> Option<u64> {
 pub fn refresh_seconds_from_text(text: &str) -> Option<u64> {
     use porthmos_core::config::settings::{MAX_REFRESH_SECONDS, MIN_REFRESH_SECONDS};
     text.trim().parse::<u64>().ok().filter(|seconds| (MIN_REFRESH_SECONDS..=MAX_REFRESH_SECONDS).contains(seconds))
+}
+
+pub fn logs_max_lines_from_text(text: &str) -> Option<u32> {
+    use porthmos_core::config::settings::LOGS_MAX_LINES_RANGE;
+    text.trim().parse::<u32>().ok().filter(|lines| LOGS_MAX_LINES_RANGE.contains(lines))
+}
+
+pub fn logs_initial_lines_from_text(text: &str) -> Option<u32> {
+    use porthmos_core::config::settings::LOGS_INITIAL_LINES_RANGE;
+    text.trim().parse::<u32>().ok().filter(|lines| LOGS_INITIAL_LINES_RANGE.contains(lines))
+}
+
+pub fn logs_bounds(field: LogsField) -> (u32, u32) {
+    use porthmos_core::config::settings::{LOGS_INITIAL_LINES_RANGE, LOGS_MAX_LINES_RANGE};
+    let range = match field {
+        LogsField::MaxLines => LOGS_MAX_LINES_RANGE,
+        LogsField::InitialLines => LOGS_INITIAL_LINES_RANGE,
+    };
+    (*range.start(), *range.end())
+}
+
+pub fn logs_range_text(field: LogsField) -> String {
+    let (min, max) = logs_bounds(field);
+    i18n::text_with("gui.settings.logs_range", &[("min", &min.to_string()), ("max", &max.to_string())])
 }
 
 pub fn search_depth_from_text(text: &str) -> Option<usize> {

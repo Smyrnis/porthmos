@@ -162,3 +162,31 @@ fn a_cut_service_name_offers_the_whole_name_as_a_tooltip_and_a_short_one_offers_
     assert_eq!(name_tooltip(&long), Some(long.clone()));
     assert_eq!(name_tooltip("nginx.service"), None);
 }
+
+#[test]
+fn view_logs_is_enabled_only_for_a_unit_name_the_journal_accepts() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha");
+    harness.press(Message::ServicesViewSelected);
+    shown_in(&mut harness, Some(ServicesEvent::Snapshot(Box::new(snapshot()))));
+
+    harness.press(Message::ServiceSelected("nginx.service".into()));
+    let (press, hint) = logs_press(harness.app.services());
+    assert_eq!(pressed(&press), Some(format!("{:?}", Message::ServiceLogsRequested)));
+    assert_eq!(hint, None);
+
+    harness.press(Message::ServiceSelected("odd\\x2dname.service".into()));
+    let (press, hint) = logs_press(harness.app.services());
+    assert!(press.is_none());
+    assert_eq!(hint.as_deref(), Some("Its name can't be used safely in a command"));
+}
+
+#[test]
+fn view_logs_needs_a_selected_unit() {
+    let state = ServicesState::default();
+
+    let (press, hint) = logs_press(&state);
+
+    assert!(press.is_none());
+    assert_eq!(hint.as_deref(), Some("Select a service first"));
+}

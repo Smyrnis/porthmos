@@ -1,6 +1,7 @@
 use iced::widget::{checkbox, column, container, row, scrollable, text_input};
 use iced::{Alignment, Element, Font, Length, Size};
 use porthmos_core::RefreshTab;
+use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
 
 use super::button::{Look, nav_item, text_button};
@@ -9,7 +10,7 @@ use super::{bold_label, hairline_across, hairline_down, label, wrapped_label};
 use crate::app::{App, Message};
 use crate::geometry::ROW_HEIGHT;
 use crate::refresh;
-use crate::settings_view::{SettingsCategory, SettingsMessage, SettingsSection, SettingsState};
+use crate::settings_view::{LogsField, SettingsCategory, SettingsMessage, SettingsSection, SettingsState, logs_bounds};
 use crate::shortcuts::{Action, Shortcuts};
 use crate::theme::Palette;
 
@@ -47,6 +48,9 @@ fn refresh_help() -> String {
     tr("Seconds between refreshes (5 to 300).")
 }
 const COMPARE_LIMIT_FIELD_WIDTH: f32 = 80.0;
+const LOGS_FIELD_WIDTH: f32 = 96.0;
+const LOGS_MAX_PLACEHOLDER: &str = "20000";
+const LOGS_INITIAL_PLACEHOLDER: &str = "500";
 const SEARCH_DEPTH_PLACEHOLDER: &str = "16";
 const SEARCH_RESULTS_PLACEHOLDER: &str = "1000";
 fn search_depth_label() -> String {
@@ -252,6 +256,49 @@ fn refresh_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Me
     rows.push(wrapped_label(refresh_help(), palette.fg_dim)).into()
 }
 
+pub fn logs_field_label(field: LogsField) -> String {
+    let (min, max) = logs_bounds(field);
+    let key = match field {
+        LogsField::MaxLines => "gui.settings.logs_max_label",
+        LogsField::InitialLines => "gui.settings.logs_initial_label",
+    };
+    i18n::text_with(key, &[("min", &min.to_string()), ("max", &max.to_string())])
+}
+
+fn logs_row<'a>(app: &'a App, state: &'a SettingsState, field: LogsField) -> Element<'a, Message> {
+    let palette = app.palette();
+    let (shown, placeholder) = match field {
+        LogsField::MaxLines => (&state.logs_max_text, LOGS_MAX_PLACEHOLDER),
+        LogsField::InitialLines => (&state.logs_initial_text, LOGS_INITIAL_PLACEHOLDER),
+    };
+    let input = text_input(placeholder, shown)
+        .style(crate::view::input::style(palette))
+        .size(13.0)
+        .width(Length::Fixed(LOGS_FIELD_WIDTH))
+        .font(Font::DEFAULT)
+        .on_input(move |text| Message::SettingsLogsTyped(field, text))
+        .on_submit(Message::SettingsLogsApplied(field));
+    column![
+        label(logs_field_label(field), palette.fg),
+        row![input, text_button(&tr("Apply"), Some(Message::SettingsLogsApplied(field)), Look::Normal, palette)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn logs_section<'a>(app: &'a App, state: &'a SettingsState) -> Element<'a, Message> {
+    let palette = app.palette();
+    column![
+        section(&tr("Logs"), palette),
+        logs_row(app, state, LogsField::MaxLines),
+        logs_row(app, state, LogsField::InitialLines),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn restart_line<'a>(palette: &Palette) -> Element<'a, Message> {
     wrapped_label(tr("Takes effect the next time Porthmos starts."), palette.fg_dim).into()
 }
@@ -419,6 +466,7 @@ fn section_view<'a>(app: &'a App, state: &'a SettingsState, which: SettingsSecti
         SettingsSection::Connections => connection_section(app),
         SettingsSection::Updates => updates_section(app),
         SettingsSection::Refresh => refresh_section(app, state),
+        SettingsSection::Logs => logs_section(app, state),
     }
 }
 

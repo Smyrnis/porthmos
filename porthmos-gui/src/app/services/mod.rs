@@ -2,10 +2,11 @@ use std::time::Duration;
 
 use iced::Subscription;
 use porthmos_core::i18n::label as tr;
-use porthmos_core::{Command, Privilege, RefreshTab, ServiceVerb, ServicesState as ServicesEvent, SessionId};
+use porthmos_core::{Command, Privilege, RefreshTab, ServiceVerb, ServicesState as ServicesEvent, SessionId, UnitName};
 
 use super::{App, Message};
 use crate::drawer::DrawerView;
+use crate::logs_view::SourceKind;
 use crate::modal::Modal;
 use crate::refresh;
 use crate::services_view::{ActionState, action_state, status_allowed};
@@ -100,6 +101,16 @@ impl App {
         if let Some((session, unit, uid)) = self.services_selection(Some(verb)) {
             self.modals.push(Modal::ConfirmServiceAction { session, unit, verb, privilege: Privilege::for_uid(uid) });
         }
+    }
+
+    pub(in crate::app) fn service_logs_requested(&mut self) {
+        let Some(unit) = self.services.selected.clone().filter(|name| UnitName::new(name).is_some()) else {
+            return;
+        };
+        self.logs.kind = SourceKind::Journal;
+        self.logs.unit = unit;
+        self.show_logs();
+        self.logs_start();
     }
 
     pub(in crate::app) fn service_status_requested(&mut self) {

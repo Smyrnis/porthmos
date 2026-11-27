@@ -57,6 +57,7 @@ pub enum Action {
     ShowHealth,
     ShowServices,
     ShowPorts,
+    ShowLogs,
     Search,
     Bookmarks,
     BookmarkHere,
@@ -69,7 +70,7 @@ pub enum Action {
     Quit,
 }
 
-const NAMES: [(Action, &str); 63] = [
+const NAMES: [(Action, &str); 64] = [
     (Action::MoveUp, "move_up"),
     (Action::MoveDown, "move_down"),
     (Action::PageUp, "page_up"),
@@ -123,6 +124,7 @@ const NAMES: [(Action, &str); 63] = [
     (Action::ShowHealth, "show_health"),
     (Action::ShowServices, "show_services"),
     (Action::ShowPorts, "show_ports"),
+    (Action::ShowLogs, "show_logs"),
     (Action::Search, "search"),
     (Action::Bookmarks, "bookmarks"),
     (Action::BookmarkHere, "bookmark_here"),
@@ -236,6 +238,7 @@ impl Action {
             Action::ShowHealth => tr("Show health"),
             Action::ShowServices => tr("Show services"),
             Action::ShowPorts => tr("Show ports"),
+            Action::ShowLogs => tr("Show logs"),
             Action::Search => tr("Search\u{2026}"),
             Action::Bookmarks => tr("Bookmarks\u{2026}"),
             Action::BookmarkHere => tr("Bookmark this folder"),

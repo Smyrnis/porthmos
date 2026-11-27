@@ -24,6 +24,7 @@ mod health_view;
 mod history_view;
 mod icons;
 mod import_view;
+mod logs_view;
 mod main_window;
 mod menus;
 mod modal;

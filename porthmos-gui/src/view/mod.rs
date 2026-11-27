@@ -13,6 +13,7 @@ pub mod health;
 mod import_review;
 mod import_source;
 mod input;
+pub mod logs;
 mod modal;
 pub mod palette;
 mod path_bar;

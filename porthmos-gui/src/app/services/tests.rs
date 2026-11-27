@@ -585,3 +585,54 @@ fn a_verb_or_status_during_a_failure_still_opens_nothing_and_sends_nothing() {
 
     assert!(harness.sent().is_empty() && harness.app.modal().is_none());
 }
+
+fn log_starts(sent: &[Command]) -> Vec<(u64, porthmos_core::LogSource)> {
+    sent.iter()
+        .filter_map(|command| match command {
+            Command::StartLog { session, source, .. } => Some((*session, source.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn view_logs_opens_the_logs_tab_on_the_selected_unit_and_starts_it() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000);
+    harness.press(Message::ServiceSelected("nginx.service".into()));
+
+    harness.press(Message::ServiceLogsRequested);
+
+    assert_eq!(harness.app.drawer().view, DrawerView::Logs);
+    assert!(harness.app.drawer().open);
+    let sent = harness.sent();
+    assert_eq!(
+        log_starts(&sent),
+        [(3, porthmos_core::LogSource::Journal(porthmos_core::UnitName::new("nginx.service")))]
+    );
+    assert_eq!(harness.app.logs().kind, crate::logs_view::SourceKind::Journal);
+    assert_eq!(harness.app.logs().unit, "nginx.service");
+}
+
+#[test]
+fn view_logs_does_nothing_for_a_unit_the_journal_would_not_accept() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000);
+    harness.press(Message::ServiceSelected("odd\\x2dname.service".into()));
+
+    harness.press(Message::ServiceLogsRequested);
+
+    assert_eq!(harness.app.drawer().view, DrawerView::Services);
+    assert!(log_starts(&harness.sent()).is_empty());
+}
+
+#[test]
+fn view_logs_without_a_selection_does_nothing() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000);
+
+    harness.press(Message::ServiceLogsRequested);
+
+    assert_eq!(harness.app.drawer().view, DrawerView::Services);
+    assert!(log_starts(&harness.sent()).is_empty());
+}

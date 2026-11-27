@@ -606,3 +606,13 @@ fn the_palette_lists_show_ports() {
 
     assert_eq!(labels(&harness).first().map(String::as_str), Some("Show ports"));
 }
+
+#[test]
+fn the_palette_lists_show_logs() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    typed(&mut harness, "show logs");
+
+    assert_eq!(labels(&harness).first().map(String::as_str), Some("Show logs"));
+}

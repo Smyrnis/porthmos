@@ -4,6 +4,7 @@ use iced::keyboard::{Key, Modifiers};
 use super::{SETTINGS_CHROME, reset_enabled, window_list_height};
 use crate::app::Message;
 use crate::geometry::ROW_HEIGHT;
+use crate::settings_view::LogsField;
 use crate::shortcuts::{Action, Chord, Shortcuts};
 use crate::testing::Harness;
 use porthmos_core::RefreshTab;
@@ -89,5 +90,15 @@ fn every_refresh_seconds_field_is_labelled_with_its_unit_and_the_window_builds_w
     harness.press(Message::ActionRequested(Action::Settings));
 
     assert_eq!(super::refresh_unit_label(), "seconds");
+    assert!(super::window(&harness.app).is_some());
+}
+
+#[test]
+fn the_logs_rows_name_their_range_and_the_window_builds_with_them() {
+    let mut harness = Harness::new();
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    assert_eq!(super::logs_field_label(LogsField::MaxLines), "Most lines to keep (1000 to 200000)");
+    assert_eq!(super::logs_field_label(LogsField::InitialLines), "Lines to load when a log starts (0 to 5000)");
     assert!(super::window(&harness.app).is_some());
 }

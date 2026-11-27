@@ -13,7 +13,8 @@ use porthmos_core::{Command, ReopenMode, UpdateMode};
 use super::{App, Message};
 use crate::refresh;
 use crate::settings_view::{
-    GuiSettings, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text, refresh_seconds_from_text,
+    GuiSettings, LogsField, SettingsMessage, SettingsState, compare_limit_from_text, editor_from_text,
+    logs_initial_lines_from_text, logs_max_lines_from_text, logs_range_text, refresh_seconds_from_text,
     search_depth_from_text, search_results_from_text,
 };
 use crate::shortcuts::{Action, AssignError, KeyPress, chord_from_press, effective};
@@ -394,6 +395,40 @@ impl App {
                         }
                     }
                     None => self.show_settings_message(Some(SettingsMessage::Error(refresh_seconds_text()))),
+                }
+            }
+            Message::SettingsLogsTyped(field, text) => {
+                if let Some(state) = self.settings_state_mut() {
+                    match field {
+                        LogsField::MaxLines => state.logs_max_text = text,
+                        LogsField::InitialLines => state.logs_initial_text = text,
+                    }
+                }
+            }
+            Message::SettingsLogsApplied(field) => {
+                let Some(state) = self.settings_state.as_ref() else {
+                    return Task::none();
+                };
+                let applied = match field {
+                    LogsField::MaxLines => logs_max_lines_from_text(&state.logs_max_text)
+                        .map(|lines| (Edit::SetLogsMaxLines(lines), lines)),
+                    LogsField::InitialLines => logs_initial_lines_from_text(&state.logs_initial_text)
+                        .map(|lines| (Edit::SetLogsInitialLines(lines), lines)),
+                };
+                match applied {
+                    Some((edit, lines)) => {
+                        if self.save_setting(edit) {
+                            match field {
+                                LogsField::MaxLines => {
+                                    self.gui_settings.logs.max_lines = lines;
+                                    self.logs.trim(lines as usize);
+                                }
+                                LogsField::InitialLines => self.gui_settings.logs.initial_lines = lines,
+                            }
+                            self.show_settings_message(Some(SettingsMessage::Note(applied_note())));
+                        }
+                    }
+                    None => self.show_settings_message(Some(SettingsMessage::Error(logs_range_text(field)))),
                 }
             }
             Message::SettingsThemeChosen(base) => self.choose_theme(base),

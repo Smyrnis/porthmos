@@ -85,3 +85,59 @@ fn a_cut_name_offers_its_whole_text_and_a_name_that_fits_offers_nothing() {
 fn the_offered_text_has_hostile_characters_replaced_like_the_shown_text() {
     assert_eq!(full_text_hint("fdp.\u{202e}txt-and-a-long-tail", 6), Some("fdp.·txt-and-a-long-tail".to_string()));
 }
+
+fn quadratic_fit(name: &str, max_cells: usize) -> String {
+    if max_cells == 0 {
+        return String::new();
+    }
+    let cleaned: String = name.chars().map(super::visible).collect();
+    if cleaned.width() <= max_cells {
+        return cleaned;
+    }
+    let mut shown = String::new();
+    for character in cleaned.chars().take(max_cells.saturating_mul(2).saturating_add(2)) {
+        shown.push(character);
+        if shown.width() + 1 > max_cells {
+            shown.pop();
+            break;
+        }
+    }
+    shown.push('…');
+    shown
+}
+
+#[test]
+fn the_cut_matches_the_cell_by_cell_cut_for_every_kind_of_text() {
+    let names = [
+        "abcdefghijklmnopqrstuvwxyz".to_string(),
+        "καλημέρα κόσμε, καλημέρα".to_string(),
+        "文件文件文件文件文件文件".to_string(),
+        "🙂🙂🙂🙂🙂🙂🙂🙂".to_string(),
+        "❤️❤️❤️❤️❤️❤️".to_string(),
+        "👨‍👩‍👧 family 👨‍👩‍👧 photo 👨‍👩‍👧".to_string(),
+        "שלום עולם שלום עולם".to_string(),
+        "لا لا لا لا لا لا لا".to_string(),
+        "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}".to_string(),
+        "\u{301}".repeat(40),
+        "ｆｕｌｌｗｉｄｔｈ　ｔｅｘｔ".to_string(),
+        "a\tb\u{202e}c\nd".repeat(5),
+        "x".repeat(1000),
+    ];
+    for name in &names {
+        for budget in 0..=30 {
+            assert_eq!(fit(name, budget), quadratic_fit(name, budget), "{name:?} at {budget}");
+        }
+    }
+}
+
+#[test]
+fn a_long_wide_line_is_cut_in_linear_time() {
+    let line = "καλημέρα κόσμε 文件 ".repeat(120);
+    let started = std::time::Instant::now();
+
+    for _ in 0..300 {
+        assert!(fit(&line, 400).width() <= 400);
+    }
+
+    assert!(started.elapsed() < std::time::Duration::from_millis(700), "{:?}", started.elapsed());
+}

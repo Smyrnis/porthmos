@@ -1,4 +1,4 @@
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const REPLACEMENT: char = '·';
 const ELLIPSIS: char = '…';
@@ -19,14 +19,27 @@ pub fn fit(name: &str, max_cells: usize) -> String {
     if cleaned.width() <= max_cells {
         return cleaned;
     }
-    let mut shown = String::new();
-    for character in cleaned.chars().take(max_cells.saturating_mul(2).saturating_add(2)) {
-        shown.push(character);
-        if shown.width() + 1 > max_cells {
-            shown.pop();
-            break;
-        }
+    let ends: Vec<usize> = std::iter::once(0)
+        .chain(cleaned.char_indices().map(|(index, character)| index + character.len_utf8()))
+        .take(max_cells.saturating_mul(2).saturating_add(3))
+        .collect();
+    let fits = |kept: usize| cleaned[..ends[kept]].width() < max_cells;
+    let mut estimate = 0;
+    let mut kept = cleaned
+        .chars()
+        .take(ends.len() - 1)
+        .position(|character| {
+            estimate += character.width().unwrap_or(0);
+            estimate >= max_cells
+        })
+        .unwrap_or(ends.len() - 1);
+    while kept > 0 && !fits(kept) {
+        kept -= 1;
     }
+    while kept + 1 < ends.len() && fits(kept + 1) {
+        kept += 1;
+    }
+    let mut shown = cleaned[..ends[kept]].to_string();
     shown.push(ELLIPSIS);
     shown
 }

@@ -214,6 +214,8 @@ pub enum Message {
     SettingsRefreshToggled(porthmos_core::RefreshTab, bool),
     SettingsRefreshTyped(porthmos_core::RefreshTab, String),
     SettingsRefreshApplied(porthmos_core::RefreshTab),
+    SettingsLogsTyped(crate::settings_view::LogsField, String),
+    SettingsLogsApplied(crate::settings_view::LogsField),
     RefreshTick(porthmos_core::RefreshTab),
     SettingsThemeChosen(porthmos_core::theme::ThemeBase),
     SettingsCategoryChosen(crate::settings_view::SettingsCategory),
@@ -294,6 +296,18 @@ pub enum Message {
     ServiceStatusRequested,
     ServiceActionRequested(porthmos_core::ServiceVerb),
     PortsViewSelected,
+    LogsViewSelected,
+    LogsSessionChosen(String),
+    LogsStartRequested,
+    LogsStopRequested,
+    LogsClearRequested,
+    LogsPauseToggled,
+    LogsFollowToggled(bool),
+    LogsKindChosen(crate::logs_view::SourceKind),
+    LogsPathChanged(String),
+    LogsUnitChanged(String),
+    LogsScrolled { offset: f32, viewport: f32, content: f32 },
+    ServiceLogsRequested,
     PortsViewChosen(crate::ports_view::PortsPane),
     PortsFilterChanged(String),
     PortsRefresh,
@@ -345,6 +359,7 @@ pub struct App {
     health: crate::health_view::HealthState,
     services: crate::services_view::ServicesState,
     ports: crate::ports_view::PortsState,
+    logs: crate::logs_view::LogsState,
     core: CoreHandle,
     events: EventSource,
     palette: Palette,
@@ -436,6 +451,7 @@ impl App {
             health: crate::health_view::HealthState::default(),
             services: crate::services_view::ServicesState::default(),
             ports: crate::ports_view::PortsState::default(),
+            logs: crate::logs_view::LogsState::default(),
             events,
             palette,
             notices: Vec::new(),
@@ -998,6 +1014,7 @@ impl App {
             Event::Ports { session, state } => self.ports_arrived(session, state),
             Event::Services { session, state } => self.services_arrived(session, state),
             Event::ServiceStatus { session, unit, text } => self.service_status_arrived(session, &unit, text),
+            Event::Log { id, state } => self.logs_arrived(id, state),
             Event::SyncPlanReady(plan) => self.sync_plan_arrived(plan),
             Event::SyncWithdrawn { sync_ids } => self.sync_withdrawn(&sync_ids),
             Event::ImportPlanReady(plan) => self.import_plan_arrived(plan),
@@ -1151,6 +1168,8 @@ impl App {
         self.sync_monitor();
         self.sync_services();
         self.sync_ports();
+        self.sync_logs();
+        let task = Task::batch([task, self.logs_snap()]);
         let task =
             if std::mem::take(&mut self.quit_confirmed) { Task::batch([task, self.begin_close()]) } else { task };
         let task = if self.tool_version == tool_before {
@@ -1376,6 +1395,8 @@ impl App {
             | Message::SettingsRefreshToggled(..)
             | Message::SettingsRefreshTyped(..)
             | Message::SettingsRefreshApplied(_)
+            | Message::SettingsLogsTyped(..)
+            | Message::SettingsLogsApplied(_)
             | Message::SettingsThemeChosen(_)
             | Message::SettingsCategoryChosen(_)) => return self.settings_message(message),
             Message::RefreshTick(porthmos_core::RefreshTab::Health) => self.health_tick(),
@@ -1589,6 +1610,18 @@ impl App {
             Message::ServiceStatusRequested => self.service_status_requested(),
             Message::ServiceActionRequested(verb) => self.service_action_requested(verb),
             Message::PortsViewSelected => self.show_ports(),
+            Message::LogsViewSelected => self.show_logs(),
+            Message::LogsSessionChosen(name) => self.logs_session_chosen(name),
+            Message::LogsStartRequested => self.logs_start(),
+            Message::LogsStopRequested => self.logs_stop(),
+            Message::LogsClearRequested => self.logs_clear(),
+            Message::LogsPauseToggled => self.logs_pause_toggled(),
+            Message::LogsFollowToggled(follow) => self.logs.follow_toggled(follow),
+            Message::LogsScrolled { offset, viewport, content } => self.logs.scrolled(offset, viewport, content),
+            Message::ServiceLogsRequested => self.service_logs_requested(),
+            Message::LogsKindChosen(kind) => self.logs.kind = kind,
+            Message::LogsPathChanged(text) => self.logs.path = text,
+            Message::LogsUnitChanged(text) => self.logs.unit = text,
             Message::PortsViewChosen(pane) => self.ports.pane = pane,
             Message::PortsFilterChanged(text) => self.ports.filter = text,
             Message::PortsRefresh | Message::PortsRetry => self.ports_refresh(),
@@ -2402,6 +2435,7 @@ impl App {
             Action::ShowHealth => self.show_health(),
             Action::ShowServices => self.show_services(),
             Action::ShowPorts => self.show_ports(),
+            Action::ShowLogs => self.show_logs(),
             Action::NewTunnel => self.tunnel_form_requested(None),
             Action::TerminalOpenDirectory => self.open_terminal_directory(),
             Action::TerminalChangeDirectory => self.change_terminal_directory(),
@@ -2524,6 +2558,7 @@ mod drawer;
 mod editing;
 mod health;
 mod import;
+mod logs;
 mod palette;
 mod ports;
 mod preview;

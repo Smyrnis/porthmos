@@ -2,7 +2,9 @@ use iced::widget::{column, container, mouse_area, pick_list, row, scrollable, te
 use iced::{Alignment, Color, Element, Font, Length, alignment};
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
-use porthmos_core::{ServiceVerb, ServicesSnapshot, ServicesState as ServicesEvent, StatusFilter, Unit};
+use porthmos_core::{
+    ServiceVerb, ServicesSnapshot, ServicesState as ServicesEvent, SessionId, StatusFilter, Unit, UnitName,
+};
 
 use super::button::{Look, hinted, hinted_if, text_button};
 use super::spacing::{MD, SM};
@@ -138,6 +140,19 @@ pub fn status_press(state: &ServicesState, snapshot: &ServicesSnapshot) -> (Opti
     (reason.is_none().then_some(Message::ServiceStatusRequested), reason)
 }
 
+pub fn logs_press(state: &ServicesState) -> (Option<Message>, Option<String>) {
+    match state.selected.as_deref() {
+        None => (None, Some(i18n::text("gui.services.select_first"))),
+        Some(name) if UnitName::new(name).is_some() => (Some(Message::ServiceLogsRequested), None),
+        Some(_) => (None, Some(i18n::text("gui.services.unsafe_name"))),
+    }
+}
+
+fn logs_button<'a>(state: &ServicesState, palette: &Palette) -> Element<'a, Message> {
+    let (press, reason) = logs_press(state);
+    with_reason(text_button(&tr("View logs"), press, Look::Normal, palette), reason, palette)
+}
+
 fn verb_button<'a>(
     state: &ServicesState, snapshot: &ServicesSnapshot, verb: ServiceVerb, palette: &Palette,
 ) -> Element<'a, Message> {
@@ -172,7 +187,7 @@ fn status_panel<'a>(state: &ServicesState, palette: &Palette) -> Option<Element<
 fn detail<'a>(state: &ServicesState, snapshot: &ServicesSnapshot, palette: &Palette) -> Option<Element<'a, Message>> {
     let selected = state.selected.as_deref()?;
     let unit = snapshot.units.iter().find(|unit| unit.name == selected)?;
-    let mut buttons = row![status_button(state, snapshot, palette)].spacing(SM);
+    let mut buttons = row![status_button(state, snapshot, palette), logs_button(state, palette)].spacing(SM);
     for verb in ALL_VERBS {
         buttons = buttons.push(verb_button(state, snapshot, verb, palette));
     }
@@ -244,9 +259,15 @@ fn status_choice<'a>(
     text_button(&title, Some(Message::ServicesStatusFilterChanged(status)), look, palette)
 }
 
-fn picker<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
-    let current = app.health_target().and_then(|id| app.sessions().by_id(id)).map(|session| session.name.clone());
-    pick_list(app.health_session_names(), current, Message::HealthSessionChosen)
+pub(super) fn picker<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
+    session_picker(app, app.health_target(), Message::HealthSessionChosen, palette)
+}
+
+pub(super) fn session_picker<'a>(
+    app: &App, shown: Option<SessionId>, chosen: fn(String) -> Message, palette: &Palette,
+) -> Element<'a, Message> {
+    let current = shown.and_then(|id| app.sessions().by_id(id)).map(|session| session.name.clone());
+    pick_list(app.health_session_names(), current, chosen)
         .text_size(13.0)
         .padding([6.0, 8.0])
         .style(super::dropdown::style(palette))

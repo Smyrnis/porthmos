@@ -83,6 +83,7 @@ pub fn start(env: Environment, paths: Paths) -> Result<Started> {
         reopen: settings.startup.reopen,
         reconnect: settings.connection.reconnect,
         refresh: settings.refresh,
+        logs: settings.logs,
         theme_base: porthmos_core::theme::file::read_base(&paths.theme_file()),
         language: settings.language.clone(),
     };

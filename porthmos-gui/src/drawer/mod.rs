@@ -120,6 +120,7 @@ pub enum DrawerView {
     Health,
     Services,
     Ports,
+    Logs,
 }
 
 #[derive(Default)]

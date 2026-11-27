@@ -2,7 +2,7 @@ use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
 use porthmos_core::{RefreshSetting, RefreshSettings, RefreshTab, UpdateMode};
 
-use crate::settings_view::{GuiSettings, SettingsMessage};
+use crate::settings_view::{GuiSettings, LogsField, SettingsMessage};
 use crate::shortcuts::{Action, KeyPress};
 use crate::testing::Harness;
 use crate::windows::WindowKind;
@@ -101,6 +101,7 @@ fn opening_shows_the_saved_editor() {
         reopen: porthmos_core::ReopenMode::Off,
         reconnect: false,
         refresh: Default::default(),
+        logs: Default::default(),
         theme_base: porthmos_core::theme::ThemeBase::Dark,
         language: None,
     };
@@ -1212,4 +1213,58 @@ fn a_refresh_tick_is_accepted() {
     harness.press(Message::RefreshTick(RefreshTab::Health));
 
     assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn applying_a_valid_logs_number_saves_only_that_key_and_applies_at_once() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsLogsTyped(LogsField::MaxLines, " 50000 ".to_string()));
+    harness.press(Message::SettingsLogsApplied(LogsField::MaxLines));
+
+    assert_eq!(config_text(&harness), "[logs]\nmax_lines = 50000\n");
+    let logs = harness.app.gui_settings().logs;
+    assert_eq!(logs.max_lines, 50000);
+    assert_eq!(logs.initial_lines, 500);
+    assert_eq!(state(&harness).message, Some(SettingsMessage::Note(APPLIED_NOTE.to_string())));
+
+    harness.press(Message::SettingsLogsTyped(LogsField::InitialLines, "0".to_string()));
+    harness.press(Message::SettingsLogsApplied(LogsField::InitialLines));
+
+    assert_eq!(harness.app.gui_settings().logs.initial_lines, 0);
+    assert!(config_text(&harness).contains("initial_lines = 0"));
+}
+
+#[test]
+fn typing_a_logs_number_edits_only_that_field() {
+    let mut harness = Harness::new();
+    open(&mut harness);
+
+    harness.press(Message::SettingsLogsTyped(LogsField::InitialLines, "12".to_string()));
+
+    assert_eq!(state(&harness).logs_initial_text, "12");
+    assert_eq!(state(&harness).logs_max_text, "20000");
+}
+
+#[test]
+fn an_out_of_range_logs_number_shows_the_range_and_saves_nothing() {
+    for (field, text, range) in [
+        (LogsField::MaxLines, "999", "Enter a whole number from 1000 to 200000."),
+        (LogsField::MaxLines, "200001", "Enter a whole number from 1000 to 200000."),
+        (LogsField::MaxLines, "abc", "Enter a whole number from 1000 to 200000."),
+        (LogsField::InitialLines, "5001", "Enter a whole number from 0 to 5000."),
+        (LogsField::InitialLines, "-1", "Enter a whole number from 0 to 5000."),
+        (LogsField::InitialLines, "", "Enter a whole number from 0 to 5000."),
+    ] {
+        let mut harness = Harness::new();
+        open(&mut harness);
+
+        harness.press(Message::SettingsLogsTyped(field, text.to_string()));
+        harness.press(Message::SettingsLogsApplied(field));
+
+        assert_eq!(error_of(&harness), range, "{text:?}");
+        assert_eq!(config_text(&harness), "", "{text:?}");
+        assert_eq!(harness.app.gui_settings().logs, porthmos_core::LogsSettings::default(), "{text:?}");
+    }
 }
