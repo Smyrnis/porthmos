@@ -2,7 +2,7 @@ use std::io;
 
 use anyhow::anyhow;
 use porthmos_vfs::{ErrorKind, ProtocolError};
-use russh::{ChannelMsg, ChannelWriteHalf, client::Msg};
+use russh::{ChannelMsg, ChannelWriteHalf, Sig, client::Msg};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, DuplexStream},
     sync::watch,
@@ -26,6 +26,7 @@ pub struct Output {
 pub struct ExecInput {
     write: Option<ChannelWriteHalf<Msg>>,
     closed: watch::Receiver<bool>,
+    terminate_when_abandoned: bool,
 }
 
 fn closed() -> io::Error {
@@ -34,7 +35,11 @@ fn closed() -> io::Error {
 
 impl ExecInput {
     pub(crate) fn new(write: ChannelWriteHalf<Msg>, closed: watch::Receiver<bool>) -> Self {
-        Self { write: Some(write), closed }
+        Self { write: Some(write), closed, terminate_when_abandoned: false }
+    }
+
+    pub(crate) fn terminate_when_abandoned(&mut self) {
+        self.terminate_when_abandoned = true;
     }
 
     pub(crate) fn has_ended(&self) -> bool {
@@ -51,7 +56,11 @@ impl ExecInput {
 
     pub(crate) fn abandon(&mut self) {
         if let (Some(write), Ok(runtime)) = (self.write.take(), tokio::runtime::Handle::try_current()) {
+            let terminate = self.terminate_when_abandoned;
             runtime.spawn(async move {
+                if terminate {
+                    let _ = write.signal(Sig::TERM).await;
+                }
                 let _ = write.close().await;
             });
         }

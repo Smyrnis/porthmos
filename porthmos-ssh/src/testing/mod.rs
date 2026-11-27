@@ -83,6 +83,7 @@ struct Handler {
     pty: Arc<Mutex<Option<PtyRequest>>>,
     window: Arc<Mutex<Option<(u32, u32)>>>,
     environment: Arc<Mutex<Vec<(String, String)>>>,
+    signals: Arc<Mutex<Vec<String>>>,
 }
 
 impl server::Server for Handler {
@@ -309,6 +310,11 @@ impl server::Handler for Handler {
         *self.window.lock().unwrap() = Some((columns, rows));
         Ok(())
     }
+
+    async fn signal(&mut self, _: ChannelId, signal: russh::Sig, _: &mut ServerSession) -> Result<(), Self::Error> {
+        self.signals.lock().unwrap().push(format!("{signal:?}"));
+        Ok(())
+    }
 }
 
 impl Handler {
@@ -381,6 +387,7 @@ pub struct SshServer {
     pty: Arc<Mutex<Option<PtyRequest>>>,
     window: Arc<Mutex<Option<(u32, u32)>>>,
     environment: Arc<Mutex<Vec<(String, String)>>>,
+    signals: Arc<Mutex<Vec<String>>>,
 }
 
 impl SshServer {
@@ -401,6 +408,7 @@ impl SshServer {
         let pty = Arc::new(Mutex::new(None));
         let window = Arc::new(Mutex::new(None));
         let environment = Arc::new(Mutex::new(Vec::new()));
+        let signals = Arc::new(Mutex::new(Vec::new()));
         let remote_live = Arc::new(AtomicUsize::new(0));
         let sessions = Arc::new(Mutex::new(Vec::new()));
         let mut handler = Handler {
@@ -419,6 +427,7 @@ impl SshServer {
             pty: pty.clone(),
             window: window.clone(),
             environment: environment.clone(),
+            signals: signals.clone(),
         };
         tokio::spawn(async move {
             let _ = handler.run_on_socket(config, &listener).await;
@@ -436,6 +445,7 @@ impl SshServer {
             pty,
             window,
             environment,
+            signals,
         }
     }
 
@@ -516,6 +526,10 @@ impl SshServer {
 
     pub fn last_window_size(&self) -> Option<(u32, u32)> {
         *self.window.lock().unwrap()
+    }
+
+    pub fn received_signals(&self) -> Vec<String> {
+        self.signals.lock().unwrap().clone()
     }
 }
 

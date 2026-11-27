@@ -1041,3 +1041,120 @@ async fn a_plain_run_has_no_input_and_is_recorded_as_its_own_shell() {
     assert_eq!(runner.commands(), ["uptime"]);
     assert_eq!(runner.shells(), ["uptime"]);
 }
+
+#[tokio::test]
+async fn a_scripted_stream_yields_its_chunks_then_eof_and_resolves_ended() {
+    use crate::testing::ScriptedStream;
+    use crate::{CommandRunner, StreamEnd};
+    let runner = crate::testing::FakeRunner::new();
+    let end = StreamEnd { status: Some(3), stderr: b"boom".to_vec() };
+    runner.push_stream(ScriptedStream {
+        chunks: vec![b"one\n".to_vec(), b"two\n".to_vec()],
+        delay: None,
+        end: end.clone(),
+    });
+
+    let stream = runner.open_stream("sh -s", b"script").await.unwrap();
+    let mut output = stream.output;
+    let mut text = Vec::new();
+    output.read_to_end(&mut text).await.unwrap();
+
+    assert_eq!(text, b"one\ntwo\n");
+    assert_eq!(stream.ended.await.unwrap(), end);
+    assert_eq!(runner.shells(), ["sh -s"]);
+    assert_eq!(runner.commands(), ["script"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_scripted_stream_waits_between_chunks() {
+    use crate::testing::ScriptedStream;
+    use crate::{CommandRunner, StreamEnd};
+    let runner = crate::testing::FakeRunner::new();
+    runner.push_stream(ScriptedStream {
+        chunks: vec![b"a".to_vec(), b"b".to_vec()],
+        delay: Some(std::time::Duration::from_secs(60)),
+        end: StreamEnd::default(),
+    });
+
+    let mut stream = runner.open_stream("x", &[]).await.unwrap();
+    let mut first = [0u8; 1];
+    stream.output.read_exact(&mut first).await.unwrap();
+
+    assert_eq!(&first, b"a");
+    let started = tokio::time::Instant::now();
+    let early = tokio::time::timeout(std::time::Duration::from_secs(59), stream.output.read_exact(&mut first)).await;
+    assert!(early.is_err());
+    stream.output.read_exact(&mut first).await.unwrap();
+    assert_eq!(&first, b"b");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(60));
+}
+
+#[tokio::test]
+async fn dropping_a_scripted_stream_sets_the_closed_flag() {
+    use crate::testing::ScriptedStream;
+    use crate::{CommandRunner, StreamEnd};
+    let runner = crate::testing::FakeRunner::new();
+    let first = runner.push_stream(ScriptedStream {
+        chunks: vec![b"a".to_vec()],
+        delay: Some(std::time::Duration::from_secs(60)),
+        end: StreamEnd::default(),
+    });
+    let second = runner.push_stream(ScriptedStream {
+        chunks: vec![b"b".to_vec()],
+        delay: Some(std::time::Duration::from_secs(60)),
+        end: StreamEnd::default(),
+    });
+
+    let stream = runner.open_stream("x", &[]).await.unwrap();
+    let kept = runner.open_stream("x", &[]).await.unwrap();
+    assert!(!first.load(std::sync::atomic::Ordering::SeqCst));
+    drop(stream);
+
+    assert!(first.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!second.load(std::sync::atomic::Ordering::SeqCst));
+    drop(kept);
+    assert!(second.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn open_stream_records_the_command_or_its_input_like_run_with_input() {
+    use crate::CommandRunner;
+    let runner = crate::testing::FakeRunner::new();
+
+    drop(runner.open_stream("uptime", &[]).await.unwrap());
+    drop(runner.open_stream("sh -s", b"script").await.unwrap());
+
+    assert_eq!(runner.commands(), ["uptime", "script"]);
+    assert_eq!(runner.shells(), ["uptime", "sh -s"]);
+}
+
+#[tokio::test]
+async fn a_scripted_open_failure_is_returned_once_in_order() {
+    use crate::{CommandRunner, ErrorKind, ProtocolError, testing::ScriptedStream};
+    let runner = crate::testing::FakeRunner::new();
+    runner.push_stream_failure(ProtocolError::new(ErrorKind::Unsupported, anyhow::anyhow!("no exec")));
+    runner.push_stream(ScriptedStream { chunks: Vec::new(), delay: None, end: crate::StreamEnd::default() });
+
+    let refused = runner.open_stream("sh -s", b"script").await.err().unwrap();
+    assert_eq!(refused.kind(), ErrorKind::Unsupported);
+    assert!(refused.to_string().contains("no exec"), "{refused}");
+    assert!(runner.open_stream("sh -s", b"script").await.is_ok());
+    assert_eq!(runner.calls(), 2);
+}
+
+#[tokio::test]
+async fn the_default_open_stream_is_unsupported() {
+    use crate::{CommandOutput, CommandRunner};
+    struct Plain;
+    #[crate::async_trait]
+    impl CommandRunner for Plain {
+        async fn run_with_input(&self, _: &str, _: &[u8]) -> Result<CommandOutput, ProtocolError> {
+            Ok(CommandOutput::default())
+        }
+    }
+
+    let error = Plain.open_stream("x", &[]).await.err().unwrap();
+
+    assert_eq!(error.kind(), ErrorKind::Unsupported);
+    assert_eq!(error.to_string(), "this connection can't follow a command");
+}

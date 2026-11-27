@@ -6,7 +6,7 @@ mod fake_runner;
 pub use fake_fs::FakeFs;
 pub use fake_protocol::FakeProtocol;
 pub use fake_remote::FakeRemote;
-pub use fake_runner::FakeRunner;
+pub use fake_runner::{FakeRunner, ScriptedStream};
 
 #[cfg(unix)]
 pub fn read_only_folders_block_writes() -> bool {
