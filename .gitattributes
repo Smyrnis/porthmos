@@ -1,2 +1,3 @@
 * text=auto
 porthmos-monitor/tests/fixtures/*.txt text eol=lf
+config/config.example.toml text eol=lf
