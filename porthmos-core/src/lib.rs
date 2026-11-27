@@ -42,9 +42,15 @@ pub mod update;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-pub use config::{ConnectionSettings, ReopenMode, SearchSettings, StartupSettings, UpdateMode, UpdateSettings};
+pub use config::{
+    ConnectionSettings, RefreshSetting, RefreshSettings, RefreshTab, ReopenMode, SearchSettings, StartupSettings,
+    UpdateMode, UpdateSettings,
+};
 pub use connection_state::ConnectionState;
-pub use engine::{Command, Event, Location, MonitorState, RequestId, SessionId, TerminalId, TunnelInfo, TunnelStatus};
+pub use engine::{
+    Command, Event, Location, MonitorState, PortsState, RequestId, ServicesState, SessionId, TerminalId, TunnelInfo,
+    TunnelStatus,
+};
 pub use error::{
     Severity, connect_failure_message, connection_cancelled, failure_report, search_incomplete_note, user_message,
 };
@@ -55,8 +61,13 @@ pub use path_completion::{Completion, CompletionStep, MAX_SHOWN, complete, split
 pub use paths::{ConfigMigration, Paths};
 pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_monitor::{
-    Cpu, Disk, Host, Interface, Load, Memory, Nice, POLL_INTERVAL, Process as HealthProcess, Section as HealthSection,
-    Signal as ProcessSignal, Snapshot as HealthSnapshot, Sort as ProcessSort, UNKNOWN_UID, arranged, may_signal,
+    ActiveState, BootState, NetInterface, PortsSection, PortsSnapshot, Privilege, ServiceVerb, ServicesSnapshot,
+    Socket, SocketProtocol, SocketState, StatusFilter, Unit, UnitName, arranged_sockets, arranged_units, verb_allowed,
+};
+pub use porthmos_monitor::{
+    Cpu, Disk, Host, Interface, Load, Memory, Nice, PROCESS_ACTION_MAX_AGE, Process as HealthProcess,
+    Section as HealthSection, Signal as ProcessSignal, Snapshot as HealthSnapshot, Sort as ProcessSort, UNKNOWN_UID,
+    arranged, may_signal,
 };
 pub use porthmos_tunnel::{
     Endpoint, Kind as TunnelKind, Listen, SpecError, StatsSnapshot as TunnelStats, TunnelKey, TunnelSpec,

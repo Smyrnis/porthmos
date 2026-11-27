@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use crate::{Cpu, Section, Snapshot, probe::Token};
 
-mod sections;
-mod split;
+pub(crate) mod sections;
+pub(crate) mod split;
 
 use sections::{Counters, CpuTicks, History, Inputs};
 use split::Name;

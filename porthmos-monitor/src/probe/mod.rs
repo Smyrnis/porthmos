@@ -6,7 +6,7 @@ use std::{
 const PLACEHOLDER: &str = "@@T:";
 const MAX_TOKEN_LENGTH: usize = 64;
 
-const SCRIPT: &str = r#"m() { printf '\n@@T:%s\n' "$1"; }
+pub(crate) const PRELUDE: &str = r#"m() { printf '\n@@T:%s\n' "$1"; }
 LC_ALL=C; export LC_ALL
 os=$(uname -s 2>/dev/null)
 m os
@@ -15,7 +15,9 @@ if [ "$os" != Linux ]; then
   m end
   exit 0
 fi
-m uid
+"#;
+
+const BODY: &str = r#"m uid
 id -u 2>/dev/null
 m hostname
 cat /proc/sys/kernel/hostname 2>/dev/null || hostname 2>/dev/null
@@ -78,8 +80,12 @@ impl Default for Token {
     }
 }
 
+pub(crate) fn with_token(script: &str, token: &Token) -> String {
+    script.replace(PLACEHOLDER, &format!("@@{}:", token.as_str()))
+}
+
 pub fn probe_command(token: &Token) -> String {
-    SCRIPT.replace(PLACEHOLDER, &format!("@@{}:", token.as_str()))
+    with_token(&format!("{PRELUDE}{BODY}"), token)
 }
 
 #[cfg(test)]

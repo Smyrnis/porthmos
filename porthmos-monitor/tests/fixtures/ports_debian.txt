@@ -1,0 +1,65 @@
+@@T:os
+Linux
+@@T:uid
+0
+@@T:tcp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12001 1 0000000000000000 100 0 0 10 0
+   1: 0100007F:0277 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12003 1 0000000000000000 100 0 0 10 0
+   2: 0200000A:0016 0900000A:C822 01 00000000:00000000 00:00000000 00000000     0        0 12010 1 0000000000000000 100 0 0 10 0
+   3: 0200000A:0016 0900000A:C823 06 00000000:00000000 00:00000000 00000000     0        0 0 1 0000000000000000 100 0 0 10 0
+@@T:tcp6
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12002 1 0000000000000000 100 0 0 10 0
+   1: 00000000000000000000000001000000:0277 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12004 1 0000000000000000 100 0 0 10 0
+   2: 0000000000000000FFFF00000200000A:01BB 0000000000000000FFFF00000500000A:9C40 01 00000000:00000000 00:00000000 00000000     0        0 12011 1 0000000000000000 100 0 0 10 0
+@@T:udp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:0044 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 12020 2 0000000000000000 0
+@@T:udp6
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:14E9 00000000000000000000000000000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 12021 2 0000000000000000 0
+@@T:netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1234567     1234    0    0    0     0          0         0  1234567     1234    0    0    0     0       0          0
+  eth0: 98765432    90000    0    0    0     0          0         0 12345678    70000    0    0    0     0       0          0
+@@T:sysnet
+lo|unknown|00:00:00:00:00:00|65536
+eth0|up|52:54:00:12:34:56|1500
+@@T:ipaddr
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+1: lo    inet6 ::1/128 scope host \       valid_lft forever preferred_lft forever
+2: eth0    inet 10.0.0.2/24 brd 10.0.0.255 scope global eth0\       valid_lft forever preferred_lft forever
+2: eth0    inet6 fe80::5054:ff:fe12:3456/64 scope link \       valid_lft forever preferred_lft forever
+@@T:fdlinks
+/proc/812/fd:
+total 0
+lrwx------ 1 root root 64 Nov 27 10:00 0 -> /dev/null
+lrwx------ 1 root root 64 Nov 27 10:00 3 -> socket:[12001]
+/proc/905/fd:
+total 0
+lrwx------ 1 root root 64 Nov 27 10:00 6 -> socket:[12002]
+lrwx------ 1 root root 64 Nov 27 10:00 7 -> socket:[12011]
+/proc/2301/fd:
+total 0
+lrwx------ 1 root root 64 Nov 27 10:00 4 -> socket:[12010]
+/proc/640/fd:
+total 0
+lrwx------ 1 root root 64 Nov 27 10:00 5 -> socket:[12020]
+/proc/700/fd:
+total 0
+lrwx------ 1 root root 64 Nov 27 10:00 5 -> socket:[12021]
+/proc/731/fd:
+total 0
+lrwx------ 1 root root 64 Nov 27 10:00 5 -> socket:[12003]
+lrwx------ 1 root root 64 Nov 27 10:00 6 -> socket:[12004]
+@@T:comm
+/proc/1/comm:systemd
+/proc/640/comm:dhclient
+/proc/700/comm:avahi-daemon
+/proc/731/comm:cupsd
+/proc/812/comm:sshd
+/proc/905/comm:nginx
+/proc/2301/comm:sshd
+@@T:end

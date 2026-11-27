@@ -1,0 +1,22 @@
+@@T:os
+Linux
+@@T:uid
+1000
+@@T:tcp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 5555 1 0000000000000000 100 0 0 10 0
+   1: 0B00007F:1F90 0100007F:D431 01 00000000:00000000 00:00000000 00000000     0        0 5556 1 0000000000000000 100 0 0 10 0
+@@T:tcp6
+@@T:udp
+@@T:udp6
+@@T:netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+  eth0: 500     5    0    0    0     0          0         0 400     4    0    0    0     0       0          0
+@@T:sysnet
+eth0|up|02:42:ac:11:00:02|1500
+@@T:ipaddr
+@@T:fdlinks
+@@T:comm
+/proc/1/comm:app
+@@T:end

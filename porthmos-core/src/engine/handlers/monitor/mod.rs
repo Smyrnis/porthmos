@@ -8,8 +8,8 @@ use std::{
 };
 
 use porthmos_monitor::{
-    CommandError, POLL_TIMEOUT, Parsed, SHELL_COMMAND, Sample, Token, change_script, may_signal, parse, probe_command,
-    renice_command, signal_command,
+    CommandError, POLL_TIMEOUT, PROCESS_ACTION_MAX_AGE, Parsed, SHELL_COMMAND, Sample, Token, may_signal, parse,
+    probe_command, renice_command, signal_command,
 };
 use porthmos_vfs::{CommandOutput, CommandRunner, ProtocolError};
 use tokio::{
@@ -17,40 +17,33 @@ use tokio::{
     time::{Instant, timeout},
 };
 
-use super::super::{Engine, Event, Internal, MonitorState, SessionId};
+use super::{
+    super::{Engine, Event, Internal, MonitorState, SessionId},
+    FAILURES_BEFORE_NOTICE, Fetches, first_line, run_change,
+};
 use crate::{
-    HealthSnapshot, Message, Nice, POLL_INTERVAL, ProcessSignal, Severity, health::wait_unless_cancelled, i18n,
-    tasks::Scope,
+    HealthSnapshot, Message, Nice, ProcessSignal, Severity, health::wait_unless_cancelled, i18n, tasks::Scope,
 };
 
-const FAILURES_BEFORE_FAILING: u32 = 3;
-const FAILING_INTERVAL: Duration = Duration::from_secs(30);
-const REASON_LIMIT: usize = 200;
+const PAIR_GAP: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
 pub(crate) enum MonitorUpdate {
-    Snapshot(Box<HealthSnapshot>),
+    Snapshot { snapshot: Box<HealthSnapshot>, sample: Sample, at: Instant, last: bool },
     Unavailable(Message),
-    Failing(Message),
+    Failed(String),
 }
 
-struct Running {
-    generation: u64,
-    cancel: Arc<AtomicBool>,
-    latest: Option<HealthSnapshot>,
-    unavailable: Option<Message>,
+pub(crate) struct Taken {
+    snapshot: HealthSnapshot,
+    sample: Sample,
+    at: Instant,
 }
 
 #[derive(Default)]
 pub(crate) struct MonitorRun {
-    sessions: HashMap<SessionId, Running>,
-    next_generation: u64,
-}
-
-enum Outcome {
-    Good(Box<HealthSnapshot>, Sample),
-    Unavailable(Message),
-    Failed(String),
+    fetches: Fetches<Taken>,
+    cancels: HashMap<SessionId, Arc<AtomicBool>>,
 }
 
 enum Change {
@@ -58,143 +51,160 @@ enum Change {
     Priority(Nice),
 }
 
-fn first_line(bytes: &[u8]) -> Option<String> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .map(|line| line.chars().filter(|character| !character.is_control()).collect::<String>())
-        .map(|line| line.trim().chars().take(REASON_LIMIT).collect::<String>())
-        .find(|line| !line.is_empty())
-}
-
 fn judge(
     ran: Result<Result<CommandOutput, ProtocolError>, tokio::time::error::Elapsed>, token: &Token,
-    previous: Option<&Sample>, elapsed: Duration,
-) -> Outcome {
+    previous: Option<&Sample>, elapsed: Duration, started: Instant, last: bool,
+) -> MonitorUpdate {
     let output = match ran {
-        Err(_) => return Outcome::Failed(i18n::text("monitor.reason_timeout")),
-        Ok(Err(error)) => return Outcome::Failed(error.to_string()),
+        Err(_) => return MonitorUpdate::Failed(i18n::text("monitor.reason_timeout")),
+        Ok(Err(error)) => return MonitorUpdate::Failed(error.to_string()),
         Ok(Ok(output)) => output,
     };
     if output.status != Some(0) {
-        return Outcome::Failed(first_line(&output.stderr).unwrap_or_else(|| i18n::text("monitor.reason_failed")));
+        return MonitorUpdate::Failed(
+            first_line(&output.stderr).unwrap_or_else(|| i18n::text("monitor.reason_failed")),
+        );
     }
     match parse(&output.stdout, token, previous, elapsed) {
-        Parsed::Linux { snapshot, sample } => Outcome::Good(snapshot, sample),
+        Parsed::Linux { snapshot, sample } => MonitorUpdate::Snapshot { snapshot, sample, at: started, last },
         Parsed::Unsupported { os } => {
-            Outcome::Unavailable(Message::new(i18n::text_with("monitor.unavailable_not_linux", &[("os", &os)])))
+            MonitorUpdate::Unavailable(Message::new(i18n::text_with("monitor.unavailable_not_linux", &[("os", &os)])))
         }
-        Parsed::Garbled => Outcome::Failed(i18n::text("monitor.reason_unreadable")),
+        Parsed::Garbled => MonitorUpdate::Failed(i18n::text("monitor.reason_unreadable")),
     }
 }
 
-async fn poll(
+async fn probe(runner: &Arc<dyn CommandRunner>, previous: Option<&(Sample, Instant)>, last: bool) -> MonitorUpdate {
+    let token = Token::new();
+    let started = Instant::now();
+    let ran = timeout(POLL_TIMEOUT, runner.run_with_input(SHELL_COMMAND, probe_command(&token).as_bytes())).await;
+    let elapsed = previous.map_or(Duration::ZERO, |(_, at)| started.duration_since(*at));
+    judge(ran, &token, previous.map(|(sample, _)| sample), elapsed, started, last)
+}
+
+async fn fetch(
     runner: Arc<dyn CommandRunner>, session: SessionId, generation: u64, internal: UnboundedSender<Internal>,
-    cancel: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>, pair: bool, previous: Option<(Sample, Instant)>,
 ) {
-    let mut sample: Option<Sample> = None;
-    let mut sampled_at: Option<Instant> = None;
-    let mut failures = 0u32;
+    let mut previous = previous;
+    let mut first_of_pair = pair;
     loop {
-        let token = Token::new();
-        let started = Instant::now();
-        let ran = timeout(POLL_TIMEOUT, runner.run_with_input(SHELL_COMMAND, probe_command(&token).as_bytes())).await;
+        let update = probe(&runner, previous.as_ref(), !first_of_pair).await;
         if cancel.load(Ordering::Relaxed) {
             return;
         }
-        let elapsed = sampled_at.map_or(Duration::ZERO, |at| started.duration_since(at));
-        let update = match judge(ran, &token, sample.as_ref(), elapsed) {
-            Outcome::Good(snapshot, next) => {
-                failures = 0;
-                sample = Some(next);
-                sampled_at = Some(started);
-                Some(MonitorUpdate::Snapshot(snapshot))
-            }
-            Outcome::Unavailable(message) => {
-                let _ = internal.send(Internal::Monitor {
-                    session,
-                    generation,
-                    update: MonitorUpdate::Unavailable(message),
-                });
-                return;
-            }
-            Outcome::Failed(reason) => {
-                failures += 1;
-                (failures == FAILURES_BEFORE_FAILING).then(|| {
-                    MonitorUpdate::Failing(Message::new(i18n::text_with("monitor.failing", &[("reason", &reason)])))
-                })
-            }
+        let carried = match &update {
+            MonitorUpdate::Snapshot { sample, at, .. } if first_of_pair => Some((sample.clone(), *at)),
+            _ => None,
         };
-        if let Some(update) = update
-            && internal.send(Internal::Monitor { session, generation, update }).is_err()
-        {
+        if internal.send(Internal::Monitor { session, generation, update }).is_err() {
             return;
         }
-        let pause = if failures >= FAILURES_BEFORE_FAILING { FAILING_INTERVAL } else { POLL_INTERVAL };
-        if !wait_unless_cancelled(pause, &cancel).await {
+        let Some(carried) = carried else {
+            return;
+        };
+        previous = Some(carried);
+        first_of_pair = false;
+        if !wait_unless_cancelled(PAIR_GAP, &cancel).await {
             return;
         }
-    }
-}
-
-async fn run_change(runner: Arc<dyn CommandRunner>, command: String) -> Result<CommandOutput, String> {
-    match timeout(POLL_TIMEOUT, runner.run_with_input(SHELL_COMMAND, change_script(&command).as_bytes())).await {
-        Err(_) => Err(i18n::text("monitor.reason_timeout")),
-        Ok(Err(error)) => Err(error.to_string()),
-        Ok(Ok(output)) => Ok(output),
     }
 }
 
 impl Engine {
     pub(crate) fn start_monitor(&mut self, session: SessionId) {
+        if self.monitor_run.fetches.has(session) {
+            self.replay_monitor_unavailable(session);
+            return;
+        }
+        self.fetch_monitor(session, true);
+    }
+
+    pub(crate) fn refresh_monitor(&mut self, session: SessionId, pair: bool) {
+        if self.monitor_run.fetches.has(session) {
+            self.fetch_monitor(session, pair);
+        }
+    }
+
+    pub(crate) fn stop_monitor(&mut self, session: SessionId) {
+        self.monitor_run.fetches.stop(session);
+        if let Some(cancel) = self.monitor_run.cancels.remove(&session) {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn replay_monitor_unavailable(&mut self, session: SessionId) -> bool {
+        let unavailable = self.monitor_run.fetches.slot(session).and_then(|slot| slot.unavailable.clone());
+        let replayed = unavailable.is_some();
+        if let Some(message) = unavailable {
+            self.emit(Event::Monitor { session, state: MonitorState::Unavailable(message) });
+        }
+        replayed
+    }
+
+    fn fetch_monitor(&mut self, session: SessionId, pair: bool) {
         let Some(live) = self.book.sessions.get(&session) else {
             return;
         };
-        if let Some(running) = self.monitor_run.sessions.get(&session) {
-            if let Some(message) = running.unavailable.clone() {
-                self.emit(Event::Monitor { session, state: MonitorState::Unavailable(message) });
-            }
+        let runner = live.fs.runner();
+        if self.replay_monitor_unavailable(session) {
             return;
         }
-        let Some(runner) = live.fs.runner() else {
+        let Some(runner) = runner else {
             let message = Message::new(i18n::text("monitor.unavailable_no_runner"));
             self.emit(Event::Monitor { session, state: MonitorState::Unavailable(message) });
             return;
         };
-        let generation = self.monitor_run.next_generation;
-        self.monitor_run.next_generation += 1;
+        let Some(generation) = self.monitor_run.fetches.begin(session) else {
+            return;
+        };
+        let previous = self
+            .monitor_run
+            .fetches
+            .slot(session)
+            .and_then(|slot| slot.latest.as_ref())
+            .filter(|_| !pair)
+            .map(|taken| (taken.sample.clone(), taken.at));
         let internal = self.internal.clone();
-        let cancel = self.tasks.spawn("monitor-poll", Scope::Session(session), move |cancel| {
-            poll(runner, session, generation, internal, cancel)
+        let cancel = self.tasks.spawn("monitor-fetch", Scope::Session(session), move |cancel| {
+            fetch(runner, session, generation, internal, cancel, pair, previous)
         });
-        self.monitor_run.sessions.insert(session, Running { generation, cancel, latest: None, unavailable: None });
-    }
-
-    pub(crate) fn stop_monitor(&mut self, session: SessionId) {
-        if let Some(running) = self.monitor_run.sessions.remove(&session) {
-            running.cancel.store(true, Ordering::Relaxed);
-        }
+        self.monitor_run.cancels.insert(session, cancel);
     }
 
     pub(crate) fn monitor_update(&mut self, session: SessionId, generation: u64, update: MonitorUpdate) {
-        let Some(running) = self.monitor_run.sessions.get_mut(&session).filter(|run| run.generation == generation)
-        else {
+        let fetches = &mut self.monitor_run.fetches;
+        let slot = match &update {
+            MonitorUpdate::Snapshot { last: false, .. } => fetches.current(session, generation),
+            _ => fetches.finish(session, generation),
+        };
+        let Some(slot) = slot else {
             return;
         };
-        let state = match update {
-            MonitorUpdate::Snapshot(snapshot) => {
-                running.latest = Some((*snapshot).clone());
-                MonitorState::Snapshot(snapshot)
+        let (state, notice) = match update {
+            MonitorUpdate::Snapshot { snapshot, sample, at, last } => {
+                if last {
+                    slot.failures = 0;
+                }
+                slot.latest = Some(Taken { snapshot: (*snapshot).clone(), sample, at });
+                (MonitorState::Snapshot(snapshot), None)
             }
             MonitorUpdate::Unavailable(message) => {
-                running.latest = None;
-                running.unavailable = Some(message.clone());
-                MonitorState::Unavailable(message)
+                slot.failures = 0;
+                slot.latest = None;
+                slot.unavailable = Some(message.clone());
+                (MonitorState::Unavailable(message), None)
             }
-            MonitorUpdate::Failing(message) => {
-                self.report(Severity::Warning, message.clone());
-                MonitorState::Failing(message)
+            MonitorUpdate::Failed(reason) => {
+                slot.failures += 1;
+                let message = Message::new(i18n::text_with("monitor.failing", &[("reason", &reason)]));
+                let notice = (slot.failures == FAILURES_BEFORE_NOTICE).then(|| message.clone());
+                (MonitorState::Failing(message), notice)
             }
         };
+        if let Some(message) = notice {
+            self.report(Severity::Warning, message);
+        }
         self.emit(Event::Monitor { session, state });
     }
 
@@ -207,7 +217,12 @@ impl Engine {
     }
 
     fn change_process(&mut self, session: SessionId, pid: u32, expected_name: &str, change: Change) {
-        let latest = self.monitor_run.sessions.get(&session).and_then(|running| running.latest.as_ref());
+        let taken = self.monitor_run.fetches.slot(session).and_then(|slot| slot.latest.as_ref());
+        if taken.is_some_and(|taken| taken.at.elapsed() > PROCESS_ACTION_MAX_AGE) {
+            self.report(Severity::Warning, i18n::text("monitor.list_is_old"));
+            return;
+        }
+        let latest = taken.map(|taken| &taken.snapshot);
         let Some((owner, process)) = latest.and_then(|snapshot| {
             snapshot
                 .processes

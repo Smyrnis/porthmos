@@ -12,7 +12,7 @@ pub(crate) use memory::memory;
 pub(crate) use network::{Counters, counters, interfaces};
 pub(crate) use processes::{History, Inputs, processes};
 
-fn hides_or_reorders_text(character: char) -> bool {
+pub fn hides_or_reorders_text(character: char) -> bool {
     matches!(
         character,
         '\u{ad}'

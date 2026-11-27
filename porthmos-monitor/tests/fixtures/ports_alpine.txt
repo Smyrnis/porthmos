@@ -1,0 +1,27 @@
+@@T:os
+Linux
+@@T:uid
+0
+@@T:tcp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 3101 1 0000000000000000 100 0 0 10 0
+@@T:tcp6
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+@@T:udp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+@@T:udp6
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+@@T:netdev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1234567     1234    0    0    0     0          0         0  1234567     1234    0    0    0     0       0          0
+  eth0: 98765432    90000    0    0    0     0          0         0 12345678    70000    0    0    0     0       0          0
+@@T:sysnet
+@@T:ipaddr
+@@T:fdlinks
+/proc/204/fd:
+total 0
+lrwx------    1 root     root            64 Nov 27 10:00 3 -> socket:[3101]
+@@T:comm
+/proc/204/comm:sshd
+@@T:end

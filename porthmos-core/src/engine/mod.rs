@@ -15,7 +15,7 @@ use std::{
 };
 
 pub use command::{Command, Location, RequestId, SessionId, TerminalId};
-pub use event::{Event, MonitorState, TunnelInfo, TunnelStatus};
+pub use event::{Event, MonitorState, PortsState, ServicesState, TunnelInfo, TunnelStatus};
 use host::Host;
 use porthmos_vfs::{Environment, FileSystem, Protocol, VfsPath};
 use prompter::PendingQuestions;
@@ -114,6 +114,24 @@ pub(crate) enum Internal {
         session: SessionId,
         generation: u64,
         update: handlers::MonitorUpdate,
+    },
+    Ports {
+        session: SessionId,
+        generation: u64,
+        update: handlers::PortsUpdate,
+    },
+    Services {
+        session: SessionId,
+        generation: u64,
+        update: handlers::ServicesUpdate,
+    },
+    ServiceChanged {
+        session: SessionId,
+    },
+    ServiceStatus {
+        session: SessionId,
+        unit: String,
+        text: String,
     },
     SessionHealth {
         session: SessionId,
@@ -219,6 +237,8 @@ pub(crate) struct Engine {
     reconnect: handlers::ReconnectState,
     tunnel_run: handlers::TunnelRun,
     monitor_run: handlers::MonitorRun,
+    ports_run: handlers::Fetches<()>,
+    services_run: handlers::Fetches<porthmos_monitor::ServicesSnapshot>,
     previews: handlers::PreviewSlots,
     properties: handlers::PropertiesState,
     history: handlers::HistoryLog,
@@ -308,6 +328,8 @@ impl Engine {
             reconnect: handlers::ReconnectState::new(parts.reconnect),
             tunnel_run: handlers::TunnelRun::default(),
             monitor_run: handlers::MonitorRun::default(),
+            ports_run: handlers::Fetches::default(),
+            services_run: handlers::Fetches::default(),
             previews: handlers::PreviewSlots::default(),
             properties: handlers::PropertiesState::default(),
             history: handlers::HistoryLog::new(parts.history),
@@ -412,7 +434,16 @@ impl Engine {
             Command::StopTunnel { key } => self.stop_tunnel(&key),
             Command::RestartTunnel { key } => self.restart_tunnel(&key),
             Command::StartMonitor { session } => self.start_monitor(session),
+            Command::RefreshMonitor { session, pair } => self.refresh_monitor(session, pair),
             Command::StopMonitor { session } => self.stop_monitor(session),
+            Command::StartPorts { session } => self.start_ports(session),
+            Command::RefreshPorts { session } => self.refresh_ports(session),
+            Command::StopPorts { session } => self.stop_ports(session),
+            Command::StartServices { session } => self.start_services(session),
+            Command::RefreshServices { session } => self.refresh_services(session),
+            Command::StopServices { session } => self.stop_services(session),
+            Command::ServiceAction { session, unit, verb } => self.service_action(session, &unit, verb),
+            Command::ServiceStatus { session, unit } => self.service_status(session, &unit),
             Command::SignalProcess { session, pid, name, signal } => self.signal_process(session, pid, &name, signal),
             Command::ReniceProcess { session, pid, name, nice } => self.renice_process(session, pid, &name, nice),
             Command::RememberPanel { kind, settings } => self.remember_panel(kind, &settings),
@@ -525,6 +556,10 @@ impl Engine {
             Internal::TunnelStarted { key, session, start, result } => self.tunnel_started(key, session, start, result),
             Internal::TunnelTick => self.tunnel_tick(),
             Internal::Monitor { session, generation, update } => self.monitor_update(session, generation, update),
+            Internal::Ports { session, generation, update } => self.ports_update(session, generation, update),
+            Internal::Services { session, generation, update } => self.services_update(session, generation, update),
+            Internal::ServiceChanged { session } => self.service_changed(session),
+            Internal::ServiceStatus { session, unit, text } => self.service_status_ready(session, unit, text),
             Internal::SessionHealth { session, healthy } => self.session_health_changed(session, healthy),
             Internal::FolderShown { location, path } => self.remember_folder(location, path),
             Internal::KeyringDone(done) => self.finish_keyring_job(done),

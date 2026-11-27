@@ -48,6 +48,20 @@ pub enum MonitorState {
 }
 
 #[derive(Debug, Clone)]
+pub enum PortsState {
+    Snapshot(Box<porthmos_monitor::PortsSnapshot>),
+    Unavailable(Message),
+    Failing(Message),
+}
+
+#[derive(Debug, Clone)]
+pub enum ServicesState {
+    Snapshot(Box<porthmos_monitor::ServicesSnapshot>),
+    Unavailable(Message),
+    Failing(Message),
+}
+
+#[derive(Debug, Clone)]
 pub enum Event {
     Notice { severity: Severity, message: Message },
     Connecting { name: String },
@@ -108,4 +122,7 @@ pub enum Event {
     TunnelStatus { key: TunnelKey, status: TunnelStatus },
     TunnelStats(Vec<(TunnelKey, StatsSnapshot)>),
     Monitor { session: SessionId, state: MonitorState },
+    Ports { session: SessionId, state: PortsState },
+    Services { session: SessionId, state: ServicesState },
+    ServiceStatus { session: SessionId, unit: String, text: String },
 }

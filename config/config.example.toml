@@ -93,6 +93,22 @@ reopen = "off"
 # The window app also has this in Settings.
 reconnect = false
 
+# The Health, Services and Ports tabs of the window app's server drawer each
+# refresh by hand (the refresh button). With auto = true a tab also refreshes
+# by itself while it is open. The interval is in seconds, from 5 to 300. The
+# window app also has these in Settings.
+[refresh.health]
+auto = false
+interval_seconds = 10
+
+[refresh.services]
+auto = false
+interval_seconds = 10
+
+[refresh.ports]
+auto = false
+interval_seconds = 10
+
 # Key bindings. A key is written as a name ("f5", "tab", "enter", "esc",
 # "space", "up", "down", "left", "right", "home", "end", "backspace",
 # "delete" or a single character such as "c" or "?"), optionally prefixed with

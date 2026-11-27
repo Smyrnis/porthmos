@@ -1,4 +1,4 @@
-use crate::config::UpdateMode;
+use crate::config::{RefreshTab, UpdateMode};
 
 use super::{Edit, apply, save};
 
@@ -490,5 +490,35 @@ fn set_embedded_terminal_writes_the_flag_next_to_the_command() {
     assert_eq!(
         apply(&written, &Edit::SetEmbeddedTerminal(true)).unwrap(),
         "[terminal]\ncommand = \"kitty\"\nembedded = true\n"
+    );
+}
+
+#[test]
+fn set_refresh_auto_creates_the_nested_table_and_keeps_comments() {
+    let before = "# my notes\n[edit]\nauto_upload = false # keep\n";
+
+    let written = apply(before, &Edit::SetRefreshAuto { tab: RefreshTab::Ports, auto: true }).unwrap();
+
+    assert!(written.starts_with("# my notes\n[edit]\nauto_upload = false # keep\n"), "{written}");
+    assert!(written.contains("[refresh.ports]\nauto = true\n"), "{written}");
+    assert_eq!(
+        apply("", &Edit::SetRefreshAuto { tab: RefreshTab::Health, auto: false }).unwrap(),
+        "[refresh.health]\nauto = false\n"
+    );
+}
+
+#[test]
+fn set_refresh_interval_updates_one_tab_without_touching_the_others() {
+    let before =
+        "[refresh.health]\nauto = true\ninterval_seconds = 20 # keep\n\n[refresh.services]\ninterval_seconds = 30\n";
+
+    let written = apply(before, &Edit::SetRefreshInterval { tab: RefreshTab::Services, seconds: 90 }).unwrap();
+
+    assert!(written.contains("[refresh.health]\nauto = true\ninterval_seconds = 20 # keep\n"), "{written}");
+    assert!(written.contains("[refresh.services]\ninterval_seconds = 90\n"), "{written}");
+    assert_eq!(written.matches("interval_seconds").count(), 2);
+    assert_eq!(
+        apply("", &Edit::SetRefreshInterval { tab: RefreshTab::Ports, seconds: 300 }).unwrap(),
+        "[refresh.ports]\ninterval_seconds = 300\n"
     );
 }

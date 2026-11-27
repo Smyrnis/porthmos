@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use super::{ReopenMode, UpdateMode};
+use super::{RefreshTab, ReopenMode, UpdateMode};
 use crate::theme::ThemeBase;
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, Value};
 
@@ -25,6 +25,8 @@ pub enum Edit {
     SetSearchMaxResults(u64),
     SetReopenMode(ReopenMode),
     SetReconnect(bool),
+    SetRefreshAuto { tab: RefreshTab, auto: bool },
+    SetRefreshInterval { tab: RefreshTab, seconds: u64 },
     SetThemeBase(ThemeBase),
     SetLanguage(Option<String>),
 }
@@ -157,6 +159,15 @@ pub fn apply(text: &str, edit: &Edit) -> Result<String, String> {
         Edit::SetUpdateMode(mode) => set_in(&mut document, &["update"], "mode", Value::from(mode_text(*mode)))?,
         Edit::SetReopenMode(mode) => set_in(&mut document, &["startup"], "reopen", Value::from(mode.id()))?,
         Edit::SetReconnect(on) => set_in(&mut document, &["connection"], "reconnect", Value::from(*on))?,
+        Edit::SetRefreshAuto { tab, auto } => {
+            set_in(&mut document, &["refresh", tab.name()], "auto", Value::from(*auto))?
+        }
+        Edit::SetRefreshInterval { tab, seconds } => set_in(
+            &mut document,
+            &["refresh", tab.name()],
+            "interval_seconds",
+            Value::from(i64::try_from(*seconds).unwrap_or(i64::MAX)),
+        )?,
         Edit::SetLanguage(language) => {
             set_in(&mut document, &["general"], "language", Value::from(language.as_deref().unwrap_or("auto")))?
         }

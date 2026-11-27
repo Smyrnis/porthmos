@@ -133,6 +133,46 @@ impl Default for TransferSettings {
     }
 }
 
+pub const DEFAULT_REFRESH_SECONDS: u64 = 10;
+pub const MIN_REFRESH_SECONDS: u64 = 5;
+pub const MAX_REFRESH_SECONDS: u64 = 300;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RefreshSetting {
+    pub auto: bool,
+    pub interval_seconds: u64,
+}
+
+impl Default for RefreshSetting {
+    fn default() -> Self {
+        Self { auto: false, interval_seconds: DEFAULT_REFRESH_SECONDS }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefreshSettings {
+    pub health: RefreshSetting,
+    pub services: RefreshSetting,
+    pub ports: RefreshSetting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshTab {
+    Health,
+    Services,
+    Ports,
+}
+
+impl RefreshTab {
+    pub fn name(self) -> &'static str {
+        match self {
+            RefreshTab::Health => "health",
+            RefreshTab::Services => "services",
+            RefreshTab::Ports => "ports",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settings {
     pub panel: PanelSettings,
@@ -143,6 +183,7 @@ pub struct Settings {
     pub search: SearchSettings,
     pub startup: StartupSettings,
     pub connection: ConnectionSettings,
+    pub refresh: RefreshSettings,
     pub language: Option<String>,
     pub frontend: toml::Table,
 }
@@ -165,6 +206,8 @@ pub(crate) struct SettingsFile {
     pub startup: StartupSettingsFile,
     #[serde(default)]
     pub connection: ConnectionSettingsFile,
+    #[serde(default)]
+    pub refresh: RefreshSettingsFile,
     #[serde(default)]
     pub general: GeneralSettingsFile,
     #[serde(flatten)]
@@ -192,6 +235,22 @@ pub(crate) struct SearchSettingsFile {
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub(crate) struct ConnectionSettingsFile {
     pub reconnect: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct RefreshSettingsFile {
+    #[serde(default)]
+    pub health: RefreshGroupFile,
+    #[serde(default)]
+    pub services: RefreshGroupFile,
+    #[serde(default)]
+    pub ports: RefreshGroupFile,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub(crate) struct RefreshGroupFile {
+    pub auto: Option<toml::Value>,
+    pub interval_seconds: Option<toml::Value>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -223,6 +282,40 @@ pub(crate) struct PanelSettingsFile {
     pub show_hidden: Option<bool>,
     pub sort_key: Option<String>,
     pub sort_order: Option<String>,
+}
+
+fn refresh_from_file(tab: RefreshTab, file: RefreshGroupFile, warnings: &mut Vec<String>) -> RefreshSetting {
+    let name = tab.name();
+    let default = RefreshSetting::default();
+    let auto = match file.auto {
+        None => default.auto,
+        Some(toml::Value::Boolean(auto)) => auto,
+        Some(_) => {
+            warnings.push(format!("refresh.{name}.auto must be true or false, using {}", default.auto));
+            default.auto
+        }
+    };
+    let interval_seconds = match file.interval_seconds {
+        None => default.interval_seconds,
+        Some(toml::Value::Integer(seconds))
+            if (MIN_REFRESH_SECONDS as i64..=MAX_REFRESH_SECONDS as i64).contains(&seconds) =>
+        {
+            seconds as u64
+        }
+        Some(toml::Value::Integer(_)) => {
+            warnings.push(format!(
+                "refresh.{name}.interval_seconds must be between {MIN_REFRESH_SECONDS} and {MAX_REFRESH_SECONDS}, using {DEFAULT_REFRESH_SECONDS}"
+            ));
+            default.interval_seconds
+        }
+        Some(_) => {
+            warnings.push(format!(
+                "refresh.{name}.interval_seconds must be a whole number, using {DEFAULT_REFRESH_SECONDS}"
+            ));
+            default.interval_seconds
+        }
+    };
+    RefreshSetting { auto, interval_seconds }
 }
 
 pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) {
@@ -346,6 +439,12 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
         }
     };
 
+    let refresh = RefreshSettings {
+        health: refresh_from_file(RefreshTab::Health, file.refresh.health, &mut warnings),
+        services: refresh_from_file(RefreshTab::Services, file.refresh.services, &mut warnings),
+        ports: refresh_from_file(RefreshTab::Ports, file.refresh.ports, &mut warnings),
+    };
+
     (
         Settings {
             panel: PanelSettings { show_hidden, sort: SortSpec { key, order } },
@@ -371,6 +470,7 @@ pub(crate) fn settings_from_file(file: SettingsFile) -> (Settings, Vec<String>) 
             },
             startup: StartupSettings { reopen },
             connection: ConnectionSettings { reconnect: file.connection.reconnect.unwrap_or(false) },
+            refresh,
             language,
             frontend: file.frontend,
         },

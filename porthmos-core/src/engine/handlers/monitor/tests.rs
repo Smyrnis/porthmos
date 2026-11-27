@@ -14,7 +14,7 @@ use porthmos_vfs::{
 use tokio::time::{Instant, timeout};
 
 use crate::{
-    HealthSnapshot, Message, Nice, POLL_INTERVAL, ProcessSignal, Severity,
+    HealthSnapshot, Nice, ProcessSignal, Severity,
     engine::{
         Command, Event, Internal, MonitorState, SessionId,
         handlers::MonitorUpdate,
@@ -23,6 +23,8 @@ use crate::{
 };
 
 const PROBE_TIMEOUT: Duration = porthmos_monitor::POLL_TIMEOUT;
+const PAIR_GAP: Duration = Duration::from_secs(1);
+const IDLE_MINUTE: Duration = Duration::from_secs(60);
 
 fn token_of(command: &str) -> String {
     let start = command.find("@@").expect("the probe names its token") + 2;
@@ -37,10 +39,11 @@ fn linux_output(command: &str, uid: u32, call: usize) -> String {
     let t = token_of(command);
     let busy = 10 * call;
     let idle = 80 * call;
+    let (rx, tx) = (1000 * call, 2000 * call);
     format!(
         "@@{t}:os\nLinux\n@@{t}:uid\n{uid}\n@@{t}:hostname\nweb\n@@{t}:uptime\n100.0 1.0\n@@{t}:loadavg\n0.1 0.2 0.3 1/2 3\n\
          @@{t}:meminfo\nMemTotal: 1000 kB\nMemAvailable: 500 kB\n@@{t}:stat\ncpu {busy} 0 {busy} {idle} 0 0 0\ncpu0 {busy} 0 {busy} {idle} 0 0 0\n\
-         @@{t}:netdev\nInter-|\n face |\n  eth0: 1000 1 0 0 0 0 0 0 2000 1 0 0 0 0 0 0\n\
+         @@{t}:netdev\nInter-|\n face |\n  eth0: {rx} 1 0 0 0 0 0 0 {tx} 1 0 0 0 0 0 0\n\
          @@{t}:df\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda1 1000 500 500 50% /\n\
          @@{t}:passwd\nroot:0\nmine:1000\nwww:33\n@@{t}:pagesize\n4096\n\
          @@{t}:status\n/proc/1/status:Uid:\t0\t0\t0\t0\n/proc/500/status:Uid:\t1000\t1000\t1000\t1000\n/proc/600/status:Uid:\t33\t33\t33\t33\n\
@@ -148,8 +151,24 @@ fn commands_not_probes(runner: &FakeRunner) -> Vec<String> {
     runner.commands().into_iter().filter(|command| !is_probe(command)).collect()
 }
 
+fn refresh(t: &mut TestEngine, session: SessionId, pair: bool) {
+    t.engine.handle_command(Command::RefreshMonitor { session, pair });
+}
+
+fn rx_rates(snapshot: &HealthSnapshot) -> Vec<Option<u64>> {
+    snapshot.interfaces.iter().map(|interface| interface.rx_per_second).collect()
+}
+
+fn failing_count(events: &[Event]) -> usize {
+    events.iter().filter(|event| matches!(event, Event::Monitor { state: MonitorState::Failing(_), .. })).count()
+}
+
+fn notice_count(events: &[Event]) -> usize {
+    events.iter().filter(|event| matches!(event, Event::Notice { .. })).count()
+}
+
 #[tokio::test(start_paused = true)]
-async fn starting_polls_publishes_a_snapshot_and_repeats_every_interval() {
+async fn start_runs_a_pair_one_second_apart_and_publishes_twice() {
     let mut t = test_engine();
     let fake = plain(1000);
     let session = connect(&mut t, fake.runner.clone());
@@ -157,18 +176,22 @@ async fn starting_polls_publishes_a_snapshot_and_repeats_every_interval() {
 
     start(&mut t, session);
     let first = next_snapshot(&mut t).await;
+    let at_first = begun.elapsed();
     let second = next_snapshot(&mut t).await;
 
     assert_eq!(first.host.hostname.as_deref(), Some("web"));
     assert_eq!(first.uid, 1000);
-    assert!(begun.elapsed() >= POLL_INTERVAL);
-    assert_eq!(fake.probes.load(Ordering::SeqCst), 2);
-    assert!(second.cpu.percent.is_some());
     assert!(first.cpu.percent.is_none());
+    assert_eq!(rx_rates(&first), [None]);
+    assert!(second.cpu.percent.is_some());
+    assert_eq!(rx_rates(&second), [Some(1000)]);
+    assert!(at_first < PAIR_GAP);
+    assert!(begun.elapsed() >= PAIR_GAP);
+    assert_eq!(fake.probes.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_second_start_does_not_double_poll() {
+async fn a_second_start_does_not_fetch_again() {
     let mut t = test_engine();
     let fake = plain(1000);
     let session = connect(&mut t, fake.runner.clone());
@@ -176,36 +199,141 @@ async fn a_second_start_does_not_double_poll() {
     start(&mut t, session);
     start(&mut t, session);
     next_snapshot(&mut t).await;
+    next_snapshot(&mut t).await;
+    start(&mut t, session);
+    let later = quiet(&mut t, IDLE_MINUTE).await;
 
-    assert_eq!(fake.probes.load(Ordering::SeqCst), 1);
-    assert_eq!(monitor_events(&quiet(&mut t, POLL_INTERVAL - Duration::from_millis(500)).await), 0);
+    assert_eq!(fake.probes.load(Ordering::SeqCst), 2);
+    assert_eq!(monitor_events(&later), 0);
 }
 
 #[tokio::test(start_paused = true)]
-async fn stop_ends_the_task_and_a_late_result_publishes_nothing() {
+async fn no_further_fetch_happens_on_its_own() {
     let mut t = test_engine();
     let fake = plain(1000);
     let session = connect(&mut t, fake.runner.clone());
     start(&mut t, session);
     next_snapshot(&mut t).await;
-    let generation = t.engine.monitor_run.sessions[&session].generation;
+    next_snapshot(&mut t).await;
+
+    let later = quiet(&mut t, IDLE_MINUTE).await;
+
+    assert_eq!(fake.probes.load(Ordering::SeqCst), 2);
+    assert_eq!(monitor_events(&later), 0);
+    assert!(!t.engine.tasks.live_names().contains(&"monitor-fetch"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn refresh_with_pair_true_repeats_the_pair() {
+    let mut t = test_engine();
+    let fake = plain(1000);
+    let session = connect(&mut t, fake.runner.clone());
+    start(&mut t, session);
+    next_snapshot(&mut t).await;
+    next_snapshot(&mut t).await;
+
+    refresh(&mut t, session, true);
+    let first = next_snapshot(&mut t).await;
+    let second = next_snapshot(&mut t).await;
+
+    assert!(first.cpu.percent.is_none());
+    assert_eq!(rx_rates(&first), [None]);
+    assert!(second.cpu.percent.is_some());
+    assert_eq!(rx_rates(&second), [Some(1000)]);
+    assert_eq!(fake.probes.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn refresh_with_pair_false_runs_one_probe_with_the_delta_since_the_last_sample() {
+    let mut t = test_engine();
+    let fake = plain(1000);
+    let session = connect(&mut t, fake.runner.clone());
+    start(&mut t, session);
+    next_snapshot(&mut t).await;
+    next_snapshot(&mut t).await;
+    quiet(&mut t, Duration::from_secs(5)).await;
+
+    refresh(&mut t, session, false);
+    let snapshot = next_snapshot(&mut t).await;
+    let later = quiet(&mut t, IDLE_MINUTE).await;
+
+    assert!(snapshot.cpu.percent.is_some());
+    assert_eq!(rx_rates(&snapshot), [Some(200)]);
+    assert_eq!(fake.probes.load(Ordering::SeqCst), 3);
+    assert_eq!(monitor_events(&later), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn refresh_while_a_pair_is_running_is_ignored() {
+    let mut t = test_engine();
+    let fake = plain(1000);
+    let session = connect(&mut t, fake.runner.clone());
+    start(&mut t, session);
+    next_snapshot(&mut t).await;
+
+    refresh(&mut t, session, false);
+    refresh(&mut t, session, true);
+    next_snapshot(&mut t).await;
+    let later = quiet(&mut t, IDLE_MINUTE).await;
+
+    assert_eq!(fake.probes.load(Ordering::SeqCst), 2);
+    assert_eq!(monitor_events(&later), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn refresh_without_a_started_monitor_is_ignored() {
+    let mut t = test_engine();
+    let fake = plain(1000);
+    let session = connect(&mut t, fake.runner.clone());
+
+    refresh(&mut t, session, false);
+    refresh(&mut t, session, true);
+    let seen = quiet(&mut t, IDLE_MINUTE).await;
+
+    assert!(fake.runner.commands().is_empty());
+    assert_eq!(monitor_events(&seen), 0);
+    assert!(!t.engine.monitor_run.fetches.has(session));
+}
+
+#[tokio::test(start_paused = true)]
+async fn stop_during_the_one_second_gap_publishes_nothing_more() {
+    let mut t = test_engine();
+    let fake = plain(1000);
+    let session = connect(&mut t, fake.runner.clone());
+    start(&mut t, session);
+    next_snapshot(&mut t).await;
 
     t.engine.handle_command(Command::StopMonitor { session });
     let seen = quiet(&mut t, Duration::from_secs(30)).await;
-    t.engine.handle_internal(Internal::Monitor {
-        session,
-        generation,
-        update: MonitorUpdate::Failing(Message::new("late")),
-    });
 
     assert_eq!(monitor_events(&seen), 0);
-    assert_eq!(monitor_events(&t.drain()), 0);
     assert_eq!(fake.probes.load(Ordering::SeqCst), 1);
-    assert!(!t.engine.tasks.live_names().contains(&"monitor-poll"));
+    assert!(!t.engine.tasks.live_names().contains(&"monitor-fetch"));
+    assert!(!t.engine.monitor_run.fetches.has(session));
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_session_without_a_runner_is_unavailable_and_never_polls() {
+async fn a_late_result_of_a_stopped_fetch_is_discarded() {
+    let mut t = test_engine();
+    let fake = plain(1000);
+    let session = connect(&mut t, fake.runner.clone());
+    start(&mut t, session);
+    next_snapshot(&mut t).await;
+    t.engine.handle_command(Command::StopMonitor { session });
+    start(&mut t, session);
+
+    t.engine.handle_internal(Internal::Monitor {
+        session,
+        generation: 0,
+        update: MonitorUpdate::Failed("late".into()),
+    });
+
+    assert_eq!(monitor_events(&t.drain()), 0);
+    assert!(t.notices().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_session_without_a_runner_is_unavailable_and_never_fetches() {
     let mut t = test_engine();
     let (session, _) = t.add_session("prod");
 
@@ -216,11 +344,11 @@ async fn a_session_without_a_runner_is_unavailable_and_never_polls() {
         panic!("expected one Unavailable, got {events:?}");
     };
     assert!(message.to_string().contains("can't run commands"), "{message}");
-    assert!(!t.engine.tasks.live_names().contains(&"monitor-poll"));
+    assert!(!t.engine.tasks.live_names().contains(&"monitor-fetch"));
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_non_linux_server_is_unavailable_and_polling_stops() {
+async fn a_non_linux_server_is_unavailable_and_is_not_fetched_again() {
     let mut t = test_engine();
     let runner = FakeRunner::new();
     let calls = Arc::new(AtomicUsize::new(0));
@@ -234,14 +362,16 @@ async fn a_non_linux_server_is_unavailable_and_polling_stops() {
 
     start(&mut t, session);
     let MonitorState::Unavailable(message) = next_state(&mut t).await else { panic!("expected Unavailable") };
-    let later = quiet(&mut t, Duration::from_secs(60)).await;
+    let later = quiet(&mut t, IDLE_MINUTE).await;
 
     assert!(message.to_string().contains("Darwin"), "{message}");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(monitor_events(&later), 0);
-    assert!(!t.engine.tasks.live_names().contains(&"monitor-poll"));
+    assert!(!t.engine.tasks.live_names().contains(&"monitor-fetch"));
 
     start(&mut t, session);
+    assert!(matches!(t.drain().as_slice(), [Event::Monitor { state: MonitorState::Unavailable(_), .. }]));
+    refresh(&mut t, session, true);
     assert!(matches!(t.drain().as_slice(), [Event::Monitor { state: MonitorState::Unavailable(_), .. }]));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -261,51 +391,76 @@ fn flaky(failing: impl Fn(usize) -> bool + Send + Sync + 'static) -> (Arc<FakeRu
     (runner, calls)
 }
 
-#[tokio::test(start_paused = true)]
-async fn one_failed_poll_keeps_the_last_snapshot_and_publishes_nothing_new() {
-    let mut t = test_engine();
-    let (runner, calls) = flaky(|call| call == 2);
-    let session = connect(&mut t, runner);
-
-    start(&mut t, session);
-    next_snapshot(&mut t).await;
-    let after = next_snapshot(&mut t).await;
-
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
-    assert_eq!(after.host.hostname.as_deref(), Some("web"));
-    assert!(t.engine.monitor_run.sessions[&session].latest.is_some());
+async fn refresh_and_collect(t: &mut TestEngine, session: SessionId) -> Vec<Event> {
+    refresh(t, session, false);
+    quiet(t, Duration::from_secs(1)).await
 }
 
 #[tokio::test(start_paused = true)]
-async fn three_failures_in_a_row_publish_failing_once_and_a_success_recovers() {
+async fn a_failed_fetch_publishes_failing_and_keeps_the_sample() {
     let mut t = test_engine();
-    let (runner, calls) = flaky(|call| (2..=6).contains(&call));
+    let (runner, calls) = flaky(|call| call == 3);
     let session = connect(&mut t, runner);
-
     start(&mut t, session);
     next_snapshot(&mut t).await;
+    next_snapshot(&mut t).await;
+
+    refresh(&mut t, session, false);
     let MonitorState::Failing(message) = next_state(&mut t).await else { panic!("expected Failing") };
-    let recovered = next_state(&mut t).await;
+    quiet(&mut t, Duration::from_secs(4)).await;
+    refresh(&mut t, session, false);
+    let recovered = next_snapshot(&mut t).await;
 
     assert!(message.to_string().contains("channel refused"), "{message}");
-    assert!(matches!(recovered, MonitorState::Snapshot(_)));
-    assert_eq!(calls.load(Ordering::SeqCst), 7);
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    assert!(recovered.cpu.percent.is_some());
+    assert_eq!(rx_rates(&recovered), [Some(500)]);
+    assert!(t.engine.monitor_run.fetches.slot(session).unwrap().latest.is_some());
 }
 
 #[tokio::test(start_paused = true)]
-async fn failing_is_announced_by_exactly_one_notice() {
+async fn three_failures_report_one_notice() {
     let mut t = test_engine();
-    let (runner, _) = flaky(|call| call >= 2);
+    let (runner, _) = flaky(|call| call >= 3);
     let session = connect(&mut t, runner);
-
     start(&mut t, session);
     next_snapshot(&mut t).await;
-    let events = quiet(&mut t, Duration::from_secs(120)).await;
+    next_snapshot(&mut t).await;
+    t.drain();
 
-    let failing =
-        events.iter().filter(|event| matches!(event, Event::Monitor { state: MonitorState::Failing(_), .. })).count();
-    let notices = events.iter().filter(|event| matches!(event, Event::Notice { .. })).count();
-    assert_eq!((failing, notices), (1, 1));
+    let mut events = Vec::new();
+    for _ in 0..4 {
+        events.extend(refresh_and_collect(&mut t, session).await);
+    }
+
+    assert_eq!(failing_count(&events), 4);
+    assert_eq!(notice_count(&events), 1);
+    let notices = events.iter().filter_map(|event| match event {
+        Event::Notice { severity, message } => Some((*severity, message.to_string())),
+        _ => None,
+    });
+    let notices: Vec<_> = notices.collect();
+    assert_eq!(notices[0].0, Severity::Warning);
+    assert!(notices[0].1.contains("channel refused"), "{notices:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_success_resets_the_failure_count() {
+    let mut t = test_engine();
+    let (runner, _) = flaky(|call| matches!(call, 3 | 4 | 6 | 7));
+    let session = connect(&mut t, runner);
+    start(&mut t, session);
+    next_snapshot(&mut t).await;
+    next_snapshot(&mut t).await;
+    t.drain();
+
+    let mut events = Vec::new();
+    for _ in 0..5 {
+        events.extend(refresh_and_collect(&mut t, session).await);
+    }
+
+    assert_eq!(failing_count(&events), 4);
+    assert_eq!(notice_count(&events), 0);
 }
 
 struct Stalled(AtomicUsize);
@@ -319,7 +474,7 @@ impl CommandRunner for Stalled {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_hung_poll_times_out_after_ten_seconds_and_counts_as_a_failure() {
+async fn a_hung_probe_times_out_after_ten_seconds_and_counts_as_a_failure() {
     let mut t = test_engine();
     let stalled = Arc::new(Stalled(AtomicUsize::new(0)));
     let session = connect(&mut t, stalled.clone());
@@ -328,13 +483,13 @@ async fn a_hung_poll_times_out_after_ten_seconds_and_counts_as_a_failure() {
     start(&mut t, session);
     let MonitorState::Failing(message) = next_state(&mut t).await else { panic!("expected Failing") };
 
-    assert!(begun.elapsed() >= PROBE_TIMEOUT * 3, "{:?}", begun.elapsed());
-    assert_eq!(stalled.0.load(Ordering::SeqCst), 3);
+    assert!(begun.elapsed() >= PROBE_TIMEOUT, "{:?}", begun.elapsed());
+    assert_eq!(stalled.0.load(Ordering::SeqCst), 1);
     assert!(message.to_string().contains("in time"), "{message}");
 }
 
 #[tokio::test(start_paused = true)]
-async fn disconnect_and_a_lost_session_stop_the_poll() {
+async fn disconnect_and_a_lost_session_stop_the_fetch() {
     let mut t = test_engine();
     let first = plain(1000);
     let one = connect(&mut t, first.runner.clone());
@@ -348,15 +503,15 @@ async fn disconnect_and_a_lost_session_stop_the_poll() {
     t.engine.handle_command(Command::Disconnect { session: one });
     t.engine.handle_internal(Internal::SessionHealth { session: two, healthy: false });
     t.drain();
-    let later = quiet(&mut t, Duration::from_secs(60)).await;
+    let later = quiet(&mut t, IDLE_MINUTE).await;
 
     assert_eq!(monitor_events(&later), 0);
     assert_eq!((first.probes.load(Ordering::SeqCst), second.probes.load(Ordering::SeqCst)), (1, 1));
-    assert!(t.engine.monitor_run.sessions.is_empty());
+    assert!(!t.engine.monitor_run.fetches.has(one) && !t.engine.monitor_run.fetches.has(two));
 }
 
 #[tokio::test(start_paused = true)]
-async fn restart_after_stop_polls_again_with_a_fresh_sample() {
+async fn restart_after_stop_fetches_again_with_a_fresh_sample() {
     let mut t = test_engine();
     let fake = plain(1000);
     let session = connect(&mut t, fake.runner.clone());
@@ -553,6 +708,8 @@ async fn renice_sends_the_exact_command() {
 struct Slow {
     running: AtomicUsize,
     most: AtomicUsize,
+    starts: std::sync::Mutex<Vec<Instant>>,
+    ends: std::sync::Mutex<Vec<Instant>>,
 }
 
 #[async_trait]
@@ -560,26 +717,40 @@ impl CommandRunner for Slow {
     async fn run_with_input(&self, _shell: &str, input: &[u8]) -> Result<CommandOutput, ProtocolError> {
         let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
         self.most.fetch_max(now, Ordering::SeqCst);
+        self.starts.lock().unwrap().push(Instant::now());
         tokio::time::sleep(Duration::from_secs(7)).await;
+        self.ends.lock().unwrap().push(Instant::now());
         self.running.fetch_sub(1, Ordering::SeqCst);
         success(linux_output(&String::from_utf8_lossy(input), 1000, 1))
     }
 }
 
 #[tokio::test(start_paused = true)]
-async fn only_one_poll_is_ever_in_flight_even_when_the_probe_is_slower_than_the_interval() {
+async fn the_probes_of_a_pair_never_overlap_even_when_slower_than_the_gap() {
     let mut t = test_engine();
-    let slow = Arc::new(Slow { running: AtomicUsize::new(0), most: AtomicUsize::new(0) });
+    let slow = Arc::new(Slow {
+        running: AtomicUsize::new(0),
+        most: AtomicUsize::new(0),
+        starts: Default::default(),
+        ends: Default::default(),
+    });
     let session = connect(&mut t, slow.clone());
     let begun = Instant::now();
 
     start(&mut t, session);
-    for _ in 0..3 {
-        next_snapshot(&mut t).await;
-    }
+    next_snapshot(&mut t).await;
+    refresh(&mut t, session, true);
+    next_snapshot(&mut t).await;
 
     assert_eq!(slow.most.load(Ordering::SeqCst), 1);
-    assert!(begun.elapsed() >= Duration::from_secs(3 * 7 + 2 * 3));
+    assert!(begun.elapsed() >= Duration::from_secs(2 * 7 + 1));
+
+    let (starts, ends) = (slow.starts.lock().unwrap().clone(), slow.ends.lock().unwrap().clone());
+    assert_eq!(starts.len(), 2);
+    assert!(starts[1].duration_since(ends[0]) >= PAIR_GAP);
+    let after_the_pair = quiet(&mut t, IDLE_MINUTE).await;
+    assert_eq!(monitor_events(&after_the_pair), 0);
+    assert_eq!(slow.starts.lock().unwrap().len(), 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -623,18 +794,88 @@ async fn a_signal_whose_pid_now_belongs_to_a_differently_named_process_is_refuse
     assert!(commands_not_probes(&fake.runner).is_empty());
 }
 
+fn signal_500(t: &mut TestEngine, session: SessionId) {
+    t.engine.handle_command(Command::SignalProcess {
+        session,
+        pid: 500,
+        name: "mine-app".into(),
+        signal: ProcessSignal::Terminate,
+    });
+}
+
+fn renice_500(t: &mut TestEngine, session: SessionId) {
+    t.engine.handle_command(Command::ReniceProcess {
+        session,
+        pid: 500,
+        name: "mine-app".into(),
+        nice: Nice::new(5).unwrap(),
+    });
+}
+
 #[tokio::test(start_paused = true)]
-async fn once_failing_the_poll_slows_down_instead_of_hammering_the_server() {
+async fn a_process_action_is_accepted_on_a_snapshot_just_inside_the_age_limit() {
+    let (mut t, fake, session) = with_snapshot(1000, |_| success(String::new())).await;
+    t.drain();
+
+    tokio::time::advance(porthmos_monitor::PROCESS_ACTION_MAX_AGE - Duration::from_secs(1)).await;
+    signal_500(&mut t, session);
+    renice_500(&mut t, session);
+    next_notice(&mut t).await;
+    next_notice(&mut t).await;
+
+    assert_eq!(commands_not_probes(&fake.runner), [change_script("kill -TERM 500"), change_script("renice 5 -p 500")]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_process_action_on_an_old_snapshot_is_refused_and_runs_nothing() {
+    let (mut t, fake, session) = with_snapshot(1000, |_| success(String::new())).await;
+    t.drain();
+
+    tokio::time::advance(porthmos_monitor::PROCESS_ACTION_MAX_AGE + Duration::from_secs(1)).await;
+    signal_500(&mut t, session);
+    renice_500(&mut t, session);
+    t.engine.handle_command(Command::SignalProcess {
+        session,
+        pid: 500,
+        name: "mine-app".into(),
+        signal: ProcessSignal::Kill,
+    });
+    let notices = t.notices();
+
+    assert_eq!(notices.len(), 3);
+    assert!(notices.iter().all(|(severity, text)| *severity == Severity::Warning && text.contains("refresh first")));
+    assert!(commands_not_probes(&fake.runner).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_fresh_snapshot_reenables_process_actions_after_the_list_went_old() {
+    let (mut t, fake, session) = with_snapshot(1000, |_| success(String::new())).await;
+    next_snapshot(&mut t).await;
+    t.drain();
+    tokio::time::advance(porthmos_monitor::PROCESS_ACTION_MAX_AGE + Duration::from_secs(5)).await;
+    signal_500(&mut t, session);
+    assert_eq!(t.notices().len(), 1);
+
+    refresh(&mut t, session, false);
+    next_snapshot(&mut t).await;
+    signal_500(&mut t, session);
+    next_notice(&mut t).await;
+
+    assert_eq!(commands_not_probes(&fake.runner), [change_script("kill -TERM 500")]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pair_whose_second_half_keeps_failing_reports_one_notice_at_the_third_failure() {
     let mut t = test_engine();
-    let (runner, calls) = flaky(|call| call >= 2);
+    let (runner, _) = flaky(|call| call % 2 == 0);
     let session = connect(&mut t, runner);
     start(&mut t, session);
-    next_snapshot(&mut t).await;
-    let MonitorState::Failing(_) = next_state(&mut t).await else { panic!("expected Failing") };
-    let at_failing = calls.load(Ordering::SeqCst);
+    let mut events = quiet(&mut t, Duration::from_secs(3)).await;
+    for _ in 0..2 {
+        refresh(&mut t, session, true);
+        events.extend(quiet(&mut t, Duration::from_secs(3)).await);
+    }
 
-    quiet(&mut t, Duration::from_secs(60)).await;
-
-    let since = calls.load(Ordering::SeqCst) - at_failing;
-    assert!((1..=3).contains(&since), "{since} polls in a minute while failing");
+    assert_eq!(failing_count(&events), 3);
+    assert_eq!(notice_count(&events), 1);
 }

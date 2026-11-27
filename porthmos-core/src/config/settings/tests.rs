@@ -27,6 +27,7 @@ fn settings_from_file_accepts_valid_panel_values() {
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
         connection: ConnectionSettingsFile::default(),
+        refresh: RefreshSettingsFile::default(),
         general: GeneralSettingsFile::default(),
     };
 
@@ -50,6 +51,7 @@ fn settings_from_file_falls_back_and_warns_on_an_unknown_sort_key() {
         search: SearchSettingsFile::default(),
         startup: StartupSettingsFile::default(),
         connection: ConnectionSettingsFile::default(),
+        refresh: RefreshSettingsFile::default(),
         general: GeneralSettingsFile::default(),
     };
 
@@ -547,6 +549,16 @@ fn the_general_table_does_not_leak_into_the_frontend_settings() {
 }
 
 #[test]
+fn the_refresh_tables_do_not_leak_into_the_frontend_settings() {
+    let (settings, _) =
+        parsed("[refresh.health]\nauto = true\n[refresh.ports]\ninterval_seconds = 30\n[keys]\nquit = \"ctrl+q\"\n");
+
+    assert!(settings.refresh.health.auto);
+    assert!(settings.frontend.contains_key("keys"));
+    assert!(!settings.frontend.contains_key("refresh"), "{:?}", settings.frontend);
+}
+
+#[test]
 fn search_limits_default_to_sixteen_levels_and_a_thousand_results() {
     let (settings, warnings) = parsed("");
 
@@ -615,4 +627,63 @@ fn the_built_in_terminal_is_on_unless_the_file_turns_it_off() {
 #[test]
 fn the_built_in_terminal_flag_of_the_wrong_type_does_not_parse() {
     assert!(toml::from_str::<SettingsFile>("[terminal]\nembedded = \"yes\"\n").is_err());
+}
+
+#[test]
+fn refresh_defaults_to_off_and_ten_seconds_for_every_tab() {
+    let (settings, warnings) = parsed("");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let expected = RefreshSetting { auto: false, interval_seconds: 10 };
+    assert_eq!(settings.refresh, RefreshSettings { health: expected, services: expected, ports: expected });
+    assert_eq!(RefreshSetting::default(), expected);
+}
+
+#[test]
+fn refresh_reads_each_tab_independently() {
+    let (settings, warnings) = parsed(
+        "[refresh.health]\ninterval_seconds = 5\n\n[refresh.services]\nauto = true\ninterval_seconds = 60\n\n[refresh.ports]\ninterval_seconds = 300\n",
+    );
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(settings.refresh.health, RefreshSetting { auto: false, interval_seconds: 5 });
+    assert_eq!(settings.refresh.services, RefreshSetting { auto: true, interval_seconds: 60 });
+    assert_eq!(settings.refresh.ports, RefreshSetting { auto: false, interval_seconds: 300 });
+}
+
+#[test]
+fn refresh_interval_outside_5_to_300_warns_and_uses_that_tabs_default_only() {
+    for seconds in [0, 4, 301, -1] {
+        let (settings, warnings) = parsed(&format!(
+            "[refresh.health]\ninterval_seconds = 30\n\n[refresh.ports]\ninterval_seconds = {seconds}\nauto = true\n\n[refresh.services]\ninterval_seconds = 120\n"
+        ));
+
+        assert_eq!(settings.refresh.ports, RefreshSetting { auto: true, interval_seconds: 10 }, "{seconds}");
+        assert_eq!(settings.refresh.health.interval_seconds, 30, "{seconds}");
+        assert_eq!(settings.refresh.services.interval_seconds, 120, "{seconds}");
+        assert_eq!(
+            warnings,
+            vec!["refresh.ports.interval_seconds must be between 5 and 300, using 10".to_string()],
+            "{seconds}"
+        );
+    }
+}
+
+#[test]
+fn a_wrongly_typed_refresh_value_warns_and_uses_the_default() {
+    let (settings, warnings) = parsed(
+        "[refresh.health]\ninterval_seconds = \"x\"\nauto = \"yes\"\n\n[refresh.services]\ninterval_seconds = 1.5\n\n[refresh.ports]\nauto = true\ninterval_seconds = 20\n",
+    );
+
+    assert_eq!(settings.refresh.health, RefreshSetting { auto: false, interval_seconds: 10 });
+    assert_eq!(settings.refresh.services, RefreshSetting { auto: false, interval_seconds: 10 });
+    assert_eq!(settings.refresh.ports, RefreshSetting { auto: true, interval_seconds: 20 });
+    assert_eq!(
+        warnings,
+        vec![
+            "refresh.health.auto must be true or false, using false".to_string(),
+            "refresh.health.interval_seconds must be a whole number, using 10".to_string(),
+            "refresh.services.interval_seconds must be a whole number, using 10".to_string(),
+        ]
+    );
 }

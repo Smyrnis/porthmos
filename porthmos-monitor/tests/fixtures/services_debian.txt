@@ -1,0 +1,40 @@
+@@T:os
+Linux
+@@T:uid
+1000
+@@T:systemd
+yes
+@@T:units
+  accounts-daemon.service          loaded    active   running Accounts Service
+  apparmor.service                 loaded    active   exited  Load AppArmor profiles
+● apache-old.service               not-found inactive dead    apache-old.service
+  cron.service                     loaded    active   running Regular background program processing daemon
+* failing-job.service              loaded    failed   failed  A job that keeps failing
+  getty@tty1.service               loaded    active   running Getty on tty1
+  nginx.service                    loaded    active   running A high performance web server and a reverse proxy server
+  ssh.service                      loaded    active   running OpenBSD Secure Shell server
+  systemd-logind.service           loaded    active   running User Login Management
+  systemd-udevd.service            loaded    activating start  start Rule-based Manager for Device Events and Files
+  rescue.service                   loaded    inactive dead    Rescue Shell
+  runtime-only.service             loaded    inactive dead    Seen by list-units only
+  weird-state.service              loaded    reloading reload Reloading thing
+  masked-thing.service             masked    inactive dead    masked-thing.service
+@@T:files
+accounts-daemon.service          enabled         enabled
+apparmor.service                 enabled         enabled
+cron.service                     enabled         enabled
+failing-job.service              disabled        enabled
+getty@.service                   enabled         enabled
+getty@tty1.service               enabled-runtime enabled
+masked-thing.service             masked          enabled
+nginx.service                    enabled         enabled
+rescue.service                   static          -
+ssh.service                      disabled        enabled
+systemd-logind.service           static          -
+systemd-udevd.service            static          -
+file-only.service                disabled        enabled
+indirect-one.service             indirect        enabled
+generated-one.service            generated       -
+alias-one.service                alias           -
+mystery.service                  some-new-state  -
+@@T:end
