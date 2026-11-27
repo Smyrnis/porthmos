@@ -1,1 +1,2 @@
 * text=auto
+porthmos-monitor/tests/fixtures/*.txt text eol=lf

@@ -168,8 +168,12 @@ fn clicks_in_a_row_count_up_and_a_different_button_restarts() {
     use iced::Point;
     use iced::advanced::mouse::{Button, Click};
 
+    let tick = || std::thread::sleep(std::time::Duration::from_millis(2));
+
     let first = Click::new(Point::ORIGIN, Button::Left, None);
+    tick();
     let second = Click::new(Point::ORIGIN, Button::Left, Some(first));
+    tick();
     let third = Click::new(Point::ORIGIN, Button::Left, Some(second));
     let other = Click::new(Point::ORIGIN, Button::Middle, Some(third));
     let far = Click::new(Point::new(500.0, 500.0), Button::Left, Some(third));
