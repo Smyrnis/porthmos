@@ -85,6 +85,44 @@ fn the_dark_scheme_has_these_values() {
     assert_eq!(scheme.paused, Rgb(0x96, 0x96, 0x96));
     assert_eq!(scheme.inactive_file, Rgb(0xa4, 0xa4, 0xa4));
     assert_eq!(scheme.inactive_dir, Rgb(0xbc, 0xbc, 0xbc));
+    assert_eq!(scheme.warn, Rgb(0xe0, 0xc0, 0x70));
+    assert_eq!(scheme.syntax_keyword, Rgb(0xc4, 0xa3, 0xdd));
+    assert_eq!(scheme.syntax_string, Rgb(0xa5, 0xc5, 0x8a));
+    assert_eq!(scheme.syntax_number, Rgb(0xd9, 0xa0, 0x7c));
+    assert_eq!(scheme.syntax_type, Rgb(0x7f, 0xc4, 0xc4));
+    assert_eq!(scheme.syntax_function, Rgb(0x8f, 0xb4, 0xe8));
+}
+
+#[test]
+fn the_syntax_colours_are_distinct_in_every_scheme() {
+    for base in [ThemeBase::Dark, ThemeBase::HighContrast, ThemeBase::Light] {
+        let scheme = base.scheme();
+        let mut colours = [
+            scheme.warn,
+            scheme.syntax_keyword,
+            scheme.syntax_string,
+            scheme.syntax_number,
+            scheme.syntax_type,
+            scheme.syntax_function,
+        ]
+        .map(|rgb| (rgb.0, rgb.1, rgb.2))
+        .to_vec();
+        colours.sort_unstable();
+        colours.dedup();
+        assert_eq!(colours.len(), 6, "{base:?}");
+    }
+}
+
+#[test]
+fn every_role_name_is_settable_and_listed_once() {
+    let mut scheme = ColorScheme::dark();
+    let mut seen = std::collections::HashSet::new();
+
+    assert_eq!(ColorScheme::ROLES.len(), 25);
+    for role in ColorScheme::ROLES {
+        assert!(seen.insert(role), "{role} is listed twice");
+        assert!(scheme.role_mut(role).is_some(), "{role} cannot be set");
+    }
 }
 
 #[test]
@@ -122,7 +160,7 @@ const GRAPHIC: f64 = 2.0;
 const SELECTION: f64 = 1.4;
 const INACTIVE_SELECTION: f64 = 1.2;
 
-fn text_roles(scheme: &ColorScheme) -> [(&'static str, Rgb); 12] {
+fn text_roles(scheme: &ColorScheme) -> [(&'static str, Rgb); 18] {
     [
         ("fg_bright", scheme.fg_bright),
         ("fg_focus", scheme.fg_focus),
@@ -136,6 +174,12 @@ fn text_roles(scheme: &ColorScheme) -> [(&'static str, Rgb); 12] {
         ("paused", scheme.paused),
         ("inactive_file", scheme.inactive_file),
         ("inactive_dir", scheme.inactive_dir),
+        ("warn", scheme.warn),
+        ("syntax_keyword", scheme.syntax_keyword),
+        ("syntax_string", scheme.syntax_string),
+        ("syntax_number", scheme.syntax_number),
+        ("syntax_type", scheme.syntax_type),
+        ("syntax_function", scheme.syntax_function),
     ]
 }
 

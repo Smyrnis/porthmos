@@ -80,6 +80,12 @@ pub struct ColorScheme {
     pub paused: Rgb,
     pub inactive_file: Rgb,
     pub inactive_dir: Rgb,
+    pub warn: Rgb,
+    pub syntax_keyword: Rgb,
+    pub syntax_string: Rgb,
+    pub syntax_number: Rgb,
+    pub syntax_type: Rgb,
+    pub syntax_function: Rgb,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -147,6 +153,12 @@ impl ColorScheme {
             paused: Rgb(0x96, 0x96, 0x96),
             inactive_file: Rgb(0xa4, 0xa4, 0xa4),
             inactive_dir: Rgb(0xbc, 0xbc, 0xbc),
+            warn: Rgb(0xe0, 0xc0, 0x70),
+            syntax_keyword: Rgb(0xc4, 0xa3, 0xdd),
+            syntax_string: Rgb(0xa5, 0xc5, 0x8a),
+            syntax_number: Rgb(0xd9, 0xa0, 0x7c),
+            syntax_type: Rgb(0x7f, 0xc4, 0xc4),
+            syntax_function: Rgb(0x8f, 0xb4, 0xe8),
         }
     }
 
@@ -171,6 +183,12 @@ impl ColorScheme {
             paused: Rgb(0xc8, 0xc8, 0xc8),
             inactive_file: Rgb(0xc8, 0xc8, 0xc8),
             inactive_dir: Rgb(0xd8, 0xd8, 0xd8),
+            warn: Rgb(0xff, 0xd8, 0x66),
+            syntax_keyword: Rgb(0xe0, 0xba, 0xff),
+            syntax_string: Rgb(0xb8, 0xe8, 0x9a),
+            syntax_number: Rgb(0xff, 0xb9, 0x8a),
+            syntax_type: Rgb(0x8e, 0xf0, 0xf0),
+            syntax_function: Rgb(0xa8, 0xcc, 0xff),
         }
     }
 
@@ -195,10 +213,16 @@ impl ColorScheme {
             paused: Rgb(0x54, 0x54, 0x54),
             inactive_file: Rgb(0x50, 0x50, 0x50),
             inactive_dir: Rgb(0x38, 0x38, 0x38),
+            warn: Rgb(0x7a, 0x4e, 0x00),
+            syntax_keyword: Rgb(0x6a, 0x2a, 0x8a),
+            syntax_string: Rgb(0x2e, 0x5a, 0x14),
+            syntax_number: Rgb(0x8a, 0x3a, 0x0a),
+            syntax_type: Rgb(0x0e, 0x5a, 0x6a),
+            syntax_function: Rgb(0x1a, 0x3f, 0x8a),
         }
     }
 
-    pub const ROLES: [&'static str; 19] = [
+    pub const ROLES: [&'static str; 25] = [
         "bg",
         "fg_bright",
         "fg_focus",
@@ -218,6 +242,12 @@ impl ColorScheme {
         "paused",
         "inactive_file",
         "inactive_dir",
+        "warn",
+        "syntax_keyword",
+        "syntax_string",
+        "syntax_number",
+        "syntax_type",
+        "syntax_function",
     ];
 
     pub fn role_mut(&mut self, name: &str) -> Option<&mut Rgb> {
@@ -241,6 +271,12 @@ impl ColorScheme {
             "paused" => &mut self.paused,
             "inactive_file" => &mut self.inactive_file,
             "inactive_dir" => &mut self.inactive_dir,
+            "warn" => &mut self.warn,
+            "syntax_keyword" => &mut self.syntax_keyword,
+            "syntax_string" => &mut self.syntax_string,
+            "syntax_number" => &mut self.syntax_number,
+            "syntax_type" => &mut self.syntax_type,
+            "syntax_function" => &mut self.syntax_function,
             _ => return None,
         })
     }

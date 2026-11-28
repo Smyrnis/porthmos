@@ -37,6 +37,12 @@ pub struct Palette {
     pub paused: Color,
     pub inactive_file: Color,
     pub inactive_dir: Color,
+    pub warn: Color,
+    pub syntax_keyword: Color,
+    pub syntax_string: Color,
+    pub syntax_number: Color,
+    pub syntax_type: Color,
+    pub syntax_function: Color,
     pub light: bool,
 }
 
@@ -63,6 +69,12 @@ impl Palette {
             paused: color_of(scheme.paused),
             inactive_file: color_of(scheme.inactive_file),
             inactive_dir: color_of(scheme.inactive_dir),
+            warn: color_of(scheme.warn),
+            syntax_keyword: color_of(scheme.syntax_keyword),
+            syntax_string: color_of(scheme.syntax_string),
+            syntax_number: color_of(scheme.syntax_number),
+            syntax_type: color_of(scheme.syntax_type),
+            syntax_function: color_of(scheme.syntax_function),
             light: scheme.is_light(),
         }
     }

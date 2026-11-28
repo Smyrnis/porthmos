@@ -50,7 +50,7 @@ fn the_roles_are_the_fields_of_the_scheme() {
         assert!(scheme.role_mut(name).is_some(), "{name}");
     }
     assert!(scheme.role_mut("nonsense").is_none());
-    assert_eq!(ColorScheme::ROLES.len(), 19);
+    assert_eq!(ColorScheme::ROLES.len(), 25);
 }
 
 #[test]
@@ -181,6 +181,25 @@ fn the_example_config_documents_every_role_with_its_default() {
     for role in ColorScheme::ROLES {
         assert!(documented.contains(&format!("{role} = ")), "{role} is not documented");
     }
+}
+
+#[test]
+fn a_theme_file_with_only_the_old_roles_loads_without_warnings_and_gets_the_new_defaults() {
+    let (scheme, warnings) = parsed("base = \"light\"\n[colors]\nfg = \"#101010\"\naccent = \"#336699\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(scheme.syntax_keyword, ColorScheme::light().syntax_keyword);
+    assert_eq!(scheme.warn, ColorScheme::light().warn);
+}
+
+#[test]
+fn a_new_role_can_be_overridden() {
+    let (scheme, warnings) = parsed("[colors]\nsyntax_string = \"#00ff00\"\nwarn = \"#ffff00\"\n");
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(scheme.syntax_string, Rgb(0x00, 0xff, 0x00));
+    assert_eq!(scheme.warn, Rgb(0xff, 0xff, 0x00));
+    assert_eq!(scheme.syntax_keyword, ColorScheme::dark().syntax_keyword);
 }
 
 #[test]
