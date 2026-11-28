@@ -508,3 +508,185 @@ fn only_an_untouched_tab_is_pristine() {
     with_lines.append(lines(&["a"]), 0, 10);
     assert!(!with_lines.is_pristine());
 }
+
+fn levelled(text: &str, level: LogLevel) -> LogLine {
+    LogLine { text: text.to_string(), level }
+}
+
+fn view_texts(state: &LogsState) -> Vec<String> {
+    state.view_lines(0..state.view_len()).iter().map(|stored| stored.line.text.clone()).collect()
+}
+
+fn mixed_state() -> LogsState {
+    let mut state = LogsState::default();
+    state.append(
+        vec![
+            levelled("disk ok", LogLevel::Info),
+            levelled("disk failure", LogLevel::Error),
+            levelled("net slow", LogLevel::Warn),
+            levelled("Disk warning", LogLevel::Warn),
+        ],
+        0,
+        100,
+    );
+    state
+}
+
+#[test]
+fn without_a_filter_the_view_is_the_shown_lines() {
+    let state = mixed_state();
+
+    assert!(!state.filtering());
+    assert_eq!(state.view_len(), 4);
+    assert_eq!(view_texts(&state), texts(&state));
+}
+
+#[test]
+fn setting_text_narrows_the_view_and_follows_the_end() {
+    let mut state = mixed_state();
+    state.follow = false;
+    state.snap_pending = false;
+
+    state.set_filter_text("disk".to_string());
+
+    assert_eq!(view_texts(&state), ["disk ok", "disk failure", "Disk warning"]);
+    assert_eq!(state.view_len(), 3);
+    assert!(state.follow);
+    assert!(state.snap_pending);
+}
+
+#[test]
+fn a_pill_narrows_the_view_by_level() {
+    let mut state = mixed_state();
+
+    state.toggle_level(LogLevel::Warn);
+
+    assert_eq!(view_texts(&state), ["net slow", "Disk warning"]);
+    state.set_filter_text("disk".to_string());
+    assert_eq!(view_texts(&state), ["Disk warning"]);
+}
+
+#[test]
+fn lines_appended_after_the_filter_is_set_are_matched() {
+    let mut state = mixed_state();
+    state.set_filter_text("disk".to_string());
+
+    state.append(vec![levelled("net up", LogLevel::Info), levelled("DISK again", LogLevel::Info)], 0, 100);
+
+    assert_eq!(view_texts(&state), ["disk ok", "disk failure", "Disk warning", "DISK again"]);
+}
+
+#[test]
+fn the_ring_buffer_dropping_old_lines_drops_their_matches() {
+    let mut state = LogsState::default();
+    state.set_filter_text("a".to_string());
+    for n in 0..10 {
+        state.append(vec![levelled(&format!("a{n}"), LogLevel::Info), levelled("zzz", LogLevel::Info)], 0, 6);
+    }
+
+    let passing = state.lines.iter().filter(|stored| stored.line.text.starts_with('a')).count();
+    assert_eq!(state.view_len(), passing);
+    assert_eq!(view_texts(&state).len(), passing);
+    assert!(view_texts(&state).iter().all(|text| text.starts_with('a')));
+    assert_eq!(view_texts(&state).last().map(String::as_str), Some("a9"));
+}
+
+#[test]
+fn clearing_the_buffer_clears_the_view() {
+    let mut state = mixed_state();
+    state.set_filter_text("disk".to_string());
+
+    state.clear_buffer();
+
+    assert_eq!(state.view_len(), 0);
+    state.append(vec![levelled("disk new", LogLevel::Info)], 0, 100);
+    assert_eq!(view_texts(&state), ["disk new"]);
+}
+
+#[test]
+fn while_paused_the_view_counts_only_lines_before_the_pause() {
+    let mut state = mixed_state();
+    state.set_filter_text("disk".to_string());
+    state.pause_toggled(100);
+
+    state.append(vec![levelled("disk later", LogLevel::Info)], 0, 100);
+
+    assert_eq!(state.view_len(), 3);
+    assert_eq!(view_texts(&state), ["disk ok", "disk failure", "Disk warning"]);
+    state.pause_toggled(100);
+    assert_eq!(state.view_len(), 4);
+}
+
+#[test]
+fn turning_the_filter_off_restores_the_whole_view() {
+    let mut state = mixed_state();
+    state.set_filter_text("disk".to_string());
+    state.toggle_level(LogLevel::Error);
+
+    state.set_filter_text(String::new());
+    state.toggle_level(LogLevel::Error);
+
+    assert!(!state.filtering());
+    assert_eq!(state.view_len(), state.shown_len());
+    assert_eq!(view_texts(&state), texts(&state));
+}
+
+#[test]
+fn view_lines_skips_positions_past_the_end() {
+    let mut state = mixed_state();
+    state.set_filter_text("disk".to_string());
+
+    let rows = state.view_lines(1..50);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].line.text, "disk failure");
+    assert!(state.view_lines(10..20).is_empty());
+}
+
+#[test]
+fn a_skipped_marker_is_hidden_while_filtering_and_back_when_the_filter_is_off() {
+    let mut state = LogsState::default();
+    state.set_filter_text("disk".to_string());
+
+    state.append(vec![levelled("disk a", LogLevel::Info)], 7, 100);
+
+    assert_eq!(view_texts(&state), ["disk a"]);
+    state.set_filter_text(String::new());
+    assert_eq!(state.view_len(), 2);
+    assert_eq!(state.view_lines(0..2)[0].skipped, Some(7));
+}
+
+#[test]
+fn a_filter_matching_nothing_over_a_buffer_with_a_marker_has_an_empty_view() {
+    let mut state = LogsState::default();
+    state.append(vec![levelled("disk a", LogLevel::Info)], 7, 100);
+
+    state.set_filter_text("zzz".to_string());
+
+    assert_eq!(state.view_len(), 0);
+}
+
+#[test]
+fn a_stale_match_never_panics_the_view() {
+    let mut state = LogsState::default();
+    state.set_filter_text("a".to_string());
+    state.append((0..10).map(|n| levelled(&format!("a{n}"), LogLevel::Info)).collect(), 0, 4);
+    state.matches.push_front(0);
+
+    let rows = state.view_lines(0..state.view_len());
+
+    assert_eq!(rows.len(), 4);
+}
+
+#[test]
+fn a_filter_change_over_200000_lines_is_quick() {
+    let mut state = LogsState::default();
+    let batch: Vec<LogLine> = (0..200_000).map(|n| levelled(&format!("line {n}"), LogLevel::Info)).collect();
+    state.append(batch, 0, 200_000);
+    let started = std::time::Instant::now();
+
+    state.set_filter_text("9".to_string());
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+    assert!(state.view_len() > 0);
+}

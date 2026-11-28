@@ -1147,6 +1147,13 @@ gui:
     add_tab: "Follow another log"
     close_tab: "Close this log"
     tabs_full: "Up to %{count} logs can be open at once"
+    search_hint: "Search this log"
+    no_match: "No line matches the filter"
+    match_count: "%{shown} of %{total} lines"
+    level_error: "Error"
+    level_warn: "Warning"
+    level_info: "Info"
+    level_debug: "Debug"
   settings:
     already_used: "Already used by %{name}"
     logs_range: "Enter a whole number from %{min} to %{max}."

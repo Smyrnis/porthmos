@@ -1,6 +1,10 @@
 use std::collections::VecDeque;
+use std::ops::Range;
 
+mod filter;
 mod tabs;
+
+pub use filter::LogFilter;
 
 #[cfg(test)]
 pub use tabs::MAX_LOG_TABS;
@@ -63,6 +67,8 @@ pub struct LogsState {
     pub scroll: f32,
     pub snap_pending: bool,
     pub was_visible: bool,
+    pub filter: LogFilter,
+    pub(crate) matches: VecDeque<u64>,
 }
 
 impl Default for LogsState {
@@ -83,6 +89,8 @@ impl Default for LogsState {
             scroll: 0.0,
             snap_pending: false,
             was_visible: false,
+            filter: LogFilter::default(),
+            matches: VecDeque::new(),
         }
     }
 }
@@ -145,6 +153,10 @@ impl LogsState {
                 self.bytes -= oldest.line.text.len();
             }
         }
+        let first = self.lines.front().map_or(u64::MAX, |stored| stored.seq);
+        while self.matches.front().is_some_and(|&seq| seq < first) {
+            self.matches.pop_front();
+        }
     }
 
     fn keep(&mut self, line: LogLine, skipped: Option<u64>, count: u64, max_lines: usize) {
@@ -158,12 +170,17 @@ impl LogsState {
 
     fn push(&mut self, line: LogLine, skipped: Option<u64>) {
         self.bytes += line.text.len();
-        self.lines.push_back(StoredLine { seq: self.next_seq, line, skipped });
+        let stored = StoredLine { seq: self.next_seq, line, skipped };
+        if self.filter.is_active() && self.filter.passes(&stored) {
+            self.matches.push_back(stored.seq);
+        }
+        self.lines.push_back(stored);
         self.next_seq += 1;
     }
 
     pub fn clear_buffer(&mut self) {
         self.lines.clear();
+        self.matches.clear();
         self.held_back = 0;
         self.bytes = 0;
         self.scroll = 0.0;
@@ -206,6 +223,57 @@ impl LogsState {
             (Some(_), None) => 0,
             (None, _) => self.lines.len(),
         }
+    }
+
+    pub fn filtering(&self) -> bool {
+        self.filter.is_active()
+    }
+
+    pub fn set_filter_text(&mut self, text: String) {
+        self.filter.text = text;
+        self.filter_changed();
+    }
+
+    pub fn toggle_level(&mut self, level: LogLevel) {
+        self.filter.toggle(level);
+        self.filter_changed();
+    }
+
+    fn filter_changed(&mut self) {
+        self.matches.clear();
+        if self.filter.is_active() {
+            self.matches =
+                self.lines.iter().filter(|stored| self.filter.passes(stored)).map(|stored| stored.seq).collect();
+        }
+        self.follow = true;
+        self.snap_pending = true;
+    }
+
+    pub fn view_len(&self) -> usize {
+        if !self.filtering() {
+            return self.shown_len();
+        }
+        let limit = self.paused_at.unwrap_or(u64::MAX);
+        self.matches.partition_point(|&seq| seq < limit)
+    }
+
+    pub fn view_lines(&self, range: Range<usize>) -> Vec<&StoredLine> {
+        if !self.filtering() {
+            return self.lines.range(range.start.min(self.lines.len())..range.end.min(self.lines.len())).collect();
+        }
+        let Some(first) = self.lines.front().map(|stored| stored.seq) else {
+            return Vec::new();
+        };
+        let end = range.end.min(self.view_len());
+        let start = range.start.min(end);
+        self.matches
+            .range(start..end)
+            .filter_map(|&seq| {
+                seq.checked_sub(first)
+                    .and_then(|index| usize::try_from(index).ok())
+                    .and_then(|index| self.lines.get(index))
+            })
+            .collect()
     }
 
     pub fn paused(&self) -> bool {

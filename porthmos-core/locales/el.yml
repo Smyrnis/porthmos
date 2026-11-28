@@ -1147,6 +1147,13 @@ gui:
     add_tab: "Παρακολούθηση άλλου log"
     close_tab: "Κλείσιμο αυτού του log"
     tabs_full: "Μπορούν να είναι ανοιχτά έως %{count} logs ταυτόχρονα"
+    search_hint: "Αναζήτηση σε αυτό το log"
+    no_match: "Καμία γραμμή δεν ταιριάζει με το φίλτρο"
+    match_count: "%{shown} από %{total} γραμμές"
+    level_error: "Σφάλμα"
+    level_warn: "Προειδοποίηση"
+    level_info: "Πληροφορία"
+    level_debug: "Αποσφαλμάτωση"
   settings:
     already_used: "Χρησιμοποιείται ήδη από το %{name}"
     logs_range: "Εισαγάγετε έναν ακέραιο αριθμό από %{min} έως %{max}."

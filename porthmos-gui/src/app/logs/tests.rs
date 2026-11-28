@@ -776,3 +776,173 @@ fn lowering_the_line_cap_trims_every_tab() {
     assert_eq!(tab_lines(&harness, 0).len(), 1000);
     assert_eq!(tab_lines(&harness, 1).len(), 1000);
 }
+
+fn leveled_batch(items: &[(&str, LogLevel)]) -> LogState {
+    LogState::Lines {
+        lines: items.iter().map(|(text, level)| LogLine { text: text.to_string(), level: *level }).collect(),
+        skipped: 0,
+    }
+}
+
+fn view_len(harness: &Harness, index: usize) -> usize {
+    harness.app.log_tabs().tabs()[index].view_len()
+}
+
+#[test]
+fn typing_a_filter_narrows_the_active_tab_only() {
+    let (mut harness, first, second) = two_running_tabs();
+    harness.feed(Event::Log { id: first, state: batch(&["disk a", "net b"], 0) });
+    harness.feed(Event::Log { id: second, state: batch(&["disk c", "net d"], 0) });
+
+    harness.press(Message::LogsFilterChanged("disk".into()));
+
+    assert_eq!(view_len(&harness, 1), 1);
+    assert_eq!(view_len(&harness, 0), 2);
+}
+
+#[test]
+fn each_tab_keeps_its_own_filter_when_switching() {
+    let (mut harness, _, _) = two_running_tabs();
+    harness.press(Message::LogsFilterChanged("beta".into()));
+    harness.press(Message::LogsTabSelected(0));
+    harness.press(Message::LogsFilterChanged("alpha".into()));
+
+    harness.press(Message::LogsTabSelected(1));
+    assert_eq!(harness.app.logs().filter.text, "beta");
+    harness.press(Message::LogsTabSelected(0));
+    assert_eq!(harness.app.logs().filter.text, "alpha");
+}
+
+#[test]
+fn a_level_pill_toggled_twice_is_off_again() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.feed(Event::Log { id, state: leveled_batch(&[("boom", LogLevel::Error), ("fine", LogLevel::Info)]) });
+
+    harness.press(Message::LogsLevelToggled(LogLevel::Error));
+    assert_eq!(harness.app.logs().view_len(), 1);
+
+    harness.press(Message::LogsLevelToggled(LogLevel::Error));
+    assert_eq!(harness.app.logs().view_len(), 2);
+    assert!(!harness.app.logs().filtering());
+}
+
+#[test]
+fn changing_the_filter_makes_the_tab_follow_the_end_again() {
+    let mut harness = ready();
+    started(&mut harness);
+    harness.press(Message::LogsFollowToggled(false));
+    assert!(!harness.app.logs().follow);
+
+    harness.press(Message::LogsFilterChanged("x".into()));
+
+    assert!(harness.app.logs().follow);
+}
+
+#[test]
+fn the_list_is_absent_when_the_filter_matches_nothing_and_back_when_it_does() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.feed(Event::Log { id, state: batch(&["disk a", "net b"], 0) });
+    harness.press(Message::LogsViewSelected);
+    assert!(harness.app.logs_list_present());
+
+    harness.press(Message::LogsFilterChanged("zzz".into()));
+    assert!(!harness.app.logs_list_present());
+
+    harness.press(Message::LogsFilterChanged("disk".into()));
+    assert!(harness.app.logs_list_present());
+}
+
+#[test]
+fn new_lines_that_match_appear_and_others_do_not() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.press(Message::LogsFilterChanged("err".into()));
+
+    harness.feed(Event::Log { id, state: batch(&["error one", "fine", "ERR two"], 0) });
+
+    assert_eq!(harness.app.logs().view_len(), 2);
+    assert_eq!(shown(&harness).len(), 3);
+}
+
+#[test]
+fn starting_the_log_again_keeps_the_filter_and_rebuilds_the_view() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.feed(Event::Log { id, state: batch(&["disk old"], 0) });
+    harness.press(Message::LogsFilterChanged("disk".into()));
+    assert_eq!(harness.app.logs().view_len(), 1);
+
+    let next = started(&mut harness);
+    assert_eq!(harness.app.logs().view_len(), 0);
+    harness.feed(Event::Log { id: next, state: batch(&["disk new", "net new"], 0) });
+
+    assert_eq!(harness.app.logs().filter.text, "disk");
+    assert_eq!(harness.app.logs().view_len(), 1);
+}
+
+#[test]
+fn closing_a_tab_drops_its_filter_with_it() {
+    let (mut harness, _, _) = two_running_tabs();
+    harness.press(Message::LogsFilterChanged("beta".into()));
+
+    harness.press(Message::LogsTabClosed(1));
+
+    assert_eq!(harness.app.log_tabs().tabs().len(), 1);
+    assert!(!harness.app.logs().filtering());
+}
+
+#[test]
+fn the_list_snaps_to_the_end_when_the_view_grows_back_from_nothing() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.feed(Event::Log { id, state: batch(&["disk a", "net b"], 0) });
+    harness.press(Message::LogsViewSelected);
+    harness.app.logs.active_mut().set_filter_text("zzz".into());
+    let _ = harness.app.logs_snap();
+    assert!(!harness.app.logs_list_present());
+
+    harness.app.logs.active_mut().set_filter_text("disk".into());
+
+    assert!(harness.app.logs_snap().units() > 0);
+}
+
+#[test]
+fn changing_the_filter_while_paused_counts_only_lines_before_the_pause() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.feed(Event::Log { id, state: batch(&["disk a", "net b"], 0) });
+    harness.press(Message::LogsPauseToggled);
+    harness.feed(Event::Log { id, state: batch(&["disk later"], 0) });
+
+    harness.press(Message::LogsFilterChanged("disk".into()));
+
+    assert_eq!(harness.app.logs().view_len(), 1);
+    harness.press(Message::LogsPauseToggled);
+    assert_eq!(harness.app.logs().view_len(), 2);
+}
+
+#[test]
+fn lowering_the_line_cap_keeps_the_filtered_view_consistent() {
+    let mut settings = GuiSettings::default();
+    settings.logs.max_lines = 5000;
+    let mut harness = Harness::with_gui_settings(settings);
+    connect(&mut harness, 3, "alpha");
+    harness.press(Message::LogsPathChanged("/a".into()));
+    let id = started(&mut harness);
+    let many: Vec<String> = (0..3000).map(|n| format!("n{n}")).collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    harness.feed(Event::Log { id, state: batch(&refs, 0) });
+    harness.press(Message::LogsFilterChanged("n".into()));
+    assert_eq!(harness.app.logs().view_len(), 3000);
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    harness.press(Message::SettingsLogsTyped(crate::settings_view::LogsField::MaxLines, "1000".into()));
+    harness.press(Message::SettingsLogsApplied(crate::settings_view::LogsField::MaxLines));
+
+    assert_eq!(harness.app.logs().view_len(), 1000);
+    let rows = harness.app.logs().view_lines(0..1000);
+    assert_eq!(rows.len(), 1000);
+    assert_eq!(rows[0].line.text, "n2000");
+}

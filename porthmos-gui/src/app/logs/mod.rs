@@ -39,7 +39,7 @@ impl App {
     }
 
     pub(in crate::app) fn logs_list_present(&self) -> bool {
-        self.drawer.open && self.drawer.view == DrawerView::Logs && self.logs_shown() && self.logs().shown_len() > 0
+        self.drawer.open && self.drawer.view == DrawerView::Logs && self.logs_shown() && self.logs().view_len() > 0
     }
 
     pub(in crate::app) fn logs_snap(&mut self) -> Task<Message> {

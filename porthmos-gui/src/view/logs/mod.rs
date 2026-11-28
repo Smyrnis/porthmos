@@ -42,7 +42,7 @@ pub fn line_color(stored: &StoredLine, palette: &Palette) -> Color {
     }
     match stored.line.level {
         LogLevel::Error => palette.err,
-        LogLevel::Warn => palette.fg_bright,
+        LogLevel::Warn => palette.warn,
         LogLevel::Info | LogLevel::Debug | LogLevel::Unknown => palette.fg,
     }
 }
@@ -101,6 +101,30 @@ pub fn empty_text(status: &LogStatus) -> String {
         LogStatus::Starting => i18n::text("gui.logs.starting"),
         LogStatus::Running => i18n::text("gui.logs.waiting"),
         LogStatus::Ended(message) | LogStatus::Unavailable(message) => message.clone(),
+    }
+}
+
+pub fn empty_view_text(state: &LogsState) -> Option<String> {
+    if state.shown_len() == 0 {
+        Some(empty_text(&state.status))
+    } else if state.view_len() == 0 {
+        Some(i18n::text("gui.logs.no_match"))
+    } else {
+        None
+    }
+}
+
+pub fn match_count_text(shown: usize, total: usize) -> String {
+    i18n::text_with("gui.logs.match_count", &[("shown", &shown.to_string()), ("total", &total.to_string())])
+}
+
+pub fn level_title(level: LogLevel) -> String {
+    match level {
+        LogLevel::Error => i18n::text("gui.logs.level_error"),
+        LogLevel::Warn => i18n::text("gui.logs.level_warn"),
+        LogLevel::Info => i18n::text("gui.logs.level_info"),
+        LogLevel::Debug => i18n::text("gui.logs.level_debug"),
+        LogLevel::Unknown => String::new(),
     }
 }
 
@@ -206,6 +230,24 @@ fn header<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
     container(line).padding([SM, MD]).width(Length::Fill).into()
 }
 
+fn filter_row<'a>(state: &LogsState, palette: &Palette) -> Element<'a, Message> {
+    let input = text_input(&i18n::text("gui.logs.search_hint"), &state.filter.text)
+        .on_input(Message::LogsFilterChanged)
+        .style(super::input::style(palette))
+        .size(13.0)
+        .font(Font::DEFAULT)
+        .width(Length::Fill);
+    let mut line = row![input].spacing(SM).align_y(Alignment::Center);
+    for level in [LogLevel::Error, LogLevel::Warn, LogLevel::Info, LogLevel::Debug] {
+        let look = if state.filter.level_on(level) { Look::Chosen } else { Look::Normal };
+        line = line.push(text_button(&level_title(level), Some(Message::LogsLevelToggled(level)), look, palette));
+    }
+    if state.filtering() {
+        line = line.push(label(match_count_text(state.view_len(), state.shown_len()), palette.fg_dim));
+    }
+    container(line).padding([SM, MD]).width(Length::Fill).into()
+}
+
 fn mono<'a>(content: String, color: Color) -> Element<'a, Message> {
     text(content).size(13.0).font(Font::MONOSPACE).color(color).wrapping(iced::widget::text::Wrapping::None).into()
 }
@@ -226,10 +268,10 @@ fn line_row<'a>(stored: &StoredLine, palette: &Palette) -> Element<'a, Message> 
 }
 
 fn list<'a>(state: &'a LogsState, viewport: f32, palette: &Palette) -> Element<'a, Message> {
-    let total = state.shown_len();
+    let total = state.view_len();
     let range = window(total, state.scroll, viewport, state.follow);
     let mut content = column![space().height(Length::Fixed(range.start as f32 * ROW_HEIGHT))];
-    for stored in state.lines.range(range.clone()) {
+    for stored in state.view_lines(range.clone()) {
         content = content.push(line_row(stored, palette));
     }
     content = content.push(space().height(Length::Fixed(total.saturating_sub(range.end) as f32 * ROW_HEIGHT)));
@@ -250,8 +292,8 @@ fn body(app: &App) -> Element<'_, Message> {
     responsive(move |size| {
         let state = app.logs();
         let palette = app.palette();
-        if state.shown_len() == 0 {
-            return centered(label(empty_text(&state.status), palette.fg_dim));
+        if let Some(text) = empty_view_text(state) {
+            return centered(label(text, palette.fg_dim));
         }
         list(state, size.height, palette)
     })
@@ -290,6 +332,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         tab_strip(app, palette),
         hairline_across(palette),
         header(app, palette),
+        hairline_across(palette),
+        filter_row(app.logs(), palette),
         hairline_across(palette),
         container(body(app)).width(Length::Fill).height(Length::Fill),
         hairline_across(palette),

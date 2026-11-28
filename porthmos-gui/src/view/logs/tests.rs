@@ -106,7 +106,8 @@ fn the_end_offset_is_the_content_less_the_viewport_and_never_negative() {
 fn levels_pick_their_palette_role_in_every_scheme() {
     for palette in palettes() {
         assert_eq!(line_color(&stored(LogLevel::Error, None), &palette), palette.err);
-        assert_eq!(line_color(&stored(LogLevel::Warn, None), &palette), palette.fg_bright);
+        assert_eq!(line_color(&stored(LogLevel::Warn, None), &palette), palette.warn);
+        assert_ne!(palette.warn, palette.fg);
         for level in [LogLevel::Info, LogLevel::Debug, LogLevel::Unknown] {
             assert_eq!(line_color(&stored(level, None), &palette), palette.fg, "{level:?}");
         }
@@ -395,4 +396,63 @@ fn the_add_button_is_pressable_below_the_cap_and_explains_itself_at_it() {
 
     assert!(add_press(&tabs).0.is_none());
     assert_eq!(add_press(&tabs).1, Some(i18n::text_with("gui.logs.tabs_full", &[("count", "6")])));
+}
+
+#[test]
+fn the_match_count_names_both_numbers() {
+    assert_eq!(match_count_text(3, 10), "3 of 10 lines");
+}
+
+#[test]
+fn every_level_pill_has_a_label_and_unknown_has_none() {
+    let titles: Vec<String> =
+        [LogLevel::Error, LogLevel::Warn, LogLevel::Info, LogLevel::Debug].into_iter().map(level_title).collect();
+
+    assert!(titles.iter().all(|title| !title.is_empty() && !title.starts_with("gui.")));
+    let mut unique = titles.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 4);
+    assert_eq!(level_title(LogLevel::Unknown), "");
+}
+
+#[test]
+fn an_empty_filtered_view_says_so_but_an_empty_buffer_keeps_its_own_message() {
+    let mut state = LogsState::default();
+    assert_eq!(empty_view_text(&state), Some(empty_text(&LogStatus::Idle)));
+
+    state.append(vec![line("disk", LogLevel::Info)], 0, 100);
+    assert_eq!(empty_view_text(&state), None);
+
+    state.set_filter_text("zzz".to_string());
+    assert_eq!(empty_view_text(&state), Some(i18n::text("gui.logs.no_match")));
+
+    state.set_filter_text("disk".to_string());
+    assert_eq!(empty_view_text(&state), None);
+}
+
+#[test]
+fn the_windowed_list_draws_only_matching_lines() {
+    let mut state = LogsState::default();
+    let lines = (0..30).map(|n| line(&format!("row {n}{}", if n % 3 == 0 { " hit" } else { "" }), LogLevel::Info));
+    state.append(lines.collect(), 0, 100);
+    state.set_filter_text("hit".to_string());
+
+    let range = window(state.view_len(), state.scroll, 220.0, true);
+    let rows: Vec<String> = state.view_lines(range).iter().map(|stored| stored.line.text.clone()).collect();
+
+    assert_eq!(state.view_len(), 10);
+    assert!(rows.iter().all(|text| text.ends_with("hit")));
+    assert_eq!(rows.last().map(String::as_str), Some("row 27 hit"));
+}
+
+#[test]
+fn a_buffer_holding_only_a_skipped_marker_says_nothing_matches_once_filtered() {
+    let mut state = LogsState::default();
+    state.append(Vec::new(), 7, 100);
+    assert_eq!(empty_view_text(&state), None);
+
+    state.set_filter_text("zzz".to_string());
+
+    assert_eq!(empty_view_text(&state), Some(i18n::text("gui.logs.no_match")));
 }
