@@ -2,9 +2,11 @@ use std::collections::VecDeque;
 use std::ops::Range;
 
 mod filter;
+mod save;
 mod tabs;
 
 pub use filter::LogFilter;
+pub use save::{default_file_name, save_text, write_lines};
 
 #[cfg(test)]
 pub use tabs::MAX_LOG_TABS;

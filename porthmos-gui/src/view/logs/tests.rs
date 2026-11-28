@@ -456,3 +456,31 @@ fn a_buffer_holding_only_a_skipped_marker_says_nothing_matches_once_filtered() {
 
     assert_eq!(empty_view_text(&state), Some(i18n::text("gui.logs.no_match")));
 }
+
+#[test]
+fn the_save_button_is_disabled_with_a_reason_when_nothing_is_shown() {
+    let (press, reason) = save_press(&LogsState::default());
+
+    assert!(press.is_none());
+    assert_eq!(reason, Some(i18n::text("gui.logs.save_nothing")));
+}
+
+#[test]
+fn the_save_button_is_pressable_when_lines_are_shown() {
+    let mut state = LogsState::default();
+    state.append(vec![line("a", LogLevel::Info)], 0, 100);
+
+    let (press, reason) = save_press(&state);
+
+    assert!(matches!(press, Some(Message::LogsSaveRequested)));
+    assert_eq!(reason, None);
+}
+
+#[test]
+fn the_save_button_is_disabled_when_the_filter_hides_every_line() {
+    let mut state = LogsState::default();
+    state.append(vec![line("a", LogLevel::Info)], 0, 100);
+    state.set_filter_text("zzz".to_string());
+
+    assert!(save_press(&state).0.is_none());
+}

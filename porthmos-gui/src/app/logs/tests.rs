@@ -946,3 +946,304 @@ fn lowering_the_line_cap_keeps_the_filtered_view_consistent() {
     assert_eq!(rows.len(), 1000);
     assert_eq!(rows[0].line.text, "n2000");
 }
+
+fn notice_texts(harness: &Harness) -> Vec<(porthmos_core::Severity, String)> {
+    harness.app.notices().iter().map(|notice| (notice.severity, notice.message.to_string())).collect()
+}
+
+#[test]
+fn saving_with_nothing_shown_sends_no_task() {
+    let mut harness = ready();
+    started(&mut harness);
+
+    assert_eq!(harness.app.logs_save_requested().units(), 0);
+}
+
+#[test]
+fn saving_with_lines_shown_starts_the_dialog_task() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.feed(Event::Log { id, state: batch(&["a"], 0) });
+
+    assert!(harness.app.logs_save_requested().units() > 0);
+}
+
+#[test]
+fn a_cancelled_dialog_changes_nothing() {
+    let mut harness = ready();
+    let before = notice_texts(&harness).len();
+
+    harness.press(Message::LogsSaved(Ok(None)));
+
+    assert_eq!(notice_texts(&harness).len(), before);
+}
+
+#[test]
+fn a_saved_file_says_where() {
+    let mut harness = ready();
+
+    harness.press(Message::LogsSaved(Ok(Some("/tmp/out.log".into()))));
+
+    let notices = notice_texts(&harness);
+    let (severity, text) = notices.last().unwrap();
+    assert_eq!(*severity, porthmos_core::Severity::Info);
+    assert!(text.contains("/tmp/out.log"), "{text}");
+}
+
+#[test]
+fn a_failed_save_shows_the_reason() {
+    let mut harness = ready();
+
+    harness.press(Message::LogsSaved(Err("disk full".into())));
+
+    let notices = notice_texts(&harness);
+    let (severity, text) = notices.last().unwrap();
+    assert_eq!(*severity, porthmos_core::Severity::Error);
+    assert!(text.contains("disk full"), "{text}");
+}
+
+fn list_remote(harness: &mut Harness, session: u64, entries: Vec<porthmos_core::Entry>) {
+    harness.feed(Event::Listed { location: Location::Session(session), path: VfsPath::new("/srv"), entries });
+}
+
+fn remote_file(name: &str) -> porthmos_core::Entry {
+    porthmos_core::Entry { name: name.to_string(), path: VfsPath::new("/srv").join(name), ..Default::default() }
+}
+
+fn remote_folder(name: &str) -> porthmos_core::Entry {
+    porthmos_core::Entry { is_dir: true, ..remote_file(name) }
+}
+
+fn exec_ready(can_exec: bool) -> Harness {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha");
+    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: false, can_exec });
+    list_remote(&mut harness, 3, vec![remote_file("app.log"), remote_file("other.log"), remote_folder("dir")]);
+    harness.sent();
+    harness
+}
+
+fn follow_target(harness: &Harness) -> Option<bool> {
+    match harness.app.context_menu().map(|menu| menu.target.clone()) {
+        Some(crate::menus::MenuTarget::Entries { follow_log, .. }) => Some(follow_log),
+        _ => None,
+    }
+}
+
+fn follow_from_menu(harness: &mut Harness, row: usize) {
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, row));
+    harness.press(Message::MenuItemChosen(crate::menus::MenuItem::FollowAsLog));
+}
+
+#[test]
+fn the_menu_offers_follow_as_log_for_a_remote_file_on_a_session_that_can_exec() {
+    let mut harness = exec_ready(true);
+
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 2));
+
+    assert_eq!(follow_target(&harness), Some(true));
+}
+
+#[test]
+fn the_menu_does_not_offer_it_on_a_session_without_exec() {
+    let mut harness = exec_ready(false);
+
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 2));
+
+    assert_eq!(follow_target(&harness), Some(false));
+}
+
+#[test]
+fn the_menu_does_not_offer_it_for_a_folder_the_parent_row_or_two_files() {
+    let mut harness = exec_ready(true);
+
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 1));
+    assert_eq!(follow_target(&harness), Some(false));
+
+    harness.press(Message::ContextMenuDismissed);
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 0));
+    assert_eq!(follow_target(&harness), Some(false));
+
+    harness.press(Message::ContextMenuDismissed);
+    harness.press(Message::ModifiersChanged(iced::keyboard::Modifiers::empty()));
+    harness.press(Message::PanelClicked(crate::app::PanelSide::Remote, 2));
+    harness.press(Message::ModifiersChanged(iced::keyboard::Modifiers::COMMAND));
+    harness.press(Message::PanelClicked(crate::app::PanelSide::Remote, 3));
+    harness.press(Message::ModifiersChanged(iced::keyboard::Modifiers::empty()));
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 2));
+    assert_eq!(follow_target(&harness), Some(false));
+}
+
+#[test]
+fn the_menu_does_not_offer_it_on_the_local_panel() {
+    let mut harness = exec_ready(true);
+    let folder = harness.start_folder();
+    let local = porthmos_core::Entry { name: "a".into(), path: folder.join("a"), ..Default::default() };
+    harness.feed(Event::Listed { location: Location::Local, path: folder, entries: vec![local] });
+
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Local, 1));
+
+    assert_eq!(follow_target(&harness), Some(false));
+}
+
+#[test]
+fn choosing_it_opens_the_logs_and_starts_the_file_on_that_session() {
+    let mut harness = exec_ready(true);
+
+    follow_from_menu(&mut harness, 3);
+
+    let sent = harness.sent();
+    let started = starts(&sent);
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].1, 3);
+    assert_eq!(started[0].2, LogSource::File("/srv/other.log".to_string()));
+    assert_eq!(harness.app.drawer().view, DrawerView::Logs);
+    assert!(harness.app.drawer().open);
+}
+
+#[test]
+fn choosing_it_twice_focuses_the_same_tab() {
+    let mut harness = exec_ready(true);
+    follow_from_menu(&mut harness, 2);
+    let id = starts(&harness.sent())[0].0;
+    harness.feed(Event::Log { id, state: LogState::Started });
+
+    follow_from_menu(&mut harness, 2);
+
+    assert!(starts(&harness.sent()).is_empty());
+    assert_eq!(harness.app.log_tabs().tabs().len(), 1);
+}
+
+#[test]
+fn a_second_file_opens_a_second_tab() {
+    let mut harness = exec_ready(true);
+    follow_from_menu(&mut harness, 2);
+    let first = starts(&harness.sent())[0].0;
+    harness.feed(Event::Log { id: first, state: LogState::Started });
+
+    follow_from_menu(&mut harness, 3);
+
+    let sent = harness.sent();
+    assert_eq!(starts(&sent).len(), 1);
+    assert!(stops(&sent).is_empty());
+    assert_eq!(harness.app.log_tabs().tabs().len(), 2);
+    assert_eq!(harness.app.logs().path, "/srv/other.log");
+}
+
+#[test]
+fn with_six_busy_tabs_it_says_so_and_stops_nothing() {
+    let mut harness = exec_ready(true);
+    for index in 0..6 {
+        harness.press(Message::LogsPathChanged(format!("/f{index}")));
+        if index < 5 {
+            harness.press(Message::LogsTabAdded);
+        }
+    }
+    harness.press(Message::LogsSessionChosen("alpha".into()));
+    harness.press(Message::LogsStartRequested);
+    harness.sent();
+    let running = harness.app.logs().running;
+
+    follow_from_menu(&mut harness, 2);
+
+    let sent = harness.sent();
+    assert!(starts(&sent).is_empty() && stops(&sent).is_empty(), "{sent:?}");
+    assert_eq!(harness.app.logs().running, running);
+    assert_eq!(harness.app.logs().path, "/f5");
+    let said = crate::logs_view::tabs_full_text();
+    assert!(harness.app.notices().iter().any(|notice| notice.message == said));
+}
+
+fn two_exec_connections() -> Harness {
+    let mut harness = Harness::new();
+    for (session, name) in [(3, "alpha"), (4, "beta")] {
+        connect(&mut harness, session, name);
+        harness.feed(Event::SessionCapabilities {
+            session,
+            preserves_times: false,
+            embedded_shell: false,
+            can_exec: true,
+        });
+        list_remote(&mut harness, session, vec![remote_file("x.log")]);
+    }
+    harness.sent();
+    harness
+}
+
+#[test]
+fn following_starts_on_the_clicked_connection_and_leaves_a_running_tab_alone() {
+    let mut harness = two_exec_connections();
+    harness.press(Message::LogsSessionChosen("alpha".into()));
+    harness.press(Message::LogsPathChanged("/a".into()));
+    let first = started(&mut harness);
+    assert_eq!(harness.app.sessions().active().map(|session| session.id), Some(4));
+
+    follow_from_menu(&mut harness, 1);
+
+    let sent = harness.sent();
+    let begun = starts(&sent);
+    assert_eq!(begun.len(), 1);
+    assert_eq!(begun[0].1, 4);
+    assert!(stops(&sent).is_empty());
+    assert_eq!(harness.app.log_tabs().tabs()[0].running, Some((first, 3)));
+    assert_eq!(harness.app.logs().running.map(|(_, session)| session), Some(4));
+}
+
+#[test]
+fn losing_the_connection_closes_an_open_context_menu() {
+    let mut harness = exec_ready(true);
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 2));
+    assert!(harness.app.context_menu().is_some());
+
+    harness.feed(Event::Disconnected { session: 3, name: "alpha".into() });
+
+    assert!(harness.app.context_menu().is_none());
+}
+
+#[test]
+fn an_unhealthy_session_is_not_offered_follow_as_log() {
+    let mut harness = exec_ready(true);
+    harness.feed(Event::SessionHealth { session: 3, healthy: false });
+
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 2));
+
+    assert_eq!(follow_target(&harness), Some(false));
+}
+
+#[test]
+fn choosing_follow_as_log_from_a_menu_that_did_not_offer_it_does_nothing() {
+    let mut harness = exec_ready(false);
+    harness.press(Message::RowRightPressed(crate::app::PanelSide::Remote, 2));
+
+    harness.press(Message::MenuItemChosen(crate::menus::MenuItem::FollowAsLog));
+
+    assert!(starts(&harness.sent()).is_empty());
+    assert_ne!(harness.app.drawer().view, DrawerView::Logs);
+    assert!(harness.app.log_tabs().active().is_pristine());
+}
+
+#[test]
+fn following_a_file_that_runs_in_another_tab_selects_that_tab() {
+    let mut harness = exec_ready(true);
+    follow_from_menu(&mut harness, 2);
+    let id = starts(&harness.sent())[0].0;
+    harness.feed(Event::Log { id, state: LogState::Started });
+    harness.press(Message::LogsTabAdded);
+    assert_eq!(harness.app.log_tabs().active_index(), 1);
+
+    follow_from_menu(&mut harness, 2);
+
+    assert!(starts(&harness.sent()).is_empty());
+    assert_eq!(harness.app.log_tabs().active_index(), 0);
+    assert_eq!(harness.app.log_tabs().tabs().len(), 2);
+}
+
+#[test]
+fn a_saved_path_is_shown_without_control_characters() {
+    let mut harness = ready();
+
+    harness.press(Message::LogsSaved(Ok(Some("/tmp/a\u{1b}[31mb.log".into()))));
+
+    let notices = notice_texts(&harness);
+    assert!(!notices.last().unwrap().1.chars().any(char::is_control));
+}

@@ -270,9 +270,32 @@ fn session_capabilities_are_recorded() {
     let mut harness = Harness::new();
     connect(&mut harness, 1, "alpha");
 
-    harness.feed(Event::SessionCapabilities { session: 1, preserves_times: true, embedded_shell: false });
+    harness.feed(Event::SessionCapabilities {
+        session: 1,
+        preserves_times: true,
+        embedded_shell: false,
+        can_exec: false,
+    });
 
     assert!(harness.app.sessions().by_id(1).unwrap().preserves_times);
+}
+
+#[test]
+fn can_exec_is_recorded_per_session_and_starts_false() {
+    let mut harness = Harness::new();
+    connect(&mut harness, 1, "alpha");
+    connect(&mut harness, 2, "beta");
+    assert!(!harness.app.sessions().by_id(1).unwrap().can_exec);
+
+    harness.feed(Event::SessionCapabilities {
+        session: 2,
+        preserves_times: false,
+        embedded_shell: false,
+        can_exec: true,
+    });
+
+    assert!(harness.app.sessions().by_id(2).unwrap().can_exec);
+    assert!(!harness.app.sessions().by_id(1).unwrap().can_exec);
 }
 
 fn fill_local(harness: &mut Harness, names: &[&str]) {
@@ -3688,7 +3711,10 @@ fn right_clicking_an_unselected_row_selects_only_it_and_opens_the_menu() {
     harness.press(Message::RowRightPressed(PanelSide::Local, 2));
 
     assert_eq!(selected_local(&harness), ["b"]);
-    assert_eq!(context_target(&harness), Some(MenuTarget::Entries { count: 1, only_parent: false, file: true }));
+    assert_eq!(
+        context_target(&harness),
+        Some(MenuTarget::Entries { count: 1, only_parent: false, file: true, follow_log: false })
+    );
 }
 
 #[test]
@@ -3702,7 +3728,10 @@ fn right_clicking_inside_the_selection_keeps_the_selection() {
 
     assert_eq!(selected_local(&harness), ["a", "b"]);
     assert_eq!(harness.app.local().panel.cursor(), 1);
-    assert_eq!(context_target(&harness), Some(MenuTarget::Entries { count: 2, only_parent: false, file: false }));
+    assert_eq!(
+        context_target(&harness),
+        Some(MenuTarget::Entries { count: 2, only_parent: false, file: false, follow_log: false })
+    );
 }
 
 #[test]
@@ -3713,7 +3742,10 @@ fn right_clicking_the_parent_row_builds_a_parent_only_target() {
 
     harness.press(Message::RowRightPressed(PanelSide::Local, 0));
 
-    assert_eq!(context_target(&harness), Some(MenuTarget::Entries { count: 1, only_parent: true, file: false }));
+    assert_eq!(
+        context_target(&harness),
+        Some(MenuTarget::Entries { count: 1, only_parent: true, file: false, follow_log: false })
+    );
 }
 
 #[test]

@@ -84,6 +84,14 @@ pub fn clear_press(state: &LogsState) -> Press {
     }
 }
 
+pub fn save_press(state: &LogsState) -> Press {
+    if state.view_len() > 0 {
+        (Some(Message::LogsSaveRequested), None)
+    } else {
+        (None, Some(i18n::text("gui.logs.save_nothing")))
+    }
+}
+
 pub fn pause_title(paused: bool) -> String {
     if paused { tr("Resume") } else { tr("Pause") }
 }
@@ -226,7 +234,8 @@ fn header<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
         .push(action(&tr("Start"), start_press(state), palette))
         .push(action(&tr("Stop"), stop_press(state), palette))
         .push(action(&pause_title(state.paused()), pause_press(state), palette))
-        .push(action(&tr("Clear"), clear_press(state), palette));
+        .push(action(&tr("Clear"), clear_press(state), palette))
+        .push(action(&i18n::text("gui.logs.save"), save_press(state), palette));
     container(line).padding([SM, MD]).width(Length::Fill).into()
 }
 

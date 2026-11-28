@@ -1,13 +1,26 @@
 use iced::Task;
 use iced::widget::operation::{self, RelativeOffset};
 use porthmos_core::Command;
+use porthmos_core::edit::printable;
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
-use porthmos_core::{LogId, LogState};
+use porthmos_core::{LogId, LogState, Severity};
 
-use super::{App, Message};
+use super::{App, Message, PanelSide};
 use crate::drawer::DrawerView;
-use crate::logs_view::{LogStatus, LogTabs, LogsState};
+use crate::logs_view::{
+    LogStatus, LogTabs, LogsState, SourceKind, default_file_name, save_text, tabs_full_text, write_lines,
+};
+use crate::view::logs::skipped_text;
+
+async fn save_lines(name: String, text: String) -> Result<Option<std::path::PathBuf>, String> {
+    let Some(handle) = rfd::AsyncFileDialog::new().set_file_name(name).save_file().await else {
+        return Ok(None);
+    };
+    let path = handle.path().to_path_buf();
+    write_lines(path.clone(), text).await?;
+    Ok(Some(path))
+}
 
 impl App {
     pub fn logs(&self) -> &LogsState {
@@ -20,6 +33,68 @@ impl App {
 
     pub fn logs_tab_label(&self) -> String {
         tr("Logs")
+    }
+
+    pub(in crate::app) fn logs_tab_for_new_source(&mut self) -> bool {
+        if self.logs.active().is_pristine() || self.logs.add() {
+            return true;
+        }
+        self.show_logs();
+        self.push_notice(Severity::Warning, tabs_full_text());
+        false
+    }
+
+    pub(in crate::app) fn follow_as_log(&mut self) {
+        let Some(session) =
+            self.sessions.active().filter(|session| session.can_exec && session.healthy).map(|session| session.id)
+        else {
+            return;
+        };
+        let Some(path) = self
+            .panel_of(PanelSide::Remote)
+            .and_then(crate::panel::Panel::cursor_entry)
+            .filter(|entry| !entry.is_dir)
+            .map(|entry| entry.path.to_string_lossy().into_owned())
+        else {
+            return;
+        };
+        if let Some(index) = self.logs.following_file(&path, session) {
+            self.logs.select(index);
+            self.show_logs();
+            return;
+        }
+        if !self.logs_tab_for_new_source() {
+            return;
+        }
+        self.health.chosen = Some(session);
+        let tab = self.logs.active_mut();
+        tab.kind = SourceKind::File;
+        tab.path = path;
+        self.show_logs();
+        self.logs_start();
+    }
+
+    pub(in crate::app) fn logs_save_requested(&mut self) -> Task<Message> {
+        let state = self.logs();
+        if state.view_len() == 0 {
+            return Task::none();
+        }
+        let text = save_text(state, skipped_text);
+        let name = default_file_name(state, chrono::Local::now().date_naive());
+        Task::perform(save_lines(name, text), Message::LogsSaved)
+    }
+
+    pub(in crate::app) fn logs_saved(&mut self, result: Result<Option<std::path::PathBuf>, String>) {
+        match result {
+            Ok(None) => {}
+            Ok(Some(path)) => {
+                let shown = printable(&path.display().to_string());
+                self.push_notice(Severity::Info, i18n::text_with("gui.logs.saved", &[("path", &shown)]));
+            }
+            Err(reason) => {
+                self.push_notice(Severity::Error, i18n::text_with("gui.logs.save_failed", &[("reason", &reason)]));
+            }
+        }
     }
 
     pub(in crate::app) fn show_logs(&mut self) {

@@ -10,6 +10,7 @@ pub struct Session {
     pub healthy: bool,
     pub shell_available: bool,
     pub embedded_shell: bool,
+    pub can_exec: bool,
     pub pane: Pane,
 }
 
@@ -36,6 +37,7 @@ impl Sessions {
             healthy: true,
             shell_available: false,
             embedded_shell: false,
+            can_exec: false,
             pane: Pane::awaiting_first_listing(),
         });
         self.active = Some(self.items.len() - 1);

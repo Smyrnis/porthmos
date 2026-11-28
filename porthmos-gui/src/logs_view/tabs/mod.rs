@@ -99,6 +99,14 @@ impl LogTabs {
         })
     }
 
+    pub fn following_file(&self, path: &str, session: SessionId) -> Option<usize> {
+        self.tabs.iter().position(|tab| {
+            tab.kind == SourceKind::File
+                && tab.path.trim() == path.trim()
+                && tab.running.is_some_and(|(_, running)| running == session)
+        })
+    }
+
     pub fn trim_all(&mut self, max_lines: usize) {
         for tab in &mut self.tabs {
             tab.trim(max_lines);

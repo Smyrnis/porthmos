@@ -233,3 +233,20 @@ fn closing_another_tab_leaves_the_active_tabs_restore_flag_alone() {
 fn the_tabs_full_text_names_the_cap() {
     assert!(tabs_full_text().contains(&MAX_LOG_TABS.to_string()));
 }
+
+#[test]
+fn following_file_finds_the_running_tab_on_that_session_only() {
+    let mut tabs = with_tabs(3);
+    tabs.tabs[1].kind = SourceKind::File;
+    tabs.tabs[1].path = "/var/log/app.log".to_string();
+    tabs.tabs[1].running = Some((9, 3));
+    tabs.tabs[2].kind = SourceKind::Journal;
+    tabs.tabs[2].unit = "/var/log/app.log".to_string();
+    tabs.tabs[2].running = Some((10, 3));
+
+    assert_eq!(tabs.following_file("/var/log/app.log", 3), Some(1));
+    assert_eq!(tabs.following_file("/var/log/app.log", 4), None);
+    assert_eq!(tabs.following_file("/var/log/other.log", 3), None);
+    tabs.tabs[1].running = None;
+    assert_eq!(tabs.following_file("/var/log/app.log", 3), None);
+}

@@ -24,7 +24,7 @@ fn item<'a>(app: &App, entry: (crate::menus::MenuItem, bool)) -> Element<'a, Mes
     let palette = *app.palette();
     let (menu_item, enabled) = entry;
     let color = if enabled { palette.fg_bright } else { palette.fg_dim };
-    let keys = app.shortcuts().label_for(menu_item.action()).unwrap_or_default();
+    let keys = menu_item.action().and_then(|action| app.shortcuts().label_for(action)).unwrap_or_default();
     let line = row![label(menu_item.title(), color).width(Length::Fill), label(keys, palette.fg_dim)]
         .align_y(alignment::Vertical::Center);
     button(line)

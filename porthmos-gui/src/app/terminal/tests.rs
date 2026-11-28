@@ -339,7 +339,12 @@ fn sent_open_terminal(commands: &[Command]) -> bool {
 fn f4_on_a_connection_with_an_embedded_shell_opens_the_drawer_instead_of_a_window() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
-    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.feed(Event::SessionCapabilities {
+        session: 3,
+        preserves_times: false,
+        embedded_shell: true,
+        can_exec: false,
+    });
     harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     named(&mut harness, Named::F4);
@@ -354,7 +359,12 @@ fn f4_on_a_connection_with_an_embedded_shell_opens_the_drawer_instead_of_a_windo
 fn f4_on_a_connection_without_an_embedded_shell_falls_back_to_the_external_terminal() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
-    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: false });
+    harness.feed(Event::SessionCapabilities {
+        session: 3,
+        preserves_times: false,
+        embedded_shell: false,
+        can_exec: false,
+    });
     harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     named(&mut harness, Named::F4);
@@ -380,7 +390,12 @@ async fn f4_on_the_local_panel_opens_an_embedded_local_shell() {
 fn with_the_embedded_terminal_turned_off_f4_always_hands_off() {
     let mut harness = external();
     connect(&mut harness, 3, "alpha", true);
-    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.feed(Event::SessionCapabilities {
+        session: 3,
+        preserves_times: false,
+        embedded_shell: true,
+        can_exec: false,
+    });
     harness.press(Message::PanelClicked(PanelSide::Remote, 0));
     named(&mut harness, Named::F4);
     assert_eq!(harness.sent(), vec![Command::PrepareShell { session: 3, directory: Some(VfsPath::new("/srv/data")) }]);
@@ -395,7 +410,12 @@ fn with_the_embedded_terminal_turned_off_f4_always_hands_off() {
 fn the_external_terminal_action_hands_off_even_when_the_embedded_one_is_on() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", true);
-    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.feed(Event::SessionCapabilities {
+        session: 3,
+        preserves_times: false,
+        embedded_shell: true,
+        can_exec: false,
+    });
     harness.press(Message::PanelClicked(PanelSide::Remote, 0));
 
     harness.press(Message::ActionRequested(crate::shortcuts::Action::TerminalExternal));
@@ -410,7 +430,12 @@ fn the_capability_is_remembered_per_session() {
     connect(&mut harness, 3, "alpha", true);
     connect(&mut harness, 4, "beta", true);
 
-    harness.feed(Event::SessionCapabilities { session: 4, preserves_times: false, embedded_shell: true });
+    harness.feed(Event::SessionCapabilities {
+        session: 4,
+        preserves_times: false,
+        embedded_shell: true,
+        can_exec: false,
+    });
 
     let flags: Vec<(u64, bool)> = [3, 4]
         .into_iter()

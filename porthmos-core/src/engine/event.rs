@@ -76,7 +76,7 @@ pub enum Event {
     ReopenOffer { names: Vec<String> },
     FocusConnection { name: String },
     Connected { session: SessionId, name: String, shell_available: bool },
-    SessionCapabilities { session: SessionId, preserves_times: bool, embedded_shell: bool },
+    SessionCapabilities { session: SessionId, preserves_times: bool, embedded_shell: bool, can_exec: bool },
     ConnectFailed { name: String, message: Message },
     Question { request_id: RequestId, question: Question },
     TestQuestion { test_id: u64, request_id: RequestId, question: Question },

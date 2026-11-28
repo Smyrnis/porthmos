@@ -1044,6 +1044,41 @@ fn a_session_on_a_filesystem_without_time_support_says_so() {
     ));
 }
 
+fn announced_can_exec(t: &mut TestEngine) -> Vec<bool> {
+    t.drain()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::SessionCapabilities { can_exec, .. } => Some(can_exec),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_session_with_a_command_runner_says_it_can_exec() {
+    let mut t = test_engine();
+    t.add_session_with(
+        "ssh",
+        std::sync::Arc::new(porthmos_vfs::testing::FakeFs::new().with_runner(porthmos_vfs::testing::FakeRunner::new())),
+    );
+    t.drain();
+
+    t.engine.connect("ssh");
+
+    assert_eq!(announced_can_exec(&mut t), vec![true]);
+}
+
+#[test]
+fn a_session_without_a_command_runner_says_it_cannot_exec() {
+    let mut t = test_engine();
+    t.add_session("ftp");
+    t.drain();
+
+    t.engine.connect("ftp");
+
+    assert_eq!(announced_can_exec(&mut t), vec![false]);
+}
+
 async fn events_through(t: &mut TestEngine, mut last: impl FnMut(&Event) -> bool) -> Vec<Event> {
     let mut seen = Vec::new();
     loop {

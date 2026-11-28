@@ -310,6 +310,8 @@ pub enum Message {
     LogsPathChanged(String),
     LogsUnitChanged(String),
     LogsFilterChanged(String),
+    LogsSaveRequested,
+    LogsSaved(Result<Option<std::path::PathBuf>, String>),
     LogsLevelToggled(porthmos_core::LogLevel),
     LogsScrolled { offset: f32, viewport: f32, content: f32 },
     ServiceLogsRequested,
@@ -924,6 +926,7 @@ impl App {
                 }
                 self.terminal_session_ended(session);
                 self.sessions.remove(session);
+                self.context_menu = None;
                 if self.sessions.is_empty() {
                     self.active = PanelSide::Local;
                     if self.filtering == Some(PanelSide::Remote) {
@@ -936,10 +939,11 @@ impl App {
                     session.healthy = healthy;
                 }
             }
-            Event::SessionCapabilities { session, preserves_times, embedded_shell } => {
+            Event::SessionCapabilities { session, preserves_times, embedded_shell, can_exec } => {
                 if let Some(session) = self.sessions.by_id_mut(session) {
                     session.preserves_times = preserves_times;
                     session.embedded_shell = embedded_shell;
+                    session.can_exec = can_exec;
                 }
             }
             Event::Listed { location, path, entries } => {
@@ -1071,7 +1075,15 @@ impl App {
         let file = !parent_row
             && count == 1
             && self.panel_of(side).and_then(Panel::cursor_entry).is_some_and(|entry| !entry.is_dir);
-        let target = MenuTarget::Entries { count: if parent_row { 1 } else { count }, only_parent: parent_row, file };
+        let follow_log = file
+            && side == PanelSide::Remote
+            && self.sessions.active().is_some_and(|session| session.can_exec && session.healthy);
+        let target = MenuTarget::Entries {
+            count: if parent_row { 1 } else { count },
+            only_parent: parent_row,
+            file,
+            follow_log,
+        };
         self.show_menu(side, target);
     }
 
@@ -1312,7 +1324,13 @@ impl App {
                     return Task::none();
                 };
                 if self.menus_allowed() && self.menu_item_enabled(&menu, item) {
-                    return self.perform(item.action());
+                    return match item {
+                        MenuItem::FollowAsLog => {
+                            self.follow_as_log();
+                            Task::none()
+                        }
+                        other => other.action().map_or_else(Task::none, |action| self.perform(action)),
+                    };
                 }
             }
             Message::NavigateUp(side) => self.go_up(side),
@@ -1632,6 +1650,8 @@ impl App {
             Message::LogsKindChosen(kind) => self.logs.active_mut().kind = kind,
             Message::LogsPathChanged(text) => self.logs.active_mut().path = text,
             Message::LogsUnitChanged(text) => self.logs.active_mut().unit = text,
+            Message::LogsSaveRequested => return self.logs_save_requested(),
+            Message::LogsSaved(result) => self.logs_saved(result),
             Message::LogsFilterChanged(text) => self.logs.active_mut().set_filter_text(text),
             Message::LogsLevelToggled(level) => self.logs.active_mut().toggle_level(level),
             Message::PortsViewChosen(pane) => self.ports.pane = pane,

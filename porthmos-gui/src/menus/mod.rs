@@ -56,6 +56,7 @@ pub enum MenuItem {
     Rename,
     Permissions,
     Properties,
+    FollowAsLog,
     Delete,
     NewFolder,
     Refresh,
@@ -72,14 +73,15 @@ impl MenuItem {
             MenuItem::Rename => tr("Rename…"),
             MenuItem::Permissions => tr("Permissions…"),
             MenuItem::Properties => tr("Properties…"),
+            MenuItem::FollowAsLog => tr("Follow as log"),
             MenuItem::Delete => tr("Delete"),
             MenuItem::NewFolder => tr("New folder"),
             MenuItem::Refresh => tr("Refresh"),
         }
     }
 
-    pub fn action(self) -> Action {
-        match self {
+    pub fn action(self) -> Option<Action> {
+        Some(match self {
             MenuItem::Open => Action::Open,
             MenuItem::Preview => Action::Preview,
             MenuItem::Edit => Action::Edit,
@@ -88,16 +90,17 @@ impl MenuItem {
             MenuItem::Rename => Action::Rename,
             MenuItem::Permissions => Action::Permissions,
             MenuItem::Properties => Action::Properties,
+            MenuItem::FollowAsLog => return None,
             MenuItem::Delete => Action::Delete,
             MenuItem::NewFolder => Action::NewFolder,
             MenuItem::Refresh => Action::Refresh,
-        }
+        })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuTarget {
-    Entries { count: usize, only_parent: bool, file: bool },
+    Entries { count: usize, only_parent: bool, file: bool, follow_log: bool },
     Background,
 }
 
@@ -111,9 +114,9 @@ pub struct ContextMenu {
 pub fn context_items(target: &MenuTarget, other_panel: bool) -> Vec<(MenuItem, bool)> {
     match target {
         MenuTarget::Background => vec![(MenuItem::NewFolder, true), (MenuItem::Refresh, true)],
-        MenuTarget::Entries { count, only_parent, file } => {
+        MenuTarget::Entries { count, only_parent, file, follow_log } => {
             let real = !only_parent;
-            vec![
+            let mut items = vec![
                 (MenuItem::Open, *count == 1),
                 (MenuItem::Preview, *file && real),
                 (MenuItem::Edit, *file && real),
@@ -125,7 +128,11 @@ pub fn context_items(target: &MenuTarget, other_panel: bool) -> Vec<(MenuItem, b
                 (MenuItem::Delete, real),
                 (MenuItem::NewFolder, true),
                 (MenuItem::Refresh, true),
-            ]
+            ];
+            if *follow_log && let Some(edit) = items.iter().position(|(item, _)| *item == MenuItem::Edit) {
+                items.insert(edit + 1, (MenuItem::FollowAsLog, true));
+            }
+            items
         }
     }
 }

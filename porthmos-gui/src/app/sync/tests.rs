@@ -30,7 +30,7 @@ fn ctrl_u(harness: &mut Harness) {
 fn connect(harness: &mut Harness, session: u64, name: &str, listed: bool, preserves_times: bool) {
     harness.feed(Event::Connected { session, name: name.to_string(), shell_available: false });
     if preserves_times {
-        harness.feed(Event::SessionCapabilities { session, preserves_times, embedded_shell: false });
+        harness.feed(Event::SessionCapabilities { session, preserves_times, embedded_shell: false, can_exec: false });
     }
     if listed {
         harness.feed(Event::Listed {

@@ -69,7 +69,8 @@ impl Engine {
             return;
         };
         let (preserves_times, embedded_shell) = (live.fs.can_set_modified(), live.fs.can_open_shell());
-        self.emit(Event::SessionCapabilities { session, preserves_times, embedded_shell });
+        let can_exec = live.fs.runner().is_some();
+        self.emit(Event::SessionCapabilities { session, preserves_times, embedded_shell, can_exec });
     }
 
     pub(crate) fn connect(&mut self, profile: &str) {

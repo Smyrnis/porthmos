@@ -148,7 +148,12 @@ async fn a_new_tab_uses_the_active_tabs_source_and_directory() {
 async fn a_new_tab_without_any_tab_opens_for_the_active_pane() {
     let mut harness = Harness::new();
     connect(&mut harness, 3, "alpha", "/srv/data");
-    harness.feed(Event::SessionCapabilities { session: 3, preserves_times: false, embedded_shell: true });
+    harness.feed(Event::SessionCapabilities {
+        session: 3,
+        preserves_times: false,
+        embedded_shell: true,
+        can_exec: false,
+    });
 
     harness.press(Message::TerminalNewTab);
 
