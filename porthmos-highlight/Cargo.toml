@@ -1,0 +1,11 @@
+[package]
+name = "porthmos-highlight"
+description = "Shared text colouring for Porthmos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+syntect.workspace = true
+two-face.workspace = true

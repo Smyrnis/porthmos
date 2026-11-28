@@ -42,6 +42,7 @@ jobs:
           forbid_dependency porthmos-term russh
           forbid_workspace_crates porthmos-tunnel 'porthmos-(core|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|term|update|release|gui)'
           forbid_workspace_crates porthmos-monitor 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|term|tunnel|update|release|gui)'
+          forbid_workspace_crates porthmos-highlight 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|term|tunnel|monitor|update|release|gui)'
           forbid_workspace_crates porthmos-update 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp|release)'
           forbid_workspace_crates porthmos-release 'porthmos-(core|vfs|lfs|tls|ssh|sftp|ftp|webdav|s3|scp)'
           for manifest in protocols/*/Cargo.toml; do
@@ -58,6 +59,8 @@ jobs:
             fi
           done
           forbid_dependency porthmos-core iced
+          forbid_dependency porthmos-core onig --target all
+          forbid_dependency porthmos-gui onig --target all
       - name: Installer
         run: |
           shellcheck scripts/install/*.sh
