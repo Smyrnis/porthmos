@@ -1,7 +1,8 @@
 use iced::widget::scrollable::{Direction, Scrollbar};
 use iced::widget::text::Wrapping;
-use iced::widget::{column, container, row, scrollable, space, text};
-use iced::{Element, Font, Length};
+use iced::widget::{column, container, rich_text, row, scrollable, space, span, text};
+use iced::{Color, Element, Font, Length};
+use porthmos_core::TokenKind;
 use porthmos_core::edit::printable;
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
@@ -11,7 +12,7 @@ use super::spacing::DIALOG_GAP;
 use super::tools::preview_list_height;
 use super::{bold_label, hairline_across, label};
 use crate::app::{App, Message};
-use crate::preview_view::{PreviewState, PreviewStatus, visible_window};
+use crate::preview_view::{Piece, PreviewState, PreviewStatus, visible_window};
 use crate::search::SearchPreview;
 use crate::theme::Palette;
 
@@ -20,8 +21,43 @@ const FONT_SIZE: f32 = 13.0;
 const CHARACTER_WIDTH: f32 = 8.0;
 const SIDE_PADDING: f32 = 8.0;
 
-fn code_row<'a>(line: String, palette: &Palette) -> Element<'a, Message> {
-    let line = text(line).size(FONT_SIZE).font(Font::MONOSPACE).color(palette.fg).wrapping(Wrapping::None);
+pub fn kind_color(kind: TokenKind, palette: &Palette) -> Color {
+    match kind {
+        TokenKind::Plain | TokenKind::Operator | TokenKind::Punctuation => palette.fg,
+        TokenKind::Comment => palette.fg_dim,
+        TokenKind::String => palette.syntax_string,
+        TokenKind::Number | TokenKind::Constant => palette.syntax_number,
+        TokenKind::Keyword => palette.syntax_keyword,
+        TokenKind::Type => palette.syntax_type,
+        TokenKind::Function => palette.syntax_function,
+        TokenKind::Error => palette.err,
+        TokenKind::Warn => palette.warn,
+    }
+}
+
+pub fn single_plain(pieces: &[Piece]) -> Option<&str> {
+    match pieces {
+        [piece] if piece.kind == TokenKind::Plain => Some(&piece.text),
+        _ => None,
+    }
+}
+
+fn code_row<'a>(pieces: Vec<Piece>, palette: &Palette) -> Element<'a, Message> {
+    let line: Element<'a, Message> = match single_plain(&pieces) {
+        Some(plain) => text(plain.to_string())
+            .size(FONT_SIZE)
+            .font(Font::MONOSPACE)
+            .color(palette.fg)
+            .wrapping(Wrapping::None)
+            .into(),
+        None => {
+            let spans: Vec<_> = pieces
+                .into_iter()
+                .map(|piece| span::<(), Font>(piece.text).color(kind_color(piece.kind, palette)))
+                .collect();
+            rich_text::<(), Message, _, _>(spans).size(FONT_SIZE).font(Font::MONOSPACE).wrapping(Wrapping::None).into()
+        }
+    };
     container(line).height(Length::Fixed(ROW_HEIGHT)).padding([0.0, SIDE_PADDING]).into()
 }
 

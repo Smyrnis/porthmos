@@ -6,11 +6,19 @@ use porthmos_vfs::{FileSystem, VfsPath};
 use super::super::{Engine, Event, Internal, Location, RequestId};
 use crate::{
     Message, failure_report,
-    preview::{PREVIEW_LIMIT, Preview, PreviewSlot, read_preview},
+    preview::{PREVIEW_LIMIT, Preview, PreviewContent, PreviewSlot, colour::colour_text, read_preview},
     tasks::Scope,
 };
 
 pub(crate) const PREVIEW_REST: Duration = Duration::from_millis(150);
+
+async fn coloured(mut preview: Preview, name: &str) -> Preview {
+    if let PreviewContent::Text(text) = &preview.content {
+        let (name, text) = (name.to_string(), text.clone());
+        preview.colours = tokio::task::spawn_blocking(move || colour_text(&name, &text)).await.ok().flatten();
+    }
+    preview
+}
 
 fn name_of(path: &VfsPath) -> String {
     path.file_name().map_or_else(|| path.to_string(), |name| name.to_string_lossy().into_owned())
@@ -62,7 +70,7 @@ impl Engine {
         self.tasks.spawn(task_name(slot), Scope::Preview(slot), move |cancel| async move {
             let name = name_of(&path);
             let result = match read_preview(fs.as_ref(), &path, PREVIEW_LIMIT, &cancel).await {
-                Ok(preview) => Ok(preview),
+                Ok(preview) => Ok(coloured(preview, &name).await),
                 Err(err) => {
                     tracing::debug!("{err:?}");
                     Err(failure_report(i18n::text_with("preview.failed", &[("name", &name)]), &err))

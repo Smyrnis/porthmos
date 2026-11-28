@@ -59,6 +59,48 @@ async fn a_local_file_is_previewed_with_its_name_and_the_request_id() {
     assert_eq!((preview.size, preview.truncated), (Some(12), false));
 }
 
+async fn preview_of(name: &str, bytes: &[u8]) -> Arc<Preview> {
+    let mut t = test_engine();
+    std::fs::write(t.dir.path().join(name), bytes).unwrap();
+    let path = t.dir.path().join(name);
+
+    t.engine.handle_command(Command::Preview { request_id: 1, location: Location::Local, path: from_os_path(&path) });
+    t.run_internal().await;
+    next_preview(&mut t).await.2.unwrap()
+}
+
+#[tokio::test]
+async fn a_text_preview_arrives_with_colours_for_a_known_syntax() {
+    let preview = preview_of("main.rs", b"fn main() {}\n").await;
+
+    let colours = preview.colours.as_ref().expect("colours for a Rust file");
+    assert!(colours.lines[0].iter().any(|span| span.kind == porthmos_highlight::TokenKind::Keyword));
+}
+
+#[tokio::test]
+async fn a_log_preview_arrives_with_level_colours() {
+    let preview = preview_of("app.log", b"ERROR boom\nfine\n").await;
+
+    let colours = preview.colours.as_ref().expect("colours for a log");
+    assert_eq!(colours.lines[0][0].kind, porthmos_highlight::TokenKind::Error);
+}
+
+#[tokio::test]
+async fn a_binary_preview_has_no_colours() {
+    let preview = preview_of("main.rs", b"fn\0main").await;
+
+    assert!(matches!(preview.content, PreviewContent::Binary(_)));
+    assert!(preview.colours.is_none());
+}
+
+#[tokio::test]
+async fn an_unknown_text_file_has_no_colours_and_still_arrives() {
+    let preview = preview_of("data.zzzzzz", b"just words\n").await;
+
+    assert_eq!(preview.content, text("just words\n"));
+    assert!(preview.colours.is_none());
+}
+
 #[tokio::test]
 async fn a_remote_file_is_previewed_through_its_session() {
     let mut t = test_engine();

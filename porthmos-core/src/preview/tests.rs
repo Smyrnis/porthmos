@@ -98,7 +98,7 @@ async fn a_small_file_is_read_whole() {
 
     let preview = read_preview(&fs, &VfsPath::new("/d/a.txt"), 100, &never()).await.unwrap();
 
-    assert_eq!(preview, Preview { size: Some(5), shown: 5, truncated: false, content: text("hello") });
+    assert_eq!(preview, Preview { size: Some(5), shown: 5, truncated: false, content: text("hello"), colours: None });
 }
 
 #[tokio::test]
@@ -181,7 +181,7 @@ async fn an_empty_file_is_empty_text_with_size_zero() {
 
     let preview = read_preview(&fs, &VfsPath::new("/d/empty"), 100, &never()).await.unwrap();
 
-    assert_eq!(preview, Preview { size: Some(0), shown: 0, truncated: false, content: text("") });
+    assert_eq!(preview, Preview { size: Some(0), shown: 0, truncated: false, content: text(""), colours: None });
 }
 
 #[test]

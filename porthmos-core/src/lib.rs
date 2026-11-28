@@ -59,6 +59,7 @@ pub use message::Message;
 pub use panel_memory::PanelKind;
 pub use path_completion::{Completion, CompletionStep, MAX_SHOWN, complete, split_directory};
 pub use paths::{ConfigMigration, Paths};
+pub use porthmos_highlight::{Highlighted, Span, TokenKind, lines_of};
 pub use porthmos_lfs::{from_os_path, to_os_path};
 pub use porthmos_monitor::{
     ActiveState, BootState, LogLevel, LogLine, LogSource, NetInterface, PortsSection, PortsSnapshot, Privilege,

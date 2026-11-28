@@ -64,6 +64,7 @@ fn text_preview(lines: usize) -> Arc<Preview> {
         shown: text.len(),
         truncated: false,
         content: PreviewContent::Text(text),
+        colours: None,
     })
 }
 

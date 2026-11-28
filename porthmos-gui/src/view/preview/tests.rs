@@ -1,9 +1,13 @@
 use iced::Size;
+use porthmos_core::TokenKind;
 
 use crate::geometry::ROW_HEIGHT as LIST_ROW_HEIGHT;
+use crate::preview_view::Piece;
 use crate::preview_view::PreviewState;
 use crate::testing::Harness;
+use crate::theme::Palette;
 use crate::tools::Tool;
+use crate::view::preview::{kind_color, single_plain};
 use crate::view::tools::{PREVIEW_CHROME, PREVIEW_HEIGHT, PREVIEW_WIDTH, frame_size, list_height, overlay};
 
 fn loading_tool() -> Tool {
@@ -45,4 +49,72 @@ fn a_preview_failure_keeps_its_lines_but_loses_control_characters() {
     let text = super::failure_text(&message);
 
     assert_eq!(text, "Could not preview:\n?[2Jgone");
+}
+
+const ALL_KINDS: [TokenKind; 12] = [
+    TokenKind::Plain,
+    TokenKind::Comment,
+    TokenKind::String,
+    TokenKind::Number,
+    TokenKind::Keyword,
+    TokenKind::Type,
+    TokenKind::Function,
+    TokenKind::Constant,
+    TokenKind::Operator,
+    TokenKind::Punctuation,
+    TokenKind::Error,
+    TokenKind::Warn,
+];
+
+fn dark_palette() -> Palette {
+    Palette::new(&crate::theme::ThemeSettings::default())
+}
+
+#[test]
+fn every_token_kind_has_the_colour_of_its_role() {
+    let palette = dark_palette();
+    let expected = [
+        (TokenKind::Plain, palette.fg),
+        (TokenKind::Operator, palette.fg),
+        (TokenKind::Punctuation, palette.fg),
+        (TokenKind::Comment, palette.fg_dim),
+        (TokenKind::String, palette.syntax_string),
+        (TokenKind::Number, palette.syntax_number),
+        (TokenKind::Constant, palette.syntax_number),
+        (TokenKind::Keyword, palette.syntax_keyword),
+        (TokenKind::Type, palette.syntax_type),
+        (TokenKind::Function, palette.syntax_function),
+        (TokenKind::Error, palette.err),
+        (TokenKind::Warn, palette.warn),
+    ];
+
+    assert_eq!(expected.len(), ALL_KINDS.len());
+    for (kind, colour) in expected {
+        assert_eq!(kind_color(kind, &palette), colour, "{kind:?}");
+    }
+}
+
+#[test]
+fn the_coloured_kinds_differ_from_plain_text() {
+    let palette = dark_palette();
+
+    for kind in [TokenKind::Comment, TokenKind::String, TokenKind::Keyword, TokenKind::Error, TokenKind::Warn] {
+        assert_ne!(kind_color(kind, &palette), kind_color(TokenKind::Plain, &palette), "{kind:?}");
+    }
+}
+
+fn piece(text: &str, kind: TokenKind) -> Piece {
+    Piece { text: text.to_string(), kind }
+}
+
+#[test]
+fn a_row_of_one_plain_piece_takes_the_plain_text_path() {
+    assert_eq!(single_plain(&[piece("hello", TokenKind::Plain)]), Some("hello"));
+}
+
+#[test]
+fn a_coloured_or_split_row_takes_the_rich_text_path() {
+    assert_eq!(single_plain(&[piece("fn", TokenKind::Keyword)]), None);
+    assert_eq!(single_plain(&[piece("a", TokenKind::Plain), piece("b", TokenKind::Plain)]), None);
+    assert_eq!(single_plain(&[]), None);
 }

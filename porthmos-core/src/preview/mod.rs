@@ -3,6 +3,9 @@ use std::{
     time::Duration,
 };
 
+pub mod colour;
+
+use porthmos_highlight::Highlighted;
 use porthmos_vfs::{ErrorKind, FileSystem, Metadata, ProtocolError, Reader, VfsPath};
 use tokio::{io::AsyncReadExt, time::Instant};
 
@@ -32,6 +35,7 @@ pub struct Preview {
     pub shown: usize,
     pub truncated: bool,
     pub content: PreviewContent,
+    pub colours: Option<Highlighted>,
 }
 
 pub fn classify(mut bytes: Vec<u8>, truncated: bool) -> PreviewContent {
@@ -128,7 +132,13 @@ pub async fn read_preview(
     let truncated = bytes.len() > limit;
     bytes.truncate(limit);
     let shown = bytes.len();
-    Ok(Preview { size: known_size(metadata.size, shown), shown, truncated, content: classify(bytes, truncated) })
+    Ok(Preview {
+        size: known_size(metadata.size, shown),
+        shown,
+        truncated,
+        content: classify(bytes, truncated),
+        colours: None,
+    })
 }
 
 #[cfg(test)]

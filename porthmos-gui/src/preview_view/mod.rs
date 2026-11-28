@@ -5,6 +5,7 @@ use porthmos_core::Message;
 use porthmos_core::edit::printable;
 use porthmos_core::preview::{Preview, PreviewContent};
 use porthmos_core::size_text;
+use porthmos_core::{Highlighted, Span, TokenKind, lines_of};
 
 const HEX_BYTES: usize = 16;
 const TAB: usize = 4;
@@ -22,38 +23,82 @@ pub struct PreviewState {
     request_id: u64,
     name: String,
     status: PreviewStatus,
-    lines: Vec<String>,
+    lines: Vec<Vec<Piece>>,
 }
 
-fn expand_line(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut column = 0;
-    for character in line.chars() {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Piece {
+    pub text: String,
+    pub kind: TokenKind,
+}
+
+fn plain(text: String) -> Piece {
+    Piece { text, kind: TokenKind::Plain }
+}
+
+fn expand(text: &str, column: &mut usize) -> String {
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
         match character {
             '\t' => {
-                let stop = TAB - column % TAB;
+                let stop = TAB - *column % TAB;
                 out.extend(std::iter::repeat_n(' ', stop));
-                column += stop;
+                *column += stop;
             }
             character if character.is_control() => {
                 out.push('?');
-                column += 1;
+                *column += 1;
             }
             character => {
                 out.push(character);
-                column += 1;
+                *column += 1;
             }
         }
     }
     out
 }
 
-pub fn text_lines(text: &str) -> Vec<String> {
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    if lines.last() == Some(&"") {
-        lines.pop();
+fn span_fits(line: &str, span: &Span, at: usize) -> bool {
+    span.start >= at
+        && span.end >= span.start
+        && span.end <= line.len()
+        && line.is_char_boundary(span.start)
+        && line.is_char_boundary(span.end)
+}
+
+fn pieces_of(line: &str, spans: &[Span]) -> Vec<Piece> {
+    let mut column = 0;
+    let mut pieces = Vec::new();
+    let mut at = 0;
+    for span in spans {
+        if !span_fits(line, span, at) {
+            return vec![plain(expand(line, &mut 0))];
+        }
+        if span.start > at {
+            pieces.push(plain(expand(&line[at..span.start], &mut column)));
+        }
+        pieces.push(Piece { text: expand(&line[span.start..span.end], &mut column), kind: span.kind });
+        at = span.end;
     }
-    lines.into_iter().map(|line| expand_line(line.strip_suffix('\r').unwrap_or(line))).collect()
+    if at < line.len() || pieces.is_empty() {
+        pieces.push(plain(expand(&line[at..], &mut column)));
+    }
+    pieces
+}
+
+pub fn text_rows(text: &str, colours: Option<&Highlighted>) -> Vec<Vec<Piece>> {
+    lines_of(text)
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let spans = colours.and_then(|colours| colours.lines.get(index)).map_or(&[][..], Vec::as_slice);
+            pieces_of(line, spans)
+        })
+        .collect()
+}
+
+fn row_width(row: &[Piece]) -> usize {
+    row.iter().map(|piece| piece.text.chars().count()).sum()
 }
 
 pub fn hex_row(offset: usize, bytes: &[u8]) -> String {
@@ -109,7 +154,7 @@ impl PreviewState {
         self.status = match result {
             Ok(preview) => {
                 if let PreviewContent::Text(text) = &preview.content {
-                    self.lines = text_lines(text);
+                    self.lines = text_rows(text, preview.colours.as_ref());
                 }
                 PreviewStatus::Ready(preview)
             }
@@ -160,13 +205,13 @@ impl PreviewState {
 
     pub fn columns(&self) -> usize {
         match self.ready().map(|preview| &preview.content) {
-            Some(PreviewContent::Text(_)) => self.lines.iter().map(|line| line.chars().count()).max().unwrap_or(0),
+            Some(PreviewContent::Text(_)) => self.lines.iter().map(|line| row_width(line)).max().unwrap_or(0),
             Some(PreviewContent::Binary(_)) => hex_row(0, &[0; HEX_BYTES]).chars().count(),
             None => 0,
         }
     }
 
-    pub fn rows(&self, first: usize, count: usize) -> Vec<String> {
+    pub fn rows(&self, first: usize, count: usize) -> Vec<Vec<Piece>> {
         let end = first.saturating_add(count).min(self.row_count());
         if first >= end {
             return Vec::new();
@@ -176,7 +221,7 @@ impl PreviewState {
             Some(PreviewContent::Binary(bytes)) => (first..end)
                 .map(|row| {
                     let from = row * HEX_BYTES;
-                    hex_row(from, &bytes[from..(from + HEX_BYTES).min(bytes.len())])
+                    vec![plain(hex_row(from, &bytes[from..(from + HEX_BYTES).min(bytes.len())]))]
                 })
                 .collect(),
             None => Vec::new(),

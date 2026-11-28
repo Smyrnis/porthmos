@@ -697,6 +697,7 @@ fn the_search_view_builds_for_every_state_of_the_pane() {
         shown: 12,
         truncated: false,
         content: porthmos_core::preview::PreviewContent::Text("hello\nworld\n".to_string()),
+        colours: None,
     });
     harness.feed(Event::PreviewReady { request_id, name: "a.txt".to_string(), result: Ok(text) });
     drop(harness.app.view_of(harness.search_id().unwrap()));
