@@ -1,9 +1,15 @@
 use std::collections::VecDeque;
 
+mod tabs;
+
+#[cfg(test)]
+pub use tabs::MAX_LOG_TABS;
+pub use tabs::{LogTabs, tabs_full_text};
+
 use porthmos_core::{LogId, LogLevel, LogLine, LogSource, SessionId, UnitName};
 
 const FOLLOW_TOLERANCE: f32 = 2.0;
-pub const MAX_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_BUFFER_BYTES: usize = 32 * 1024 * 1024;
 
 pub fn follow_after_scroll(offset: f32, viewport: f32, content: f32) -> bool {
     offset + viewport >= content - FOLLOW_TOLERANCE
@@ -27,6 +33,13 @@ pub enum LogStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TabName {
+    Empty,
+    File(String),
+    Journal(Option<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredLine {
     pub seq: u64,
     pub line: LogLine,
@@ -36,7 +49,6 @@ pub struct StoredLine {
 #[derive(Debug)]
 pub struct LogsState {
     pub running: Option<(LogId, SessionId)>,
-    pub next_id: LogId,
     pub kind: SourceKind,
     pub path: String,
     pub unit: String,
@@ -57,7 +69,6 @@ impl Default for LogsState {
     fn default() -> Self {
         Self {
             running: None,
-            next_id: 1,
             kind: SourceKind::File,
             path: String::new(),
             unit: String::new(),
@@ -91,6 +102,30 @@ impl LogsState {
                 UnitName::new(unit).map(|name| LogSource::Journal(Some(name)))
             }
         }
+    }
+
+    pub fn name(&self) -> TabName {
+        match self.kind {
+            SourceKind::File => {
+                let path = self.path.trim();
+                if path.is_empty() {
+                    return TabName::Empty;
+                }
+                TabName::File(path.rsplit('/').find(|part| !part.is_empty()).unwrap_or(path).to_string())
+            }
+            SourceKind::Journal => {
+                let unit = self.unit.trim();
+                TabName::Journal((!unit.is_empty()).then(|| unit.to_string()))
+            }
+        }
+    }
+
+    pub fn is_pristine(&self) -> bool {
+        self.running.is_none()
+            && self.lines.is_empty()
+            && self.status == LogStatus::Idle
+            && self.path.trim().is_empty()
+            && self.unit.trim().is_empty()
     }
 
     pub fn append(&mut self, lines: Vec<LogLine>, skipped: u64, max_lines: usize) {

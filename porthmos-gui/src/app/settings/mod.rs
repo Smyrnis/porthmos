@@ -421,7 +421,7 @@ impl App {
                             match field {
                                 LogsField::MaxLines => {
                                     self.gui_settings.logs.max_lines = lines;
-                                    self.logs.trim(lines as usize);
+                                    self.logs.trim_all(lines as usize);
                                 }
                                 LogsField::InitialLines => self.gui_settings.logs.initial_lines = lines,
                             }

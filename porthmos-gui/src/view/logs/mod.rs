@@ -1,24 +1,30 @@
 use std::ops::Range;
 
+use std::collections::HashSet;
+
+use iced::widget::scrollable::{Direction, Scrollbar};
+use iced::widget::tooltip::Position;
 use iced::widget::{column, container, responsive, row, scrollable, space, text, text_input};
 use iced::{Alignment, Color, Element, Font, Length, alignment};
 use porthmos_core::LogLevel;
+use porthmos_core::edit::printable;
 use porthmos_core::i18n;
 use porthmos_core::i18n::label as tr;
 
-use super::button::{Look, hinted, text_button};
+use super::button::{Look, compact_button, hinted, text_button};
 use super::services::{session_picker, shows_session_picker};
 use super::spacing::{MD, SM};
 use super::text_fit::fit;
 use super::{filled, hairline_across, label};
 use crate::app::{App, Message};
 use crate::geometry::{ROW_HEIGHT, visible_range};
-use crate::logs_view::{LogStatus, LogsState, SourceKind, StoredLine};
+use crate::logs_view::{LogStatus, LogTabs, LogsState, SourceKind, StoredLine, TabName, tabs_full_text};
 use crate::theme::Palette;
 
 pub const OVERSCAN: usize = 6;
 const LINE_CELLS: usize = 400;
 const FOOTER_HEIGHT: f32 = 28.0;
+const TAB_TITLE_CELLS: usize = 24;
 
 pub fn end_offset(total: usize, viewport: f32) -> f32 {
     (total as f32 * ROW_HEIGHT - viewport).max(0.0)
@@ -103,6 +109,47 @@ pub fn footer_text(status: &LogStatus) -> Option<String> {
         LogStatus::Ended(message) | LogStatus::Unavailable(message) => Some(message.clone()),
         LogStatus::Idle | LogStatus::Starting | LogStatus::Running => None,
     }
+}
+
+pub fn tab_title(app: &App, index: usize) -> String {
+    let tabs = app.log_tabs();
+    let Some(tab) = tabs.tabs().get(index) else {
+        return String::new();
+    };
+    let base = match tab.name() {
+        TabName::Empty => i18n::text("gui.logs.new_tab"),
+        TabName::File(name) => printable(&name),
+        TabName::Journal(Some(unit)) => printable(&unit),
+        TabName::Journal(None) => i18n::text("gui.logs.journal_title"),
+    };
+    let running: HashSet<_> = tabs.tabs().iter().filter_map(|tab| tab.running.map(|(_, session)| session)).collect();
+    match tab.running.and_then(|(_, session)| app.sessions().by_id(session)) {
+        Some(session) if running.len() > 1 => format!("{base} · {}", printable(&session.name)),
+        _ => base,
+    }
+}
+
+pub fn add_press(tabs: &LogTabs) -> Press {
+    if tabs.can_add() { (Some(Message::LogsTabAdded), None) } else { (None, Some(tabs_full_text())) }
+}
+
+fn tab_strip<'a>(app: &App, palette: &Palette) -> Element<'a, Message> {
+    let tabs = app.log_tabs();
+    let mut line = row![].spacing(SM).align_y(Alignment::Center);
+    for index in 0..tabs.tabs().len() {
+        let look = if index == tabs.active_index() { Look::Chosen } else { Look::Normal };
+        let title = fit(&tab_title(app, index), TAB_TITLE_CELLS);
+        line = line.push(text_button(&title, Some(Message::LogsTabSelected(index)), look, palette));
+        let close = compact_button("×", Some(Message::LogsTabClosed(index)), palette);
+        line = line.push(hinted(close, i18n::text("gui.logs.close_tab"), Position::Bottom, palette));
+    }
+    let (press, reason) = add_press(tabs);
+    let hint = reason.unwrap_or_else(|| i18n::text("gui.logs.add_tab"));
+    line = line.push(hinted(compact_button("+", press, palette), hint, Position::Bottom, palette));
+    let strip = scrollable(container(line).padding([SM, MD]))
+        .direction(Direction::Horizontal(Scrollbar::default()))
+        .style(super::scroll::style(palette));
+    strip.width(Length::Fill).into()
 }
 
 fn centered<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
@@ -240,6 +287,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         return centered(label(tr("Connect to a server first"), palette.fg_dim));
     }
     column![
+        tab_strip(app, palette),
+        hairline_across(palette),
         header(app, palette),
         hairline_across(palette),
         container(body(app)).width(Length::Fill).height(Length::Fill),

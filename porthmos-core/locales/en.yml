@@ -1142,6 +1142,11 @@ gui:
     stopped: "Stopped"
     stopped_because: "Stopped: %{reason}"
     other_connection: "Another connection was chosen."
+    new_tab: "New log"
+    journal_title: "Journal"
+    add_tab: "Follow another log"
+    close_tab: "Close this log"
+    tabs_full: "Up to %{count} logs can be open at once"
   settings:
     already_used: "Already used by %{name}"
     logs_range: "Enter a whole number from %{min} to %{max}."

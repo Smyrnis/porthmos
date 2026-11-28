@@ -636,3 +636,76 @@ fn view_logs_without_a_selection_does_nothing() {
     assert_eq!(harness.app.drawer().view, DrawerView::Services);
     assert!(log_starts(&harness.sent()).is_empty());
 }
+
+fn open_tabs(harness: &Harness) -> usize {
+    harness.app.log_tabs().tabs().len()
+}
+
+#[test]
+fn view_logs_on_an_already_followed_unit_focuses_that_tab() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000);
+    harness.press(Message::ServiceSelected("nginx.service".into()));
+    harness.press(Message::ServiceLogsRequested);
+    harness.press(Message::LogsTabAdded);
+    harness.press(Message::ServiceSelected("nginx.service".into()));
+    harness.sent();
+
+    harness.press(Message::ServiceLogsRequested);
+
+    assert!(log_starts(&harness.sent()).is_empty());
+    assert_eq!(open_tabs(&harness), 2);
+    assert_eq!(harness.app.log_tabs().active_index(), 0);
+}
+
+#[test]
+fn view_logs_on_another_unit_opens_a_new_tab_and_keeps_the_first_running() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000);
+    harness.press(Message::ServiceSelected("nginx.service".into()));
+    harness.press(Message::ServiceLogsRequested);
+    harness.sent();
+    harness.press(Message::ServiceSelected("sshd.service".into()));
+
+    harness.press(Message::ServiceLogsRequested);
+
+    let sent = harness.sent();
+    assert_eq!(
+        log_starts(&sent),
+        [(3, porthmos_core::LogSource::Journal(porthmos_core::UnitName::new("sshd.service")))]
+    );
+    assert!(!sent.iter().any(|command| matches!(command, Command::StopLog { .. })));
+    assert_eq!(open_tabs(&harness), 2);
+    assert_eq!(harness.app.log_tabs().active_index(), 1);
+    assert_eq!(harness.app.log_tabs().tabs()[0].unit, "nginx.service");
+}
+
+#[test]
+fn view_logs_with_six_busy_tabs_opens_nothing_stops_nothing_and_says_why() {
+    let mut harness = Harness::new();
+    watching(&mut harness, 1000);
+    for index in 0..6 {
+        harness.press(Message::LogsPathChanged(format!("/f{index}")));
+        if index < 5 {
+            harness.press(Message::LogsTabAdded);
+        }
+    }
+    harness.press(Message::LogsStartRequested);
+    harness.press(Message::ServiceSelected("nginx.service".into()));
+    let running = harness.app.logs().running;
+    harness.sent();
+
+    harness.press(Message::ServiceLogsRequested);
+
+    let sent = harness.sent();
+    assert!(
+        !sent.iter().any(|command| matches!(command, Command::StartLog { .. } | Command::StopLog { .. })),
+        "{sent:?}"
+    );
+    assert_eq!(open_tabs(&harness), 6);
+    assert_eq!(harness.app.logs().running, running);
+    assert_eq!(harness.app.logs().path, "/f5");
+    let said = crate::logs_view::tabs_full_text();
+    assert!(harness.app.notices().iter().any(|notice| notice.message == said));
+    assert_eq!(harness.app.drawer().view, DrawerView::Logs);
+}

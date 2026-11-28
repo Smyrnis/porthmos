@@ -1142,6 +1142,11 @@ gui:
     stopped: "Σταμάτησε"
     stopped_because: "Σταμάτησε: %{reason}"
     other_connection: "Επιλέχθηκε άλλη σύνδεση."
+    new_tab: "Νέο log"
+    journal_title: "Journal"
+    add_tab: "Παρακολούθηση άλλου log"
+    close_tab: "Κλείσιμο αυτού του log"
+    tabs_full: "Μπορούν να είναι ανοιχτά έως %{count} logs ταυτόχρονα"
   settings:
     already_used: "Χρησιμοποιείται ήδη από το %{name}"
     logs_range: "Εισαγάγετε έναν ακέραιο αριθμό από %{min} έως %{max}."

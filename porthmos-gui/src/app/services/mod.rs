@@ -2,11 +2,13 @@ use std::time::Duration;
 
 use iced::Subscription;
 use porthmos_core::i18n::label as tr;
-use porthmos_core::{Command, Privilege, RefreshTab, ServiceVerb, ServicesState as ServicesEvent, SessionId, UnitName};
+use porthmos_core::{
+    Command, Privilege, RefreshTab, ServiceVerb, ServicesState as ServicesEvent, SessionId, Severity, UnitName,
+};
 
 use super::{App, Message};
 use crate::drawer::DrawerView;
-use crate::logs_view::SourceKind;
+use crate::logs_view::{SourceKind, tabs_full_text};
 use crate::modal::Modal;
 use crate::refresh;
 use crate::services_view::{ActionState, action_state, status_allowed};
@@ -107,8 +109,19 @@ impl App {
         let Some(unit) = self.services.selected.clone().filter(|name| UnitName::new(name).is_some()) else {
             return;
         };
-        self.logs.kind = SourceKind::Journal;
-        self.logs.unit = unit;
+        if let Some(index) = self.health_target().and_then(|session| self.logs.following(&unit, session)) {
+            self.logs.select(index);
+            self.show_logs();
+            return;
+        }
+        if !self.logs.active().is_pristine() && !self.logs.add() {
+            self.show_logs();
+            self.push_notice(Severity::Warning, tabs_full_text());
+            return;
+        }
+        let tab = self.logs.active_mut();
+        tab.kind = SourceKind::Journal;
+        tab.unit = unit;
         self.show_logs();
         self.logs_start();
     }

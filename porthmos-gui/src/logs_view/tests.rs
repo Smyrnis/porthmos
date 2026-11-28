@@ -406,12 +406,6 @@ fn stored_bytes(state: &LogsState) -> usize {
 }
 
 #[test]
-fn the_default_byte_budget_is_64_mib() {
-    assert_eq!(MAX_BUFFER_BYTES, 64 * 1024 * 1024);
-    assert_eq!(LogsState::default().byte_budget, MAX_BUFFER_BYTES);
-}
-
-#[test]
 fn long_lines_are_evicted_by_bytes_before_the_line_cap() {
     let mut state = budgeted(10);
 
@@ -475,4 +469,42 @@ fn a_pause_holds_when_the_byte_budget_is_the_limit_reached() {
     state.pause_toggled(100);
     assert_eq!(marker_counts(&state), [None, None, Some(2)]);
     assert_eq!(state.bytes, stored_bytes(&state));
+}
+
+#[test]
+fn the_default_byte_budget_is_32_mib() {
+    assert_eq!(MAX_BUFFER_BYTES, 32 * 1024 * 1024);
+    assert_eq!(LogsState::default().byte_budget, MAX_BUFFER_BYTES);
+}
+
+#[test]
+fn the_name_of_a_file_tab_is_its_last_path_component() {
+    let name = |path: &str| LogsState { path: path.to_string(), ..LogsState::default() }.name();
+
+    assert_eq!(name("/var/log/syslog"), TabName::File("syslog".to_string()));
+    assert_eq!(name("  /var/log/syslog  "), TabName::File("syslog".to_string()));
+    assert_eq!(name("/var/log/"), TabName::File("log".to_string()));
+    assert_eq!(name("/"), TabName::File("/".to_string()));
+    assert_eq!(name("   "), TabName::Empty);
+}
+
+#[test]
+fn the_name_of_a_journal_tab_is_its_unit_or_the_whole_journal() {
+    let name =
+        |unit: &str| LogsState { kind: SourceKind::Journal, unit: unit.to_string(), ..LogsState::default() }.name();
+
+    assert_eq!(name("nginx.service"), TabName::Journal(Some("nginx.service".to_string())));
+    assert_eq!(name("  "), TabName::Journal(None));
+}
+
+#[test]
+fn only_an_untouched_tab_is_pristine() {
+    assert!(LogsState::default().is_pristine());
+    assert!(!LogsState { path: "/a".to_string(), ..LogsState::default() }.is_pristine());
+    assert!(!LogsState { unit: "x.service".to_string(), ..LogsState::default() }.is_pristine());
+    assert!(!LogsState { status: LogStatus::Starting, ..LogsState::default() }.is_pristine());
+    assert!(!LogsState { running: Some((1, 1)), ..LogsState::default() }.is_pristine());
+    let mut with_lines = LogsState::default();
+    with_lines.append(lines(&["a"]), 0, 10);
+    assert!(!with_lines.is_pristine());
 }

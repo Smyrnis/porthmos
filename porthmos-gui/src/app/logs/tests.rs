@@ -526,3 +526,253 @@ fn the_list_exists_only_with_a_connection_a_shown_logs_tab_and_lines_to_show() {
     harness.press(Message::HealthViewSelected);
     assert!(!harness.app.logs_list_present());
 }
+
+fn started_on_another_tab(harness: &mut Harness, session: &str, path: &str) -> u64 {
+    harness.press(Message::LogsTabAdded);
+    harness.press(Message::LogsSessionChosen(session.into()));
+    harness.press(Message::LogsPathChanged(path.into()));
+    started(harness)
+}
+
+fn two_running_tabs() -> (Harness, u64, u64) {
+    let mut harness = two_connections();
+    harness.press(Message::LogsSessionChosen("alpha".into()));
+    let first = started(&mut harness);
+    let second = started_on_another_tab(&mut harness, "beta", "/b");
+    harness.sent();
+    (harness, first, second)
+}
+
+fn tab_lines(harness: &Harness, index: usize) -> Vec<String> {
+    harness.app.log_tabs().tabs()[index].lines.iter().map(|stored| stored.line.text.clone()).collect()
+}
+
+#[test]
+fn a_second_tab_starts_its_own_log_with_a_new_id_and_leaves_the_first_running() {
+    let mut harness = two_connections();
+    harness.press(Message::LogsSessionChosen("alpha".into()));
+    let first = started(&mut harness);
+
+    let second = started_on_another_tab(&mut harness, "beta", "/b");
+
+    assert_ne!(first, second);
+    assert_eq!(harness.app.log_tabs().tabs().len(), 2);
+    assert_eq!(harness.app.log_tabs().tabs()[0].running, Some((first, 3)));
+    assert_eq!(harness.app.log_tabs().tabs()[1].running, Some((second, 4)));
+    assert!(stops(&harness.sent()).is_empty());
+}
+
+#[test]
+fn lines_arrive_in_the_tab_that_owns_the_id() {
+    let (mut harness, first, second) = two_running_tabs();
+
+    harness.feed(Event::Log { id: second, state: batch(&["b1"], 0) });
+    harness.feed(Event::Log { id: first, state: batch(&["a1", "a2"], 0) });
+
+    assert_eq!(tab_lines(&harness, 0), ["a1", "a2"]);
+    assert_eq!(tab_lines(&harness, 1), ["b1"]);
+    harness.press(Message::LogsTabSelected(0));
+    assert_eq!(shown(&harness), ["a1", "a2"]);
+    harness.press(Message::LogsTabSelected(1));
+    assert_eq!(shown(&harness), ["b1"]);
+}
+
+#[test]
+fn closing_a_running_tab_stops_only_that_log() {
+    let (mut harness, first, second) = two_running_tabs();
+
+    harness.press(Message::LogsTabClosed(0));
+
+    assert_eq!(stops(&harness.sent()), [first]);
+    assert_eq!(harness.app.log_tabs().tabs().len(), 1);
+    assert_eq!(harness.app.logs().running, Some((second, 4)));
+}
+
+#[test]
+fn closing_an_idle_tab_sends_no_stop() {
+    let mut harness = ready();
+    harness.press(Message::LogsTabAdded);
+    harness.sent();
+
+    harness.press(Message::LogsTabClosed(1));
+
+    assert!(harness.sent().is_empty());
+    assert_eq!(harness.app.log_tabs().tabs().len(), 1);
+}
+
+#[test]
+fn closing_the_last_tab_keeps_one_empty_tab_and_stops_its_log() {
+    let mut harness = ready();
+    let id = started(&mut harness);
+    harness.sent();
+
+    harness.press(Message::LogsTabClosed(0));
+
+    assert_eq!(stops(&harness.sent()), [id]);
+    assert_eq!(harness.app.log_tabs().tabs().len(), 1);
+    assert!(harness.app.logs().is_pristine());
+}
+
+#[test]
+fn events_for_a_closed_tab_are_ignored() {
+    let (mut harness, first, second) = two_running_tabs();
+    harness.feed(Event::Log { id: second, state: batch(&["keep"], 0) });
+    harness.press(Message::LogsTabClosed(0));
+    harness.sent();
+
+    harness.feed(Event::Log { id: first, state: LogState::Started });
+    harness.feed(Event::Log { id: first, state: batch(&["ghost"], 0) });
+    harness.feed(Event::Log { id: first, state: LogState::Ended(porthmos_core::Message::new("gone")) });
+
+    assert!(harness.sent().is_empty());
+    assert_eq!(shown(&harness), ["keep"]);
+    assert_eq!(harness.app.logs().running, Some((second, 4)));
+    assert_eq!(harness.app.logs().status, LogStatus::Running);
+}
+
+#[test]
+fn adding_past_six_tabs_does_nothing() {
+    let mut harness = ready();
+
+    for _ in 0..8 {
+        harness.press(Message::LogsTabAdded);
+    }
+
+    assert_eq!(harness.app.log_tabs().tabs().len(), 6);
+    assert_eq!(harness.app.log_tabs().active_index(), 5);
+}
+
+#[test]
+fn losing_a_connection_ends_only_its_tabs() {
+    let (mut harness, first, second) = two_running_tabs();
+    harness.feed(Event::Log { id: second, state: LogState::Started });
+    harness.sent();
+
+    harness.feed(Event::SessionHealth { session: 3, healthy: false });
+
+    assert_eq!(stops(&harness.sent()), [first]);
+    assert_eq!(harness.app.log_tabs().tabs()[0].running, None);
+    assert_eq!(harness.app.log_tabs().tabs()[0].status, lost());
+    assert_eq!(harness.app.log_tabs().tabs()[1].running, Some((second, 4)));
+    assert_eq!(harness.app.log_tabs().tabs()[1].status, LogStatus::Running);
+}
+
+#[test]
+fn switching_tabs_keeps_each_tabs_pause_and_scroll() {
+    let (mut harness, first, _) = two_running_tabs();
+    harness.press(Message::LogsTabSelected(0));
+    harness.feed(Event::Log { id: first, state: batch(&["a"], 0) });
+    harness.press(Message::LogsPauseToggled);
+    harness.press(Message::LogsScrolled { offset: 40.0, viewport: 100.0, content: 1000.0 });
+
+    harness.press(Message::LogsTabSelected(1));
+    assert!(!harness.app.logs().paused());
+    harness.press(Message::LogsTabSelected(0));
+
+    assert!(harness.app.logs().paused());
+    assert_eq!(harness.app.logs().scroll, 40.0);
+    assert!(!harness.app.logs().follow);
+}
+
+fn showing_the_first_of_two_tabs_with_lines() -> Harness {
+    let (mut harness, first, second) = two_running_tabs();
+    harness.feed(Event::Log { id: first, state: batch(&["a", "b"], 0) });
+    harness.feed(Event::Log { id: second, state: batch(&["c", "d"], 0) });
+    harness.press(Message::LogsViewSelected);
+    harness.press(Message::LogsTabSelected(0));
+    harness.press(Message::LogsTabSelected(1));
+    harness
+}
+
+#[test]
+fn selecting_a_tab_asks_the_list_to_restore_its_position() {
+    let mut harness = showing_the_first_of_two_tabs_with_lines();
+    assert!(harness.app.log_tabs().tabs()[0].was_visible);
+
+    harness.app.logs.select(0);
+
+    assert!(harness.app.logs_snap().units() > 0);
+}
+
+#[test]
+fn closing_the_active_tab_asks_the_list_to_restore_the_position_of_the_next() {
+    let mut harness = showing_the_first_of_two_tabs_with_lines();
+    assert!(harness.app.log_tabs().tabs()[0].was_visible);
+
+    harness.app.logs.close(1);
+
+    assert!(harness.app.logs_snap().units() > 0);
+}
+
+#[test]
+fn starting_a_running_tab_again_keeps_it_on_its_own_connection() {
+    let (mut harness, first, _) = two_running_tabs();
+    harness.press(Message::LogsTabSelected(0));
+    assert_eq!(harness.app.logs().running, Some((first, 3)));
+    harness.press(Message::LogsPathChanged("/changed".into()));
+
+    harness.press(Message::LogsStartRequested);
+
+    let sent = harness.sent();
+    assert_eq!(starts(&sent).iter().map(|start| start.1).collect::<Vec<_>>(), [3]);
+    assert_eq!(stops(&sent), [first]);
+    assert_eq!(harness.app.logs().running.map(|(_, session)| session), Some(3));
+}
+
+#[test]
+fn stopped_tabs_stay_reachable_after_every_connection_is_lost() {
+    let (mut harness, first, _) = two_running_tabs();
+    harness.feed(Event::Log { id: first, state: batch(&["kept"], 0) });
+    harness.press(Message::LogsTabAdded);
+
+    harness.feed(Event::SessionHealth { session: 3, healthy: false });
+    harness.feed(Event::SessionHealth { session: 4, healthy: false });
+
+    assert_eq!(harness.app.health_target(), None);
+    assert!(harness.app.logs_shown());
+    assert_eq!(tab_lines(&harness, 0), ["kept"]);
+}
+
+#[test]
+fn a_flood_for_a_background_tab_does_not_touch_the_active_tab() {
+    let mut settings = GuiSettings::default();
+    settings.logs.max_lines = 1000;
+    let mut harness = Harness::with_gui_settings(settings);
+    connect(&mut harness, 3, "alpha");
+    connect(&mut harness, 4, "beta");
+    harness.press(Message::LogsSessionChosen("alpha".into()));
+    harness.press(Message::LogsPathChanged("/a".into()));
+    let first = started(&mut harness);
+    let second = started_on_another_tab(&mut harness, "beta", "/b");
+    harness.press(Message::LogsTabSelected(0));
+    harness.feed(Event::Log { id: first, state: batch(&["steady"], 0) });
+
+    let flood: Vec<String> = (0..5000).map(|n| n.to_string()).collect();
+    let refs: Vec<&str> = flood.iter().map(String::as_str).collect();
+    harness.feed(Event::Log { id: second, state: batch(&refs, 0) });
+
+    assert_eq!(tab_lines(&harness, 0), ["steady"]);
+    assert_eq!(tab_lines(&harness, 1).len(), 1000);
+}
+
+#[test]
+fn lowering_the_line_cap_trims_every_tab() {
+    let mut settings = GuiSettings::default();
+    settings.logs.max_lines = 5000;
+    let mut harness = Harness::with_gui_settings(settings);
+    connect(&mut harness, 3, "alpha");
+    harness.press(Message::LogsPathChanged("/a".into()));
+    let first = started(&mut harness);
+    let second = started_on_another_tab(&mut harness, "alpha", "/b");
+    let many: Vec<String> = (0..3000).map(|n| n.to_string()).collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    harness.feed(Event::Log { id: first, state: batch(&refs, 0) });
+    harness.feed(Event::Log { id: second, state: batch(&refs, 0) });
+    harness.press(Message::ActionRequested(Action::Settings));
+
+    harness.press(Message::SettingsLogsTyped(crate::settings_view::LogsField::MaxLines, "1000".into()));
+    harness.press(Message::SettingsLogsApplied(crate::settings_view::LogsField::MaxLines));
+
+    assert_eq!(tab_lines(&harness, 0).len(), 1000);
+    assert_eq!(tab_lines(&harness, 1).len(), 1000);
+}

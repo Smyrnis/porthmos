@@ -3,7 +3,7 @@ use porthmos_core::{Command, Event, Location, LogLevel, LogLine, LogState};
 
 use super::*;
 use crate::app::Message;
-use crate::logs_view::{LogStatus, SourceKind, StoredLine};
+use crate::logs_view::{LogStatus, LogTabs, MAX_LOG_TABS, SourceKind, StoredLine};
 use crate::testing::Harness;
 use crate::theme::ThemeSettings;
 
@@ -309,4 +309,90 @@ fn every_new_text_exists_in_both_languages() {
         assert!(english.contains(&key), "en lacks {label}");
         assert!(greek.contains(&key), "el lacks {label}");
     }
+}
+
+fn connected_harness() -> Harness {
+    let mut harness = Harness::new();
+    connect(&mut harness, 3, "alpha");
+    connect(&mut harness, 4, "beta");
+    harness
+}
+
+fn titles(harness: &Harness) -> Vec<String> {
+    (0..harness.app.log_tabs().tabs().len()).map(|index| tab_title(&harness.app, index)).collect()
+}
+
+fn run_on(harness: &mut Harness, session: &str, path: &str) {
+    harness.press(Message::LogsSessionChosen(session.into()));
+    harness.press(Message::LogsPathChanged(path.into()));
+    harness.press(Message::LogsStartRequested);
+}
+
+#[test]
+fn an_empty_tab_is_titled_new_log() {
+    let harness = Harness::new();
+
+    assert_eq!(titles(&harness), [i18n::text("gui.logs.new_tab")]);
+}
+
+#[test]
+fn a_file_tab_is_titled_by_its_file_name() {
+    let mut harness = connected_harness();
+    harness.press(Message::LogsPathChanged("/var/log/syslog".into()));
+
+    assert_eq!(titles(&harness), ["syslog"]);
+}
+
+#[test]
+fn a_unit_tab_is_titled_by_its_unit_and_the_whole_journal_by_its_own_word() {
+    let mut harness = connected_harness();
+    harness.press(Message::LogsKindChosen(SourceKind::Journal));
+    assert_eq!(titles(&harness), [i18n::text("gui.logs.journal_title")]);
+
+    harness.press(Message::LogsUnitChanged("nginx.service".into()));
+
+    assert_eq!(titles(&harness), ["nginx.service"]);
+}
+
+#[test]
+fn a_title_never_carries_control_characters() {
+    let mut harness = connected_harness();
+    harness.press(Message::LogsPathChanged("/var/log/a\u{1b}[31mb".into()));
+
+    assert!(titles(&harness)[0].chars().all(|character| !character.is_control()));
+}
+
+#[test]
+fn titles_get_the_connection_name_only_when_running_tabs_span_connections() {
+    let mut harness = connected_harness();
+    run_on(&mut harness, "alpha", "/a");
+    assert_eq!(titles(&harness), ["a"]);
+
+    harness.press(Message::LogsTabAdded);
+    assert_eq!(titles(&harness), ["a", i18n::text("gui.logs.new_tab").as_str()]);
+    run_on(&mut harness, "alpha", "/b");
+    assert_eq!(titles(&harness), ["a", "b"]);
+
+    harness.press(Message::LogsTabAdded);
+    run_on(&mut harness, "beta", "/c");
+
+    assert_eq!(titles(&harness), ["a · alpha", "b · alpha", "c · beta"]);
+}
+
+#[test]
+fn an_out_of_range_tab_has_an_empty_title() {
+    assert_eq!(tab_title(&Harness::new().app, 7), "");
+}
+
+#[test]
+fn the_add_button_is_pressable_below_the_cap_and_explains_itself_at_it() {
+    let mut tabs = LogTabs::default();
+    assert!(matches!(add_press(&tabs), (Some(Message::LogsTabAdded), None)));
+
+    for _ in 1..MAX_LOG_TABS {
+        tabs.add();
+    }
+
+    assert!(add_press(&tabs).0.is_none());
+    assert_eq!(add_press(&tabs).1, Some(i18n::text_with("gui.logs.tabs_full", &[("count", "6")])));
 }
